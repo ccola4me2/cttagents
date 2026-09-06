@@ -441,12 +441,18 @@ export async function purgeOldRuns(env, { doneAfterDays = 30, failedAfterDays = 
 }
 
 /** One scheduled pass over everything that is due. */
-export async function processDueRuns(env) {
+export async function processDueRuns(env, { automationId = null } = {}) {
+  // Oldest first, because a queue that serves the newest arrival first is not
+  // a queue. The ceiling is what keeps a pass inside a Worker's budget, and it
+  // is also why this can be asked for one automation: a run triggered a second
+  // ago sits behind everything already due, so "did my automation fire" is a
+  // question a full pass cannot answer while anything is queued ahead of it.
   const { results } = await env.DB.prepare(
     `SELECT * FROM automation_runs
       WHERE status IN ('pending','waiting') AND next_run_at <= ?
+        AND (? IS NULL OR automation_id = ?)
       ORDER BY next_run_at ASC LIMIT ?`
-  ).bind(now(), MAX_RUNS_PER_PASS).all();
+  ).bind(now(), automationId, automationId, MAX_RUNS_PER_PASS).all();
 
   const out = { processed: 0, done: 0, waiting: 0, failed: 0 };
   for (const run of results || []) {
@@ -578,8 +584,21 @@ export async function handleDeleteAutomation(request, env, id) {
 export async function handleRunAutomations(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+  const body = await readJson(request).catch(() => ({}));
+  const only = clean(body.automationId, 80) || null;
+
+  // Asked about one automation, check it belongs to this location first: an
+  // id is not permission to run somebody else's rules.
+  if (only) {
+    const owned = await env.DB.prepare(
+      'SELECT id FROM automations WHERE id = ? AND location_id = ?'
+    ).bind(only, ghl.locationFor(env, user)).first();
+    if (!owned) return notFound('Automation not found.');
+  }
+
   await scanTimeTriggers(env, ghl.locationFor(env, user)).catch(() => null);
-  const result = await processDueRuns(env);
-  await db.logActivity(env, user.id, 'automation.run', 'Ran a pass', result);
+  const result = await processDueRuns(env, { automationId: only });
+  await db.logActivity(env, user.id, 'automation.run',
+    only ? 'Ran one automation' : 'Ran a pass', result);
   return json({ ok: true, result });
 }

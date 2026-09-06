@@ -458,7 +458,13 @@ async function main() {
 
   // Runs are rows, not in-memory jobs: something has to come along and advance
   // them. In production that is the cron; here it is this request.
-  await call(advisor, 'POST', '/api/automations/run', {});
+  //
+  // Named, not a blanket pass. A pass takes the oldest runs that are due and
+  // stops at a ceiling, so on a database with anything queued the run made a
+  // second ago sits behind all of it and is never reached. That is correct for
+  // a queue and made this block fail roughly one run in ten, depending on how
+  // much unrelated work happened to be waiting.
+  await call(advisor, 'POST', '/api/automations/run', { automationId });
   detail = await call(advisor, 'GET', `/api/automations/${automationId}`);
   const run = (detail.data?.runs || [])[0];
   // What "advanced correctly" means depends on the environment. With email
@@ -496,6 +502,11 @@ async function main() {
   }
   check((detail.data?.logs || []).length >= 1,
     'leaving a log of what it did', `${(detail.data?.logs || []).length} log line(s)`);
+
+  const notOurs = await call(advisor, 'POST', '/api/automations/run',
+    { automationId: 'no-such-automation' });
+  check(notOurs.status === 404, 'and an id is not permission to run somebody else\'s rules',
+    `status ${notOurs.status}`);
 
   // ------------------------------------------------------- group space ------
   step('Group space, and the option date that ends it');
