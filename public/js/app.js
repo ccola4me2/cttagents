@@ -317,7 +317,7 @@ function mountSearch(sidebar) {
  * Sections are the ones that describe an actual working day: what you pinned,
  * what is late, what is due today, what is coming this week.
  */
-function mountTodo(sidebar) {
+function mountTodo(sidebar, user) {
   const button = sidebar.querySelector('#open-todo');
   const badge = sidebar.querySelector('#todo-count');
   if (!button) return;
@@ -356,49 +356,125 @@ function mountTodo(sidebar) {
 
   async function refresh() {
     try {
-      const d = await api('/api/tasks?state=open');
+      // This advisor's own, always. An owner's task list reads the agency by
+      // default, which is right on the tasks page and wrong here: the drawer
+      // ticks off, pins and pushes, and every one of those is refused on
+      // somebody else's task. It offered three buttons that could not work.
+      const d = await api(`/api/tasks?state=open&advisor=${encodeURIComponent(user.id)}`);
       tasks = d.tasks || [];
       today = d.today || today;
       setBadge();
     } catch { /* the badge is a nicety, not a feature */ }
   }
 
+  const KIND_MARK = {
+    call: 'Call', email: 'Email', document: 'Docs', payment: 'Payment', meeting: 'Meeting',
+  };
+
+  const REPEAT_MARK = {
+    daily: 'daily', weekly: 'weekly', fortnightly: 'fortnightly',
+    monthly: 'monthly', yearly: 'yearly',
+  };
+
+  /** "in 3 days", "yesterday", "today": how a date is actually spoken about. */
+  function whenWords(iso) {
+    if (!iso) return '';
+    const days = Math.round(
+      (Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000);
+    if (days === 0) return 'today';
+    if (days === 1) return 'tomorrow';
+    if (days === -1) return 'yesterday';
+    if (days < 0) return `${-days} days late`;
+    if (days <= 7) return `in ${days} days`;
+    return dateFmt(iso).replace(/,? \d{4}$/, '');
+  }
+
   function row(t) {
     const late = t.due_date && t.due_date < today;
+    // What the task is about, in the order somebody would say it. Only the
+    // first one that exists: three of these on one line is a paragraph, and
+    // the drawer is meant to be scanned.
+    const about = [t.client_name, t.booking_client, t.group_name].filter(Boolean)[0];
+    const marks = [
+      t.due_date
+        ? `<span class="when${late ? ' late' : ''}">${esc(whenWords(t.due_date))}${
+            t.due_time ? ` ${esc(t.due_time)}` : ''}</span>`
+        : '',
+      t.priority === 'high' ? '<span class="tag hot">high</span>' : '',
+      KIND_MARK[t.kind] ? `<span class="tag">${esc(KIND_MARK[t.kind])}</span>` : '',
+      t.steps
+        ? `<span class="tag${t.steps_done === t.steps ? ' all' : ''}">${t.steps_done}/${t.steps}</span>`
+        : '',
+      REPEAT_MARK[t.repeat_rule] ? `<span class="tag">${esc(REPEAT_MARK[t.repeat_rule])}</span>` : '',
+    ].filter(Boolean).join('');
+
     return `<li>
       <label class="task-tick">
         <input type="checkbox" data-tick="${esc(t.id)}">
         <span>
           <span class="t">${esc(t.title)}</span>
-          <span class="m">${[
-            t.due_date ? `<span class="${late ? 'late' : ''}">${esc(t.due_date)}</span>` : 'no date',
-            t.priority === 'high' ? '<span class="badge badge-coral">high</span>' : '',
-            t.booking_client ? esc(t.booking_client) : '',
-          ].filter(Boolean).join(' &middot; ')}</span>
+          ${about ? `<span class="who">${esc(about)}</span>` : ''}
+          ${marks ? `<span class="marks">${marks}</span>` : ''}
         </span>
       </label>
-      <button type="button" class="pin${t.pinned_at ? ' on' : ''}" data-pin="${esc(t.id)}"
-        aria-pressed="${Boolean(t.pinned_at)}" aria-label="${t.pinned_at ? 'Unpin' : 'Pin'} ${esc(t.title)}">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="${t.pinned_at ? 'currentColor' : 'none'}"
-             stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true">
-          <path d="M9 3h6l-1 6 4 3v2H6v-2l4-3-1-6Zm3 11v7"/></svg>
-      </button>
+      <div class="row-tools">
+        <button type="button" class="pin${t.pinned_at ? ' on' : ''}" data-pin="${esc(t.id)}"
+          aria-pressed="${Boolean(t.pinned_at)}" aria-label="${t.pinned_at ? 'Unpin' : 'Pin'} ${esc(t.title)}">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="${t.pinned_at ? 'currentColor' : 'none'}"
+               stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 3h6l-1 6 4 3v2H6v-2l4-3-1-6Zm3 11v7"/></svg>
+        </button>
+        <button type="button" class="pin" data-push="${esc(t.id)}"
+          aria-label="Push ${esc(t.title)} to tomorrow" title="Push to tomorrow">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h11m-4-4 4 4-4 4M20 5v14"/></svg>
+        </button>
+      </div>
     </li>`;
   }
 
-  function section(title, list, empty) {
-    if (!list.length) return `<p class="drawer-group">${esc(title)}</p><p class="wempty">${esc(empty)}</p>`;
+  // An empty section is not worth a line of its own. Four of them stacked,
+  // each saying nothing is there, is a screen that reports absence four times
+  // and tells you nothing you did not know from the first.
+  function section(title, list) {
+    if (!list.length) return '';
     return `<p class="drawer-group">${esc(title)} <span>${list.length}</span></p>
       <ul class="rows task-rows">${list.map(row).join('')}</ul>`;
   }
 
   function draw() {
     const c = counts();
-    drawer.querySelector('.drawer-body').innerHTML =
-      section('Pinned', c.pinned, 'Nothing pinned.') +
-      section('Past due', c.late, 'Nothing late.') +
-      section('Due today', c.today, 'Nothing due today.') +
-      section('This week', c.week, 'Nothing due in the next seven days.');
+    const body = drawer.querySelector('.drawer-body');
+
+    const later = c.open.length - c.pinned.length - c.late.length - c.today.length - c.week.length;
+    const strip = `<div class="drawer-strip">
+      <span class="chip${c.late.length ? ' hot' : ''}"><b>${c.late.length}</b> late</span>
+      <span class="chip"><b>${c.today.length + c.pinned.length}</b> today</span>
+      <span class="chip"><b>${c.week.length}</b> this week</span>
+      ${later > 0 ? `<span class="chip quiet"><b>${later}</b> later</span>` : ''}
+    </div>`;
+
+    const sections = section('Pinned', c.pinned)
+      + section('Past due', c.late)
+      + section('Due today', c.today)
+      + section('This week', c.week);
+
+    if (!c.open.length) {
+      body.innerHTML = `<div class="drawer-clear">
+        <p class="big">Nothing on your list</p>
+        <p>Add the next thing you have to do, or let a reservation make its own.</p>
+      </div>`;
+      return;
+    }
+
+    // Everything open, but none of it in the next seven days. Saying so beats
+    // an empty panel that looks broken while thirty tasks sit behind it.
+    body.innerHTML = strip + (sections || `<div class="drawer-clear">
+      <p class="big">Nothing due this week</p>
+      <p>${c.open.length} task${c.open.length === 1 ? '' : 's'} further out.
+        <a href="/app/tasks">See them all</a>.</p>
+    </div>`);
 
     drawer.querySelectorAll('[data-tick]').forEach((box) => {
       box.addEventListener('change', async () => {
@@ -409,6 +485,27 @@ function mountTodo(sidebar) {
           await refresh();
           draw();
         } catch { box.checked = !box.checked; box.disabled = false; }
+      });
+    });
+
+    // Pushing a task to tomorrow is the thing an overdue list is for. Sending
+    // the whole record back would be the only way to change one date, so the
+    // API takes a due date on its own the way it takes done and pinned.
+    drawer.querySelectorAll('[data-push]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const t = tasks.find((x) => x.id === btn.dataset.push);
+        if (!t) return;
+        // From today, not from the date it had: pushing a task that was due
+        // last Tuesday should land tomorrow, not last Wednesday.
+        const to = new Date(Date.parse(`${today}T00:00:00Z`) + 86400000)
+          .toISOString().slice(0, 10);
+        btn.disabled = true;
+        try {
+          await api(`/api/tasks/${encodeURIComponent(btn.dataset.push)}`,
+            { method: 'PUT', body: { dueDate: to } });
+          await refresh();
+          draw();
+        } catch { btn.disabled = false; }
       });
     });
 
@@ -440,9 +537,17 @@ function mountTodo(sidebar) {
           </div>
         </header>
         <form class="drawer-add" id="drawer-add">
-          <input name="title" maxlength="200" required placeholder="Add a task and press enter">
-          <input name="dueDate" type="date" aria-label="Due date">
-          <button class="btn btn-primary btn-sm" type="submit">Add</button>
+          <div class="add-line">
+            <input name="title" maxlength="200" required autocomplete="off"
+              placeholder="What needs doing?">
+            <button class="btn btn-primary btn-sm" type="submit">Add</button>
+          </div>
+          <div class="add-when">
+            <button type="button" class="day" data-day="0">Today</button>
+            <button type="button" class="day" data-day="1">Tomorrow</button>
+            <button type="button" class="day" data-day="7">Next week</button>
+            <input name="dueDate" type="date" aria-label="Due date">
+          </div>
         </form>
         <div class="drawer-body"></div>
       </div>`;
@@ -451,6 +556,31 @@ function mountTodo(sidebar) {
     drawer.addEventListener('click', (e) => {
       // Clicking the dimmed area behind the panel closes it.
       if (e.target === drawer || e.target.closest('[data-close]')) close();
+    });
+
+    // The day chips write into the same date box the calendar does, so there
+    // is one answer to "when", however it was given. Pressing the chosen one
+    // again clears it: a quick add with no date is a someday task, and having
+    // to open the calendar to say so would be silly.
+    const dateBox = drawer.querySelector('#drawer-add [name="dueDate"]');
+    drawer.querySelectorAll('[data-day]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const iso = new Date(Date.parse(`${today}T00:00:00Z`)
+          + Number(btn.dataset.day) * 86400000).toISOString().slice(0, 10);
+        dateBox.value = dateBox.value === iso ? '' : iso;
+        drawer.querySelectorAll('[data-day]').forEach((b) =>
+          b.classList.toggle('on', dateBox.value
+            && b === btn && dateBox.value === iso));
+      });
+    });
+    dateBox.addEventListener('change', () => {
+      // Picked from the calendar instead, so no chip is the answer any more
+      // unless it happens to be the same day.
+      drawer.querySelectorAll('[data-day]').forEach((b) => {
+        const iso = new Date(Date.parse(`${today}T00:00:00Z`)
+          + Number(b.dataset.day) * 86400000).toISOString().slice(0, 10);
+        b.classList.toggle('on', dateBox.value === iso);
+      });
     });
 
     drawer.querySelector('#drawer-add').addEventListener('submit', async (e) => {
@@ -466,6 +596,7 @@ function mountTodo(sidebar) {
           body: { title, dueDate: form.elements.dueDate.value || undefined },
         });
         form.reset();
+        drawer.querySelectorAll('[data-day]').forEach((b) => b.classList.remove('on'));
         await refresh();
         draw();
         form.elements.title.focus();
@@ -560,7 +691,7 @@ export async function mountShell({ admin = false } = {}) {
     window.location.href = '/login';
   });
 
-  if (!admin) { mountSearch(sidebar); mountTodo(sidebar); }
+  if (!admin) { mountSearch(sidebar); mountTodo(sidebar, user); }
 
   sidebar.querySelectorAll('.hub-toggle').forEach((button) => {
     button.addEventListener('click', () => {

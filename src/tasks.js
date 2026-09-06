@@ -382,6 +382,24 @@ export async function handleUpdateTask(request, env, id) {
     return json({ ok: true, task, repeated, undone });
   }
 
+  // Moving the date on its own, the way done and pinned move on their own.
+  // Pushing an overdue task to tomorrow is the commonest edit there is, and
+  // sending the whole record back to change one field means the drawer has to
+  // hold a copy of everything just to move a day.
+  if (Object.prototype.hasOwnProperty.call(body, 'dueDate')
+      && !Object.prototype.hasOwnProperty.call(body, 'title')) {
+    const due = cleanDate(body.dueDate);
+    const res = await env.DB.prepare(
+      `UPDATE tasks SET due_date = ?,
+         reminded_at = CASE WHEN due_date IS ? THEN reminded_at ELSE NULL END,
+         overdue_reminded_at = CASE WHEN due_date IS ? THEN overdue_reminded_at ELSE NULL END,
+         updated_at = ?
+       WHERE id = ? AND user_id = ?`
+    ).bind(due, due, due, now(), id, user.id).run();
+    if (!res.meta || res.meta.changes === 0) return notFound('Task not found.');
+    return json({ ok: true, task: await getTask(env, id, user.id) });
+  }
+
   const { fields, error } = parse(body);
   if (error) return badRequest(error);
   const links = await resolveLinks(env, user, fields);

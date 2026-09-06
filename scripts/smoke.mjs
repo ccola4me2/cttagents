@@ -612,6 +612,16 @@ async function main() {
     pinnedList.data?.tasks?.[0]?.title);
   check(pinnedList.data?.counts?.pinned === 1, 'and is counted', pinnedList.data?.counts?.pinned);
 
+  // Pushing an overdue task to tomorrow is the commonest edit there is, and it
+  // has to work without sending the whole record back: the drawer that offers
+  // it holds a title and a date, not a task.
+  const pushed = await call(advisor, 'PUT', `/api/tasks/${t2.data.task.id}`,
+    { dueDate: isoDay(1) });
+  check(pushed.data?.task?.due_date === isoDay(1),
+    'a due date can be moved on its own, without a title', pushed.data?.task?.due_date);
+  check(pushed.data?.task?.title === `Send documents ${stamp}`,
+    'and nothing else about the task changes', pushed.data?.task?.title);
+
   const unpinned = await call(advisor, 'PUT', `/api/tasks/${t2.data.task.id}`, { pinned: false });
   check(unpinned.data?.task?.pinned_at === null, 'and unpinned again', unpinned.data?.task?.pinned_at);
 

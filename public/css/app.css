@@ -602,11 +602,47 @@ tbody tr[data-href] { cursor: pointer; }
 }
 .drawer-head h2 { font-size: 1.05rem; margin: 0; }
 .drawer-add {
-  display: grid; grid-template-columns: 1fr auto auto; gap: .4rem;
-  padding: .8rem 1.1rem; background: #fff; border-bottom: 1px solid var(--navy-100);
+  display: flex; flex-direction: column; gap: .5rem;
+  padding: .85rem 1.1rem; background: #fff; border-bottom: 1px solid var(--navy-100);
 }
-.drawer-add input[type="date"] { width: auto; }
-.drawer-body { flex: 1; overflow-y: auto; padding: .4rem 1.1rem 1.6rem; }
+.drawer-add .add-line { display: grid; grid-template-columns: 1fr auto; gap: .45rem; }
+.drawer-add .add-when { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+.drawer-add input[type="date"] {
+  width: auto; flex: none; font-size: .74rem; padding: .25rem .4rem;
+  border-color: var(--navy-100); color: var(--ink-500);
+}
+/* The three days somebody actually means, so a calendar is the exception
+   rather than the first thing in the way. */
+.drawer-add .day {
+  background: var(--navy-50); border: 1px solid transparent; color: var(--navy-700);
+  border-radius: 999px; padding: .22rem .6rem; font-size: .74rem; font-weight: 600;
+  cursor: pointer; line-height: 1.3;
+}
+.drawer-add .day:hover { background: var(--navy-100); }
+.drawer-add .day.on { background: var(--coral-500); color: #fff; }
+
+/* How much needs you, before any of the lists. */
+.drawer-strip {
+  display: flex; gap: .35rem; flex-wrap: wrap; padding: .8rem 0 .2rem;
+}
+.drawer-strip .chip {
+  background: #fff; border: 1px solid var(--navy-100); border-radius: 999px;
+  padding: .2rem .6rem; font-size: .73rem; color: var(--ink-500);
+}
+.drawer-strip .chip b { color: var(--navy-800); font-weight: 700; }
+.drawer-strip .chip.hot { border-color: #f0c4bd; background: var(--red-50); }
+.drawer-strip .chip.hot b { color: var(--red-600); }
+.drawer-strip .chip.quiet { color: var(--ink-400); }
+
+/* One honest empty state instead of four lines each reporting an absence. */
+.drawer-clear { padding: 2.6rem 1rem; text-align: center; color: var(--ink-400); font-size: .82rem; }
+.drawer-clear .big {
+  font-size: .98rem; font-weight: 650; color: var(--navy-700); margin: 0 0 .35rem;
+}
+.drawer-clear p { margin: 0; }
+.drawer-clear a { color: var(--coral-500); }
+
+.drawer-body { flex: 1; overflow-y: auto; padding: .1rem 1.1rem 1.6rem; }
 .drawer-group {
   font-size: .64rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
   color: var(--ink-400); margin: 1.1rem 0 .4rem; display: flex; gap: .4rem; align-items: center;
@@ -617,7 +653,29 @@ tbody tr[data-href] { cursor: pointer; }
 }
 .drawer-body .rows li { display: flex; align-items: flex-start; gap: .5rem; background: #fff;
   border: 1px solid var(--navy-100); border-radius: 9px; padding: .5rem .6rem; margin-bottom: .35rem; }
-.drawer-body .rows li .task-tick { flex: 1; }
+.drawer-body .rows li .task-tick { flex: 1; min-width: 0; }
+.drawer-body .rows li:hover { border-color: var(--navy-200); }
+
+/* The tools sit quiet until the row is under the cursor, so a list of ten
+   tasks is ten titles rather than twenty buttons. Always there for the
+   keyboard, which cannot hover. */
+.row-tools { display: flex; gap: .1rem; flex: none; opacity: .35; transition: opacity .12s; }
+.drawer-body .rows li:hover .row-tools, .row-tools:focus-within { opacity: 1; }
+.row-tools .pin.on { opacity: 1; }
+
+.task-rows .who {
+  display: block; font-size: .78rem; color: var(--ink-500); margin-top: .1rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.task-rows .marks { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .3rem; }
+.task-rows .marks .when { font-size: .72rem; color: var(--ink-500); font-weight: 600; }
+.task-rows .marks .when.late { color: var(--red-600); }
+.task-rows .marks .tag {
+  font-size: .68rem; background: var(--navy-50); color: var(--navy-700);
+  border-radius: 4px; padding: .05rem .3rem; letter-spacing: .01em;
+}
+.task-rows .marks .tag.hot { background: var(--coral-50); color: var(--coral-600); }
+.task-rows .marks .tag.all { background: var(--green-50); color: var(--green-600); }
 .drawer-body .wempty { padding: .5rem .2rem; text-align: left; }
 .pin {
   background: none; border: 0; cursor: pointer; color: var(--ink-400); padding: .1rem;
