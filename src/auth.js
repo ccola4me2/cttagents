@@ -51,6 +51,8 @@ function publicUser(u) {
     sellerOfTravel: u.seller_of_travel,
     // Where leads are announced, which is not always where they sign in.
     notifyEmail: u.notify_email,
+    // Whether the portal chases their clients for payment on their behalf.
+    autoRemindClients: Boolean(u.auto_remind_clients),
     // Written when an admin approves the account and read by nobody until
     // now, which made it a fact the database kept to itself.
     approvedAt: u.approved_at,
@@ -197,6 +199,7 @@ export async function handleUpdateProfile(request, env) {
     agencyAddress: clean(body.agencyAddress, 200),
     sellerOfTravel: clean(body.sellerOfTravel, 80),
     notifyEmail: clean(body.notifyEmail, 254),
+    autoRemindClients: body.autoRemindClients === true || body.autoRemindClients === 'on',
   });
   return json({ ok: true, user: publicUser(updated) });
 }

@@ -10,7 +10,7 @@ export const EXPECTED_SCHEMA = {
   automation_logs: ['action', 'automation_id', 'created_at', 'detail', 'id', 'run_id', 'status', 'step_index'],
   automation_runs: ['attempts', 'automation_id', 'contact_email', 'contact_id', 'contact_name', 'context_json', 'created_at', 'id', 'last_error', 'location_id', 'next_run_at', 'status', 'step_index', 'trigger_key', 'updated_at'],
   automations: ['active', 'created_at', 'created_by', 'description', 'id', 'location_id', 'name', 'runs_done', 'runs_started', 'steps_json', 'trigger_config_json', 'trigger_type', 'updated_at'],
-  booking_payments: ['amount_cents', 'booking_id', 'card_last4', 'created_at', 'credit_id', 'due_date', 'id', 'kind', 'method', 'notes', 'paid_by', 'paid_date', 'payment_class', 'payment_type', 'reference', 'reminded_at', 'reminder_count', 'updated_at', 'user_id'],
+  booking_payments: ['amount_cents', 'auto_lead_sent', 'booking_id', 'card_last4', 'created_at', 'credit_id', 'due_date', 'id', 'kind', 'method', 'notes', 'paid_by', 'paid_date', 'payment_class', 'payment_type', 'reference', 'reminded_at', 'reminder_count', 'updated_at', 'user_id'],
   booking_pricing: ['amount_cents', 'booking_id', 'commission_cents', 'commission_kind', 'commissionable', 'component_id', 'created_at', 'id', 'kind', 'label', 'sort_order', 'traveller_id', 'updated_at', 'user_id'],
   bookings: ['advisor_split_pct', 'booking_method', 'cabin', 'cabin_category', 'client_id', 'client_name', 'commission_cents', 'commission_status', 'confirmation_number', 'created_at', 'depart_date', 'deposit_cents', 'deposit_due', 'destination', 'final_payment_due', 'ghl_contact_id', 'ghl_opportunity_id', 'gross_cents', 'group_id', 'id', 'insurance_status', 'invoice_issued_at', 'invoice_no', 'invoice_notes', 'itinerary', 'notes', 'personal', 'product_name', 'product_type', 'quote_sent_at', 'quote_sent_count', 'return_date', 'share_code', 'shared_at', 'statement_sent_at', 'status', 'supplier', 'travellers', 'updated_at', 'user_id', 'vendor_id', 'welcomed_at'],
   catalog_import_state: ['k', 'v'],
@@ -40,7 +40,7 @@ export const EXPECTED_SCHEMA = {
   travellers: ['booking_id', 'created_at', 'dob', 'email', 'id', 'is_lead', 'name', 'notes', 'passport_country', 'passport_expiry', 'passport_number', 'phone', 'updated_at', 'user_id'],
   trip_messages: ['body', 'booking_id', 'created_at', 'id', 'ip_hash', 'read_at', 'user_id'],
   user_prefs: ['dashboard_json', 'updated_at', 'user_id'],
-  users: ['agency_address', 'agency_name', 'approved_at', 'approved_by', 'created_at', 'default_split_pct', 'email', 'first_name', 'ghl_location_id', 'ghl_user_id', 'id', 'last_login_at', 'last_name', 'notify_email', 'password_hash', 'phone', 'role', 'seller_of_travel', 'status', 'updated_at'],
+  users: ['agency_address', 'agency_name', 'approved_at', 'approved_by', 'auto_remind_clients', 'created_at', 'default_split_pct', 'email', 'first_name', 'ghl_location_id', 'ghl_user_id', 'id', 'last_login_at', 'last_name', 'notify_email', 'password_hash', 'phone', 'role', 'seller_of_travel', 'status', 'updated_at'],
   vendors: ['account_number', 'bdm_email', 'bdm_info', 'bdm_name', 'bdm_phone', 'booking_instructions', 'budget_category', 'categories_json', 'category', 'commission_pct', 'commission_structure', 'created_at', 'deposit_days', 'email', 'favourite', 'final_days', 'id', 'name', 'notes', 'partner_status', 'phone', 'phones_json', 'portal_url', 'registration_instructions', 'signup_url', 'travel_types', 'updated_at', 'user_id', 'vendor_login', 'website'],
 };
 
@@ -100,6 +100,7 @@ export const COLUMN_ORIGIN = {
   'automations.trigger_type': '0004_automations.sql',
   'automations.updated_at': '0004_automations.sql',
   'booking_payments.amount_cents': '0005_payments.sql',
+  'booking_payments.auto_lead_sent': '0044_auto_payment_reminders.sql',
   'booking_payments.booking_id': '0005_payments.sql',
   'booking_payments.card_last4': '0020_pricing.sql',
   'booking_payments.created_at': '0005_payments.sql',
@@ -479,6 +480,7 @@ export const COLUMN_ORIGIN = {
   'users.agency_name': '0001_init.sql',
   'users.approved_at': '0001_init.sql',
   'users.approved_by': '0001_init.sql',
+  'users.auto_remind_clients': '0044_auto_payment_reminders.sql',
   'users.created_at': '0001_init.sql',
   'users.default_split_pct': '0021_commission_split.sql',
   'users.email': '0001_init.sql',

@@ -1014,6 +1014,87 @@ async function main() {
       `status ${notMine.status}`);
   }
 
+  // ------------------------------------------ chasing the client for money --
+  step('Reminding the client before the vendor deadline');
+  {
+    const off = await call(admin, 'POST', '/api/admin/payment-reminders', {});
+    check(off.status === 200, 'the pass runs', `status ${off.status}`);
+
+    // The switch is the whole safety story: this sends email to somebody's
+    // clients over their name.
+    const me = await call(advisor, 'GET', '/api/auth/me');
+    check(me.data?.user?.autoRemindClients === false,
+      'and an advisor starts with it turned off',
+      `${me.data?.user?.autoRemindClients}`);
+
+    const trip = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Chase Me ${stamp}`, supplier: 'Royal Caribbean',
+      productName: 'Icon of the Seas', productType: 'cruise',
+      departDate: isoDay(120), gross: '5000', status: 'booked',
+    });
+    const tripId = trip.data?.booking?.id;
+    if (tripId) {
+      cleanup('the chased reservation', () => call(advisor, 'DELETE', `/api/bookings/${tripId}`));
+    }
+
+    // Somebody to write to. Without an address the pass counts the payment and
+    // moves on without stamping it, so that it tries again once there is one.
+    const madeClient = trip.data?.booking?.client_id;
+    await call(advisor, 'PUT', `/api/clients/${madeClient}`,
+      { name: `Chase Me ${stamp}`, email: `chase-${stamp}@example.com` });
+
+    // Two rows for one payment: the vendor's real deadline, and the advisor's
+    // own buffer a week earlier. Only the first is the client's business.
+    const hard = await call(advisor, 'POST', '/api/payments', {
+      bookingId: tripId, kind: 'final', amount: '4100',
+      dueDate: isoDay(5), paymentClass: 'hard',
+    });
+    await call(advisor, 'POST', '/api/payments', {
+      bookingId: tripId, kind: 'final', amount: '4100',
+      dueDate: isoDay(5), paymentClass: 'soft',
+    });
+
+    const stillOff = await call(admin, 'POST', '/api/admin/payment-reminders', {});
+    check(!(stillOff.data?.considered > 0) || stillOff.data.sent === 0,
+      'nothing goes out while the switch is off', JSON.stringify(stillOff.data));
+
+    await call(advisor, 'PUT', '/api/auth/profile',
+      { firstName: 'Smoke', lastName: 'Tester', autoRemindClients: true });
+    const on = await call(advisor, 'GET', '/api/auth/me');
+    check(on.data?.user?.autoRemindClients === true, 'the advisor can turn it on');
+    cleanup('the reminder switch', () => call(advisor, 'PUT', '/api/auth/profile',
+      { firstName: 'Smoke', lastName: 'Tester', autoRemindClients: false }));
+
+    const pass = await call(admin, 'POST', '/api/admin/payment-reminders', {});
+    check(pass.status === 200, 'the pass runs with it on', JSON.stringify(pass.data));
+
+    // Counting what the pass considered says nothing useful: this advisor has
+    // other reservations with their own deadlines. The invariant is per row.
+    const after = await call(advisor, 'GET', `/api/bookings/${tripId}/record`);
+    const rows = after.data?.payments || [];
+    const hardRow = rows.find((p) => p.payment_class === 'hard');
+    const softRow = rows.find((p) => p.payment_class === 'soft');
+
+    check(hardRow && hardRow.auto_lead_sent !== null,
+      'the vendor deadline is noticed and written down', `${hardRow?.auto_lead_sent}`);
+    // The soft row is the advisor's own buffer for the same money. Telling the
+    // client twice about one payment is the bug this exists to prevent.
+    check(softRow && softRow.auto_lead_sent === null,
+      'and the internal buffer is left alone', `${softRow?.auto_lead_sent}`);
+    check(hardRow?.auto_lead_sent === 7,
+      'at the notice its date has reached', `${hardRow?.auto_lead_sent}`);
+
+    await call(admin, 'POST', '/api/admin/payment-reminders', {});
+    const twice = await call(advisor, 'GET', `/api/bookings/${tripId}/record`);
+    const hardAgain = (twice.data?.payments || []).find((p) => p.payment_class === 'hard');
+    check(hardAgain?.auto_lead_sent === hardRow?.auto_lead_sent,
+      'and the same notice does not go a second time', `${hardAgain?.auto_lead_sent}`);
+
+    const notAdmin = await call(advisor, 'POST', '/api/admin/payment-reminders', {});
+    check(notAdmin.status === 403 || notAdmin.status === 404,
+      'and only an owner can set a pass running', `status ${notAdmin.status}`);
+  }
+
   // ---------------------------------------------------- client credits ------
   step('Credits a client holds with a vendor');
 

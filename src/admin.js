@@ -8,6 +8,7 @@ import { requireAdmin, publicUser } from './auth.js';
 import * as db from './db.js';
 import { sendAdvisorApprovedEmail, checkResend, sendTestEmail } from './email.js';
 import { remindTasks } from './taskmail.js';
+import { remindDuePayments } from './payremind.js';
 import { schemaDrift } from './schema-drift.js';
 import { mirrorCatalogStep, mirrorStatus } from './catalogmirror.js';
 
@@ -223,6 +224,22 @@ export async function handleRunTaskReminders(request, env) {
   if (response) return response;
   const result = await remindTasks(env, { force: true });
   await db.logActivity(env, user.id, 'admin.taskReminders', 'Ran the task reminder pass', result);
+  return json(result);
+}
+
+/**
+ * Run the client payment reminder pass now.
+ *
+ * It sends for real, to real clients, so this is the one admin button that can
+ * be embarrassing. It obeys the same rules as the cron: advisors who turned it
+ * on, hard deadlines only, and one notice per lead time.
+ */
+export async function handleRunPaymentReminders(request, env) {
+  const { user, response } = await requireAdmin(request, env);
+  if (response) return response;
+  const result = await remindDuePayments(env);
+  await db.logActivity(env, user.id, 'admin.paymentReminders',
+    'Ran the client payment reminder pass', result);
   return json(result);
 }
 

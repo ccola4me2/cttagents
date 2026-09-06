@@ -12,7 +12,7 @@ const USER_COLUMNS = `
   id, email, first_name, last_name, phone, agency_name, role, status,
   ghl_location_id, ghl_user_id, created_at, updated_at, last_login_at,
   approved_at, approved_by, default_split_pct, agency_address, seller_of_travel,
-  notify_email
+  notify_email, auto_remind_clients
 `;
 
 // The same columns qualified, for the session lookup that joins sessions to
@@ -74,7 +74,8 @@ export async function updateUserProfile(env, id, fields) {
   await env.DB.prepare(
     `UPDATE users
         SET first_name = ?, last_name = ?, phone = ?, agency_name = ?,
-            agency_address = ?, seller_of_travel = ?, notify_email = ?, updated_at = ?
+            agency_address = ?, seller_of_travel = ?, notify_email = ?,
+            auto_remind_clients = ?, updated_at = ?
       WHERE id = ?`
   ).bind(
     fields.firstName || null,
@@ -84,6 +85,7 @@ export async function updateUserProfile(env, id, fields) {
     fields.agencyAddress || null,
     fields.sellerOfTravel || null,
     fields.notifyEmail || null,
+    fields.autoRemindClients ? 1 : 0,
     now(),
     id
   ).run();
@@ -1358,7 +1360,7 @@ export async function crmCounts(env, locationId) {
 export const PAYMENT_COLUMNS = `
   p.id, p.booking_id, p.user_id, p.kind, p.payment_class, p.amount_cents,
   p.due_date, p.paid_date, p.method, p.reference, p.notes, p.created_at, p.updated_at,
-  p.reminded_at, p.reminder_count,
+  p.reminded_at, p.reminder_count, p.auto_lead_sent,
   p.payment_type, p.paid_by, p.credit_id, p.card_last4
 `;
 

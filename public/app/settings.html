@@ -37,6 +37,15 @@
               <input id="agencyAddress" name="agencyAddress" maxlength="200"
                      placeholder="120 Harbour Road, Suite 4, Tampa FL 33602">
               <p class="field-hint">Printed in the footer of every invoice and quote a client receives.</p></div>
+            <div class="field">
+              <label style="display:flex;align-items:center;gap:.5rem;font-weight:400;">
+                <input type="checkbox" id="autoRemindClients" name="autoRemindClients">
+                Remind clients about payments automatically
+              </label>
+              <p class="field-hint">Three weeks, one week and one day before a vendor deadline,
+                then once if it goes past. Sent to the client from your name, with replies coming
+                back to you. Only on real vendor deadlines, never on your own internal buffer, and
+                never on a payment you reminded them about yourself that day.</p></div>
             <div class="field"><label for="sellerOfTravel">Seller of travel registration</label>
               <input id="sellerOfTravel" name="sellerOfTravel" maxlength="80"
                      placeholder="FL ST-00000000">
@@ -159,12 +168,16 @@ pf.elements.agencyAddress.value = user.agencyAddress || '';
 pf.elements.sellerOfTravel.value = user.sellerOfTravel || '';
 pf.elements.notifyEmail.value = user.notifyEmail || '';
 pf.elements.notifyEmail.placeholder = user.email || '';
+pf.elements.autoRemindClients.checked = Boolean(user.autoRemindClients);
 
 document.getElementById('ghl-info').innerHTML = user.ghlLocationId
   ? `Bound to Trip Vara Tools account <code>${esc(user.ghlLocationId)}</code>.`
   : 'Using the shared Trip Vara Tools account. An administrator can bind you to your own.';
 
 onSubmit(pf, async (values) => {
+  // A checkbox reads as "on" or nothing through a form; the API wants a boolean
+  // either way round, so it cannot mistake a missing field for a false one.
+  values.autoRemindClients = pf.elements.autoRemindClients.checked;
   await api('/api/auth/profile', { method: 'PUT', body: values });
   const ok = document.getElementById('profile-ok');
   ok.hidden = false;
