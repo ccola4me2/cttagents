@@ -228,9 +228,11 @@ function appUrl(env) {
 async function notifyOwner(env, userId, { to, ...details }) {
   try {
     const owner = userId ? await env.DB.prepare(
-      'SELECT email, first_name FROM users WHERE id = ?'
+      'SELECT email, first_name, notify_email FROM users WHERE id = ?'
     ).bind(userId).first() : null;
-    const address = to || owner?.email;
+    // The address they asked to be told on, then the one they sign in with.
+    // A form that names its own address still wins over both.
+    const address = to || owner?.notify_email || owner?.email;
     if (!address) return;
     await sendSignupNoticeEmail(env, {
       to: address, advisorFirstName: owner?.first_name, ...details,

@@ -37,7 +37,7 @@ export const EXPECTED_SCHEMA = {
   travel_groups: ['cabins_held', 'created_at', 'depart_date', 'destination', 'group_code', 'group_type', 'id', 'name', 'notes', 'option_date', 'product_name', 'registration_blurb', 'registration_open', 'return_date', 'status', 'updated_at', 'user_id', 'vendor'],
   travellers: ['booking_id', 'created_at', 'dob', 'email', 'id', 'is_lead', 'name', 'notes', 'passport_country', 'passport_expiry', 'passport_number', 'phone', 'updated_at', 'user_id'],
   user_prefs: ['dashboard_json', 'updated_at', 'user_id'],
-  users: ['agency_address', 'agency_name', 'approved_at', 'approved_by', 'created_at', 'default_split_pct', 'email', 'first_name', 'ghl_location_id', 'ghl_user_id', 'id', 'last_login_at', 'last_name', 'password_hash', 'phone', 'role', 'seller_of_travel', 'status', 'updated_at'],
+  users: ['agency_address', 'agency_name', 'approved_at', 'approved_by', 'created_at', 'default_split_pct', 'email', 'first_name', 'ghl_location_id', 'ghl_user_id', 'id', 'last_login_at', 'last_name', 'notify_email', 'password_hash', 'phone', 'role', 'seller_of_travel', 'status', 'updated_at'],
   vendors: ['account_number', 'bdm_email', 'bdm_info', 'bdm_name', 'bdm_phone', 'booking_instructions', 'budget_category', 'categories_json', 'category', 'commission_pct', 'commission_structure', 'created_at', 'deposit_days', 'email', 'favourite', 'final_days', 'id', 'name', 'notes', 'partner_status', 'phone', 'phones_json', 'portal_url', 'registration_instructions', 'signup_url', 'travel_types', 'updated_at', 'user_id', 'vendor_login', 'website'],
 };
 
@@ -445,6 +445,7 @@ export const COLUMN_ORIGIN = {
   'users.id': '0001_init.sql',
   'users.last_login_at': '0001_init.sql',
   'users.last_name': '0001_init.sql',
+  'users.notify_email': '0040_notify_address.sql',
   'users.password_hash': '0001_init.sql',
   'users.phone': '0001_init.sql',
   'users.role': '0001_init.sql',

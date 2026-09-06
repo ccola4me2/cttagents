@@ -28,6 +28,11 @@
             </div>
             <div class="field"><label for="phone">Phone</label><input id="phone" name="phone" type="tel"></div>
             <div class="field"><label for="agencyName">Agency or host</label><input id="agencyName" name="agencyName"></div>
+            <div class="field"><label for="notifyEmail">Tell me about leads at</label>
+              <input id="notifyEmail" name="notifyEmail" type="email" maxlength="254">
+              <p class="field-hint" id="notify-hint">Where you are told when somebody signs up on a
+                group page or a lead form. Leave it blank and it goes to the address you sign in
+                with, which is not always the one you work from.</p></div>
             <div class="field"><label for="agencyAddress">Agency address</label>
               <input id="agencyAddress" name="agencyAddress" maxlength="200"
                      placeholder="120 Harbour Road, Suite 4, Tampa FL 33602">
@@ -83,6 +88,8 @@ pf.elements.phone.value = user.phone || '';
 pf.elements.agencyName.value = user.agencyName || '';
 pf.elements.agencyAddress.value = user.agencyAddress || '';
 pf.elements.sellerOfTravel.value = user.sellerOfTravel || '';
+pf.elements.notifyEmail.value = user.notifyEmail || '';
+pf.elements.notifyEmail.placeholder = user.email || '';
 
 document.getElementById('ghl-info').innerHTML = user.ghlLocationId
   ? `Bound to Trip Vara Tools account <code>${esc(user.ghlLocationId)}</code>.`

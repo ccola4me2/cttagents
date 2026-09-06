@@ -49,6 +49,8 @@ function publicUser(u) {
       ? null : Number(u.default_split_pct),
     agencyAddress: u.agency_address,
     sellerOfTravel: u.seller_of_travel,
+    // Where leads are announced, which is not always where they sign in.
+    notifyEmail: u.notify_email,
     // Written when an admin approves the account and read by nobody until
     // now, which made it a fact the database kept to itself.
     approvedAt: u.approved_at,
@@ -194,6 +196,7 @@ export async function handleUpdateProfile(request, env) {
     // reason to invent one when it is blank.
     agencyAddress: clean(body.agencyAddress, 200),
     sellerOfTravel: clean(body.sellerOfTravel, 80),
+    notifyEmail: clean(body.notifyEmail, 254),
   });
   return json({ ok: true, user: publicUser(updated) });
 }
