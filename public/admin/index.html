@@ -31,6 +31,15 @@
         </div>
         <div id="sync-body" class="card-pad"><p class="spinner">Loading...</p></div>
       </section>
+      <section class="card" id="mail">
+        <div class="card-head"><h2>Email</h2>
+          <div class="toolbar" style="margin:0;">
+            <button class="btn btn-ghost btn-sm" id="mail-check">Check Resend</button>
+            <button class="btn btn-ghost btn-sm" id="mail-test">Send me a test</button>
+          </div>
+        </div>
+        <div id="mail-body" class="card-pad"><p class="spinner">Loading...</p></div>
+      </section>
       <section id="stats" class="stat-grid"></section>
       <section class="card" id="panel"><p class="spinner">Loading advisors...</p></section>
     </div>
@@ -41,6 +50,75 @@ import { api, mountShell, esc, timeAgo, showError } from '/js/app.js';
 await mountShell({ admin: true });
 
 const panel = document.getElementById('panel');
+
+// ---------------------------------------------------------------------- mail
+// Whether mail actually leaves the building. The send path is best effort by
+// design and the reset endpoint always answers the same way, so neither can
+// tell you anything: a key that Resend rejects and a domain that was never
+// verified both look exactly like a working system from the outside. This is
+// the only place that says so out loud, and the test send is the only proof
+// that survives contact with an inbox.
+const mailBody = document.getElementById('mail-body');
+
+function mailRow(label, value, tone) {
+  return `<p style="margin:0 0 .35rem;"><span class="muted">${esc(label)}:</span>
+    <strong${tone ? ` style="color:var(--${tone});"` : ''}> ${esc(value)}</strong></p>`;
+}
+
+async function loadMail(probe = false) {
+  mailBody.innerHTML = '<p class="spinner">Loading...</p>';
+  try {
+    const d = await api(`/api/admin/health${probe ? '?probe=email' : ''}`);
+    const e = d.email || {};
+    const r = e.resend;
+    let html = mailRow('Key configured', e.resendKeyPresent ? 'yes' : 'no',
+      e.resendKeyPresent ? 'green-600' : 'red-600')
+      + mailRow('Sends as', e.mailFrom || 'not set')
+      + mailRow('Admin notices go to', e.notifyEmail || 'not set');
+
+    if (!r) {
+      html += '<p class="field-hint" style="margin-top:.6rem;">Press Check Resend to ask '
+        + 'Resend whether the key works and the sending domain is verified.</p>';
+    } else if (r.keyValid === false) {
+      html += mailRow('Resend says', r.error || 'the key was rejected', 'red-600');
+    } else if (r.reachable === false) {
+      html += mailRow('Resend says', 'could not be reached', 'red-600');
+    } else {
+      html += mailRow('Key accepted', 'yes', 'green-600');
+      const dom = r.sendDomain || '';
+      html += mailRow('Sending domain', dom || 'unknown');
+      html += mailRow('Resend says', r.sendDomainStatus || 'unknown',
+        r.canSend ? 'green-600' : 'red-600');
+      if (r.error) html += mailRow('Error', r.error, 'red-600');
+      if (!r.canSend) {
+        html += '<p class="field-hint" style="margin-top:.6rem;">Resend will not send from a '
+          + 'domain that is not verified, and the send fails without an error anybody sees. '
+          + `Verify ${esc(dom || 'the domain')} in Resend, or point MAIL_FROM at one that is `
+          + `already verified${r.domains && r.domains.length
+            ? `: ${esc(r.domains.map((x) => `${x.name} (${x.status})`).join(', '))}` : ''}.</p>`;
+      }
+    }
+    mailBody.innerHTML = html;
+  } catch (err) { showError(mailBody, err); }
+}
+
+document.getElementById('mail-check').addEventListener('click', () => loadMail(true));
+
+document.getElementById('mail-test').addEventListener('click', async (ev) => {
+  const btn = ev.target;
+  btn.disabled = true;
+  btn.textContent = 'Sending...';
+  try {
+    await api('/api/admin/test-email', { method: 'POST', body: {} });
+    btn.textContent = 'Sent, check your inbox';
+  } catch (err) {
+    btn.textContent = 'Send me a test';
+    showError(mailBody, err);
+  } finally {
+    setTimeout(() => { btn.disabled = false; btn.textContent = 'Send me a test'; }, 4000);
+  }
+});
+
 const statsEl = document.getElementById('stats');
 const filter = document.getElementById('filter');
 const TONE = { active: 'badge-green', pending: 'badge-amber', suspended: 'badge-red' };
@@ -199,5 +277,6 @@ document.getElementById('sync-full').addEventListener('click', async (e) => {
 
 filter.addEventListener('change', load);
 await Promise.all([load(), loadSync()]);
+loadMail();
 </script>
 </body></html>
