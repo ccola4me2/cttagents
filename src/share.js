@@ -5,11 +5,18 @@
 // paid and when the balance was due, because the answer was in an inbox rather
 // than anywhere they could look. This is that answer, on a link.
 //
-// Read only, deliberately. A client can see what is booked, what is paid, what
-// is due and which options were offered; they cannot accept, change or pay.
-// What they can do is say something, which lands as a message on the
-// reservation and an email to the advisor, because "tell me" only works if
-// telling you is easier than not bothering.
+// Read only, deliberately, and there is nothing to pay here even in principle:
+// the client pays the supplier, and the money never passes through the agency.
+// The schedule on this page is a record of what the supplier is owed and when,
+// not an invoice from the advisor. Saying that plainly matters, because a page
+// that lists amounts and due dates without saying who they are paid to reads
+// like a bill from whoever's name is at the top.
+//
+// A client can see what is booked, what is paid, what is due and which options
+// were offered; they cannot accept or change anything. What they can do is say
+// something, which lands as a message on the reservation and an email to the
+// advisor, because "tell me" only works if telling you is easier than not
+// bothering.
 //
 // Three things it must never show, and the reason each is easy to leak:
 //   - Commission. It sits on the booking, on every pricing line, and on the
@@ -279,8 +286,9 @@ export async function renderTripPage(request, env, code) {
             <td class="r">${esc(money(p.amount_cents))}</td>
           </tr>`;
         }).join('')}</tbody></table>` : ''}
-      <p class="dim small">Payments are made with ${esc(advisor)} as usual. This page is
-        for looking at, not for paying on.</p>
+      <p class="dim small">Payments go to ${esc(b.supplier || 'the supplier')}.
+        ${esc(advisor)} takes care of each one with you as it falls due, and records it here,
+        so this is where to look for what has been paid and what is still outstanding.</p>
     </section>` : ''}
 
     ${trip.documents.length ? `<section class="card pad">

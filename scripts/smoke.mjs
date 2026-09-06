@@ -287,15 +287,22 @@ async function main() {
   check(!forgedIds.includes(ownerBookingId),
     'and cannot widen their scope with ?advisor=', `${forgedIds.length} reservation(s)`);
 
-  const allRes = await call(admin, 'GET', '/api/bookings');
+  // Asked for that advisor. The agency list is capped, so scanning it turns
+  // "can the owner see this" into "how many reservations exist", and the two
+  // answers diverge the moment the book is bigger than the cap.
+  const allRes = await call(admin, 'GET', `/api/bookings?advisor=${advisorId}`);
   const allIds = (allRes.data?.bookings || []).map((b) => b.id);
   check(allIds.includes(theirBookingId),
     'the owner sees the associate\'s reservation', `${allIds.length} reservation(s)`);
   const attributed = (allRes.data?.bookings || []).find((b) => b.id === theirBookingId);
   check(attributed && attributed.advisor_name,
     'attributed to whoever booked it', attributed && attributed.advisor_name);
-  check(allRes.data?.scope?.all === true && allRes.data.scope.canPick === true,
-    'with a picker to narrow it down', JSON.stringify(allRes.data?.scope));
+  // The default scope, asked without narrowing: this one is about the label
+  // rather than the list, so it does not care how many reservations exist.
+  const wideScope = await call(admin, 'GET', '/api/bookings');
+  check(wideScope.data?.scope?.all === true && wideScope.data.scope.canPick === true,
+    'and the agency view says so, with a picker to narrow it down',
+    JSON.stringify(wideScope.data?.scope));
 
   const narrowed = await call(admin, 'GET', `/api/bookings?advisor=${encodeURIComponent(created.id)}`);
   const narrowedIds = (narrowed.data?.bookings || []).map((b) => b.id);
@@ -650,9 +657,13 @@ async function main() {
 
   const notMine = await call(admin, 'PUT', `/api/tasks/${taskId}`, { done: false });
   check(notMine.status === 404, 'an owner cannot tick off an associate\'s task', `status ${notMine.status}`);
-  const ownerSees = await call(admin, 'GET', '/api/tasks?state=all');
+  // Asked for that advisor rather than the whole agency: the list is capped,
+  // so on a big book "is it in there" is a question about how many tasks exist
+  // rather than about who can see what. Narrowing to one advisor is also the
+  // thing an owner actually does.
+  const ownerSees = await call(admin, 'GET', `/api/tasks?state=all&advisor=${advisorId}`);
   check((ownerSees.data?.tasks || []).some((t) => t.id === taskId),
-    'though they can see it in the agency list');
+    'though they can see it when they look at that advisor');
 
   const foreign = await call(advisor, 'POST', '/api/tasks',
     { title: 'Linked to someone else', bookingId: ownerBookingId });
@@ -1449,8 +1460,12 @@ async function main() {
     'Expedition Experiences & Yacht', `Celebrity ${stamp}`,
   ].join('\n');
   await call(admin, 'POST', '/api/vendors/import', { text: multi, commit: true });
-  const shelved = (await call(admin, 'GET', '/api/vendors')).data?.vendors
-    ?.find((v) => v.name === `Celebrity ${stamp}`);
+  const shelved = (await call(admin, 'GET', `/api/vendors?q=${encodeURIComponent(stamp)}`))
+    .data?.vendors?.find((v) => v.name === `Celebrity ${stamp}`);
+  if (shelved) {
+    cleanup('the twice-shelved vendor',
+      () => call(admin, 'DELETE', `/api/vendors/${shelved.id}`));
+  }
   check(JSON.parse(shelved?.categories_json || '[]').length === 2,
     'a pasted name under two headings is shelved under both, not just the first',
     shelved?.categories_json);
