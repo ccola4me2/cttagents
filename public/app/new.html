@@ -60,6 +60,7 @@
 
 <script type="module">
 import { api, mountShell, esc, dateFmt, showError, onSubmit } from '/js/app.js';
+import { mountSupplierPicker } from '/js/supplier-picker.js';
 await mountShell();
 
 const err = document.getElementById('err');
@@ -220,18 +221,9 @@ document.getElementById('fields').innerHTML = [
       select('bookingMethod', 'Booked through', o.bookingMethods, 'direct')),
 
   group('Vendor'),
-  `<div class="field" id="vendor-pick-field" hidden>
-    <label for="vendor-pick">Choose from your vendors</label>
-    <select id="vendor-pick"></select>
-    <p class="field-hint">Everything your vendor record knows fills itself in.</p>
-    <div class="field-row" id="sailing-pick" hidden style="margin-top:.6rem;">
-      <div class="field"><label for="pick-ship">Ship</label>
-        <select id="pick-ship" disabled><option value="">Ship</option></select></div>
-      <div class="field"><label for="pick-date">Departure</label>
-        <select id="pick-date" disabled><option value="">Departure</option></select></div>
-    </div>
-    <p class="field-hint" id="picker-hint" hidden></p>
-  </div>`,
+  // Filled in by the shared supplier picker once the vendors and the catalog
+  // are loaded. Empty until then rather than a shell of disabled boxes.
+  '<div id="vendor-pick-field"></div>',
   row(text('supplier', 'Vendor'), text('productName', 'Ship, hotel or product')),
   row(text('confirmationNumber', 'Confirmation number'),
       select('insuranceStatus', 'Insurance', o.insuranceStatuses, 'unknown')),
@@ -301,204 +293,42 @@ suggestClients(form.elements.clientName);
 })();
 
 /**
- * The vendors you already sell, offered on the form that starts a reservation.
+ * Who this is booked with, and which sailing.
  *
- * A vendor record holds the terms, the manager and how to book, and none of it
- * reached the reservation unless somebody typed the name identically. Picking
- * one fills the name exactly, which is what joins the trip to the record, and
- * carries across what that record already knows.
- *
- * Cruise lines are deliberately absent. The catalog above holds the line, the
- * ship and the sailing dates together, and offering the line twice from two
- * sources is how the two come to disagree.
+ * Both pickers live in /js/supplier-picker.js, because the groups form needs
+ * exactly the same pair and the copy is the thing that drifts. This page only
+ * says what "cruise" is called here and where the answers get written.
  */
-const VENDOR_TYPE = {
-  'All-Inclusive Resorts': 'resort',
-  'All-Inclusive Brands': 'resort',
-  'Hotels & Resorts': 'hotel',
-  'Rentals & Villas': 'hotel',
-  'Escorted Tours': 'tour',
-  'Package Providers': 'package',
-  FIT: 'package',
-  'River Cruises': 'cruise',
-  'Expedition Experiences & Yacht': 'cruise',
-  'Air Consolidator': 'air',
-  'Car & Transfer Services': 'transfer',
-  'Rail Vacations': 'rail',
-  Attractions: 'attraction',
-  Excursions: 'excursion',
-  Insurance: 'insurance',
-};
-
-const CATALOG_CATEGORY = 'Cruise Lines';
-
-// Names differing only in spacing or punctuation are the same supplier.
-const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-const UNSHELVED = 'Not categorised yet';
-
 (async () => {
-  let vendors = [];
-  try { vendors = (await api('/api/vendors')).vendors || []; } catch { return; }
+  const host = document.getElementById('vendor-pick-field');
+  if (!host) return;
 
-  const shelvesOf = (v) => {
-    let list = [];
-    try { const a = JSON.parse(v.categories_json || '[]'); if (Array.isArray(a)) list = a; }
-    catch { list = []; }
-    if (v.category && !list.includes(v.category)) list.unshift(v.category);
-    return list;
-  };
-
-  // Which vendors are cruise lines is a question the catalog answers, and the
-  // category does not: most of these records were created from a booking and
-  // have no category at all, so filtering on the shelf alone left Carnival,
-  // Royal Caribbean and Celebrity sitting in Other and being offered here.
-  let catalogLines = new Set();
-  let catalogRows = [];
-  try {
-    const c = await api('/api/catalog/lines');
-    catalogRows = c.lines || [];
-    // knownCruiseLines is every line the source knows; lines is only what has
-    // been imported so far. Both, so a part-finished import still keeps cruise
-    // lines out of a list they do not belong in.
-    catalogLines = new Set([
-      ...(c.knownCruiseLines || []).map(norm),
-      ...(c.lines || []).map((l) => norm(l.name)),
-    ]);
-  } catch { catalogLines = new Set(); }
-
-  // A supplier that only sells cruises comes from the catalog. One that sits
-  // on another shelf as well is still worth offering, filed under that shelf.
-  // Vendor records are named the way an advisor says them and the catalog uses
-  // the supplier's full legal name: "Oceania" against "Oceania Cruises",
-  // "Holland America" against "Holland America Line". An exact match left
-  // those three in a list of tour operators, so one name being the start of
-  // the other counts. Six characters minimum, so a short word cannot swallow
-  // an unrelated supplier.
-  const lineList = [...catalogLines];
-  const isCruiseLine = (name) => {
-    const n = norm(name);
-    if (!n) return false;
-    if (catalogLines.has(n)) return true;
-    return lineList.some((l) => (
-      (l.startsWith(n) && n.length >= 6) || (n.startsWith(l) && l.length >= 6)
-    ));
-  };
-
-  const offered = vendors
-    .map((v) => ({ v, shelves: shelvesOf(v).filter((c) => c !== CATALOG_CATEGORY) }))
-    .filter((x) => !isCruiseLine(x.v.name))
-    .filter((x) => x.shelves.length || !shelvesOf(x.v).length);
-
-  if (!offered.length) return;
-
-  const sel = document.getElementById('vendor-pick');
-  const field = document.getElementById('vendor-pick-field');
-  const hint = field.querySelector('.field-hint');
-
-  /** The product types a vendor could be booked as, from the shelves it sits on. */
-  const typesOf = (v) => [...new Set(
-    shelvesOf(v).map((shelf) => VENDOR_TYPE[shelf]).filter(Boolean)
-  )];
-
-  function draw() {
-    const want = form.elements.productType.value;
-
-    // Booking a cruise: the lines come from the catalog, not from the vendor
-    // records. It is the same list the sailing picker above uses, so choosing
-    // a line here loads its ships rather than leaving two pickers that know
-    // different things.
-    if (want !== 'cruise' && sailingPick) { sailingPick.hidden = true; pickerHint.hidden = true; }
-
-    if (want === 'cruise') {
-      const lines = (catalogRows || []).map((l) => l.name);
-      sel.innerHTML = '<option value="">Type the name, or pick a cruise line</option>'
-        + lines.map((n) => `<option value="line:${esc(n)}">${esc(n)}</option>`).join('');
-      hint.textContent = lines.length
-        ? `${lines.length} cruise line${lines.length === 1 ? '' : 's'} from the catalog. `
-          + 'Picking one loads its ships and sailing dates above.'
-        : 'The sailing catalog has not been imported yet, so there are no cruise lines to '
-          + 'pick from. Type the name instead.';
-      field.hidden = false;
-      return;
-    }
-
-    // Only the vendors that sell this kind of trip. Picking Resort and then
-    // scrolling past sixty tour operators is the list being unhelpful in a way
-    // that is worse than no list. A vendor with no category cannot be ruled
-    // out, so it stays offered whatever the type.
-    const matching = offered.filter(({ v }) => {
-      const types = typesOf(v);
-      return !types.length || types.includes(want);
-    });
-
-    const byShelf = new Map();
-    for (const { v, shelves } of matching) {
-      // A vendor with no category is offered whatever the type, because
-      // nothing rules it out. Kept in its own group rather than mixed into
-      // Other, which is a category somebody chose.
-      const key = shelves[0] || UNSHELVED;
-      if (!byShelf.has(key)) byShelf.set(key, []);
-      byShelf.get(key).push(v);
-    }
-
-    const last = (k) => (k === UNSHELVED ? 2 : k === 'Other' ? 1 : 0);
-    const order = [...byShelf.keys()].sort((a, b) => (
-      last(a) - last(b) || a.localeCompare(b)));
-
-    sel.innerHTML = '<option value="">Type the name, or pick one</option>'
-      + order.map((shelf) => `<optgroup label="${esc(shelf)}">${
-        byShelf.get(shelf)
-          .sort((a, b) => a.name.localeCompare(b.name))
-          .map((v) => `<option value="${esc(v.id)}">${esc(v.name)}</option>`).join('')
-      }</optgroup>`).join('');
-
-    const n = matching.length;
-    hint.textContent = n
-      ? `${n} vendor${n === 1 ? '' : 's'} you sell for this kind of trip. Cruise lines are not `
-        + 'here: pick those from the catalog above, where the ship and the sailing dates come '
-        + 'with them.'
-      : 'No vendors on your list sell this kind of trip yet. Type the name and it becomes one.';
-
-    field.hidden = false;
-  }
-
-  draw();
-  form.elements.productType.addEventListener('change', () => {
-    // The vendor already chosen may not sell the new type, so it is cleared
-    // rather than left sitting under a list it is no longer in.
-    const chosen = sel.value;
-    draw();
-    sel.value = [...sel.options].some((o) => o.value === chosen) ? chosen : '';
-  });
-
-  sel.addEventListener('change', () => {
-    // A cruise line, chosen from the catalog rather than from the vendor list.
-    if (sel.value.startsWith('line:')) {
-      const line = sel.value.slice(5);
-      form.elements.supplier.value = line;
-      // The ship and the departure follow from the same choice, rather than
-      // being asked for twice in two places that can disagree.
-      loadShips(line);
-      return;
-    }
-
-    const v = vendors.find((x) => x.id === sel.value);
-    if (!v) return;
-
-    // The name has to match the vendor record exactly: that string is what
-    // joins the reservation to the vendor, and every report groups by it.
-    form.elements.supplier.value = v.name;
-
-    if (form.elements.bookingMethod && !form.elements.bookingMethod.value) {
+  const set = (field, value) => {
+    if (field === 'supplier') { form.elements.supplier.value = value; return; }
+    if (field === 'vendor' && form.elements.bookingMethod
+        && !form.elements.bookingMethod.value) {
       form.elements.bookingMethod.value = 'direct';
     }
+  };
+
+  const picker = await mountSupplierPicker(host, {
+    typeOf: () => form.elements.productType.value,
+    set,
+    onSailing(r) {
+      const put = (n, v) => { const el = form.elements[n]; if (el && v) el.value = v; };
+      put('supplier', r.cruise_line);
+      put('productName', r.ship);
+      put('itinerary', r.name);
+      put('destination', r.destination);
+      put('departDate', r.depart_date);
+      put('returnDate', r.return_date);
+      put('productType', 'cruise');
+    },
   });
 
-  // Typing a name by hand should not leave the picker claiming somebody else.
-  form.elements.supplier.addEventListener('input', () => {
-    const match = vendors.find((x) => x.name === form.elements.supplier.value.trim());
-    sel.value = match ? match.id : '';
-  });
+  // The vendor already chosen may not sell the new type, so the list is drawn
+  // again and the choice dropped if it is no longer in it.
+  form.elements.productType.addEventListener('change', () => picker.refresh());
 })();
 
 // The client box means something different on a personal booking, so the
@@ -560,101 +390,6 @@ form.elements.clientName.addEventListener('input', () => {
   mirrored = box.value.trim();
 });
 
-/**
- * The sailing picker: line, then ship, then departure.
- *
- * Filling the form from the catalog rather than from memory is the difference
- * between one vendor in a report and three, and it is the only way to get a
- * return date right without looking it up. Everything it sets can still be
- * typed over: a chartered sailing or a private group will not be in a feed.
- */
-// The line is chosen in the vendor box, which only offers cruise lines when
-// the type is Cruise. This is the rest of it: the ship and the departure,
-// shown next to that box rather than in a card of their own above the form.
-const pickShip = document.getElementById('pick-ship');
-const pickDate = document.getElementById('pick-date');
-const pickerHint = document.getElementById('picker-hint');
-const sailingPick = document.getElementById('sailing-pick');
-let dateRows = [];
-let pickedLine = '';
-
-/** Load the ships for a line, or clear the pair if there is no line. */
-async function loadShips(line) {
-  pickedLine = line || '';
-  pickShip.innerHTML = '<option value="">Ship</option>';
-  pickDate.innerHTML = '<option value="">Departure</option>';
-  pickShip.disabled = true;
-  pickDate.disabled = true;
-  dateRows = [];
-  sailingPick.hidden = !line;
-  if (!line) return;
-
-  const d = await api(`/api/catalog/ships?line=${encodeURIComponent(line)}`).catch(() => null);
-  if (!d || !d.ships.length) {
-    pickerHint.hidden = false;
-    pickerHint.textContent = `No sailings imported for ${line} yet. Type the ship and dates in.`;
-    return;
-  }
-  pickerHint.hidden = true;
-  pickShip.innerHTML = '<option value="">Ship</option>'
-    + d.ships.map((sh) => `<option value="${esc(sh.name)}">${esc(sh.name)}</option>`).join('');
-  pickShip.disabled = false;
-}
-
-/**
- * A departure, said the way somebody picks one.
- *
- * The date alone is not enough to choose between two sailings on the same
- * ship: a week in the Western Caribbean and a week in the Eastern leave from
- * the same pier a fortnight apart and read identically as dates. The
- * itinerary is what is actually being chosen, so it goes in the option next
- * to the date. Where the catalog has no itinerary title the broad region
- * stands in, and where it has neither the date carries on alone.
- */
-function sailingLabel(r) {
-  // The feed writes the length into the itinerary title as often as not
-  // ("7 Night Western Caribbean"), and printing "7 nights" after that reads
-  // as a stutter. The prefix comes off; the count is shown once, at the end,
-  // where it lines up down the list.
-  const itinerary = String(r.name || r.destination || '')
-    .replace(/^\s*\d+\s*[- ]?\s*(night|nt|day)s?\s+/i, '')
-    .trim();
-  return [
-    dateFmt(r.depart_date),
-    itinerary,
-    r.nights ? `${r.nights} nights` : '',
-  ].filter(Boolean).join('  ·  ');
-}
-
-pickShip.addEventListener('change', async () => {
-  pickDate.innerHTML = '<option value="">Departure</option>';
-  pickDate.disabled = true;
-  dateRows = [];
-  if (!pickShip.value) return;
-  const d = await api(`/api/catalog/dates?ship=${encodeURIComponent(pickShip.value)}`
-    + `&line=${encodeURIComponent(pickedLine)}`).catch(() => null);
-  if (!d || !d.dates.length) return;
-  dateRows = d.dates;
-  pickDate.innerHTML = '<option value="">Departure</option>'
-    + d.dates.map((r) => `<option value="${esc(r.depart_date)}">${esc(sailingLabel(r))}</option>`)
-      .join('');
-  pickDate.disabled = false;
-});
-
-pickDate.addEventListener('change', () => {
-  const r = dateRows.find((x) => x.depart_date === pickDate.value);
-  if (!r) return;
-  const set = (n, v) => { const el = form.elements[n]; if (el && v) el.value = v; };
-  set('supplier', r.cruise_line);
-  set('productName', r.ship);
-  set('itinerary', r.name);
-  set('destination', r.destination);
-  set('departDate', r.depart_date);
-  set('returnDate', r.return_date);
-  set('productType', 'cruise');
-  pickerHint.textContent = `Filled from ${r.cruise_line}: ${r.name || r.ship}. `
-    + 'Change anything below that is not right.';
-});
 
 // Straight to the reservation, which is where the pricing, the travellers and
 // the payment schedule are. Creating one and being left on a list is being

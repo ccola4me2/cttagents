@@ -354,19 +354,26 @@ function checkCalls(root) {
           if (/^[A-Za-z_$][\w$]*$/.test(nameOnly)) declared.add(nameOnly);
         }
       }
-      for (const d of body.matchAll(/\(([^)]*)\)\s*=>/g)) {
-        for (const part of d[1].split(',')) {
-          const nameOnly = part.trim().replace(/=.*$/, '').trim();
+      // A parameter list, which may itself be destructured: a function taking
+      // ({ typeOf, set, onSailing }) declares all three, and reading only the
+      // bare names in it reported the callbacks as undeclared.
+      const params = (list) => {
+        for (const part of list.split(',')) {
+          const nameOnly = part.replace(/[{}[\]]/g, ' ').split(':').pop()
+            .replace(/=.*$/, '').replace(/\.\.\./, '').trim();
           if (/^[A-Za-z_$][\w$]*$/.test(nameOnly)) declared.add(nameOnly);
         }
+      };
+      for (const d of body.matchAll(/\(([^)]*)\)\s*=>/g)) params(d[1]);
+      for (const d of body.matchAll(/function\s*[A-Za-z_$\w]*\s*\(([^)]*)\)/g)) params(d[1]);
+      // A shorthand method in an object literal declares a name too, and reads
+      // exactly like a call with a block after it. Anchored to the start of a
+      // line, where a bare call would be followed by a semicolon rather than
+      // an opening brace.
+      for (const d of body.matchAll(/^\s*(?:async\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{\s*$/gm)) {
+        declared.add(d[1]);
       }
-      for (const d of body.matchAll(/function\s*[A-Za-z_$\w]*\s*\(([^)]*)\)/g)) {
-        for (const part of d[1].split(',')) {
-          const nameOnly = part.trim().replace(/=.*$/, '').trim();
-          if (/^[A-Za-z_$][\w$]*$/.test(nameOnly)) declared.add(nameOnly);
-        }
-      }
-      for (const d of body.matchAll(/catch\s*\(\s*([A-Za-z_$][\w$]*)/g)) declared.add(d[1]);
+      for (const d of body.matchAll(/\bcatch\s*\(\s*([A-Za-z_$][\w$]*)/g)) declared.add(d[1]);
 
       // Strip strings, template literals and comments so text inside them is
       // not read as code.

@@ -38,6 +38,7 @@
                 <div class="field"><label for="name">Group name</label>
                   <input id="name" name="name" maxlength="160" required
                     placeholder="Islander New Year Cruise"></div>
+                <div id="vendor-pick-field"></div>
                 <div class="field-row">
                   <div class="field"><label for="vendor">Vendor</label>
                     <input id="vendor" name="vendor" placeholder="Margaritaville at Sea"></div>
@@ -144,6 +145,7 @@
 <script type="module">
 import { api, mountShell, esc, money, dateFmt, daysUntil, showError, onSubmit }
   from '/js/app.js';
+import { mountSupplierPicker } from '/js/supplier-picker.js';
 const ME = (await mountShell()).id;
 
 const groupId = new URL(location.href).searchParams.get('id');
@@ -374,6 +376,49 @@ async function save(values) {
     location.href = `/app/group?id=${encodeURIComponent(created.group.id)}`;
   }
 }
+
+/**
+ * Who the block is held with, and which sailing it is on.
+ *
+ * The same pair the new-reservation form uses, from the same module: a group
+ * is a vendor, a product and a set of dates exactly as a reservation is, and
+ * typing a cruise line by hand here after picking it from a list there is how
+ * "Royal Caribbean" and "Royal Caribbean International" end up as two
+ * suppliers in one report.
+ *
+ * A group's kind is spelled slightly differently from a reservation's, so it
+ * is translated on the way in: a block of rooms is lodging here and a hotel
+ * on the vendor shelves, and "something else" rules nothing out.
+ */
+(async () => {
+  const host = document.getElementById('vendor-pick-field');
+  const kind = () => {
+    const v = form.elements.groupType.value;
+    if (v === 'lodging') return 'hotel';
+    if (v === 'other') return '';
+    return v;
+  };
+
+  const picker = await mountSupplierPicker(host, {
+    typeOf: kind,
+    set(field, value) {
+      if (field === 'supplier') form.elements.vendor.value = value;
+    },
+    onSailing(r) {
+      const put = (n, v) => { const el = form.elements[n]; if (el && v) el.value = v; };
+      put('vendor', r.cruise_line);
+      put('productName', r.ship);
+      put('destination', r.destination || r.name);
+      put('departDate', r.depart_date);
+      put('returnDate', r.return_date);
+      // A sailing picked for a group is a cruise, whatever the box said when
+      // the page opened.
+      put('groupType', 'cruise');
+    },
+  });
+
+  form.elements.groupType.addEventListener('change', () => picker.refresh());
+})();
 
 onSubmit(form, save);
 onSubmit(regForm, (values) => save({
