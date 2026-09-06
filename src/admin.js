@@ -7,6 +7,7 @@ import { listSyncState, runSync, resetSync } from './sync.js';
 import { requireAdmin, publicUser } from './auth.js';
 import * as db from './db.js';
 import { sendAdvisorApprovedEmail, checkResend, sendTestEmail } from './email.js';
+import { remindTasks } from './taskmail.js';
 import { schemaDrift } from './schema-drift.js';
 import { mirrorCatalogStep, mirrorStatus } from './catalogmirror.js';
 
@@ -209,6 +210,22 @@ export async function handleHealth(request, env) {
 }
 
 /** Admin only. Sends a real email and returns Resend's actual response. */
+/**
+ * Run the daily "what is due" pass now, ignoring the hour.
+ *
+ * The pass is meant to fire once a morning, which makes it the hardest thing
+ * here to check: waiting until tomorrow to find out whether it works is not
+ * testing it. Admin only, and it sends for real, so the stamps it writes are
+ * the real stamps: a task told about here is not told about again.
+ */
+export async function handleRunTaskReminders(request, env) {
+  const { user, response } = await requireAdmin(request, env);
+  if (response) return response;
+  const result = await remindTasks(env, { force: true });
+  await db.logActivity(env, user.id, 'admin.taskReminders', 'Ran the task reminder pass', result);
+  return json(result);
+}
+
 export async function handleTestEmail(request, env) {
   const { user, response } = await requireAdmin(request, env);
   if (response) return response;

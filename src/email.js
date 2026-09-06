@@ -224,6 +224,46 @@ export function sendSignupNoticeEmail(env, { to, advisorFirstName, what, href,
   });
 }
 
+/**
+ * What is due today, and what is already late.
+ *
+ * One message a day rather than one per task. Late work leads, because it is
+ * the part that has gone wrong, and each line says what the task is about:
+ * "Ring about the deposit" on its own is not enough to act on from a phone.
+ */
+export function sendTaskDigestEmail(env, { to, firstName, due = [], late = [] }) {
+  const line = (t) => {
+    const about = [t.client_name, t.booking_client, t.group_name].filter(Boolean)[0];
+    const when = t.due_time ? ` at ${t.due_time}` : '';
+    return `<li style="margin:0 0 6px;">${escapeHtml(t.title)}${escapeHtml(when)}`
+      + `${about ? ` <span style="color:#5c7286;">&middot; ${escapeHtml(about)}</span>` : ''}`
+      + `${t.priority === 'high' ? ' <strong style="color:#c2410c;">high</strong>' : ''}</li>`;
+  };
+
+  const block = (title, rows, colour) => (rows.length
+    ? `<p style="margin:0 0 8px;font-weight:600;color:${colour};">${escapeHtml(title)}</p>
+       <ul style="margin:0 0 20px;padding-left:20px;">${rows.map(line).join('')}</ul>`
+    : '');
+
+  const counts = [
+    late.length ? `${late.length} overdue` : '',
+    due.length ? `${due.length} due today` : '',
+  ].filter(Boolean).join(', ');
+
+  return send(env, {
+    to,
+    subject: `Your list: ${counts}`,
+    html: layout(env, {
+      heading: 'What is on your list',
+      body: `<p style="margin:0 0 16px;">Morning ${escapeHtml(firstName || 'there')}.</p>`
+        + block('Overdue', late, '#c2410c')
+        + block('Due today', due, BRAND_NAVY)
+        + '<p style="margin:0;">Ticking anything off stops it appearing here tomorrow.</p>',
+      cta: { label: 'Open your list', href: `${appUrl(env)}/app/tasks` },
+    }),
+  });
+}
+
 export function sendPasswordResetEmail(env, user, token) {
   const minutes = Number(env.RESET_TTL_MINUTES || 60);
   return send(env, {

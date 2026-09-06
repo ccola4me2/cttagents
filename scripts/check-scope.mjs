@@ -62,6 +62,11 @@ const ALLOWED = [
   ['SELECT id FROM travel_groups WHERE group_code = ?',
     'deliberately every advisor: the code is a public web address, so it has to be '
     + 'unique across all of them, not just within one book'],
+  ['UPDATE tasks SET ${column} = ? WHERE id IN',
+    'the nightly reminder pass, which runs as nobody and covers every advisor on '
+    + 'purpose. It stamps only the ids it just selected, and each advisor was sent '
+    + 'their own tasks and no one else\'s: the scope lives in who the digest went to, '
+    + 'not in this write'],
   ['SELECT group_code FROM travel_groups WHERE group_code IN',
     'deliberately every advisor, for the same reason: it asks whether a code this '
     + 'advisor already holds is also held elsewhere. Only codes they can already see '

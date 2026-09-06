@@ -368,10 +368,10 @@ function checkCalls(root) {
       for (const d of body.matchAll(/function\s*[A-Za-z_$\w]*\s*\(([^)]*)\)/g)) params(d[1]);
       // A shorthand method in an object literal declares a name too, and reads
       // exactly like a call with a block after it. Anchored to the start of a
-      // line, where a bare call would be followed by a semicolon rather than
-      // an opening brace.
-      for (const d of body.matchAll(/^\s*(?:async\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{\s*$/gm)) {
-        declared.add(d[1]);
+      // line, where a bare call is followed by a semicolon rather than a brace.
+      // The keyword list below is what keeps `if (x) {` out of this.
+      for (const d of body.matchAll(/^\s*(?:async\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{/gm)) {
+        if (!KEYWORDS.has(d[1])) declared.add(d[1]);
       }
       for (const d of body.matchAll(/\bcatch\s*\(\s*([A-Za-z_$][\w$]*)/g)) declared.add(d[1]);
 

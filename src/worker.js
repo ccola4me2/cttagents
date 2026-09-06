@@ -27,6 +27,7 @@ import {
 } from './bookings.js';
 import { markReturnedTripsTravelled } from './db.js';
 import { mirrorCatalogStep } from './catalogmirror.js';
+import { remindTasks } from './taskmail.js';
 import { handleReadConfirmation } from './confirm.js';
 import { migrationHint } from './schema-drift.js';
 import {
@@ -117,7 +118,7 @@ import { handleDashboard, handleProduction, handleMonth } from './reports.js';
 import {
   handleListAdvisors, handleSetAdvisorStatus, handleSetAdvisorGhl, handleSetAdvisorSplit,
   handleRunLifecycle,
-  handleHealth, handleTestEmail, handleMirrorCatalog, handleMirrorStatus,
+  handleHealth, handleTestEmail, handleRunTaskReminders, handleMirrorCatalog, handleMirrorStatus,
   handleSyncStatus, handleRunSync,
 } from './admin.js';
 import { purgeExpiredSessions } from './db.js';
@@ -237,6 +238,10 @@ export default {
       markReturnedTripsTravelled(env, { today: new Date().toISOString().slice(0, 10) })
         .catch((e) => console.error('lifecycle', e))
     );
+    // What is due today and what is late, once a day. A no-op before the hour
+    // and for any task already told about, so running it every five minutes
+    // costs one query on almost every tick.
+    ctx.waitUntil(remindTasks(env).catch((e) => console.error('task reminders', e)));
     ctx.waitUntil(
       scanTimeTriggers(env, locationFor(env, null))
         .catch((e) => console.error('time triggers', e))
@@ -566,6 +571,7 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/admin/catalog-mirror' && method === 'GET') return handleMirrorStatus(request, env);
   if (path === '/api/admin/catalog-mirror' && method === 'POST') return handleMirrorCatalog(request, env);
   if (path === '/api/admin/test-email' && method === 'POST') return handleTestEmail(request, env);
+  if (path === '/api/admin/task-reminders' && method === 'POST') return handleRunTaskReminders(request, env);
   if (path === '/api/admin/sync' && method === 'GET') return handleSyncStatus(request, env);
   if (path === '/api/admin/sync' && method === 'POST') return handleRunSync(request, env);
   if (path === '/api/admin/lifecycle' && method === 'POST') return handleRunLifecycle(request, env);

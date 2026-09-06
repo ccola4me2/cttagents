@@ -142,6 +142,7 @@ async function main() {
   // advisor. Registered here it ran first and those checks then passed against
   // 401 bodies, which is worse than not running them.
   advisorId = created.id;
+  const adminId = (await call(admin, 'GET', '/api/auth/me')).data?.user?.id;
   check(created.status === 'pending', 'and shows up as pending', created.status);
 
   const approve = await call(admin, 'PUT', `/api/admin/advisors/${created.id}/status`,
@@ -164,6 +165,7 @@ async function main() {
     gross: '5000', deposit: '500', commission: '600', status: 'booked',
   });
   const bookingId = res.data?.booking?.id;
+  const clientId = res.data?.booking?.client_id;
   if (!check(res.status === 201 && bookingId, 'reservation created', `status ${res.status}`)) {
     throw new Bail('No reservation to schedule.');
   }
@@ -227,6 +229,9 @@ async function main() {
     departDate: isoDay(210), gross: '8000', commission: '800', status: 'booked',
   });
   const ownerBookingId = ownerRes.data?.booking?.id;
+  // Creating a reservation creates the client behind it, which is where these
+  // come from: there is no endpoint that makes a client on its own.
+  const ownerClientId = ownerRes.data?.booking?.client_id;
   if (ownerBookingId) {
     cleanup('the owner reservation', () => call(admin, 'DELETE', `/api/bookings/${ownerBookingId}`));
   }
@@ -620,6 +625,132 @@ async function main() {
     { title: 'Linked to someone else', bookingId: ownerBookingId });
   check(foreign.status === 400,
     'and a task cannot be linked to another advisor\'s reservation', `status ${foreign.status}`);
+
+  // Braced, so the names below are this block's own. The suite is long
+  // enough that a fresh `const` is a coin toss against something declared
+  // a thousand lines up, and the failure is a parse error, not a test.
+  {
+    // ------------------------------------------------ what a task is about ----
+    step('A task that says what it is and who it is for');
+
+    const detailed = await call(advisor, 'POST', '/api/tasks', {
+      title: `Ring about the deposit ${stamp}`, kind: 'call', priority: 'high',
+      dueDate: isoDay(0), dueTime: '9:30', clientId, notes: 'Two lines.\n\nSecond one.',
+    });
+    check(detailed.status === 201, 'a task carries a kind, a time and a client',
+      `status ${detailed.status}`);
+    if (detailed.data?.task?.id) {
+      cleanup('the detailed task',
+        () => call(advisor, 'DELETE', `/api/tasks/${detailed.data.task.id}`));
+    }
+    check(detailed.data?.task?.kind === 'call', 'the kind it is', detailed.data?.task?.kind);
+    // Written as 9:30 and stored as 09:30, so it sorts the way it reads.
+    check(detailed.data?.task?.due_time === '09:30', 'the time, padded so it sorts',
+      detailed.data?.task?.due_time);
+    check(detailed.data?.task?.client_name, 'and the client it is about',
+      detailed.data?.task?.client_name);
+    check((detailed.data?.task?.notes || '').includes('\n\n'),
+      'with the paragraphs in the notes left alone');
+
+    const noDay = await call(advisor, 'POST', '/api/tasks',
+      { title: 'A time and no day', dueTime: '09:00' });
+    check(noDay.status === 400, 'a time with no day is refused rather than dropped',
+      `status ${noDay.status}`);
+
+    const wrongKind = await call(advisor, 'POST', '/api/tasks',
+      { title: `Nonsense kind ${stamp}`, kind: 'telepathy' });
+    check(wrongKind.data?.task?.kind === 'other',
+      'an unknown kind falls back to other, not to the first real one',
+      wrongKind.data?.task?.kind);
+    if (wrongKind.data?.task?.id) {
+      cleanup('the odd-kind task',
+        () => call(advisor, 'DELETE', `/api/tasks/${wrongKind.data.task.id}`));
+    }
+
+    const foreignClient = await call(advisor, 'POST', '/api/tasks',
+      { title: 'Somebody else\'s client', clientId: ownerClientId });
+    check(foreignClient.status === 400,
+      'and a task cannot be hung on another advisor\'s client',
+      `status ${foreignClient.status}`);
+
+    // ------------------------------------------------- putting it on somebody -
+    step('An owner puts a task on an advisor');
+
+    const assigned = await call(admin, 'POST', '/api/tasks', {
+      title: `Chase the contract ${stamp}`, kind: 'call', assignTo: advisorId,
+    });
+    check(assigned.status === 201 && assigned.data?.task?.user_id === advisorId,
+      'the task lands on their list, not the owner\'s', assigned.data?.task?.user_id);
+    check(assigned.data?.task?.assigned_by, 'and says who put it there',
+      assigned.data?.task?.assigned_by);
+    if (assigned.data?.task?.id) {
+      cleanup('the assigned task',
+        () => call(admin, 'DELETE', `/api/tasks/${assigned.data.task.id}`));
+    }
+
+    const advisorInbox = await call(advisor, 'GET', '/api/tasks?state=open');
+    check((advisorInbox.data?.tasks || []).some((t) => t.id === assigned.data?.task?.id),
+      'the advisor sees it as their own');
+
+    // The links were checked against the person assigning, so carrying one over
+    // would put a dead reference on somebody else's list.
+    const assignedAndLinked = await call(admin, 'POST', '/api/tasks',
+      { title: 'Both at once', assignTo: advisorId, bookingId: ownerBookingId });
+    check(assignedAndLinked.status === 400,
+      'a task for somebody else cannot carry the owner\'s own records',
+      `status ${assignedAndLinked.status}`);
+
+    const associateAssigns = await call(advisor, 'POST', '/api/tasks',
+      { title: 'Not allowed', assignTo: adminId });
+    check(associateAssigns.status === 400,
+      'and an associate cannot put work on anybody', `status ${associateAssigns.status}`);
+  }
+
+  // ------------------------------------------------- being told what is due -
+  step('The list chases you rather than waiting to be opened');
+  {
+    const due = await call(advisor, 'POST', '/api/tasks',
+      { title: `Due today ${stamp}`, dueDate: isoDay(0) });
+    const late = await call(advisor, 'POST', '/api/tasks',
+      { title: `Late already ${stamp}`, dueDate: isoDay(-4) });
+    const someday = await call(advisor, 'POST', '/api/tasks',
+      { title: `No date at all ${stamp}` });
+    for (const t of [due, late, someday]) {
+      if (t.data?.task?.id) {
+        cleanup('a reminder task',
+          () => call(advisor, 'DELETE', `/api/tasks/${t.data.task.id}`));
+      }
+    }
+
+    // Forced, because the pass is meant to fire once a morning and waiting
+    // until tomorrow is not a test.
+    const first = await call(admin, 'POST', '/api/admin/task-reminders', {});
+    check(first.status === 200 && first.data?.tasks >= 2,
+      'a pass picks up what is due and what is late', JSON.stringify(first.data));
+
+    const again = await call(admin, 'POST', '/api/admin/task-reminders', {});
+    check(again.data?.tasks === 0,
+      'and says nothing twice about the same task', JSON.stringify(again.data));
+
+    // A task with no date is a someday task. It is not late, it is not due,
+    // and putting it in a morning email is how the email stops being read.
+    const stamped = await call(advisor, 'GET', '/api/tasks?state=open');
+    const undated = (stamped.data?.tasks || []).find((t) => t.id === someday.data?.task?.id);
+    check(undated && !undated.reminded_at && !undated.overdue_reminded_at,
+      'an undated task is never chased');
+
+    // Moving the date puts it back in the queue. Without this a task pushed to
+    // next week is never mentioned again, which is the failure nobody notices
+    // until the thing it was about has gone wrong.
+    const moved = await call(advisor, 'PUT', `/api/tasks/${due.data.task.id}`,
+      { title: `Due today ${stamp}`, dueDate: isoDay(1) });
+    check(moved.data?.task?.reminded_at === null,
+      'and rescheduling a task starts it chasing again', `${moved.data?.task?.reminded_at}`);
+
+    const notAdmin = await call(advisor, 'POST', '/api/admin/task-reminders', {});
+    check(notAdmin.status === 403 || notAdmin.status === 404,
+      'and only an owner can set a pass running', `status ${notAdmin.status}`);
+  }
 
   // ---------------------------------------------------- client credits ------
   step('Credits a client holds with a vendor');

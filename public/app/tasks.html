@@ -40,9 +40,15 @@
       <div class="field"><label for="title">Task</label>
         <input id="title" name="title" maxlength="200" required placeholder="Ring the Barnabys about their deposit"></div>
       <div class="field-row">
-        <div class="field"><label for="dueDate">Due</label>
-          <input id="dueDate" name="dueDate" type="date">
-          <p class="field-hint">Leave blank for someday.</p></div>
+        <div class="field"><label for="kind">Kind</label>
+          <select id="kind" name="kind">
+            <option value="other">Something else</option>
+            <option value="call">Call</option>
+            <option value="email">Email</option>
+            <option value="document">Document</option>
+            <option value="payment">Payment</option>
+            <option value="meeting">Meeting</option>
+          </select></div>
         <div class="field"><label for="priority">Priority</label>
           <select id="priority" name="priority">
             <option value="normal">Normal</option>
@@ -50,8 +56,36 @@
             <option value="low">Low</option>
           </select></div>
       </div>
-      <div class="field"><label for="bookingId">Reservation <span style="font-weight:400;color:var(--ink-400);">(optional)</span></label>
-        <select id="bookingId" name="bookingId"></select></div>
+      <div class="field-row">
+        <div class="field"><label for="dueDate">Due</label>
+          <input id="dueDate" name="dueDate" type="date">
+          <p class="field-hint">Leave blank for someday. A date gets you a reminder the
+            morning it is due, and again if it goes past.</p></div>
+        <div class="field"><label for="dueTime">At <span style="font-weight:400;color:var(--ink-400);">(optional)</span></label>
+          <input id="dueTime" name="dueTime" type="time">
+          <p class="field-hint">Shown on the task and in the reminder.</p></div>
+      </div>
+
+      <div class="field"><label for="clientName">Client <span style="font-weight:400;color:var(--ink-400);">(optional)</span></label>
+        <input id="clientName" name="clientName" maxlength="120" autocomplete="off"
+          placeholder="Start typing a name from your book">
+        <input type="hidden" id="clientId" name="clientId">
+        <div id="client-hits" class="suggest" hidden></div>
+        <p class="field-hint" id="client-hint">Who the task is about.</p></div>
+
+      <div class="field-row">
+        <div class="field"><label for="bookingId">Reservation <span style="font-weight:400;color:var(--ink-400);">(optional)</span></label>
+          <select id="bookingId" name="bookingId"></select></div>
+        <div class="field"><label for="groupId">Group <span style="font-weight:400;color:var(--ink-400);">(optional)</span></label>
+          <select id="groupId" name="groupId"></select></div>
+      </div>
+
+      <div class="field" id="assign-field" hidden>
+        <label for="assignTo">Put it on</label>
+        <select id="assignTo" name="assignTo"></select>
+        <p class="field-hint">Whose list it goes on. A task for somebody else cannot be tied
+          to your own client, reservation or group: they could not open it.</p></div>
+
       <div class="field"><label for="notes">Notes</label>
         <textarea id="notes" name="notes" maxlength="2000"></textarea></div>
     </div>
@@ -65,6 +99,7 @@
 <script type="module">
 import { api, mountShell, esc, dateFmt, showError, onSubmit,
          mountScopePicker, advisorParam } from '/js/app.js';
+import { mountClientSuggest } from '/js/client-suggest.js';
 const ME = (await mountShell()).id;
 
 const panel = document.getElementById('panel');
@@ -76,6 +111,8 @@ let cache = [];
 let today = new Date().toISOString().slice(0, 10);
 let state = 'open';
 let reservations = [];
+let groups = [];
+let advisors = [];
 
 const short = (iso) => (iso ? dateFmt(iso).replace(/,? \d{4}$/, '') : '');
 
@@ -113,8 +150,14 @@ function render(d) {
                          : '<span class="muted">no date</span>',
               t.priority === 'high' ? '<span class="badge badge-coral">high</span>' : '',
               t.priority === 'low' ? '<span class="badge badge-navy">low</span>' : '',
+              t.due_time ? esc(t.due_time) : '',
+              t.kind && t.kind !== 'other' ? `<span class="badge badge-navy">${esc(t.kind)}</span>` : '',
+              t.client_name ? esc(t.client_name) : '',
               t.booking_client ? `${esc(t.booking_client)}${t.booking_supplier ? ' &middot; ' + esc(t.booking_supplier) : ''}` : '',
+              t.group_name ? `group: ${esc(t.group_name)}` : '',
               showAdvisor && t.advisor_name ? esc(t.advisor_name) : '',
+              t.assigned_by_name && t.assigned_by !== t.user_id
+                ? `from ${esc(t.assigned_by_name)}` : '',
             ].filter(Boolean).join(' &middot; ')}</span>
             ${t.notes ? `<span class="m">${esc(t.notes)}</span>` : ''}
           </span>
@@ -144,13 +187,54 @@ function fillReservations(selected) {
       ${esc(b.client_name)}${b.supplier ? ' — ' + esc(b.supplier) : ''}</option>`).join('');
 }
 
+function fillGroups(selected) {
+  document.getElementById('groupId').innerHTML =
+    '<option value="">Not linked to a group</option>' +
+    groups.map((g) => `<option value="${esc(g.id)}"${g.id === selected ? ' selected' : ''}>
+      ${esc(g.name)}</option>`).join('');
+}
+
+// Only an owner sees this, and only because only an owner can use it. A field
+// that is always there and always refuses is worse than no field.
+function fillAdvisors(selected) {
+  const field = document.getElementById('assign-field');
+  if (!advisors.length) { field.hidden = true; return; }
+  field.hidden = false;
+  document.getElementById('assignTo').innerHTML =
+    '<option value="">My own list</option>' +
+    advisors.filter((a) => a.id !== ME)
+      .map((a) => `<option value="${esc(a.id)}"${a.id === selected ? ' selected' : ''}>
+        ${esc(a.name)}</option>`).join('');
+}
+
+// Linking a task to your own records and putting it on somebody else's list
+// are mutually exclusive, and the API refuses the combination. Said here, as
+// the choice is made, rather than as an error after saving.
+function syncAssign() {
+  const other = Boolean(document.getElementById('assignTo').value);
+  const hint = document.getElementById('client-hint');
+  for (const id of ['clientName', 'bookingId', 'groupId']) {
+    const el = document.getElementById(id);
+    el.disabled = other;
+    if (other) el.value = '';
+  }
+  if (other) document.getElementById('clientId').value = '';
+  hint.textContent = other
+    ? 'A task on somebody else\'s list cannot point at your client, reservation or group.'
+    : 'Who the task is about.';
+}
+
 function openCreate() {
   editingId = null;
   form.reset();
   document.getElementById('dlg-title').textContent = 'Add a task';
   deleteBtn.hidden = true;
   form.querySelector('.notice-error').hidden = true;
+  document.getElementById('clientId').value = '';
   fillReservations('');
+  fillGroups('');
+  fillAdvisors('');
+  syncAssign();
   dlg.showModal();
 }
 
@@ -162,9 +246,19 @@ function openEdit(t) {
   form.querySelector('.notice-error').hidden = true;
   form.elements.title.value = t.title;
   form.elements.dueDate.value = t.due_date || '';
+  form.elements.dueTime.value = t.due_time || '';
   form.elements.priority.value = t.priority || 'normal';
+  form.elements.kind.value = t.kind || 'other';
   form.elements.notes.value = t.notes || '';
+  form.elements.clientName.value = t.client_name || '';
+  document.getElementById('clientId').value = t.client_id || '';
   fillReservations(t.booking_id || '');
+  fillGroups(t.group_id || '');
+  // Reassigning an existing task is a different operation from creating one
+  // on somebody's list, and it is not offered: the row would have to move
+  // between two people's lists, and nothing here does that yet.
+  document.getElementById('assign-field').hidden = true;
+  syncAssign();
   dlg.showModal();
 }
 
@@ -172,10 +266,26 @@ async function load() {
   try {
     const q = [`state=${state}`, advisorParam()].filter(Boolean).join('&');
     const d = await api(`/api/tasks?${q}`);
+    advisors = d.advisors || [];
     mountScopePicker(document.getElementById('scope'), d, load);
     render(d);
   } catch (err) { showError(panel, err); }
 }
+
+mountClientSuggest(document.getElementById('clientName'), {
+  mineOnly: ME,
+  onChoose(row) {
+    // A CRM contact who has never been booked has no client record yet, so
+    // there is no id to carry. The name still goes in, and the task attaches
+    // to them the moment they become a client.
+    document.getElementById('clientId').value = row.source === 'crm' ? '' : (row.id || '');
+  },
+});
+document.getElementById('clientName').addEventListener('input', () => {
+  // Typed over, so whoever was chosen is no longer who this is about.
+  document.getElementById('clientId').value = '';
+});
+document.getElementById('assignTo').addEventListener('change', syncAssign);
 
 document.getElementById('add').addEventListener('click', openCreate);
 document.getElementById('close').addEventListener('click', () => dlg.close());
@@ -206,8 +316,11 @@ onSubmit(form, async (values) => {
 
 // The reservation picker needs the advisor's own reservations, which is a
 // different question from whose tasks are on screen.
-reservations = await api('/api/bookings').then((d) => d.bookings.filter((b) => b.user_id === ME))
-  .catch(() => []);
+[reservations, groups] = await Promise.all([
+  api('/api/bookings').then((d) => d.bookings.filter((b) => b.user_id === ME)).catch(() => []),
+  api('/api/groups?status=').then((d) => (d.groups || []).filter((g) => g.user_id === ME))
+    .catch(() => []),
+]);
 await load();
 </script>
 </body></html>
