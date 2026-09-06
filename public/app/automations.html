@@ -225,13 +225,48 @@ function render(list) {
       <td class="num">${a.steps.length}</td>
       <td class="num">${a.runsStarted}</td>
       <td class="num"><button class="btn btn-ghost btn-sm" data-detail="${esc(a.id)}">${a.activeRuns}</button></td>
-      <td class="num"><button class="btn btn-ghost btn-sm" data-edit="${esc(a.id)}">Edit</button></td>
+      <td class="num"><button class="btn btn-ghost btn-sm" data-run="${esc(a.id)}">Run now</button>
+        <button class="btn btn-ghost btn-sm" data-edit="${esc(a.id)}">Edit</button></td>
     </tr>`).join('')}</tbody></table></div>`;
 
   panel.querySelectorAll('[data-edit]').forEach((b) =>
     b.addEventListener('click', () => openBuilder(cache.find((x) => x.id === b.dataset.edit))));
   panel.querySelectorAll('[data-detail]').forEach((b) =>
     b.addEventListener('click', () => showDetail(b.dataset.detail)));
+  panel.querySelectorAll('[data-run]').forEach((b) =>
+    b.addEventListener('click', () => runOne(b.dataset.run, b)));
+}
+
+/**
+ * Run one automation's due steps, now.
+ *
+ * A pass over everything takes the oldest runs that are due and stops at a
+ * ceiling, so on a busy queue the run you just triggered sits behind all of
+ * it. Testing a sequence then means waiting on the cron and hoping. Asking
+ * about one automation answers the question you actually have.
+ */
+async function runOne(id, btn) {
+  const was = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+  try {
+    const { result } = await api('/api/automations/run',
+      { method: 'POST', body: { automationId: id } });
+
+    // Say what happened before redrawing anything. Reloading the list first
+    // replaces this button with a new one, and the answer was being written
+    // to an element already off the page.
+    btn.textContent = result.processed
+      ? `${result.processed} step${result.processed === 1 ? '' : 's'}`
+      : 'Nothing due';
+    if (!detail.hidden) await showDetail(id);
+    setTimeout(load, 2500);
+  } catch (err) {
+    showError(document.getElementById('err'), err);
+    btn.textContent = was;
+  } finally {
+    setTimeout(() => { btn.disabled = false; btn.textContent = was; }, 2400);
+  }
 }
 
 async function showDetail(id) {
@@ -239,7 +274,8 @@ async function showDetail(id) {
   detail.innerHTML = '<p class="spinner">Loading...</p>';
   try {
     const d = await api(`/api/automations/${encodeURIComponent(id)}`);
-    detail.innerHTML = `<div class="card-head"><h2>${esc(d.automation.name)} activity</h2></div>
+    detail.innerHTML = `<div class="card-head"><h2>${esc(d.automation.name)} activity</h2>
+        <button class="btn btn-ghost btn-sm" id="detail-run">Run now</button></div>
       <div class="split" style="padding:1.25rem;">
         <div><h3 style="font-size:.9rem;margin-bottom:.6rem;">Runs</h3>
           ${d.runs.length ? `<ul class="rows" style="border:1px solid var(--navy-100);border-radius:10px;">
@@ -259,6 +295,9 @@ async function showDetail(id) {
                 <div class="when">${esc(timeAgo(l.created_at))}</div></div></div></li>`).join('')}</ul>`
             : '<p class="muted">Nothing logged yet.</p>'}</div>
       </div>`;
+    // Bound after the panel is drawn, since drawing it replaced the old one.
+    document.getElementById('detail-run')
+      .addEventListener('click', (e) => runOne(id, e.target));
     detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (err) { showError(detail, err); }
 }

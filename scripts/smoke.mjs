@@ -1029,10 +1029,23 @@ async function main() {
   const ran = await call(admin, 'POST', '/api/vendors/import', { text: pasted, commit: true });
   check(ran.data?.added === 4, 'then the import adds them', `${ran.data?.added} added`);
 
-  const listed = await call(admin, 'GET', '/api/vendors');
+  // The directory answers with at most a capped number of vendors and says
+  // when it cut the list. On a book big enough to be truncated the four just
+  // imported may not be in the answer at all, which failed this block for
+  // reasons that had nothing to do with importing. Ask about them by name.
+  const listed = await call(admin, 'GET', `/api/vendors?q=${encodeURIComponent(stamp)}`);
+  check(listed.data?.truncated !== true, 'and a search for them is not cut short',
+    'the vendor search came back truncated');
   const byName = new Map((listed.data?.vendors || []).map((v) => [v.name, v]));
   check(byName.get(`Seabourn ${stamp}`)?.category === 'Cruise Lines',
     'each filed under the heading it sat beneath');
+
+  // Imported vendors were the one thing this suite created and never removed,
+  // and two and a half thousand of them had piled up in the local database.
+  for (const v of byName.values()) {
+    cleanup(`the imported vendor ${v.name}`,
+      () => call(admin, 'DELETE', `/api/vendors/${v.id}`));
+  }
   // The favourites block comes first on those pages and carries no category,
   // so the real one arrives on a second sighting. Taking only the first left
   // every starred supplier uncategorised.
@@ -1091,8 +1104,15 @@ async function main() {
   check(exported.data?.skipped === 1, 'and leaves tourism boards out, as asked',
     `${exported.data?.skipped} skipped`);
 
-  const rich = (await call(admin, 'GET', '/api/vendors')).data?.vendors
-    ?.find((v) => v.name === `Royal Caribbean ${stamp}`);
+  // By name, not by scanning the directory: it answers with at most a capped
+  // number of vendors, so on a big book the row just imported may not be in
+  // the answer at all.
+  const rich = (await call(admin, 'GET', `/api/vendors?q=${encodeURIComponent(stamp)}`))
+    .data?.vendors?.find((v) => v.name === `Royal Caribbean ${stamp}`);
+  if (rich) {
+    cleanup('the imported directory row',
+      () => call(admin, 'DELETE', `/api/vendors/${rich.id}`));
+  }
   check(rich?.category === 'Cruise Lines',
     'the first of several categories is the primary one', rich?.category);
   // Thirty-five of the partner directory's suppliers sit on more than one

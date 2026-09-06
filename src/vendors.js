@@ -89,6 +89,18 @@ export async function handleListVendors(request, env) {
   const scope = db.scopeFor(env, user, request);
   const scoped = db.scopeWhere(scope, 'v.user_id');
 
+  // Narrowing the directory rather than paging it. The page filters what it
+  // was given, which is right until the book outgrows the cap: past that the
+  // supplier you are looking for can be missing from the answer entirely, and
+  // filtering an incomplete list looks exactly like not having the vendor.
+  const q = clean(new URL(request.url).searchParams.get('q'), 120);
+  // Appended to the scope clause rather than folded into a list of conditions.
+  // The scope checker reads this file as text and looks for the user predicate
+  // in the query it can see; building the WHERE out of an array hid it, and a
+  // check that cannot see the predicate is right to complain.
+  const narrow = q ? ' AND v.name LIKE ?' : '';
+  const binds = q ? [...scoped.binds, `%${q}%`] : [...scoped.binds];
+
   const { results } = await env.DB.prepare(
     `SELECT ${COLUMNS},
             (SELECT COUNT(*) FROM bookings b WHERE b.vendor_id = v.id
@@ -100,12 +112,12 @@ export async function handleListVendors(request, env) {
             (SELECT COUNT(*) FROM bookings b WHERE b.vendor_id = v.id
               AND b.status IN ('quoted','booked') AND b.final_payment_due IS NULL) AS undated
        FROM vendors v
-      WHERE ${scoped.sql}
+      WHERE ${scoped.sql}${narrow}
       ORDER BY gross_cents DESC, v.name ASC LIMIT ?`
     // One over the cap, so a truncated list can be reported as truncated. This
     // page is a directory: it is supposed to list everything, and a silent cut
     // meant a vendor could be added and simply not appear. Found by adding one.
-  ).bind(...scoped.binds, LIST_CAP + 1).all();
+  ).bind(...binds, LIST_CAP + 1).all();
 
   const all = results || [];
   const truncated = all.length > LIST_CAP;
@@ -115,6 +127,7 @@ export async function handleListVendors(request, env) {
     vendors,
     categories: CATEGORIES,
     truncated,
+    query: q || null,
     stats: {
       total: vendors.length,
       favourites: vendors.filter((v) => v.favourite).length,
