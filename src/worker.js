@@ -28,6 +28,10 @@ import {
 import { markReturnedTripsTravelled } from './db.js';
 import { mirrorCatalogStep } from './catalogmirror.js';
 import { remindTasks } from './taskmail.js';
+import {
+  handleShareTrip, handleShareDocument, handleTripMessages, handleReadTripMessage,
+  renderTripPage, handleTripMessage, serveTripDocument,
+} from './share.js';
 import { handleReadConfirmation } from './confirm.js';
 import { migrationHint } from './schema-drift.js';
 import {
@@ -281,6 +285,10 @@ async function routeApi(request, env, path, method) {
   const quickMatch = path.match(/^\/api\/bookings\/([^/]+)\/quick$/);
   const statementMatch = path.match(/^\/api\/bookings\/([^/]+)\/statement$/);
   const welcomedMatch = path.match(/^\/api\/bookings\/([^/]+)\/welcomed$/);
+  const shareMatch = path.match(/^\/api\/bookings\/([^/]+)\/share$/);
+  const tripMsgMatch = path.match(/^\/api\/bookings\/([^/]+)\/messages$/);
+  const msgReadMatch = path.match(/^\/api\/trip-messages\/([^/]+)\/read$/);
+  const docShareMatch = path.match(/^\/api\/documents\/([^/]+)\/share$/);
   const docsMatch = path.match(/^\/api\/bookings\/([^/]+)\/documents$/);
   const componentsMatch = path.match(/^\/api\/bookings\/([^/]+)\/components$/);
   const componentMatch = path.match(/^\/api\/components\/([^/]+)$/);
@@ -501,6 +509,12 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/search' && method === 'GET') return handleSearch(request, env);
 
   // Tasks: the advisor's own working list, not the CRM's.
+  // Sharing a trip with the person it is for.
+  if (shareMatch && method === 'POST') return handleShareTrip(request, env, shareMatch[1]);
+  if (tripMsgMatch && method === 'GET') return handleTripMessages(request, env, tripMsgMatch[1]);
+  if (msgReadMatch && method === 'POST') return handleReadTripMessage(request, env, msgReadMatch[1]);
+  if (docShareMatch && method === 'POST') return handleShareDocument(request, env, docShareMatch[1]);
+
   if (path === '/api/tasks' && method === 'GET') return handleListMyTasks(request, env);
   if (path === '/api/tasks' && method === 'POST') return handleCreateMyTask(request, env);
   if (myTaskMatch && method === 'PUT') return handleUpdateMyTask(request, env, myTaskMatch[1]);
@@ -615,6 +629,23 @@ async function routePage(request, env, path) {
   // Hosted forms are public: no session, no gate. They are how leads arrive.
   const hosted = path.match(/^\/f\/([^/]+)\/?$/);
   if (hosted) return renderPublicForm(request, env, decodeURIComponent(hosted[1]));
+
+  // A client's own trip, on a code that is not the booking id. Read only: it
+  // answers "what is booked, what have I paid, what is due", which otherwise
+  // lives in an inbox. The POST is the note back, which is the only thing a
+  // client can do here.
+  const tripDoc = path.match(/^\/t\/([^/]+)\/d\/([^/]+)$/);
+  if (tripDoc) {
+    return serveTripDocument(request, env,
+      decodeURIComponent(tripDoc[1]), decodeURIComponent(tripDoc[2]));
+  }
+  const tripPage = path.match(/^\/t\/([^/]+)\/?$/);
+  if (tripPage) {
+    const tripCode = decodeURIComponent(tripPage[1]);
+    return request.method === 'POST'
+      ? handleTripMessage(request, env, tripCode)
+      : renderTripPage(request, env, tripCode);
+  }
 
   // A group's own page, on the same terms: public, because it is how names
   // arrive for a trip nobody has been told about yet.

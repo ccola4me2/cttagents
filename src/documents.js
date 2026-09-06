@@ -27,7 +27,7 @@ export const CATEGORIES = ['other', 'confirmation', 'invoice', 'insurance', 'air
 
 const COLUMNS = `
   id, user_id, booking_id, object_key, filename, content_type, size_bytes,
-  category, created_at, updated_at
+  category, shared, created_at, updated_at
 `;
 
 /**

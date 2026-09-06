@@ -81,9 +81,32 @@ async function call(cookieJar, method, path, body) {
     redirect: 'manual',
   });
   if (cookieJar) cookieJar.absorb(res);
+  // The body once, as text, then parsed if it will parse. Pages are checked
+  // for what they must not contain, and a checker that can only see JSON
+  // cannot look at a page at all.
+  const raw = await res.text();
   let data = null;
-  try { data = await res.json(); } catch { /* not every response is JSON */ }
-  return { status: res.status, data };
+  try { data = raw ? JSON.parse(raw) : null; } catch { /* not every response is JSON */ }
+  return { status: res.status, data, raw };
+}
+
+/**
+ * Attach a file, which is the one request here that is not a JSON body.
+ * Returns the created document, or null if the bucket is not bound: document
+ * storage is optional, and a suite that fails without R2 is a suite nobody
+ * can run locally.
+ */
+async function uploadDoc(cookieJar, bookingId, filename, content) {
+  const body = new FormData();
+  body.append('file', new Blob([content], { type: 'text/plain' }), filename);
+  body.append('category', 'other');
+  const res = await fetch(`${BASE}/api/bookings/${bookingId}/documents`, {
+    method: 'POST',
+    headers: { ...(cookieJar.header() ? { cookie: cookieJar.header() } : {}) },
+    body,
+  });
+  if (!res.ok) return null;
+  return res.json().catch(() => null);
 }
 
 const isoDay = (offset) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
@@ -900,6 +923,84 @@ async function main() {
     const foreignTpl = await call(admin, 'DELETE', `/api/task-templates/${tplId}`);
     check(foreignTpl.status === 404, 'and templates are one advisor\'s own',
       `status ${foreignTpl.status}`);
+  }
+
+  // -------------------------------------------------- the client's own page --
+  step('A trip page the client can open, and cannot leak');
+  {
+    const before = await call(null, 'GET', `/t/${bookingId}`);
+    check(before.status === 404, 'the booking id is not an address', `status ${before.status}`);
+
+    const on = await call(advisor, 'POST', `/api/bookings/${bookingId}/share`, { on: true });
+    const code = on.data?.code;
+    check(on.status === 200 && code && code.length >= 16,
+      'sharing gives a code of its own, long enough not to be guessed', `${code}`);
+    check(code !== bookingId, 'and it is not the booking id');
+    cleanup('the shared trip page',
+      () => call(advisor, 'POST', `/api/bookings/${bookingId}/share`, { on: false }));
+
+    const page = await call(null, 'GET', `/t/${code}`);
+    check(page.status === 200, 'the page is public, with no session at all',
+      `status ${page.status}`);
+
+    // The whole reason this page is dangerous. Every one of these is on the
+    // reservation it was built from.
+    const body = page.raw || '';
+    check(!/commission/i.test(body), 'and says nothing about commission');
+    check(!/mark ?up/i.test(body), 'nor about the mark up, which is a real charge with a bad name');
+    check(!body.includes(bookingId), 'nor the booking id');
+    check(body.includes('Smoke Client') || body.includes('Western Caribbean'),
+      'while showing the trip itself');
+
+    // Documents are the sharpest edge: the agent confirmation the importer
+    // reads has the commission printed on it.
+    const upload = await uploadDoc(advisor, bookingId, 'agent-confirmation.txt',
+      'AGENT CONFIRMATION\nCommission: 778.00\n');
+    if (upload?.id) {
+      const docId = upload.id;
+      const hidden = await call(null, 'GET', `/t/${code}/d/${docId}`);
+      check(hidden.status === 404, 'a document nobody shared cannot be fetched by its id',
+        `status ${hidden.status}`);
+
+      const shared = await call(advisor, 'POST', `/api/documents/${docId}/share`, { shared: true });
+      check(shared.status === 200, 'until it is shared on purpose');
+      const now = await call(null, 'GET', `/t/${code}/d/${docId}`);
+      check(now.status === 200, 'and then it can', `status ${now.status}`);
+
+      const off = await call(advisor, 'POST', `/api/documents/${docId}/share`, { shared: false });
+      check(off.status === 200, 'and it can be taken back');
+      const gone = await call(null, 'GET', `/t/${code}/d/${docId}`);
+      check(gone.status === 404, 'which stops it being fetched again', `status ${gone.status}`);
+      cleanup('the shared document',
+        () => call(advisor, 'DELETE', `/api/documents/${docId}`));
+    }
+
+    // The only thing a client can do here.
+    const note = await call(null, 'POST', `/t/${code}`,
+      { body: 'Could we look at the oceanview instead?' });
+    check(note.data?.ok, 'the client can leave a note', JSON.stringify(note.data));
+
+    const bot = await call(null, 'POST', `/t/${code}`,
+      { body: 'buy pills', company_website: 'http://spam' });
+    check(bot.data?.ok && bot.data?.message === 'Thanks.',
+      'a bot is thanked rather than told');
+
+    const blank = await call(null, 'POST', `/t/${code}`, { body: '   ' });
+    check(blank.status === 400, 'and an empty note is refused', `status ${blank.status}`);
+
+    const record = await call(advisor, 'GET', `/api/bookings/${bookingId}/record`);
+    const notes = record.data?.messages || [];
+    check(notes.length === 1 && notes[0].body.includes('oceanview'),
+      'one note reaches the advisor, not the bot\'s', `${notes.length} note(s)`);
+
+    const off = await call(advisor, 'POST', `/api/bookings/${bookingId}/share`, { on: false });
+    check(off.status === 200, 'sharing can be turned off');
+    const dead = await call(null, 'GET', `/t/${code}`);
+    check(dead.status === 404, 'and the link stops working at once', `status ${dead.status}`);
+
+    const notMine = await call(admin, 'POST', `/api/bookings/${bookingId}/share`, { on: true });
+    check(notMine.status === 404, 'and only the advisor whose trip it is can share it',
+      `status ${notMine.status}`);
   }
 
   // ---------------------------------------------------- client credits ------

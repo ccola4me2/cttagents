@@ -262,6 +262,10 @@ export async function handleBookingRecord(request, env, id) {
     // rather than showing an upload button that fails.
     documents: docs,
     documentCategories: DOC_CATEGORIES,
+    // What the client has said on their own page. Read here rather than on a
+    // request of its own: a note nobody sees is the read-only page quietly
+    // breaking the promise that telling you is enough.
+    messages: await tripMessages(env, booking.id, booking.user_id),
     // The lists the edit form needs, so the page and the validator can never
     // disagree about what a status or a product type may be. The reservations
     // list hardcoded its own copies and drifted from these twice.
@@ -315,6 +319,15 @@ export async function handleBookingRecord(request, env, id) {
     editable: booking.user_id === user.id,
     today: new Date().toISOString().slice(0, 10),
   });
+}
+
+/** Notes the client left on their trip page, newest first. */
+async function tripMessages(env, bookingId, userId) {
+  const { results } = await env.DB.prepare(
+    `SELECT id, body, read_at, created_at FROM trip_messages
+      WHERE booking_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 50`
+  ).bind(bookingId, userId).all().catch(() => ({ results: [] }));
+  return results || [];
 }
 
 export async function handleCreateBooking(request, env) {

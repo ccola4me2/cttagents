@@ -89,6 +89,11 @@
               <span id="amenity-actions"></span></div>
             <div id="amenities"></div>
           </section>
+          <section class="card" style="margin-top:1.5rem;" id="share-card">
+            <div class="card-head" id="sec-share"><h2>The client's own page</h2>
+              <span id="share-actions"></span></div>
+            <div id="share" class="card-pad"></div>
+          </section>
           <section class="card" style="margin-top:1.5rem;" id="docs-card">
             <div class="card-head" id="sec-docs"><h2>Documents</h2>
               <span id="doc-actions"></span></div>
@@ -458,6 +463,75 @@ const KB = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max
  * the portal's own origin, and an HTML or SVG document rendered inline would
  * run its own script against a signed in session.
  */
+/**
+ * The link the client opens, and what they will see on it.
+ *
+ * Off until it is turned on, per trip, because a page a client can reach is a
+ * decision and not a default. Turning it off drops the code rather than hiding
+ * it: a link that stops working and then works again months later, pointing at
+ * a trip whose details have moved on, is worse than a link that is gone.
+ */
+function drawShare() {
+  const host = document.getElementById('share');
+  const actions = document.getElementById('share-actions');
+  const b = d.booking || {};
+  const on = Boolean(b.share_code);
+
+  actions.innerHTML = d.editable
+    ? `<button class="btn ${on ? 'btn-ghost' : 'btn-primary'} btn-sm" id="share-toggle">
+         ${on ? 'Stop sharing' : 'Make a page'}</button>` : '';
+
+  if (!on) {
+    host.innerHTML = `<p class="muted" style="margin:0;">A page of their own showing what is
+      booked, what they have paid and what is still due, plus any documents you tick below.
+      They cannot change anything: if they want something different they leave you a note.</p>`;
+  } else {
+    const url = `${location.origin}/t/${b.share_code}`;
+    const shownDocs = (d.documents || []).filter((f) => f.shared).length;
+    const notes = (d.messages || []).length;
+    host.innerHTML = `
+      <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">
+        <code style="font-size:.92rem;">${esc(url)}</code>
+        <button class="btn btn-ghost btn-sm" id="share-copy">Copy link</button>
+        <a class="btn btn-ghost btn-sm" href="/t/${esc(b.share_code)}" target="_blank"
+          rel="noopener">Open it</a>
+      </div>
+      <p class="field-hint" style="margin-top:.6rem;">Anybody with this link can see the trip.
+        ${shownDocs ? `${shownDocs} document${shownDocs === 1 ? '' : 's'} shared.`
+          : 'No documents shared yet.'}
+        Prices are shown as a total and a schedule; your commission and the breakdown are not
+        on it.</p>
+      ${notes ? `<div style="margin-top:1rem;">
+        <p class="label" style="margin:0 0 .4rem;">What they have said</p>
+        <ul class="rows" style="border:1px solid var(--navy-100);border-radius:9px;">
+          ${d.messages.map((m) => `<li><div class="t" style="white-space:pre-wrap;">${esc(m.body)}</div>
+            <div class="m">${esc(timeAgo(m.created_at))}</div></li>`).join('')}
+        </ul></div>` : ''}`;
+
+    const copy = document.getElementById('share-copy');
+    copy.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(url);
+        copy.textContent = 'Copied';
+        setTimeout(() => { copy.textContent = 'Copy link'; }, 1500);
+      } catch { copy.textContent = 'Press Cmd-C'; }
+    });
+  }
+
+  const toggle = document.getElementById('share-toggle');
+  if (toggle) toggle.addEventListener('click', async () => {
+    if (on && !confirm('Stop sharing? The link stops working and a new one will be different.')) {
+      return;
+    }
+    toggle.disabled = true;
+    try {
+      await api(`/api/bookings/${encodeURIComponent(id)}/share`,
+        { method: 'POST', body: { on: !on } });
+      await load();
+    } catch (e) { toggle.disabled = false; showError(err, e); }
+  });
+}
+
 function drawDocuments() {
   const rows = d.documents || [];
   const box = document.getElementById('docs');
@@ -480,17 +554,38 @@ function drawDocuments() {
 
   box.innerHTML = rows.length
     ? `<div class="table-wrap"><table>
-        <thead><tr><th>File</th><th>What it is</th><th class="num">Size</th><th></th></tr></thead>
+        <thead><tr><th>File</th><th>What it is</th><th class="num">Size</th>
+          <th>Client sees</th><th></th></tr></thead>
         <tbody>${rows.map((f) => `<tr>
           <td><a class="name" href="/api/documents/${esc(f.id)}">${esc(f.filename)}</a>
             <div class="muted">${esc(timeAgo(f.created_at))}</div></td>
           <td><span class="badge badge-navy">${esc(f.category || 'other')}</span></td>
           <td class="num">${esc(KB(f.size_bytes || 0))}</td>
+          <td>${d.editable
+            ? `<label style="display:flex;align-items:center;gap:.4rem;font-weight:400;margin:0;">
+                 <input type="checkbox" data-share-doc="${esc(f.id)}"${f.shared ? ' checked' : ''}
+                   style="width:auto;flex:none;">
+                 <span class="muted">${f.shared ? 'shared' : 'no'}</span></label>`
+            : `<span class="muted">${f.shared ? 'shared' : 'no'}</span>`}</td>
           <td class="num">${d.editable
             ? `<button class="btn btn-ghost btn-sm" data-doc="${esc(f.id)}">Remove</button>` : ''}</td>
         </tr>`).join('')}</tbody></table></div>`
     : `<div class="empty"><h3>Nothing attached</h3>
         <p>The vendor confirmation, the insurance policy, the air tickets. Ten megabytes each.</p></div>`;
+
+  // Off by default and ticked one at a time, because the agent confirmation
+  // the importer reads has the commission printed on it. A page that helpfully
+  // offered every file would publish the one number the client must not see.
+  box.querySelectorAll('[data-share-doc]').forEach((tick) => {
+    tick.addEventListener('change', async () => {
+      tick.disabled = true;
+      try {
+        await api(`/api/documents/${encodeURIComponent(tick.dataset.shareDoc)}/share`,
+          { method: 'POST', body: { shared: tick.checked } });
+        await load();
+      } catch (e) { tick.checked = !tick.checked; tick.disabled = false; showError(err, e); }
+    });
+  });
 
   const input = document.getElementById('doc-file');
   if (input) input.addEventListener('change', async () => {
@@ -1233,6 +1328,7 @@ function render() {
     ['sec-options', 'Choices'],
     ['sec-travellers', 'Travellers'],
     ['sec-payments', 'Payments'],
+    ['sec-share', 'Client page'],
     ['sec-docs', 'Documents'],
     ['sec-penalty', 'If they cancel'],
     ['sec-amenities', 'Amenities'],
@@ -1252,6 +1348,7 @@ function render() {
 
   drawComponents();
   drawOptions();
+  drawShare();
   drawDocuments();
   drawPenalty();
   drawPricing();

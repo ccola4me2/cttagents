@@ -264,6 +264,32 @@ export function sendTaskDigestEmail(env, { to, firstName, due = [], late = [] })
   });
 }
 
+/**
+ * A client has said something on their trip page.
+ *
+ * The page is read only on purpose, so this is the whole return path: if the
+ * note lands in a table nobody opens, "tell me and I will sort it" is a
+ * promise the system quietly breaks.
+ */
+export function sendTripMessageEmail(env, { to, firstName, clientName, tripName, body, href }) {
+  if (!to) return Promise.resolve({ skipped: true });
+  return send(env, {
+    to,
+    subject: `${clientName} left a note about ${tripName}`,
+    html: layout(env, {
+      heading: `${escapeHtml(clientName)} has a question`,
+      body: `<p style="margin:0 0 12px;">Hi ${escapeHtml(firstName || 'there')},</p>
+             <p style="margin:0 0 12px;">They left this on their trip page for
+             <strong>${escapeHtml(tripName)}</strong>:</p>
+             <p style="margin:0 0 16px;padding:14px 16px;background:#f6f9fc;border-radius:8px;
+               white-space:pre-wrap;">${escapeHtml(body)}</p>
+             <p style="margin:0;">The page cannot change anything, so nothing has happened to
+             the reservation.</p>`,
+      cta: { label: 'Open the reservation', href },
+    }),
+  });
+}
+
 export function sendPasswordResetEmail(env, user, token) {
   const minutes = Number(env.RESET_TTL_MINUTES || 60);
   return send(env, {
