@@ -68,6 +68,21 @@
           </form>
         </div>
       </section>
+      <section class="card" id="templates-card">
+        <div class="card-head"><h2>Tasks that follow every trip</h2>
+          <div class="toolbar" style="margin:0;">
+            <button class="btn btn-ghost btn-sm" id="tpl-seed" hidden>Use the usual four</button>
+            <button class="btn btn-primary btn-sm" id="tpl-add">Add one</button>
+          </div>
+        </div>
+        <div class="card-pad">
+          <div class="notice notice-error" id="tpl-err" hidden></div>
+          <p class="field-hint" style="margin-top:0;">Made when a reservation is, from the dates
+            it has then. Nothing here changes a trip already booked, and moving a departure does
+            not move the tasks: that is a conversation with the client, not a silent edit.</p>
+          <div id="tpl-list"><p class="spinner">Loading...</p></div>
+        </div>
+      </section>
       <section class="card">
         <div class="card-head"><h2>Trip Vara Tools connection</h2></div>
         <div class="card-pad">
@@ -77,8 +92,62 @@
     </div>
   </div>
 </div>
+
+<dialog id="tpl-dlg">
+  <form id="tpl-form" method="dialog">
+    <div class="card-head"><h2 id="tpl-title">Add a task template</h2>
+      <button class="btn btn-ghost btn-sm" type="button" id="tpl-close">Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" hidden></div>
+      <div class="field"><label for="tpl-task">Task</label>
+        <input id="tpl-task" name="title" maxlength="200" required placeholder="Send documents"></div>
+      <div class="field-row">
+        <div class="field"><label for="tpl-kind">Kind</label>
+          <select id="tpl-kind" name="kind">
+            <option value="other">Something else</option>
+            <option value="call">Call</option>
+            <option value="email">Email</option>
+            <option value="document">Document</option>
+            <option value="payment">Payment</option>
+            <option value="meeting">Meeting</option>
+          </select></div>
+        <div class="field"><label for="tpl-priority">Priority</label>
+          <select id="tpl-priority" name="priority">
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+            <option value="low">Low</option>
+          </select></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="tpl-offset">Days</label>
+          <input id="tpl-offset" name="offsetDays" type="number" min="-730" max="730" value="-14">
+          <p class="field-hint">Negative is before, positive is after.</p></div>
+        <div class="field"><label for="tpl-anchor">Counted from</label>
+          <select id="tpl-anchor" name="anchor"></select></div>
+      </div>
+      <div class="field"><label for="tpl-product">Only for</label>
+        <select id="tpl-product" name="productType"></select>
+        <p class="field-hint">A cruise and a hotel stay do not have the same paperwork.</p></div>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:.5rem;font-weight:400;">
+          <input type="checkbox" id="tpl-active" name="active" checked>
+          Make this task on new reservations
+        </label>
+        <p class="field-hint">Turn it off to keep the template without it firing.</p></div>
+      <div class="field"><label for="tpl-notes">Notes on the task</label>
+        <textarea id="tpl-notes" name="notes" maxlength="2000"></textarea></div>
+      <p class="field-hint" id="tpl-preview"></p>
+    </div>
+    <div class="card-foot">
+      <button class="btn btn-danger btn-sm" type="button" id="tpl-delete" hidden>Delete</button>
+      <span style="flex:1;"></span>
+      <button class="btn btn-primary" type="submit">Save template</button>
+    </div>
+  </form>
+</dialog>
+
 <script type="module">
-import { api, mountShell, esc, onSubmit } from '/js/app.js';
+import { api, mountShell, esc, onSubmit, showError } from '/js/app.js';
 const user = await mountShell();
 
 const pf = document.getElementById('profile-form');
@@ -101,6 +170,134 @@ onSubmit(pf, async (values) => {
   ok.hidden = false;
   setTimeout(() => { ok.hidden = true; }, 3000);
 }, { errorBox: document.getElementById('profile-err') });
+
+// ------------------------------------------------ tasks that follow a trip --
+//
+// Written once and made when a reservation is. The preview line is the whole
+// point of the dialog: "14 days before departure" is a rule somebody can check
+// at a glance, and two number boxes are not.
+const tplDlg = document.getElementById('tpl-dlg');
+const tplForm = document.getElementById('tpl-form');
+const tplList = document.getElementById('tpl-list');
+const tplDelete = document.getElementById('tpl-delete');
+let tplEditing = null;
+let anchors = [];
+
+const KIND_WORD = {
+  call: 'Call', email: 'Email', document: 'Document',
+  payment: 'Payment', meeting: 'Meeting', other: '',
+};
+
+function offsetWords(days, anchorKey) {
+  const label = (anchors.find((a) => a.key === anchorKey) || {}).label || anchorKey;
+  const n = Math.abs(days);
+  if (!days) return `on ${label}`;
+  return `${n} day${n === 1 ? '' : 's'} ${days < 0 ? 'before' : 'after'} ${label}`;
+}
+
+function drawTemplates(list) {
+  document.getElementById('tpl-seed').hidden = list.length > 0;
+  if (!list.length) {
+    tplList.innerHTML = `<div class="empty"><h3>Nothing set up</h3>
+      <p>Every trip needs the same few things chasing. Set them once and each new
+      reservation makes them for itself.</p></div>`;
+    return;
+  }
+  tplList.innerHTML = `<ul class="rows" style="border:1px solid var(--navy-100);border-radius:10px;">
+    ${list.map((t) => `<li><div class="row-between">
+      <div><div class="t">${esc(t.title)}
+        ${t.active ? '' : '<span class="badge badge-navy">off</span>'}</div>
+        <div class="m">${esc(offsetWords(t.offset_days, t.anchor))}${
+          t.product_type ? ` &middot; ${esc(t.product_type)} only` : ''}${
+          KIND_WORD[t.kind] ? ` &middot; ${esc(KIND_WORD[t.kind])}` : ''}${
+          t.priority === 'high' ? ' &middot; high' : ''}</div></div>
+      <button type="button" class="btn btn-ghost btn-sm" data-tpl="${esc(t.id)}">Edit</button>
+    </div></li>`).join('')}</ul>`;
+
+  tplList.querySelectorAll('[data-tpl]').forEach((b) =>
+    b.addEventListener('click', () => openTemplate(list.find((t) => t.id === b.dataset.tpl))));
+}
+
+function tplPreview() {
+  const days = Number(tplForm.elements.offsetDays.value) || 0;
+  const anchorKey = tplForm.elements.anchor.value;
+  // Before the day it was booked is a date that has already gone by the time
+  // the reservation exists. Said here rather than left to be discovered as a
+  // task that arrives overdue.
+  const impossible = anchorKey === 'booked' && days < 0;
+  document.getElementById('tpl-preview').textContent = impossible
+    ? 'A reservation is booked today, so there is no "before" to count back to. '
+      + 'This one would land on the day the trip is booked.'
+    : `${tplForm.elements.title.value || 'This task'} is made ${
+      offsetWords(days, anchorKey)}.`;
+}
+
+function openTemplate(t) {
+  tplEditing = t ? t.id : null;
+  tplForm.reset();
+  document.getElementById('tpl-title').textContent = t ? 'Edit template' : 'Add a task template';
+  tplDelete.hidden = !t;
+  tplForm.querySelector('.notice-error').hidden = true;
+  if (t) {
+    tplForm.elements.title.value = t.title;
+    tplForm.elements.kind.value = t.kind;
+    tplForm.elements.priority.value = t.priority;
+    tplForm.elements.offsetDays.value = t.offset_days;
+    tplForm.elements.anchor.value = t.anchor;
+    tplForm.elements.productType.value = t.product_type || '';
+    tplForm.elements.notes.value = t.notes || '';
+    tplForm.elements.active.checked = Boolean(t.active);
+  }
+  tplPreview();
+  tplDlg.showModal();
+}
+
+async function loadTemplates() {
+  try {
+    const d = await api('/api/task-templates');
+    anchors = d.anchors || [];
+    tplForm.elements.anchor.innerHTML = anchors
+      .map((a) => `<option value="${esc(a.key)}">${esc(a.label)}</option>`).join('');
+    tplForm.elements.productType.innerHTML = '<option value="">Every kind of trip</option>'
+      + (d.productTypes || []).map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+    drawTemplates(d.templates || []);
+  } catch (err) { showError(tplList, err); }
+}
+
+document.getElementById('tpl-add').addEventListener('click', () => openTemplate(null));
+document.getElementById('tpl-close').addEventListener('click', () => tplDlg.close());
+tplForm.elements.offsetDays.addEventListener('input', tplPreview);
+tplForm.elements.anchor.addEventListener('change', tplPreview);
+tplForm.elements.title.addEventListener('input', tplPreview);
+
+document.getElementById('tpl-seed').addEventListener('click', async (e) => {
+  e.target.disabled = true;
+  try {
+    const d = await api('/api/task-templates/seed', { method: 'POST', body: {} });
+    drawTemplates(d.templates || []);
+  } catch (err) { showError(tplList, err); }
+  finally { e.target.disabled = false; }
+});
+
+tplDelete.addEventListener('click', async () => {
+  if (!tplEditing) return;
+  if (!confirm('Delete this template? Tasks it already made are kept.')) return;
+  const d = await api(`/api/task-templates/${encodeURIComponent(tplEditing)}`, { method: 'DELETE' });
+  tplDlg.close();
+  drawTemplates(d.templates || []);
+});
+
+onSubmit(tplForm, async (values) => {
+  // A checkbox is "on" or missing through a form, and the API wants a boolean.
+  values.active = tplForm.elements.active.checked;
+  const path = tplEditing ? `/api/task-templates/${encodeURIComponent(tplEditing)}`
+    : '/api/task-templates';
+  const d = await api(path, { method: tplEditing ? 'PUT' : 'POST', body: values });
+  tplDlg.close();
+  drawTemplates(d.templates || []);
+});
+
+await loadTemplates();
 
 onSubmit(document.getElementById('password-form'), async (values) => {
   if (values.newPassword !== values.confirmPassword) {

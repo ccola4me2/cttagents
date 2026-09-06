@@ -10,6 +10,8 @@ import { requireUser } from './auth.js';
 import * as db from './db.js';
 import * as ghl from './ghl.js';
 import { fireTrigger } from './automations.js';
+import { applyTemplates } from './tasktemplates.js';
+import { PRODUCT_TYPES } from './producttypes.js';
 import { resolveVendor } from './vendors.js';
 import { listTravellers, listAmenities, passportProblem } from './travellers.js';
 import { PAYMENT_TYPES, releaseCredit } from './payments.js';
@@ -25,11 +27,6 @@ import { listPricing, summarise, PRICE_KINDS } from './pricing.js';
 // type" said almost nothing. Cruise leads because oneOf falls back to the
 // first entry and this is a cruise-first agency, so it is the likeliest
 // answer rather than an arbitrary one.
-const PRODUCT_TYPES = [
-  'cruise', 'hotel', 'resort', 'package', 'tour', 'air', 'rail', 'car',
-  'transfer', 'excursion', 'attraction', 'event_ticket', 'insurance',
-  'parking', 'visa_passport', 'other',
-];
 // oneOf falls back to the first entry, so this order decides what a
 // reservation created without a status becomes. Quoted, not booked: a
 // reservation that nobody said was booked should not quietly land in
@@ -344,7 +341,12 @@ export async function handleCreateBooking(request, env) {
     depart_date: booking.depart_date || '',
     final_payment_due: booking.final_payment_due || '',
   });
-  return json({ ok: true, booking }, 201);
+  // The standard tasks that follow this kind of trip. Best effort: a template
+  // that cannot work out its date is skipped, and a failure here does not cost
+  // the reservation, which would be entirely the wrong way round.
+  const tasks = await applyTemplates(env, user.id, booking);
+
+  return json({ ok: true, booking, tasksMade: tasks.made }, 201);
 }
 
 /**

@@ -752,6 +752,146 @@ async function main() {
       'and only an owner can set a pass running', `status ${notAdmin.status}`);
   }
 
+  // -------------------------------------------------- work that comes back --
+  step('Repeating tasks, checklists, and the tasks a trip brings with it');
+  {
+    // A Monday three weeks gone, so ticking it off is ticking off something
+    // long overdue: the next one must be next Monday, not three late ones.
+    const monday = (() => {
+      const d = new Date();
+      while (d.getUTCDay() !== 1) d.setUTCDate(d.getUTCDate() - 1);
+      d.setUTCDate(d.getUTCDate() - 21);
+      return d.toISOString().slice(0, 10);
+    })();
+
+    const weekly = await call(advisor, 'POST', '/api/tasks', {
+      title: `Check final payments ${stamp}`, kind: 'payment',
+      dueDate: monday, repeatRule: 'weekly',
+    });
+    check(weekly.data?.task?.repeat_rule === 'weekly', 'a task can be set to come back',
+      weekly.data?.task?.repeat_rule);
+
+    const undated = await call(advisor, 'POST', '/api/tasks',
+      { title: 'Weekly nothing', repeatRule: 'weekly' });
+    check(undated.status === 400, 'but not without a date to repeat from',
+      `status ${undated.status}`);
+
+    const stepOne = await call(advisor, 'POST', `/api/tasks/${weekly.data.task.id}/items`,
+      { label: 'Run the report' });
+    check(stepOne.status === 201 && stepOne.data?.items?.length === 1,
+      'a task holds a checklist', `${stepOne.data?.items?.length} step(s)`);
+
+    const itemId = stepOne.data.items[0].id;
+    const tickStep = await call(advisor, 'PUT', `/api/task-items/${itemId}`, { done: true });
+    check(tickStep.data?.items?.[0]?.done_at, 'and a step can be ticked on its own');
+
+    const counted = await call(advisor, 'GET', '/api/tasks?state=open');
+    const withSteps = (counted.data?.tasks || []).find((t) => t.id === weekly.data.task.id);
+    check(withSteps?.steps === 1 && withSteps?.steps_done === 1,
+      'the list says how far through it is without asking per task',
+      `${withSteps?.steps_done}/${withSteps?.steps}`);
+
+    const ticked = await call(advisor, 'PUT', `/api/tasks/${weekly.data.task.id}`, { done: true });
+    const nextId = ticked.data?.repeated;
+    check(nextId, 'ticking a repeating task off makes the next one');
+    if (nextId) cleanup('the repeat', () => call(advisor, 'DELETE', `/api/tasks/${nextId}`));
+    cleanup('the repeating task',
+      () => call(advisor, 'DELETE', `/api/tasks/${weekly.data.task.id}`));
+
+    const openNow = await call(advisor, 'GET', '/api/tasks?state=open');
+    const next = (openNow.data?.tasks || []).find((t) => t.id === nextId);
+    const today = new Date().toISOString().slice(0, 10);
+    check(next && next.due_date > today,
+      'in the future, not three weeks of them already late', next?.due_date);
+    check(next && new Date(`${next.due_date}T00:00:00Z`).getUTCDay() === 1,
+      'and still on a Monday', next?.due_date);
+
+    // A weekly task whose six steps are already crossed off is a task that
+    // looks done before anybody has touched it.
+    const nextSteps = await call(advisor, 'GET', `/api/tasks/${nextId}/items`);
+    check(nextSteps.data?.items?.length === 1 && !nextSteps.data.items[0].done_at,
+      'the checklist comes with it, unticked');
+
+    const undo = await call(advisor, 'PUT', `/api/tasks/${weekly.data.task.id}`, { done: false });
+    check(undo.data?.undone === 1, 'and un-ticking takes the new one back again',
+      `${undo.data?.undone} removed`);
+
+    // ------------------------------------------------------------ templates --
+    const tpl = await call(advisor, 'POST', '/api/task-templates', {
+      title: `Template docs ${stamp}`, kind: 'document',
+      anchor: 'depart_date', offsetDays: -14, productType: 'cruise',
+    });
+    check(tpl.status === 201, 'a template says what to make and when',
+      `status ${tpl.status}`);
+    const tplId = (tpl.data?.templates || []).find((t) => t.title === `Template docs ${stamp}`)?.id;
+    if (tplId) {
+      cleanup('the task template',
+        () => call(advisor, 'DELETE', `/api/task-templates/${tplId}`));
+    }
+
+    const silly = await call(advisor, 'POST', '/api/task-templates',
+      { title: 'Miles away', anchor: 'depart_date', offsetDays: 5000 });
+    check(silly.status === 400, 'and an offset of years is refused', `status ${silly.status}`);
+
+    const cruise = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Template Cruise ${stamp}`, supplier: 'NCL', productType: 'cruise',
+      departDate: isoDay(120), status: 'quoted',
+    });
+    check(cruise.data?.tasksMade >= 1, 'booking a cruise makes the tasks that follow it',
+      `${cruise.data?.tasksMade} made`);
+    if (cruise.data?.booking?.id) {
+      cleanup('the templated reservation',
+        () => call(advisor, 'DELETE', `/api/bookings/${cruise.data.booking.id}`));
+    }
+
+    const made = await call(advisor, 'GET', '/api/tasks?state=open');
+    const doc = (made.data?.tasks || []).find((t) => t.title === `Template docs ${stamp}`);
+    check(doc?.due_date === isoDay(106),
+      'dated from the reservation, not from today', doc?.due_date);
+    check(doc?.booking_id === cruise.data?.booking?.id,
+      'and tied to the trip it came from');
+
+    // A hotel is not a cruise, and a template that fires on both is one
+    // somebody deletes.
+    const hotel = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Template Hotel ${stamp}`, supplier: 'Marriott', productType: 'hotel',
+      departDate: isoDay(120), status: 'quoted',
+    });
+    check(hotel.data?.tasksMade === 0, 'a cruise template leaves a hotel alone',
+      `${hotel.data?.tasksMade} made`);
+    if (hotel.data?.booking?.id) {
+      cleanup('the untemplated reservation',
+        () => call(advisor, 'DELETE', `/api/bookings/${hotel.data.booking.id}`));
+    }
+
+    // Deleting a reservation takes its tasks with it, which is the only reason
+    // the cleanups above are enough.
+    const noDates = await call(advisor, 'POST', '/api/task-templates', {
+      title: `Final payment ${stamp}`, anchor: 'final_payment_due', offsetDays: -7,
+    });
+    const noDatesId = (noDates.data?.templates || [])
+      .find((t) => t.title === `Final payment ${stamp}`)?.id;
+    if (noDatesId) {
+      cleanup('the dateless template',
+        () => call(advisor, 'DELETE', `/api/task-templates/${noDatesId}`));
+    }
+    const sparse = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `No final date ${stamp}`, supplier: 'NCL', productType: 'cruise',
+      departDate: isoDay(120), status: 'quoted',
+    });
+    const sparseTasks = await call(advisor, 'GET', '/api/tasks?state=open');
+    check(!(sparseTasks.data?.tasks || []).some((t) => t.title === `Final payment ${stamp}`),
+      'a template whose date the trip does not have makes nothing');
+    if (sparse.data?.booking?.id) {
+      cleanup('the dateless reservation',
+        () => call(advisor, 'DELETE', `/api/bookings/${sparse.data.booking.id}`));
+    }
+
+    const foreignTpl = await call(admin, 'DELETE', `/api/task-templates/${tplId}`);
+    check(foreignTpl.status === 404, 'and templates are one advisor\'s own',
+      `status ${foreignTpl.status}`);
+  }
+
   // ---------------------------------------------------- client credits ------
   step('Credits a client holds with a vendor');
 

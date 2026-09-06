@@ -72,7 +72,11 @@ import {
   handleCreateTask as handleCreateMyTask,
   handleUpdateTask as handleUpdateMyTask,
   handleDeleteTask as handleDeleteMyTask,
+  handleListTaskItems, handleCreateTaskItem, handleUpdateTaskItem, handleDeleteTaskItem,
 } from './tasks.js';
+import {
+  handleListTemplates, handleSaveTemplate, handleDeleteTemplate, handleSeedTemplates,
+} from './tasktemplates.js';
 import {
   handleListGroups, handleGetGroup, handleBookRegistration, handleCreateGroup, handleUpdateGroup, handleDeleteGroup,
 } from './groups.js';
@@ -307,6 +311,11 @@ async function routeApi(request, env, path, method) {
   const bookingStatusMatch = path.match(/^\/api\/bookings\/([^/]+)\/status$/);
   const advisorMatch = path.match(/^\/api\/admin\/advisors\/([^/]+)\/(status|ghl|split)$/);
   const myTaskMatch = path.match(/^\/api\/tasks\/([^/]+)$/);
+  // Checklist steps hang off a task; the steps themselves are addressed by
+  // their own id, so ticking one off does not need to name its task twice.
+  const taskItemsMatch = path.match(/^\/api\/tasks\/([^/]+)\/items$/);
+  const taskItemMatch = path.match(/^\/api\/task-items\/([^/]+)$/);
+  const templateMatch = path.match(/^\/api\/task-templates\/([^/]+)$/);
   const groupMatch = path.match(/^\/api\/groups\/([^/]+)$/);
   const groupBookMatch = path.match(/^\/api\/groups\/registrations\/([^/]+)\/book$/);
   const creditMatch = path.match(/^\/api\/credits\/([^/]+)$/);
@@ -496,6 +505,19 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/tasks' && method === 'POST') return handleCreateMyTask(request, env);
   if (myTaskMatch && method === 'PUT') return handleUpdateMyTask(request, env, myTaskMatch[1]);
   if (myTaskMatch && method === 'DELETE') return handleDeleteMyTask(request, env, myTaskMatch[1]);
+  if (taskItemsMatch && method === 'GET') return handleListTaskItems(request, env, taskItemsMatch[1]);
+  if (taskItemsMatch && method === 'POST') return handleCreateTaskItem(request, env, taskItemsMatch[1]);
+  if (taskItemMatch && method === 'PUT') return handleUpdateTaskItem(request, env, taskItemMatch[1]);
+  if (taskItemMatch && method === 'DELETE') return handleDeleteTaskItem(request, env, taskItemMatch[1]);
+
+  // The standard tasks that follow a kind of trip, written once.
+  if (path === '/api/task-templates' && method === 'GET') return handleListTemplates(request, env);
+  if (path === '/api/task-templates' && method === 'POST') return handleSaveTemplate(request, env);
+  if (path === '/api/task-templates/seed' && method === 'POST') return handleSeedTemplates(request, env);
+  if (templateMatch && templateMatch[1] !== 'seed' && method === 'PUT') {
+    return handleSaveTemplate(request, env, templateMatch[1]);
+  }
+  if (templateMatch && method === 'DELETE') return handleDeleteTemplate(request, env, templateMatch[1]);
 
   // Group space: cabins held by a vendor before anybody has booked them.
   if (path === '/api/groups' && method === 'GET') return handleListGroups(request, env);

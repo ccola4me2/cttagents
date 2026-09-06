@@ -66,6 +66,34 @@
           <p class="field-hint">Shown on the task and in the reminder.</p></div>
       </div>
 
+      <div class="field-row">
+        <div class="field"><label for="repeatRule">Repeats</label>
+          <select id="repeatRule" name="repeatRule">
+            <option value="none">Once</option>
+            <option value="daily">Every day</option>
+            <option value="weekly">Every week</option>
+            <option value="fortnightly">Every two weeks</option>
+            <option value="monthly">Every month</option>
+            <option value="yearly">Every year</option>
+          </select>
+          <p class="field-hint" id="repeat-hint">Ticking it off makes the next one.</p></div>
+        <div class="field" id="until-field" hidden><label for="repeatUntil">Until</label>
+          <input id="repeatUntil" name="repeatUntil" type="date">
+          <p class="field-hint">Leave blank to keep going.</p></div>
+      </div>
+
+      <div class="field" id="steps-field">
+        <label>Steps <span style="font-weight:400;color:var(--ink-400);">(optional)</span></label>
+        <div id="steps"></div>
+        <div style="display:flex;gap:.5rem;margin-top:.4rem;">
+          <input id="step-new" maxlength="200" placeholder="Add a step and press enter"
+            style="flex:1;">
+          <button type="button" class="btn btn-ghost btn-sm" id="step-add">Add</button>
+        </div>
+        <p class="field-hint">Break the task into what it actually means. Ticking every step
+          does not tick the task: finishing is still your call.</p>
+      </div>
+
       <div class="field"><label for="clientName">Client <span style="font-weight:400;color:var(--ink-400);">(optional)</span></label>
         <input id="clientName" name="clientName" maxlength="120" autocomplete="off"
           placeholder="Start typing a name from your book">
@@ -152,6 +180,9 @@ function render(d) {
               t.priority === 'low' ? '<span class="badge badge-navy">low</span>' : '',
               t.due_time ? esc(t.due_time) : '',
               t.kind && t.kind !== 'other' ? `<span class="badge badge-navy">${esc(t.kind)}</span>` : '',
+              t.steps ? `<span class="badge ${t.steps_done === t.steps ? 'badge-green' : 'badge-navy'}">${t.steps_done}/${t.steps} steps</span>` : '',
+              t.repeat_rule && t.repeat_rule !== 'none'
+                ? `<span class="badge badge-navy">${esc(t.repeat_rule)}</span>` : '',
               t.client_name ? esc(t.client_name) : '',
               t.booking_client ? `${esc(t.booking_client)}${t.booking_supplier ? ' &middot; ' + esc(t.booking_supplier) : ''}` : '',
               t.group_name ? `group: ${esc(t.group_name)}` : '',
@@ -178,6 +209,80 @@ function render(d) {
   panel.querySelectorAll('[data-edit]').forEach((btn) => {
     btn.addEventListener('click', () => openEdit(cache.find((t) => t.id === btn.dataset.edit)));
   });
+}
+
+// The checklist being edited. Held here rather than written straight through,
+// because a new task has no id to hang steps off until it is saved: they are
+// typed first and created after, which is the order somebody works in.
+let steps = [];
+
+function drawSteps() {
+  const host = document.getElementById('steps');
+  if (!steps.length) {
+    host.innerHTML = '<p class="muted" style="margin:.2rem 0;">No steps yet.</p>';
+    return;
+  }
+  host.innerHTML = `<ul class="rows" style="border:1px solid var(--navy-100);border-radius:8px;">
+    ${steps.map((it, i) => `<li><div class="row-between" style="gap:.5rem;">
+      <label class="task-tick" style="flex:1;">
+        <input type="checkbox" data-step="${i}"${it.done_at ? ' checked' : ''}>
+        <span class="t" style="${it.done_at ? 'text-decoration:line-through;opacity:.6;' : ''}">${esc(it.label)}</span>
+      </label>
+      <button type="button" class="btn btn-ghost btn-sm" data-drop="${i}">Remove</button>
+    </div></li>`).join('')}</ul>`;
+
+  host.querySelectorAll('[data-step]').forEach((box) => {
+    box.addEventListener('change', async () => {
+      const it = steps[Number(box.dataset.step)];
+      it.done_at = box.checked ? 1 : null;
+      // Saved as it is ticked when the task already exists, so closing the
+      // dialog without pressing save does not lose the work.
+      if (it.id) {
+        await api(`/api/task-items/${encodeURIComponent(it.id)}`,
+          { method: 'PUT', body: { done: box.checked } }).catch(() => {});
+      }
+      drawSteps();
+    });
+  });
+  host.querySelectorAll('[data-drop]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const it = steps[Number(btn.dataset.drop)];
+      if (it.id) {
+        await api(`/api/task-items/${encodeURIComponent(it.id)}`, { method: 'DELETE' })
+          .catch(() => {});
+      }
+      steps.splice(Number(btn.dataset.drop), 1);
+      drawSteps();
+    });
+  });
+}
+
+async function addStep() {
+  const input = document.getElementById('step-new');
+  const label = input.value.trim();
+  if (!label) return;
+  input.value = '';
+  if (editingId) {
+    try {
+      const d = await api(`/api/tasks/${encodeURIComponent(editingId)}/items`,
+        { method: 'POST', body: { label } });
+      steps = d.items;
+    } catch (err) { showError(panel, err); return; }
+  } else {
+    steps.push({ label, done_at: null });
+  }
+  drawSteps();
+  input.focus();
+}
+
+// Only a repeating task can have an end date, and a date with no rule reads as
+// a setting that is doing something when it is not.
+function syncRepeat() {
+  const on = form.elements.repeatRule.value !== 'none';
+  document.getElementById('until-field').hidden = !on;
+  document.getElementById('repeat-hint').textContent = on
+    ? 'Ticking it off makes the next one, counted from its due date.'
+    : 'Ticking it off makes the next one.';
 }
 
 function fillReservations(selected) {
@@ -231,10 +336,13 @@ function openCreate() {
   deleteBtn.hidden = true;
   form.querySelector('.notice-error').hidden = true;
   document.getElementById('clientId').value = '';
+  steps = [];
+  drawSteps();
   fillReservations('');
   fillGroups('');
   fillAdvisors('');
   syncAssign();
+  syncRepeat();
   dlg.showModal();
 }
 
@@ -251,7 +359,14 @@ function openEdit(t) {
   form.elements.kind.value = t.kind || 'other';
   form.elements.notes.value = t.notes || '';
   form.elements.clientName.value = t.client_name || '';
+  form.elements.repeatRule.value = t.repeat_rule || 'none';
+  form.elements.repeatUntil.value = t.repeat_until || '';
   document.getElementById('clientId').value = t.client_id || '';
+  steps = [];
+  drawSteps();
+  api(`/api/tasks/${encodeURIComponent(t.id)}/items`)
+    .then((d) => { steps = d.items || []; drawSteps(); })
+    .catch(() => {});
   fillReservations(t.booking_id || '');
   fillGroups(t.group_id || '');
   // Reassigning an existing task is a different operation from creating one
@@ -259,6 +374,7 @@ function openEdit(t) {
   // between two people's lists, and nothing here does that yet.
   document.getElementById('assign-field').hidden = true;
   syncAssign();
+  syncRepeat();
   dlg.showModal();
 }
 
@@ -286,6 +402,13 @@ document.getElementById('clientName').addEventListener('input', () => {
   document.getElementById('clientId').value = '';
 });
 document.getElementById('assignTo').addEventListener('change', syncAssign);
+document.getElementById('repeatRule').addEventListener('change', syncRepeat);
+document.getElementById('step-add').addEventListener('click', addStep);
+document.getElementById('step-new').addEventListener('keydown', (e) => {
+  // Enter adds a step. Without this it submits the form, which saves a task
+  // and throws away the step being typed.
+  if (e.key === 'Enter') { e.preventDefault(); addStep(); }
+});
 
 document.getElementById('add').addEventListener('click', openCreate);
 document.getElementById('close').addEventListener('click', () => dlg.close());
@@ -309,7 +432,16 @@ deleteBtn.addEventListener('click', async () => {
 
 onSubmit(form, async (values) => {
   const path = editingId ? `/api/tasks/${encodeURIComponent(editingId)}` : '/api/tasks';
-  await api(path, { method: editingId ? 'PUT' : 'POST', body: values });
+  const saved = await api(path, { method: editingId ? 'PUT' : 'POST', body: values });
+
+  // Steps typed before the task existed. Created now, in order, and one that
+  // fails does not lose the task: it is already saved.
+  if (!editingId && steps.length && saved.task?.id) {
+    for (const it of steps) {
+      await api(`/api/tasks/${encodeURIComponent(saved.task.id)}/items`,
+        { method: 'POST', body: { label: it.label } }).catch(() => {});
+    }
+  }
   dlg.close();
   await load();
 });
