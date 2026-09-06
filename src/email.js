@@ -70,6 +70,36 @@ export function layout(env, { heading, body, cta, footer }) {
 </body></html>`;
 }
 
+/**
+ * A plain-text version of the same message.
+ *
+ * An HTML-only email is one of the oldest spam signals there is: real mail
+ * has carried both halves for thirty years, and a message with only one is
+ * scored accordingly. Nothing is written twice here, because a second copy of
+ * every template is a second copy to forget to update. The text is derived
+ * from the HTML instead, so it is always in step by construction.
+ *
+ * Links become "label (url)" rather than disappearing: the point of the text
+ * half is that somebody reading it can still act on it.
+ */
+export function plainText(html) {
+  return String(html || '')
+    .replace(/<(style|script)[\s\S]*?<\/\1>/gi, '')
+    .replace(/<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi,
+      (_m, href, label) => `${label.replace(/<[^>]+>/g, '').trim()} (${href})`)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|tr|h1|h2|h3|li|table)>/gi, '\n\n')
+    .replace(/<li\b[^>]*>/gi, '- ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&middot;/g, '\u00b7')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 async function send(env, { to, subject, html, replyTo }) {
   const key = env.RESEND_API_KEY;
   if (!key) {
@@ -91,6 +121,7 @@ async function send(env, { to, subject, html, replyTo }) {
         ...(replyTo ? { reply_to: [replyTo] } : {}),
         subject,
         html,
+        text: plainText(html),
       }),
     });
     if (!res.ok) {
@@ -281,6 +312,7 @@ export async function sendTestEmail(env, to) {
       cta: { label: 'Open the portal', href: `${appUrl(env)}/login` },
     }),
   };
+  payload.text = plainText(payload.html);
 
   let res;
   try {
@@ -340,6 +372,7 @@ export async function sendAutomationEmail(env, to, subject, body) {
       to: [to],
       subject,
       html,
+      text: plainText(html),
     }),
   });
 
@@ -390,6 +423,7 @@ export async function sendHtml(env, { to, replyTo, subject, html }) {
       ...(replyTo ? { reply_to: [replyTo] } : {}),
       subject,
       html,
+      text: plainText(html),
     }),
   });
 
@@ -449,6 +483,7 @@ export async function sendPaymentReminder(env, {
       ...(replyTo ? { reply_to: [replyTo] } : {}),
       subject,
       html,
+      text: plainText(html),
     }),
   });
 
