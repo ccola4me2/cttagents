@@ -1645,6 +1645,123 @@ async function main() {
     check(on.data?.user?.weeklyCallList === true, 'and switched back on again');
   }
 
+
+  // ------------------------------------------- one directory per agency -----
+  // The supplier directory used to belong to whoever typed it in, so a new
+  // joiner opened an empty screen while the rates and the desk contacts sat on
+  // somebody else's copy. It is the agency's now, which is a widening, and a
+  // widening is only safe if it stops at the agency.
+  step('The vendor directory is the agency\'s, not one advisor\'s');
+  {
+    // A second advisor in the same agency as the smoke advisor.
+    const mateEmail = `mate-${stamp}@test.dev`;
+    await call(null, 'POST', '/api/auth/signup', {
+      email: mateEmail, password: 'mate-test-12345',
+      firstName: 'Same', lastName: 'Agency',
+    });
+    const roster = await call(admin, 'GET', '/api/admin/advisors');
+    const mateUser = (roster.data?.users || []).find((u) => u.email === mateEmail);
+    await call(admin, 'PUT', `/api/admin/advisors/${mateUser.id}/status`, { status: 'active' });
+    await call(admin, 'PUT', `/api/admin/advisors/${mateUser.id}/agency`,
+      { agencyId: 'agency-house', platformOwner: false, role: 'advisor' });
+    cleanup('the colleague', () => call(admin, 'PUT',
+      `/api/admin/advisors/${mateUser.id}/status`, { status: 'suspended' }));
+
+    const mate = jar();
+    await call(mate, 'POST', '/api/auth/login', { email: mateEmail, password: 'mate-test-12345' });
+
+    // The smoke advisor records a supplier with the detail worth sharing.
+    const made = await call(advisor, 'POST', '/api/vendors', {
+      name: `Halcyon Lines ${stamp}`, category: 'Cruise Lines', commissionPct: '16',
+      bdmName: 'Dana Reid', bdmPhone: '555-0143', phone: '555-0100',
+    });
+    const vendorId = made.data?.id;
+    check(made.status === 200 || made.status === 201, 'one advisor records a supplier',
+      `status ${made.status}`);
+
+    // The whole point: their colleague sees it without doing anything. Searched
+    // rather than scanned, because the directory is capped and a book with two
+    // thousand suppliers in it would fail this on the cap rather than on the
+    // sharing, which is a test that reports the wrong thing.
+    const mateSees = await call(mate, 'GET',
+      `/api/vendors?q=${encodeURIComponent(`Halcyon Lines ${stamp}`)}`);
+    const seen = (mateSees.data?.vendors || []).find((v) => v.id === vendorId);
+    check(Boolean(seen), 'and a colleague in the same agency sees it straight away',
+      (mateSees.data?.vendors || []).length + ' matched the search');
+    check(seen?.commission_pct === 16 && seen?.bdm_name === 'Dana Reid',
+      'with the rate and the desk contact on it, which is the part worth sharing',
+      JSON.stringify({ pct: seen?.commission_pct, bdm: seen?.bdm_name }));
+
+    const detail = await call(mate, 'GET', `/api/vendors/${vendorId}`);
+    check(detail.status === 200 && detail.data?.canEdit === true,
+      'and may edit it, because the directory is shared rather than lent',
+      `status ${detail.status} canEdit ${detail.data?.canEdit}`);
+
+    // Typing the same supplier again should be refused rather than making the
+    // second copy this whole change exists to stop.
+    const again = await call(mate, 'POST', '/api/vendors', { name: `halcyon lines ${stamp}` });
+    check(again.status === 400,
+      'and typing it a second time is refused however it is capitalised',
+      `status ${again.status}`);
+
+    // A reservation naming the supplier links to the existing record instead
+    // of quietly making an eighth Carnival.
+    const booked = await call(mate, 'POST', '/api/bookings', {
+      clientName: `Shared Vendor Client ${stamp}`, supplier: `Halcyon Lines ${stamp}`,
+      departDate: isoDay(90), gross: '2000', status: 'booked',
+    });
+    const sharedBooking = booked.data?.booking?.id;
+    if (sharedBooking) cleanup('the shared vendor reservation',
+      () => call(advisor, 'DELETE', `/api/bookings/${sharedBooking}`));
+    check(booked.data?.booking?.vendor_id === vendorId,
+      'and a colleague booking that supplier links to the same record, not a new one',
+      `${booked.data?.booking?.vendor_id} vs ${vendorId}`);
+
+    // The trips on the vendor page are the agency's, not the record author's.
+    const withTrips = await call(advisor, 'GET', `/api/vendors/${vendorId}`);
+    check((withTrips.data?.bookings || []).some((b) => b.id === sharedBooking),
+      'the supplier page shows what the agency has sold, not only your own');
+
+    // And the fence still holds. The rival agency from the section above must
+    // see none of this.
+    const rivalEmail2 = `vfence-${stamp}@test.dev`;
+    const rivalAgency = await call(admin, 'POST', '/api/agencies',
+      { name: `Fence Test ${stamp}` });
+    const fenceId = rivalAgency.data?.agency?.id;
+    await call(null, 'POST', '/api/auth/signup', {
+      email: rivalEmail2, password: 'fence-test-12345',
+      firstName: 'Other', lastName: 'Agency', agency: rivalAgency.data?.agency?.slug,
+    });
+    const roster2 = await call(admin, 'GET', '/api/admin/advisors');
+    const fenceUser = (roster2.data?.users || []).find((u) => u.email === rivalEmail2);
+    await call(admin, 'PUT', `/api/admin/advisors/${fenceUser.id}/status`, { status: 'active' });
+    cleanup('the other agency advisor', () => call(admin, 'PUT',
+      `/api/admin/advisors/${fenceUser.id}/status`, { status: 'suspended' }));
+
+    const outsider = jar();
+    await call(outsider, 'POST', '/api/auth/login',
+      { email: rivalEmail2, password: 'fence-test-12345' });
+
+    const theirs = await call(outsider, 'GET',
+      `/api/vendors?q=${encodeURIComponent(`Halcyon Lines ${stamp}`)}`);
+    check((theirs.data?.vendors || []).length === 0,
+      'another agency sees none of it, which is what makes the sharing safe',
+      (theirs.data?.vendors || []).length + ' matched the search');
+
+    const reach = await call(outsider, 'GET', `/api/vendors/${vendorId}`);
+    check(reach.status === 404, 'and cannot open it by id either', `status ${reach.status}`);
+
+    const rename = await call(outsider, 'PUT', `/api/vendors/${vendorId}`,
+      { name: 'Hijacked', category: 'Cruise Lines' });
+    const stillNamed = await call(advisor, 'GET', `/api/vendors/${vendorId}`);
+    check(stillNamed.data?.vendor?.name === `Halcyon Lines ${stamp}`,
+      'nor rename it from outside the agency',
+      `${rename.status} then ${stillNamed.data?.vendor?.name}`);
+
+    void fenceId;
+    cleanup('the shared vendor', () => call(advisor, 'DELETE', `/api/vendors/${vendorId}`));
+  }
+
   // --------------------------------------------- merging keeps the detail ---
   step('Merging two records for one supplier');
   {
@@ -1843,8 +1960,16 @@ async function main() {
   if (pricedId) cleanup('the priced reservation', () =>
     call(advisor, 'DELETE', `/api/bookings/${pricedId}`));
 
-  const vl = await call(advisor, 'GET', '/api/vendors');
+  // Searched, not scanned. The directory is the whole agency's now, so an
+  // associate sees a book of thousands rather than the handful they typed in,
+  // and the list is capped.
+  const vl = await call(advisor, 'GET',
+    `/api/vendors?q=${encodeURIComponent(`Petrel Line ${stamp}`)}`);
   const kestrel = (vl.data?.vendors || []).find((v) => v.name === `Petrel Line ${stamp}`);
+  if (!check(Boolean(kestrel), 'the vendor behind a reservation is findable',
+    `${(vl.data?.vendors || []).length} matched`)) {
+    throw new Bail('No vendor to price against.');
+  }
   await call(advisor, 'PUT', `/api/vendors/${kestrel.id}`,
     { name: kestrel.name, commissionPct: 16 });
 
@@ -2025,13 +2150,17 @@ async function main() {
     'and two spellings of one name are offered as a possible duplicate',
     group && group.map((v) => v.name).join(' / '));
 
-  // Every duplicate offered has to be mergeable, which means every vendor in
-  // the group has to belong to the caller. Grouping across advisors offers a
-  // merge that would quietly move nothing.
-  const everyGroupIsMine = (vlist.data?.stats?.possibleDuplicates || []).every((g) =>
-    g.every((v) => (vlist.data.vendors.find((x) => x.id === v.id) || {}).user_id
-      === (vlist.data.vendors.find((x) => x.id === g[0].id) || {}).user_id));
-  check(everyGroupIsMine, 'and a group never spans two advisors');
+  // Every duplicate offered has to be mergeable. That used to mean every vendor
+  // in the group belonged to the caller, because a merge could only move your
+  // own. The directory is the agency's now and so is the merge, so the rule is
+  // the agency rather than the advisor: a group spanning two people is the
+  // case most worth catching, since that is how one supplier ends up entered
+  // twice in the first place.
+  const known = new Set((vlist.data?.vendors || []).map((v) => v.id));
+  const everyGroupIsReachable = (vlist.data?.stats?.possibleDuplicates || [])
+    .every((g) => g.every((v) => known.has(v.id)));
+  check(everyGroupIsReachable,
+    'and every vendor in a duplicate group is one this advisor can actually merge');
 
   const keep = group.find((v) => v.trips === 1) || group[0];
   const merged = await call(advisor, 'POST', '/api/vendors/merge', {
@@ -2093,9 +2222,12 @@ async function main() {
   check(junkCategory.status === 200 && !afterJunk?.category,
     'an unknown category is dropped rather than creating a new shelf');
 
+  // The star is on the shared record now, so a colleague may set it. What must
+  // not happen is somebody outside the agency doing so, and that is checked in
+  // the directory section against a real outsider rather than here.
   const notMineStar = await call(admin, 'POST', `/api/vendors/${keep.id}/favourite`,
     { favourite: true });
-  check(notMineStar.status === 404, 'and one advisor cannot star another advisor\'s vendor',
+  check(notMineStar.status === 200, 'and a colleague can star a shared vendor',
     `status ${notMineStar.status}`);
 
   // A supplier list pasted straight out of a partner directory: headings and
@@ -2243,9 +2375,14 @@ async function main() {
   check(made.status === 200 && made.data?.id,
     'a vendor can be added by hand, without booking one first', `status ${made.status}`);
 
-  const withNew = await call(advisor, 'GET', '/api/vendors');
+  // Searched rather than scanned. The directory is the whole agency's now, so
+  // this list is as long as the agency is old and the cap is reached long
+  // before a name typed a second ago.
+  const withNew = await call(advisor, 'GET',
+    `/api/vendors?q=${encodeURIComponent(`Windstar ${stamp}`)}`);
   const fresh = (withNew.data?.vendors || []).find((v) => v.id === made.data.id);
-  check(Boolean(fresh), 'and appears in the list straight away');
+  check(Boolean(fresh), 'and is found by a search straight away',
+    `${(withNew.data?.vendors || []).length} matched`);
   check(fresh?.commission_structure?.startsWith('16%')
     && fresh?.registration_instructions?.includes('CLIA'),
     'commission structure and registration instructions are kept as written');
@@ -2294,10 +2431,13 @@ async function main() {
   check(!stillEmpty.data?.booking?.final_payment_due,
     'and nothing is written until it is applied');
 
-  const notYourVendor = await call(admin, 'PUT', `/api/vendors/${keep.id}`,
-    { name: 'Hijacked', finalDays: 1 });
-  check(notYourVendor.status === 404, 'an owner cannot rewrite an associate\'s vendor',
-    `status ${notYourVendor.status}`);
+  // Groups and credits stay personal; the supplier directory does not. An
+  // owner correcting a commission rate is fixing the agency's copy, which is
+  // the only copy there is.
+  const sharedVendor = await call(admin, 'PUT', `/api/vendors/${keep.id}`,
+    { name: keep.name, commissionPct: 12 });
+  check(sharedVendor.status === 200, 'an owner may correct the agency\'s vendor record',
+    `status ${sharedVendor.status}`);
   }
 
   // ------------------------------------------------------------- catalog ----

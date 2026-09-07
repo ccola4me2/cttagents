@@ -601,14 +601,38 @@ async function offerDates() {
   };
 }
 
-search.addEventListener('input', () => drawList());
+/**
+ * Search, which stopped being a local filter when the directory became the
+ * agency's.
+ *
+ * It filtered the rows already fetched, which was right while an advisor's
+ * book was their own and short. Shared, it can outrun the cap, and filtering a
+ * truncated list means searching for a supplier that exists and being told
+ * there is no such supplier. That reads as missing data and is the worst
+ * possible answer from a directory.
+ *
+ * So a search on a list that came back truncated goes to the server. Below the
+ * cap nothing has changed and it stays instant.
+ */
+let truncated = false;
+let searchTimer = null;
+search.addEventListener('input', () => {
+  if (!truncated) { drawList(); return; }
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => load({ keepScroll: true }), 250);
+});
 
-async function load() {
+async function load({ keepScroll = false } = {}) {
+  const at = keepScroll ? window.scrollY : 0;
   try {
-    const data = await api(`/api/vendors${advisorParam() ? '?' + advisorParam() : ''}`);
+    const q = search.value.trim();
+    const params = [advisorParam(), q ? `q=${encodeURIComponent(q)}` : ''].filter(Boolean);
+    const data = await api(`/api/vendors${params.length ? '?' + params.join('&') : ''}`);
+    truncated = Boolean(data.truncated);
     mountScopePicker(document.getElementById('scope'), data, load);
     render(data);
     await offerDates();
+    if (keepScroll) window.scrollTo(0, at);
   } catch (e) { showError(panel, e); }
 }
 

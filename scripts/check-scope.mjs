@@ -60,6 +60,36 @@ const EXEMPT = new Map([
 // claim that somebody checked, which is the point of writing it down instead
 // of widening the rule until nothing fails.
 const ALLOWED = [
+  // The supplier directory is the agency's, not the advisor's, so every write
+  // to it widens on purpose. Listed one at a time rather than exempting the
+  // table, because "vendors are shared" is a claim about the directory and not
+  // a licence for anything else in that file to reach across the agency.
+  //
+  // The bookings writes below are the awkward half and were thought about: a
+  // shared vendor is pointed at by other people's reservations, so a rename
+  // has to carry their supplier name with it and a delete has to clear their
+  // vendor_id. Leaving those alone is how you get a dangling link on somebody
+  // else's trip and a report that groups one supplier under two names. The
+  // reach is always the agency, never the platform: agencyScope falls back to
+  // the reader alone when they are in no agency.
+  ['UPDATE bookings SET vendor_id = NULL WHERE vendor_id = ? AND ${scoped.sql}',
+    'deleting a shared vendor: the agency\'s reservations lose the link, not just yours'],
+  ['DELETE FROM vendors WHERE id = ? AND ${scoped.sql}',
+    'the directory is the agency\'s, so anybody in it may remove an entry'],
+  ['UPDATE vendors SET name = ?, final_days = ?',
+    'the directory is the agency\'s: a renegotiated rate is a correction for everyone'],
+  ['UPDATE bookings SET supplier = ? WHERE vendor_id = ? AND ${bScope.sql}',
+    'a rename has to reach every reservation sold under the old name, whoever sold it, '
+    + 'or the reports split one supplier in two'],
+  ['UPDATE vendors SET favourite = ?, updated_at = ? WHERE id = ? AND ${starScope.sql}',
+    'the star is on the shared record, the same as every other field on it'],
+  ['UPDATE vendors SET ${sets.join(\', \')}, updated_at = ? WHERE id = ? AND ${flat.sql}',
+    'merging fills blanks on the kept record from the ones being folded in'],
+  ['UPDATE bookings SET vendor_id = ?, supplier = ?, updated_at = ?',
+    'merging moves the reservations off the dropped records, which are usually '
+    + 'another advisor\'s: that pair is the whole reason to merge'],
+  ['DELETE FROM vendors WHERE ${flat.sql} AND id IN (${marks})',
+    'the same merge removing the duplicates it just emptied'],
   ['FROM specials WHERE code = ?',
     'the public page for a deal. The code is the URL somebody was given, and it is '
     + 'unique across every advisor, so this looks up one published deal by the address '

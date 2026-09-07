@@ -61,14 +61,28 @@ const FAVOURITES_HEADING = 'favorite suppliers';
 // up afterwards.
 const SKIP_CATEGORIES = new Set(['tourism boards']);
 
-/** The vendor record for a name, made if it is new. */
+/**
+ * The vendor record for a name, made if it is new.
+ *
+ * Looks across the agency before making one. This is where duplicates were
+ * born: an advisor booking "Carnival Cruise Line" got a second record because
+ * the first belonged to somebody else, and the agency ended up with one row
+ * per advisor per supplier, each with a different half of the details filled
+ * in. Matched case-insensitively for the same reason.
+ */
 export async function resolveVendor(env, userId, name) {
   const value = String(name || '').trim().slice(0, 120);
   if (!value) return null;
 
-  const existing = await env.DB.prepare(
-    'SELECT id FROM vendors WHERE user_id = ? AND name = ?'
-  ).bind(userId, value).first();
+  const mine = `(SELECT id FROM users WHERE agency_id =
+                  (SELECT agency_id FROM users WHERE id = ?) AND agency_id IS NOT NULL)`;
+  const find = async () => env.DB.prepare(
+    `SELECT id FROM vendors
+      WHERE LOWER(name) = LOWER(?) AND (user_id = ? OR user_id IN ${mine})
+      ORDER BY created_at ASC LIMIT 1`
+  ).bind(value, userId, userId).first();
+
+  const existing = await find();
   if (existing) return existing.id;
 
   const ts = now();
@@ -76,9 +90,7 @@ export async function resolveVendor(env, userId, name) {
     'INSERT OR IGNORE INTO vendors (id, user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
   ).bind(uid(), userId, value, ts, ts).run();
 
-  const row = await env.DB.prepare(
-    'SELECT id FROM vendors WHERE user_id = ? AND name = ?'
-  ).bind(userId, value).first();
+  const row = await find();
   return row ? row.id : null;
 }
 
@@ -86,7 +98,9 @@ export async function handleListVendors(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const scope = db.scopeFor(env, user, request);
+  // The agency's, not the reader's. An associate used to open this on an empty
+  // screen while the rates and the desk contacts sat on the owner's copy.
+  const scope = db.agencyScope(user);
   const scoped = db.scopeWhere(scope, 'v.user_id');
 
   // Narrowing the directory rather than paging it. The page filters what it
@@ -139,7 +153,9 @@ export async function handleListVendors(request, env) {
       // Only the caller's own, and only within one advisor. An owner viewing
       // the agency sees two advisors' "Carnival" as two rows, which is right:
       // they are two records, and merging is scoped to the owner of them.
-      possibleDuplicates: findDuplicates(vendors.filter((v) => v.user_id === user.id)),
+      // Across the agency, because that is where the duplicates are: the same
+      // supplier entered by two people is the case worth catching.
+      possibleDuplicates: findDuplicates(vendors),
     },
     scope: db.scopeLabel(scope, user),
     advisors: await db.advisorOptions(env, user),
@@ -552,7 +568,7 @@ export async function handleGetVendor(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const scope = db.scopeFor(env, user, request);
+  const scope = db.agencyScope(user);
   const scoped = db.scopeWhere(scope, 'v.user_id');
 
   const vendor = await env.DB.prepare(
@@ -562,14 +578,19 @@ export async function handleGetVendor(request, env, id) {
 
   // The reservations are the reason the record is worth opening: what has
   // actually been sold through this supplier, and what is still to come.
+  // Everything the agency has sold through this supplier, not only the trips
+  // of whoever happened to type the record in. On a shared directory those are
+  // rarely the same person, and "what have we done with Carnival" is the
+  // question the page is open to answer.
+  const bookingScope = db.scopeWhere(scope, 'b.user_id');
   const { results: bookings } = await env.DB.prepare(
     `SELECT b.id, b.client_name, b.product_name, b.depart_date, b.return_date,
             b.status, b.gross_cents, b.commission_cents, b.confirmation_number
        FROM bookings b
-      WHERE b.user_id = ? AND b.vendor_id = ?
+      WHERE ${bookingScope.sql} AND b.vendor_id = ?
       ORDER BY COALESCE(b.depart_date, '9999-12-31') DESC
       LIMIT 100`
-  ).bind(vendor.user_id, id).all();
+  ).bind(...bookingScope.binds, id).all();
 
   const trips = bookings || [];
   const counted = trips.filter((b) => b.status === 'booked' || b.status === 'travelled');
@@ -578,7 +599,9 @@ export async function handleGetVendor(request, env, id) {
     vendor,
     categories: CATEGORIES,
     bookings: trips,
-    canEdit: vendor.user_id === user.id,
+    // Anybody in the agency. The directory is shared, so the rate somebody
+    // renegotiates is a correction for everyone rather than a note on a copy.
+    canEdit: Boolean(user.agency_id) || vendor.user_id === user.id,
     totals: {
       trips: counted.length,
       grossCents: counted.reduce((n, b) => n + (b.gross_cents || 0), 0),
@@ -596,13 +619,16 @@ export async function handleCreateVendor(request, env) {
   const { fields, error } = parseVendor(body);
   if (error) return badRequest(error);
 
-  // Names are unique per advisor, and a vendor typed twice is the duplicate
-  // this table exists to prevent. Answered as a message rather than a
-  // constraint violation.
+  // A vendor typed twice is the duplicate this table exists to prevent, and
+  // the second copy is usually somebody else's rather than your own. Answered
+  // as a message rather than a constraint violation.
+  const dupScope = db.scopeWhere(db.agencyScope(user), 'user_id');
   const clash = await env.DB.prepare(
-    'SELECT id FROM vendors WHERE user_id = ? AND LOWER(name) = LOWER(?)'
-  ).bind(user.id, fields.name).first();
-  if (clash) return badRequest(`You already have a vendor called ${fields.name}.`);
+    `SELECT id FROM vendors WHERE ${dupScope.sql} AND LOWER(name) = LOWER(?)`
+  ).bind(...dupScope.binds, fields.name).first();
+  if (clash) {
+    return badRequest(`There is already a vendor called ${fields.name}. Open it and add to it.`);
+  }
 
   const id = uid();
   const ts = now();
@@ -635,13 +661,17 @@ export async function handleDeleteVendor(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Agency wide, both of them. A shared directory entry is pointed at by other
+  // people's reservations, and cutting the record while leaving their vendor_id
+  // dangling is worse than not deleting it at all.
+  const scoped = db.scopeWhere(db.agencyScope(user), 'user_id');
   await env.DB.prepare(
-    'UPDATE bookings SET vendor_id = NULL WHERE vendor_id = ? AND user_id = ?'
-  ).bind(id, user.id).run();
+    `UPDATE bookings SET vendor_id = NULL WHERE vendor_id = ? AND ${scoped.sql}`
+  ).bind(id, ...scoped.binds).run();
 
   const res = await env.DB.prepare(
-    'DELETE FROM vendors WHERE id = ? AND user_id = ?'
-  ).bind(id, user.id).run();
+    `DELETE FROM vendors WHERE id = ? AND ${scoped.sql}`
+  ).bind(id, ...scoped.binds).run();
 
   if (!res.meta || res.meta.changes === 0) return notFound('Vendor not found.');
   return json({ ok: true });
@@ -656,13 +686,17 @@ export async function handleUpdateVendor(request, env, id) {
   if (error) return badRequest(error);
   const name = fields.name;
 
+  // Anybody in the agency edits the agency's directory. A rate somebody
+  // renegotiates is a correction for everyone, not a note on their own copy.
+  const vScope = db.scopeWhere(db.agencyScope(user), 'user_id');
+
   const res = await env.DB.prepare(
     `UPDATE vendors SET name = ?, final_days = ?, deposit_days = ?, commission_pct = ?,
        phone = ?, email = ?, portal_url = ?, notes = ?, category = ?,
        bdm_name = ?, bdm_email = ?, bdm_phone = ?, signup_url = ?, website = ?,
        account_number = ?, phones_json = ?, commission_structure = ?,
        registration_instructions = ?, booking_instructions = ?, updated_at = ?
-     WHERE id = ? AND user_id = ?`
+     WHERE id = ? AND ${vScope.sql}`
     // favourite is deliberately absent. It has its own endpoint, and writing
     // it here from a form that has no star field cleared the star every time
     // a vendor was edited.
@@ -672,7 +706,7 @@ export async function handleUpdateVendor(request, env, id) {
          fields.signupUrl, fields.website, fields.accountNumber,
          fields.phonesJson, fields.commissionStructure,
          fields.registrationInstructions, fields.bookingInstructions,
-         now(), id, user.id).run();
+         now(), id, ...vScope.binds).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Vendor not found.');
 
   // The name is what every report groups by and what a vendor prints on a
@@ -680,8 +714,9 @@ export async function handleUpdateVendor(request, env, id) {
   // Not caught, because the line above says it has to happen: a rename that
   // reaches the vendor and not its reservations splits every report that
   // groups by the name, which is the thing vendors exist to prevent.
-  await env.DB.prepare('UPDATE bookings SET supplier = ? WHERE vendor_id = ? AND user_id = ?')
-    .bind(name, id, user.id).run();
+  const bScope = db.scopeWhere(db.agencyScope(user), 'user_id');
+  await env.DB.prepare(`UPDATE bookings SET supplier = ? WHERE vendor_id = ? AND ${bScope.sql}`)
+    .bind(name, id, ...bScope.binds).run();
 
   return json({ ok: true });
 }
@@ -698,9 +733,10 @@ export async function handleFavouriteVendor(request, env, id) {
   if (response) return response;
 
   const body = await readJson(request);
+  const starScope = db.scopeWhere(db.agencyScope(user), 'user_id');
   const res = await env.DB.prepare(
-    'UPDATE vendors SET favourite = ?, updated_at = ? WHERE id = ? AND user_id = ?'
-  ).bind(body.favourite ? 1 : 0, now(), id, user.id).run();
+    `UPDATE vendors SET favourite = ?, updated_at = ? WHERE id = ? AND ${starScope.sql}`
+  ).bind(body.favourite ? 1 : 0, now(), id, ...starScope.binds).run();
 
   if (!res.meta || res.meta.changes === 0) return notFound('Vendor not found.');
   return json({ ok: true, favourite: Boolean(body.favourite) });
@@ -762,17 +798,23 @@ export async function handleMergeVendors(request, env) {
     ? body.drop.filter((x) => typeof x === 'string' && x !== keepId).slice(0, 50) : [];
   if (!keepId || !dropIds.length) return badRequest('Pick one vendor to keep and at least one to fold in.');
 
+  // Across the agency, which is the whole point of the button now: a duplicate
+  // is almost always two people's records for one supplier, and a merge that
+  // could only fold in your own would leave exactly the pair worth folding.
+  const vScope = db.scopeWhere(db.agencyScope(user), 'v.user_id');
+  const flat = db.scopeWhere(db.agencyScope(user), 'user_id');
+
   // Aliased, because COLUMNS is written with the v. prefix the list query uses.
   const keep = await env.DB.prepare(
-    `SELECT ${COLUMNS} FROM vendors v WHERE v.id = ? AND v.user_id = ?`
-  ).bind(keepId, user.id).first();
+    `SELECT ${COLUMNS} FROM vendors v WHERE v.id = ? AND ${vScope.sql}`
+  ).bind(keepId, ...vScope.binds).first();
   if (!keep) return notFound('Vendor not found.');
 
   const marks = dropIds.map(() => '?').join(',');
   const { results: dropped } = await env.DB.prepare(
-    `SELECT ${COLUMNS} FROM vendors v WHERE v.user_id = ? AND v.id IN (${marks})
+    `SELECT ${COLUMNS} FROM vendors v WHERE ${vScope.sql} AND v.id IN (${marks})
       ORDER BY v.updated_at DESC`
-  ).bind(user.id, ...dropIds).all();
+  ).bind(...vScope.binds, ...dropIds).all();
 
   // Everything the other records knew, moved across before they go.
   //
@@ -815,17 +857,17 @@ export async function handleMergeVendors(request, env) {
 
   if (sets.length) {
     await env.DB.prepare(
-      `UPDATE vendors SET ${sets.join(', ')}, updated_at = ? WHERE id = ? AND user_id = ?`
-    ).bind(...binds, now(), keepId, user.id).run();
+      `UPDATE vendors SET ${sets.join(', ')}, updated_at = ? WHERE id = ? AND ${flat.sql}`
+    ).bind(...binds, now(), keepId, ...flat.binds).run();
   }
 
   const moved = await env.DB.prepare(
     `UPDATE bookings SET vendor_id = ?, supplier = ?, updated_at = ?
-      WHERE user_id = ? AND vendor_id IN (${marks})`
-  ).bind(keepId, keep.name, now(), user.id, ...dropIds).run();
+      WHERE ${flat.sql} AND vendor_id IN (${marks})`
+  ).bind(keepId, keep.name, now(), ...flat.binds, ...dropIds).run();
 
-  await env.DB.prepare(`DELETE FROM vendors WHERE user_id = ? AND id IN (${marks})`)
-    .bind(user.id, ...dropIds).run();
+  await env.DB.prepare(`DELETE FROM vendors WHERE ${flat.sql} AND id IN (${marks})`)
+    .bind(...flat.binds, ...dropIds).run();
 
   const changed = moved.meta ? moved.meta.changes || 0 : 0;
   await db.logActivity(env, user.id, 'vendor.merge',

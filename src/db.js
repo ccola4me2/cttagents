@@ -280,6 +280,24 @@ export function selfScope(user) {
 }
 
 /**
+ * The whole agency, whatever the reader's role.
+ *
+ * The one thing that is not somebody's private record. A supplier directory is
+ * an agency asset: the commission rate somebody negotiated, the desk contact,
+ * how to book them. Held per advisor it left a new joiner staring at an empty
+ * screen and rebuilding it from scratch, slightly differently, which is where
+ * three spellings of Carnival came from.
+ *
+ * Falls back to the reader alone when they are in no agency, the same way
+ * visibilityScope does, so the failure mode is a short list rather than
+ * somebody else's book.
+ */
+export function agencyScope(user) {
+  if (!user.agency_id) return { all: false, userId: user.id, agencyId: null, self: true };
+  return { all: true, agencyId: user.agency_id, userId: user.id, self: false };
+}
+
+/**
  * How the UI should describe the current scope.
  *
  * Every screen that can show more than your own records says whose they are.
