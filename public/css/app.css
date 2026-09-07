@@ -923,3 +923,38 @@ input.derived {
 .call-links a { font-weight: 600; }
 .call-acts { display: flex; gap: .4rem; align-items: center; flex-shrink: 0; }
 .call-undo { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+
+/* The promotions calendar.
+   A promo occupies a stretch of days, not a day, so this is bars across a
+   month rather than the dotted day grid the diary uses. Reading "what can I
+   still sell on Friday" off a grid of dots means opening every dot. */
+.promo-cal { padding: 1rem 1.25rem 1.4rem; overflow-x: auto; }
+.promo-row { display: grid; align-items: center; gap: .5rem; margin-bottom: .35rem;
+  grid-template-columns: 14rem 1fr; min-width: 34rem; }
+.promo-name { font-size: .82rem; font-weight: 600; color: var(--navy-800);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.promo-name a { color: inherit; }
+.promo-name .m { display: block; font-weight: 400; font-size: .72rem; color: var(--ink-500); }
+.promo-track { display: grid; position: relative; height: 26px; align-items: center;
+  background: var(--navy-50); border-radius: 6px; }
+.promo-bar { grid-row: 1; height: 18px; border-radius: 5px; background: var(--navy-600);
+  display: flex; align-items: center; padding: 0 .45rem; min-width: 0; }
+.promo-bar span { font-size: .68rem; color: #fff; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* Above the today line, which draws over the bar fill but must not cut
+     through the one piece of text on it. */
+  position: relative; z-index: 3; }
+.promo-bar.ending { background: var(--coral-500); }
+.promo-bar.draft { background: var(--ink-400); }
+.promo-scale { display: grid; margin-bottom: .4rem; }
+.promo-scale span { font-size: .62rem; color: var(--ink-400); text-align: center;
+  border-left: 1px solid var(--navy-100); }
+.promo-today { position: absolute; top: -2px; bottom: -2px; width: 2px; z-index: 2;
+  background: var(--coral-400); border-radius: 2px;
+  /* A halo, because on a coral bar a coral line is invisible and on a navy one
+     it reads as part of the bar. This separates it from either. */
+  box-shadow: 0 0 0 1px rgba(255,255,255,.75); }
+/* position only, deliberately no z-index: giving the bar one would open a
+   stacking context and trap its label underneath the today line, which is the
+   one thing the label must stay above. */
+.promo-bar { position: relative; }

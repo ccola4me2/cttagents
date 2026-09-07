@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Specials | Trip Vara Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Specials</h1>
+        <p class="sub">The deals you are running, when each one dies, and a page to send people to.</p></div>
+      <div class="toolbar" style="margin:0;">
+        <span id="scope"></span>
+        <button class="btn btn-primary btn-sm" id="add">Add a deal</button>
+      </div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <section id="stats" class="stat-grid"></section>
+      <div class="tabs" id="tabs">
+        <button class="tab" data-view="live" aria-selected="true">Running now</button>
+        <button class="tab" data-view="calendar" aria-selected="false">Promo calendar</button>
+        <button class="tab" data-view="expired" aria-selected="false">Finished</button>
+      </div>
+      <section class="card" id="panel"><p class="spinner">Loading deals...</p></section>
+    </div>
+  </div>
+</div>
+
+<dialog id="dlg">
+  <form id="deal-form" method="dialog">
+    <div class="card-head"><h2 id="dlg-title">Add a deal</h2>
+      <button class="btn btn-ghost btn-sm" type="button" id="close">Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" hidden></div>
+      <div class="field"><label for="headline">Headline</label>
+        <input id="headline" name="headline" maxlength="160" required
+          placeholder="7 nights Western Caribbean from Galveston">
+        <p class="field-hint">What somebody would read first. It also names the public page.</p></div>
+      <div class="field-row">
+        <div class="field"><label for="vendor">Vendor</label>
+          <input id="vendor" name="vendor" maxlength="120" list="vendor-names"></div>
+        <div class="field"><label for="productType">Kind</label>
+          <select id="productType" name="productType"></select></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="ship">Ship or property</label>
+          <input id="ship" name="ship" maxlength="120"></div>
+        <div class="field"><label for="destination">Destination</label>
+          <input id="destination" name="destination" maxlength="120"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="departDate">Departs</label>
+          <input id="departDate" name="departDate" type="date"></div>
+        <div class="field"><label for="returnDate">Returns</label>
+          <input id="returnDate" name="returnDate" type="date"></div>
+        <div class="field"><label for="nights">Nights</label>
+          <input id="nights" name="nights" type="number" min="0" max="999"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="price">From price</label>
+          <input id="price" name="price" inputmode="decimal" placeholder="799.00"></div>
+        <div class="field"><label for="priceBasis">Priced</label>
+          <select id="priceBasis" name="priceBasis"></select></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="startsOn">Offer starts</label>
+          <input id="startsOn" name="startsOn" type="date"></div>
+        <div class="field"><label for="endsOn">Book by</label>
+          <input id="endsOn" name="endsOn" type="date">
+          <p class="field-hint">Leave blank for a deal with no deadline.</p></div>
+      </div>
+      <div class="field"><label for="blurb">The pitch</label>
+        <textarea id="blurb" name="blurb" maxlength="4000"
+          placeholder="Why somebody should want this one."></textarea></div>
+      <div class="field"><label for="inclusions">What's included</label>
+        <textarea id="inclusions" name="inclusions" maxlength="2000"></textarea></div>
+      <div class="field"><label for="terms">The small print</label>
+        <textarea id="terms" name="terms" maxlength="2000"
+          placeholder="New bookings only, capacity controlled, taxes extra."></textarea></div>
+      <label style="display:flex;align-items:flex-start;gap:.6rem;font-weight:400;">
+        <input type="checkbox" id="published" name="published" style="width:auto;flex:none;margin-top:.25rem;">
+        <span><strong style="color:var(--navy-800);">Give it a public page</strong>
+          <span class="field-hint" style="display:block;margin-top:.3rem;">
+            Off means it is yours alone. On gives it an address you can post, with an
+            enquiry form that lands against this deal.</span></span>
+      </label>
+    </div>
+    <div class="card-foot">
+      <button class="btn btn-danger btn-sm" type="button" id="delete" hidden>Delete</button>
+      <button class="btn btn-primary" type="submit">Save deal</button>
+    </div>
+  </form>
+</dialog>
+<datalist id="vendor-names"></datalist>
+
+<script type="module">
+import { api, mountShell, esc, money, dateFmt, showError, onSubmit,
+         mountScopePicker, advisorParam } from '/js/app.js';
+const ME = (await mountShell()).id;
+
+const panel = document.getElementById('panel');
+const dlg = document.getElementById('dlg');
+const form = document.getElementById('deal-form');
+const deleteBtn = document.getElementById('delete');
+const errEl = document.getElementById('err');
+
+let d = null;
+let view = 'live';
+let editingId = null;
+let month = new Date().toISOString().slice(0, 7);
+
+const short = (iso) => (iso ? dateFmt(iso).replace(/,? \d{4}$/, '') : '');
+const days = (a, b) => Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86400000);
+
+/** How long it has left, which is the thing worth reading first. */
+function deadline(s, today) {
+  if (!s.ends_on) return { text: 'no deadline', tone: 'badge-navy' };
+  const left = days(s.ends_on, today);
+  if (left < 0) return { text: `ended ${short(s.ends_on)}`, tone: 'badge-navy' };
+  if (left === 0) return { text: 'ends today', tone: 'badge-red' };
+  if (left <= 14) return { text: `${left} days left`, tone: 'badge-red' };
+  return { text: `book by ${short(s.ends_on)}`, tone: 'badge-amber' };
+}
+
+function drawStats() {
+  const st = d.stats;
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><p class="label">Running</p><p class="value">${st.live}</p>
+      <p class="meta">${st.published} with a public page</p></div>
+    <div class="stat"><p class="label">Ending in a fortnight</p>
+      <p class="value" style="${st.endingSoon ? 'color:var(--coral-500);' : ''}">${st.endingSoon}</p>
+      <p class="meta">post these first</p></div>
+    <div class="stat"><p class="label">Enquiries</p><p class="value">${st.enquiries}</p>
+      <p class="meta">from every deal you have run</p></div>`;
+}
+
+function drawList(rows) {
+  if (!rows.length) {
+    panel.innerHTML = `<div class="empty"><h3>${
+      view === 'expired' ? 'Nothing has finished yet' : 'No deals running'}</h3>
+      <p>${view === 'expired'
+        ? 'Deals move here once their book-by date has passed.'
+        : 'Record the next offer a vendor sends you and it gets a page you can post.'}</p></div>`;
+    return;
+  }
+
+  panel.innerHTML = `<ul class="rows">${rows.map((s) => {
+    const dl = deadline(s, d.today);
+    const facts = [s.vendor, s.ship, s.destination,
+      s.nights ? `${s.nights} nights` : null,
+      s.depart_date ? short(s.depart_date) : null].filter(Boolean);
+    return `<li>
+      <div class="call-row">
+        <div class="call-who">
+          <span class="nm"><a href="/app/special?id=${encodeURIComponent(s.id)}">${
+      esc(s.headline)}</a></span>
+          <span class="badge ${dl.tone}" style="margin-left:.45rem;">${esc(dl.text)}</span>
+          ${s.published ? '<span class="badge badge-green" style="margin-left:.3rem;">live page</span>'
+      : '<span class="badge badge-navy" style="margin-left:.3rem;">draft</span>'}
+          ${d.scope && d.scope.all && s.advisor_name
+      ? `<span class="badge badge-navy" style="margin-left:.3rem;">${esc(s.advisor_name)}</span>` : ''}
+          <div class="call-why">${facts.length ? esc(facts.join(' · ')) : 'No details yet'}${
+      s.price_cents ? ` · from ${money(s.price_cents)} ${esc(s.price_basis || '')}` : ''}</div>
+          <div class="call-links">
+            ${s.published ? `<a href="${esc(d.appUrl)}/s/${encodeURIComponent(s.code)}"
+              target="_blank" rel="noopener">Open the public page</a>` : ''}
+            <span class="muted">${s.enquiries || 0} enquir${s.enquiries === 1 ? 'y' : 'ies'}${
+      s.booked ? `, ${s.booked} booked` : ''}</span>
+          </div>
+        </div>
+        <div class="call-acts">
+          ${s.published ? `<button class="btn btn-ghost btn-sm" data-copy="${esc(s.code)}">Copy link</button>` : ''}
+          ${s.user_id === ME ? `<button class="btn btn-secondary btn-sm" data-edit="${esc(s.id)}">Edit</button>`
+      : '<span class="muted">view only</span>'}
+        </div>
+      </div>
+    </li>`;
+  }).join('')}</ul>`;
+
+  panel.querySelectorAll('[data-edit]').forEach((b) => {
+    b.addEventListener('click', () => openEdit(rows.find((s) => s.id === b.dataset.edit)));
+  });
+  panel.querySelectorAll('[data-copy]').forEach((b) => {
+    b.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(`${d.appUrl}/s/${b.dataset.copy}`);
+      b.textContent = 'Copied';
+      setTimeout(() => { b.textContent = 'Copy link'; }, 1500);
+    });
+  });
+}
+
+/**
+ * The month, with every offer drawn as the stretch of days it runs for.
+ *
+ * A promotion is a span, not a date, so a day grid with a dot on it answers
+ * the wrong question. What an advisor wants off this screen is which offers
+ * they can still sell on Friday, and a bar that stops on Thursday says so
+ * without being opened.
+ */
+function drawCalendar(rows) {
+  const [y, m] = month.split('-').map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const first = `${month}-01`;
+  const lastDay = `${month}-${String(last).padStart(2, '0')}`;
+
+  // Anything whose run overlaps this month at all. A deal with no dates runs
+  // until it is taken down, so it counts as running.
+  const inMonth = rows.filter((s) => {
+    const from = s.starts_on || first;
+    const to = s.ends_on || lastDay;
+    return from <= lastDay && to >= first;
+  });
+
+  const nav = `<div class="cal-head">
+      <button class="cal-nav" data-month="-1" aria-label="Previous month">&lsaquo;</button>
+      <strong>${new Date(`${first}T12:00:00Z`).toLocaleDateString('en-US',
+    { month: 'long', year: 'numeric', timeZone: 'UTC' })}</strong>
+      <button class="cal-nav" data-month="1" aria-label="Next month">&rsaquo;</button>
+    </div>`;
+
+  if (!inMonth.length) {
+    panel.innerHTML = `<div class="promo-cal">${nav}
+      <p class="cal-none">Nothing running this month.</p></div>`;
+    wireMonth();
+    return;
+  }
+
+  // A tick every five days. One per day is unreadable at this width and one
+  // per week does not line up with anything anybody says out loud.
+  const ticks = [];
+  for (let n = 1; n <= last; n += 5) ticks.push(n);
+
+  const todayCol = d.today.slice(0, 7) === month ? Number(d.today.slice(8, 10)) : null;
+
+  panel.innerHTML = `<div class="promo-cal">
+    ${nav}
+    <div class="promo-row" style="margin-bottom:.2rem;">
+      <span></span>
+      <div class="promo-scale" style="grid-template-columns:repeat(${last}, 1fr);">
+        ${ticks.map((n, i) => `<span style="grid-column:${n} / ${
+    (ticks[i + 1] || last + 1)};">${n}</span>`).join('')}
+      </div>
+    </div>
+    ${inMonth.map((s) => {
+    const from = Math.max(1, s.starts_on && s.starts_on > first
+      ? Number(s.starts_on.slice(8, 10)) : 1);
+    const to = Math.min(last, s.ends_on && s.ends_on < lastDay
+      ? Number(s.ends_on.slice(8, 10)) : last);
+    const endsHere = Boolean(s.ends_on && s.ends_on >= first && s.ends_on <= lastDay);
+    const tone = !s.published ? 'draft' : (endsHere ? 'ending' : '');
+    return `<div class="promo-row">
+        <span class="promo-name">
+          <a href="/app/special?id=${encodeURIComponent(s.id)}">${esc(s.headline)}</a>
+          <span class="m">${esc([s.vendor, s.price_cents ? `from ${money(s.price_cents)}` : null]
+      .filter(Boolean).join(' · ') || 'no vendor')}</span>
+        </span>
+        <div class="promo-track" style="grid-template-columns:repeat(${last}, 1fr);">
+          ${todayCol ? `<span class="promo-today" style="grid-column:${todayCol};"></span>` : ''}
+          <div class="promo-bar ${tone}" style="grid-column:${from} / ${to + 1};">
+            <span>${esc(s.ends_on ? `to ${short(s.ends_on)}` : 'no deadline')}</span>
+          </div>
+        </div>
+      </div>`;
+  }).join('')}
+    <p class="field-hint" style="margin:.9rem 0 0;">Coral bars finish this month. Grey bars have
+      no public page yet. The coral line is today.</p>
+  </div>`;
+  wireMonth();
+}
+
+function wireMonth() {
+  panel.querySelectorAll('[data-month]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const [y, m] = month.split('-').map(Number);
+      const next = new Date(Date.UTC(y, m - 1 + Number(b.dataset.month), 1));
+      month = next.toISOString().slice(0, 7);
+      draw();
+    });
+  });
+}
+
+function draw() {
+  drawStats();
+  if (view === 'calendar') drawCalendar(d.specials);
+  else drawList(d.specials);
+}
+
+function fillSelects() {
+  document.getElementById('productType').innerHTML = d.productTypes
+    .map((t) => `<option value="${esc(t)}">${esc(t.replace(/_/g, ' '))}</option>`).join('');
+  document.getElementById('priceBasis').innerHTML = d.priceBasis
+    .map((b) => `<option value="${esc(b)}">${esc(b)}</option>`).join('');
+}
+
+function openCreate() {
+  editingId = null;
+  form.reset();
+  fillSelects();
+  document.getElementById('dlg-title').textContent = 'Add a deal';
+  deleteBtn.hidden = true;
+  form.querySelector('.notice-error').hidden = true;
+  dlg.showModal();
+}
+
+function openEdit(s) {
+  if (!s) return;
+  editingId = s.id;
+  fillSelects();
+  document.getElementById('dlg-title').textContent = 'Edit deal';
+  deleteBtn.hidden = false;
+  form.querySelector('.notice-error').hidden = true;
+  const set = (n, v) => { const el = form.elements[n]; if (el) el.value = v ?? ''; };
+  set('headline', s.headline); set('vendor', s.vendor); set('productType', s.product_type);
+  set('ship', s.ship); set('destination', s.destination);
+  set('departDate', s.depart_date); set('returnDate', s.return_date); set('nights', s.nights);
+  set('priceBasis', s.price_basis); set('startsOn', s.starts_on); set('endsOn', s.ends_on);
+  set('blurb', s.blurb); set('inclusions', s.inclusions); set('terms', s.terms);
+  set('price', s.price_cents ? (s.price_cents / 100).toFixed(2) : '');
+  form.elements.published.checked = Boolean(s.published);
+  dlg.showModal();
+}
+
+async function load() {
+  try {
+    const state = view === 'calendar' ? 'all' : view;
+    const q = [`state=${state}`, advisorParam()].filter(Boolean).join('&');
+    d = await api(`/api/specials?${q}`);
+    mountScopePicker(document.getElementById('scope'), d, load);
+    draw();
+  } catch (e) { showError(panel, e); }
+}
+
+document.getElementById('add').addEventListener('click', openCreate);
+document.getElementById('close').addEventListener('click', () => dlg.close());
+document.getElementById('tabs').addEventListener('click', (e) => {
+  const tab = e.target.closest('[data-view]');
+  if (!tab) return;
+  view = tab.dataset.view;
+  document.querySelectorAll('#tabs .tab').forEach((t) => t.setAttribute('aria-selected', String(t === tab)));
+  load();
+});
+
+deleteBtn.addEventListener('click', async () => {
+  if (!editingId) return;
+  if (!confirm('Delete this deal? Any enquiries against it go too.')) return;
+  const out = await api(`/api/specials/${encodeURIComponent(editingId)}`, { method: 'DELETE' });
+  dlg.close();
+  errEl.innerHTML = `<div class="notice notice-ok">Deal deleted${
+    out.enquiriesRemoved ? `, along with ${out.enquiriesRemoved} enquir${
+      out.enquiriesRemoved === 1 ? 'y' : 'ies'}` : ''}.</div>`;
+  await load();
+});
+
+onSubmit(form, async (values) => {
+  const body = { ...values, published: form.elements.published.checked };
+  const path = editingId ? `/api/specials/${encodeURIComponent(editingId)}` : '/api/specials';
+  await api(path, { method: editingId ? 'PUT' : 'POST', body });
+  dlg.close();
+  await load();
+});
+
+// The vendors already on the books, so a deal names the same supplier the
+// reservations will.
+api('/api/vendors').then((v) => {
+  document.getElementById('vendor-names').innerHTML = (v.vendors || [])
+    .map((x) => `<option value="${esc(x.name)}"></option>`).join('');
+}).catch(() => {});
+
+await load();
+</script>
+</body></html>

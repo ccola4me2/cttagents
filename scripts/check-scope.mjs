@@ -41,7 +41,7 @@ const OWNED = new Set([
   'amenities', 'tasks', 'client_credits', 'clients', 'travel_groups', 'vendors',
   'goals', 'user_prefs', 'commission_statements', 'commission_receipts',
   'group_registrations', 'task_items', 'task_templates', 'trip_messages',
-  'hotlist_actions',
+  'hotlist_actions', 'specials', 'special_leads',
 ]);
 
 // Shared by a whole agency through a GoHighLevel sub-account, so location_id
@@ -60,6 +60,16 @@ const EXEMPT = new Map([
 // claim that somebody checked, which is the point of writing it down instead
 // of widening the rule until nothing fails.
 const ALLOWED = [
+  ['FROM specials WHERE code = ?',
+    'the public page for a deal. The code is the URL somebody was given, and it is '
+    + 'unique across every advisor, so this looks up one published deal by the address '
+    + 'that was handed out rather than asking whose it is'],
+  ['SELECT COUNT(*) AS n FROM special_leads',
+    'a rate limit on that public page, counted for the deal being enquired about; there '
+    + 'is no session to scope it to and the count never leaves the check'],
+  ['SELECT l.id, l.name, l.email, l.phone, l.party_size, l.notes, l.booking_id',
+    'the enquiries on one deal, reached only after the deal itself was fetched under '
+    + 'the reader\'s scope; a deal they cannot see returns before this runs'],
   ['SELECT id FROM travel_groups WHERE group_code = ?',
     'deliberately every advisor: the code is a public web address, so it has to be '
     + 'unique across all of them, not just within one book'],

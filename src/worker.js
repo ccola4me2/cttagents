@@ -68,6 +68,7 @@ import {
 } from './formbuilder.js';
 import {
   renderPublicForm, handlePublicSubmit, renderGroupPage, handleGroupRegistration,
+  renderSpecialPage, handleSpecialEnquiry,
 } from './publicform.js';
 import { handleSearch } from './search.js';
 import { handleGetLayout, handleSaveLayout, handleResetLayout } from './prefs.js';
@@ -92,6 +93,10 @@ import {
 import {
   handleHotLists, handleHotListDone, handleHotListUndo,
 } from './hotlists.js';
+import {
+  handleListSpecials, handleGetSpecial, handleCreateSpecial, handleUpdateSpecial,
+  handleDeleteSpecial, handleBookEnquiry, handleDeleteEnquiry,
+} from './specials.js';
 import { handleGetGoals, handleSaveGoals } from './goals.js';
 import { handleListCommissions, handleSetCommissionStatus } from './commissions.js';
 import {
@@ -179,6 +184,8 @@ const PAGE_FILES = {
   '/app/groups': '/app/groups.html',
   '/app/credits': '/app/credits.html',
   '/app/hotlists': '/app/hotlists.html',
+  '/app/specials': '/app/specials.html',
+  '/app/special': '/app/special.html',
   '/app/goals': '/app/goals.html',
   '/app/commissions': '/app/commissions.html',
   '/app/reservations': '/app/reservations.html',
@@ -343,6 +350,9 @@ async function routeApi(request, env, path, method) {
   const groupMatch = path.match(/^\/api\/groups\/([^/]+)$/);
   const groupBookMatch = path.match(/^\/api\/groups\/registrations\/([^/]+)\/book$/);
   const creditMatch = path.match(/^\/api\/credits\/([^/]+)$/);
+  const specialMatch = path.match(/^\/api\/specials\/([^/]+)$/);
+  const enquiryBookMatch = path.match(/^\/api\/specials\/enquiries\/([^/]+)\/book$/);
+  const enquiryMatch = path.match(/^\/api\/specials\/enquiries\/([^/]+)$/);
   const receiptMatch = path.match(/^\/api\/commissions\/receipts\/([^/]+)$/);
   const vendorStatementMatch = path.match(/^\/api\/commissions\/statements\/([^/]+)$/);
   const candidatesMatch = path.match(/^\/api\/commissions\/statements\/([^/]+)\/candidates$/);
@@ -567,6 +577,15 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/hotlists' && method === 'GET') return handleHotLists(request, env);
   if (path === '/api/hotlists/done' && method === 'POST') return handleHotListDone(request, env);
   if (path === '/api/hotlists/undo' && method === 'POST') return handleHotListUndo(request, env);
+
+  // Deals worth telling people about, and when each one dies.
+  if (path === '/api/specials' && method === 'GET') return handleListSpecials(request, env);
+  if (path === '/api/specials' && method === 'POST') return handleCreateSpecial(request, env);
+  if (specialMatch && method === 'GET') return handleGetSpecial(request, env, specialMatch[1]);
+  if (specialMatch && method === 'PUT') return handleUpdateSpecial(request, env, specialMatch[1]);
+  if (specialMatch && method === 'DELETE') return handleDeleteSpecial(request, env, specialMatch[1]);
+  if (enquiryBookMatch && method === 'POST') return handleBookEnquiry(request, env, enquiryBookMatch[1]);
+  if (enquiryMatch && method === 'DELETE') return handleDeleteEnquiry(request, env, enquiryMatch[1]);
   if (path === '/api/prefs/dashboard' && method === 'GET') return handleGetLayout(request, env);
   if (path === '/api/prefs/dashboard' && method === 'PUT') return handleSaveLayout(request, env);
   if (path === '/api/prefs/dashboard' && method === 'DELETE') return handleResetLayout(request, env);
@@ -678,6 +697,15 @@ async function routePage(request, env, path) {
     return request.method === 'POST'
       ? handleGroupRegistration(request, env, code)
       : renderGroupPage(request, env, code);
+  }
+
+  // A deal's own page, public because it is what gets posted and emailed.
+  const specialPage = path.match(/^\/s\/([^/]+)\/?$/);
+  if (specialPage) {
+    const code = decodeURIComponent(specialPage[1]);
+    return request.method === 'POST'
+      ? handleSpecialEnquiry(request, env, code)
+      : renderSpecialPage(request, env, code);
   }
 
   const needsAuth = path.startsWith('/app');

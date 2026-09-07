@@ -150,6 +150,7 @@ const NAV = [
   {
     hub: 'Marketing', icon: I.megaphone, items: [
       { href: '/app/marketing', label: 'Campaigns & funnels' },
+      { href: '/app/specials', label: 'Specials' },
       { href: '/app/formbuilder', label: 'Forms' },
       { href: '/app/forms', label: 'Imported forms' },
       { href: '/app/automations', label: 'Automations' },

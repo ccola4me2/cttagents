@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deal | Trip Vara Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <a class="back-link" href="/app/specials">Back to specials</a>
+        <h1 id="title">Deal</h1><p class="sub" id="sub"></p>
+      </div>
+      <div class="toolbar" style="margin:0;" id="actions"></div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <section class="card">
+        <div class="card-head"><h2>The offer</h2><span id="state"></span></div>
+        <div class="card-pad" id="detail"></div>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>Who has asked</h2><span id="count" class="muted"></span></div>
+        <div id="leads"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api, mountShell, esc, money, dateFmt, timeAgo, showError } from '/js/app.js';
+await mountShell();
+
+const id = new URLSearchParams(location.search).get('id');
+const errEl = document.getElementById('err');
+let d = null;
+
+const short = (iso) => (iso ? dateFmt(iso).replace(/,? \d{4}$/, '') : '');
+const days = (a, b) => Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86400000);
+
+function drawDetail() {
+  const s = d.special;
+  const today = new Date().toISOString().slice(0, 10);
+  const left = s.ends_on ? days(s.ends_on, today) : null;
+
+  document.getElementById('title').textContent = s.headline;
+  document.getElementById('sub').textContent =
+    [s.vendor, s.ship, s.destination].filter(Boolean).join(' · ') || 'No details yet';
+
+  const state = document.getElementById('state');
+  if (!s.published) {
+    state.innerHTML = '<span class="badge badge-navy">draft, no public page</span>';
+  } else if (left !== null && left < 0) {
+    state.innerHTML = '<span class="badge badge-navy">finished</span>';
+  } else if (left !== null && left <= 14) {
+    state.innerHTML = `<span class="badge badge-red">${left === 0 ? 'ends today' : `${left} days left`}</span>`;
+  } else {
+    state.innerHTML = '<span class="badge badge-green">running</span>';
+  }
+
+  const url = `${d.appUrl}/s/${s.code}`;
+  document.getElementById('actions').innerHTML = `
+    ${s.published ? `<a class="btn btn-ghost btn-sm" href="${esc(url)}" target="_blank"
+      rel="noopener">View the page</a>
+      <button class="btn btn-ghost btn-sm" id="copy">Copy link</button>` : ''}
+    ${d.editable ? '<a class="btn btn-secondary btn-sm" href="/app/specials">Edit on the list</a>' : ''}`;
+
+  const copy = document.getElementById('copy');
+  if (copy) copy.addEventListener('click', async () => {
+    await navigator.clipboard.writeText(url);
+    copy.textContent = 'Copied';
+    setTimeout(() => { copy.textContent = 'Copy link'; }, 1500);
+  });
+
+  const para = (t) => String(t || '').split(/\n{2,}/).map((p) => p.trim()).filter(Boolean)
+    .map((p) => `<p style="margin:0 0 .6rem;">${esc(p)}</p>`).join('');
+
+  document.getElementById('detail').innerHTML = `
+    <dl class="pairs">
+      ${s.price_cents ? `<dt>From</dt><dd>${money(s.price_cents)}
+        <span class="muted">${esc(s.price_basis || '')}</span></dd>` : ''}
+      ${s.depart_date ? `<dt>Travels</dt><dd>${esc(short(s.depart_date))}${
+    s.return_date ? ` to ${esc(short(s.return_date))}` : ''}${
+    s.nights ? ` &middot; ${s.nights} nights` : ''}</dd>` : ''}
+      <dt>Offer runs</dt><dd>${s.starts_on ? esc(short(s.starts_on)) : 'from now'}${
+    s.ends_on ? ` to ${esc(short(s.ends_on))}` : ', with no deadline'}</dd>
+      ${s.published ? `<dt>Public page</dt><dd><a href="${esc(url)}" target="_blank"
+        rel="noopener">${esc(url.replace(/^https?:\/\//, ''))}</a></dd>` : ''}
+    </dl>
+    ${s.blurb ? `<div style="margin-top:1rem;">${para(s.blurb)}</div>` : ''}
+    ${s.inclusions ? `<h3 style="font-size:.85rem;margin:1.2rem 0 .4rem;">What's included</h3>
+      ${para(s.inclusions)}` : ''}
+    ${s.terms ? `<h3 style="font-size:.85rem;margin:1.2rem 0 .4rem;">The small print</h3>
+      ${para(s.terms)}` : ''}`;
+}
+
+function drawLeads() {
+  const rows = d.leads || [];
+  const booked = rows.filter((l) => l.booking_id).length;
+  document.getElementById('count').textContent = rows.length
+    ? `${rows.length} enquir${rows.length === 1 ? 'y' : 'ies'}${booked ? `, ${booked} booked` : ''}`
+    : '';
+
+  const box = document.getElementById('leads');
+  if (!rows.length) {
+    box.innerHTML = `<div class="empty"><h3>Nobody yet</h3>
+      <p>${d.special.published
+        ? 'Enquiries from the public page land here, attached to this deal.'
+        : 'Give it a public page and enquiries will land here rather than in your inbox.'}</p></div>`;
+    return;
+  }
+
+  box.innerHTML = `<ul class="rows">${rows.map((l) => `
+    <li><div class="call-row">
+      <div class="call-who">
+        <span class="nm">${esc(l.name)}</span>
+        ${l.booking_id ? '<span class="badge badge-green" style="margin-left:.45rem;">booked</span>' : ''}
+        <div class="call-why">${esc(timeAgo(l.created_at))}${
+    l.party_size ? ` &middot; ${l.party_size} travelling` : ''}${
+    l.notes ? ` &middot; ${esc(l.notes)}` : ''}</div>
+        <div class="call-links">
+          ${l.phone ? `<a href="tel:${esc(String(l.phone).replace(/[^\d+]/g, ''))}">${esc(l.phone)}</a>` : ''}
+          ${l.email ? `<a href="mailto:${esc(l.email)}">${esc(l.email)}</a>` : ''}
+          ${l.booking_id ? `<a href="/app/reservation?id=${encodeURIComponent(l.booking_id)}">Open the reservation</a>` : ''}
+        </div>
+      </div>
+      <div class="call-acts">
+        ${!l.booking_id && d.editable
+    ? `<button class="btn btn-primary btn-sm" data-book="${esc(l.id)}">Book them</button>` : ''}
+        ${d.editable ? `<button class="btn btn-ghost btn-sm" data-drop="${esc(l.id)}">Remove</button>` : ''}
+      </div>
+    </div></li>`).join('')}</ul>`;
+
+  box.querySelectorAll('[data-book]').forEach((b) => {
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      try {
+        const out = await api(`/api/specials/enquiries/${encodeURIComponent(b.dataset.book)}/book`,
+          { method: 'POST' });
+        location.href = `/app/reservation?id=${encodeURIComponent(out.bookingId)}`;
+      } catch (e) { b.disabled = false; showError(errEl, e); }
+    });
+  });
+  box.querySelectorAll('[data-drop]').forEach((b) => {
+    b.addEventListener('click', async () => {
+      if (!confirm('Remove this enquiry?')) return;
+      try {
+        await api(`/api/specials/enquiries/${encodeURIComponent(b.dataset.drop)}`, { method: 'DELETE' });
+        await load();
+      } catch (e) { showError(errEl, e); }
+    });
+  });
+}
+
+async function load() {
+  try {
+    d = await api(`/api/specials/${encodeURIComponent(id)}`);
+    errEl.innerHTML = '';
+    drawDetail();
+    drawLeads();
+  } catch (e) { showError(errEl, e); }
+}
+
+await load();
+</script>
+</body></html>

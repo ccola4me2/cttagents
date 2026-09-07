@@ -33,6 +33,7 @@ const PAGES = [
   ['public/app/groups.html', ['/api/groups']],
   ['public/app/credits.html', ['/api/credits?state=all', '/api/bookings']],
   ['public/app/hotlists.html', ['/api/hotlists']],
+  ['public/app/specials.html', ['/api/specials?state=all', '/api/vendors']],
   ['public/app/goals.html', ['/api/goals']],
   ['public/app/commissions.html', ['/api/commissions', '/api/commissions/statements']],
   ['public/app/form.html', ['/api/myforms', 'detail:/api/myforms/{formId}']],

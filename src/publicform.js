@@ -291,6 +291,170 @@ export async function handleGroupRegistration(request, env, code) {
   return json({ ok: true, message: 'We will be in touch with the details shortly.' });
 }
 
+
+/**
+ * A deal's own page.
+ *
+ * Server rendered like the group page and for the same reason: it gets posted
+ * to Facebook and pasted into an email, so it has to be a real page to
+ * somebody with no account and no JavaScript worth waiting for.
+ *
+ * An expired deal is not a 404. Somebody has clicked a link the advisor put
+ * out, and telling them the page does not exist reads like a broken business;
+ * telling them the offer has gone and asking what they were after keeps the
+ * enquiry, which is the entire point of the page.
+ */
+async function loadSpecial(env, code) {
+  const row = await env.DB.prepare(
+    `SELECT id, user_id, code, headline, vendor, ship, destination, depart_date,
+            return_date, nights, price_cents, price_basis, inclusions, terms,
+            blurb, starts_on, ends_on, published
+       FROM specials WHERE code = ? AND published = 1`
+  ).bind(code).first();
+  return row || null;
+}
+
+const SPECIAL_MONEY = (cents) => `$${((cents || 0) / 100).toLocaleString('en-US', {
+  minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+
+export async function renderSpecialPage(request, env, code) {
+  const s = await loadSpecial(env, code);
+  if (!s) {
+    return new Response(page('Not available',
+      '<h1>This deal is not showing</h1><p>The link may be out of date. Get in touch and we '
+      + 'will tell you what is going out next.</p>'),
+      { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const gone = Boolean(s.ends_on && s.ends_on < today);
+
+  const facts = [
+    s.vendor, s.ship, s.destination,
+    s.nights ? `${s.nights} nights` : null,
+  ].filter(Boolean);
+
+  const when = s.depart_date
+    ? `<p>Sailing ${esc(sayDate(s.depart_date))}${
+      s.return_date ? ` to ${esc(sayDate(s.return_date))}` : ''}</p>` : '';
+
+  const price = s.price_cents
+    ? `<p style="font-size:1.9rem;font-weight:650;color:var(--navy);margin:.4rem 0 0;">
+         ${esc(SPECIAL_MONEY(s.price_cents))}
+         <span style="font-size:.85rem;font-weight:400;color:#5c7286;">${
+  esc(s.price_basis || 'per person')}</span></p>` : '';
+
+  const list = (title, text) => (text
+    ? `<h2 style="font-size:1rem;color:var(--navy);margin:1.6rem 0 .4rem;">${esc(title)}</h2>`
+      + paragraphs(text)
+    : '');
+
+  const deadline = gone
+    ? '<div class="note error">This offer has closed. Tell us what you were after and we will '
+      + 'find you the nearest thing going now.</div>'
+    : (s.ends_on
+      ? `<div class="note ok">Book by ${esc(sayDate(s.ends_on))}.</div>` : '');
+
+  const body = [
+    deadline,
+    `<h1>${esc(s.headline)}</h1>`,
+    facts.length ? `<p class="lede">${esc(facts.join(' · '))}</p>` : '',
+    price,
+    when,
+    paragraphs(s.blurb),
+    list("What's included", s.inclusions),
+    list('The small print', s.terms),
+    '<h2 style="font-size:1rem;color:var(--navy);margin:1.8rem 0 .6rem;">'
+      + (gone ? 'Tell us what you are after' : 'Ask about this one') + '</h2>',
+    '<form id="f" novalidate>',
+    '<label for="name">Your name</label><input id="name" name="name" required maxlength="120">',
+    '<label for="email">Email</label><input id="email" name="email" type="email" required maxlength="254">',
+    '<label for="phone">Mobile</label><input id="phone" name="phone" type="tel" maxlength="40">',
+    '<label for="party_size">How many travelling</label><input id="party_size" name="party_size" type="number" min="1" max="99">',
+    '<label for="notes">Anything you want us to know</label><textarea id="notes" name="notes" maxlength="1000"></textarea>',
+    '<div class="hp"><label>Company website<input name="company_website" tabindex="-1" autocomplete="off"></label></div>',
+    `<button type="submit">${gone ? 'Send it over' : 'Ask about this deal'}</button>`,
+    '<p class="err" id="err" hidden></p>',
+    '</form>',
+    SPECIAL_SCRIPT,
+  ].filter(Boolean).join('\n');
+
+  return new Response(page(s.headline, body),
+    { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+}
+
+const SPECIAL_SCRIPT = ['<scr', 'ipt>',
+  "const f=document.getElementById('f');",
+  "f.addEventListener('submit', async (e) => {",
+  '  e.preventDefault();',
+  "  const err = document.getElementById('err');",
+  '  err.hidden = true;',
+  '  const body = Object.fromEntries(new FormData(f).entries());',
+  "  const res = await fetch(location.pathname, { method: 'POST',",
+  "    headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });",
+  '  const data = await res.json().catch(() => ({}));',
+  '  if (!res.ok) {',
+  "    err.textContent = data.error || 'Something went wrong.';",
+  '    err.hidden = false;',
+  '    return;',
+  '  }',
+  '  f.outerHTML = \'<h2>Thanks, we have got that</h2><p>\' +',
+  "    (data.message || 'We will be in touch shortly.') + '</p>';",
+  '});',
+  '</scr', 'ipt>'].join('\n');
+
+export async function handleSpecialEnquiry(request, env, code) {
+  const s = await loadSpecial(env, code);
+  if (!s) return notFound('This deal is not showing.');
+
+  const body = await readJson(request);
+
+  // The same honeypot and rate limit as every other page open to the internet.
+  if (clean(body.company_website, 200)) return json({ ok: true, message: 'Thanks.' });
+
+  const ip = request.headers.get('CF-Connecting-IP') || '';
+  const ipHash = ip ? (await sha256Hex(`special:${code}:${ip}`)).slice(0, 32) : null;
+  if (ipHash) {
+    const seen = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM special_leads
+        WHERE special_id = ? AND ip_hash = ? AND created_at > ?`
+    ).bind(s.id, ipHash, now() - 3600).first();
+    if ((seen?.n || 0) >= 5) {
+      return json({ error: 'Too many from here. Please try again later.' }, 429);
+    }
+  }
+
+  const name = clean(body.name, 120);
+  const email = normalizeEmail(clean(body.email, 254));
+  if (!name) return badRequest('Your name is required.');
+  if (!email || !isValidEmail(email)) return badRequest('A working email address is required.');
+
+  await env.DB.prepare(
+    `INSERT INTO special_leads
+       (id, special_id, user_id, name, email, phone, party_size, notes, ip_hash, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(uid(), s.id, s.user_id, name, email, clean(body.phone, 40) || null,
+         Math.max(0, Math.min(Number(body.party_size) || 0, 99)) || null,
+         cleanText(body.notes, 1000) || null, ipHash, now()).run();
+
+  await notifyOwner(env, s.user_id, {
+    what: s.headline,
+    href: `${appUrl(env)}/app/special?id=${encodeURIComponent(s.id)}`,
+    name, email,
+    phone: clean(body.phone, 40) || null,
+    partySize: Math.max(0, Math.min(Number(body.party_size) || 0, 99)) || null,
+    notes: cleanText(body.notes, 1000) || null,
+  });
+
+  const gone = Boolean(s.ends_on && s.ends_on < new Date().toISOString().slice(0, 10));
+  return json({
+    ok: true,
+    message: gone
+      ? 'We will come back to you with what is going now.'
+      : 'We will be in touch with the details shortly.',
+  });
+}
+
 export async function handlePublicSubmit(request, env, slug) {
   const found = await loadForm(env, slug);
   if (!found || !found.form.active) return notFound('This form is not available.');

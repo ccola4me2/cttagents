@@ -1332,6 +1332,122 @@ async function main() {
   }
 
 
+
+  // -------------------------------------------------- deals and their page --
+  step('A special, its public page, and the enquiry it pulls');
+  {
+    const made = await call(advisor, 'POST', '/api/specials', {
+      headline: `7 nights Western Caribbean ${stamp}`,
+      vendor: 'Carnival Cruise Line', productType: 'cruise', ship: 'Jubilee',
+      destination: 'Western Caribbean', departDate: isoDay(150), returnDate: isoDay(157),
+      nights: 7, price: '799', priceBasis: 'per person',
+      startsOn: isoDay(-2), endsOn: isoDay(20),
+      blurb: 'Balcony for the price of an ocean view.\n\nDrinks included.',
+      inclusions: 'Gratuities and the drinks package.',
+      terms: 'New bookings only. Taxes extra.',
+    });
+    const dealId = made.data?.special?.id;
+    const code = made.data?.special?.code;
+    if (dealId) cleanup('the special', () => call(advisor, 'DELETE', `/api/specials/${dealId}`));
+    check(made.status === 201 && dealId && code, 'a deal is recorded', `status ${made.status}`);
+    check(/^7-nights-western-caribbean/.test(code || ''),
+      'and gets a readable address of its own, not a uuid', code);
+
+    // Unpublished means no page. A half written deal with a live URL is the
+    // thing the switch exists to prevent.
+    const draft = await call(null, 'GET', `/s/${code}`);
+    check(draft.status === 404, 'a draft has no public page', `status ${draft.status}`);
+
+    const published = await call(advisor, 'PUT', `/api/specials/${dealId}`, {
+      headline: `7 nights Western Caribbean ${stamp}`,
+      vendor: 'Carnival Cruise Line', productType: 'cruise', ship: 'Jubilee',
+      destination: 'Western Caribbean', departDate: isoDay(150), returnDate: isoDay(157),
+      nights: 7, price: '799', priceBasis: 'per person',
+      startsOn: isoDay(-2), endsOn: isoDay(20),
+      blurb: 'Balcony for the price of an ocean view.', published: true,
+    });
+    check(published.status === 200 && published.data?.special?.published === 1,
+      'switching the page on publishes it');
+
+    const live = await call(null, 'GET', `/s/${code}`);
+    check(live.status === 200 && live.raw.includes('Western Caribbean'),
+      'and the page is then served to anybody, signed in or not', `status ${live.status}`);
+    check(live.raw.includes('$799'), 'with the price on it');
+    check(!live.raw.includes(ADVISOR_EMAIL),
+      'and nothing on it that belongs to the advisor rather than the deal');
+
+    // The enquiry is the whole point: it has to arrive attached to the deal.
+    const asked = await call(null, 'POST', `/s/${code}`, {
+      name: `Deal Asker ${stamp}`, email: `asker-${stamp}@test.dev`,
+      phone: '555-0199', party_size: 2, notes: 'Two of us, balcony please.',
+    });
+    check(asked.status === 200 && asked.data?.ok, 'a stranger can ask about it',
+      JSON.stringify(asked.data));
+
+    const spam = await call(null, 'POST', `/s/${code}`, {
+      name: 'Robot', email: 'robot@test.dev', company_website: 'http://spam.test',
+    });
+    const afterSpam = await call(advisor, 'GET', `/api/specials/${dealId}`);
+    check(spam.status === 200 && (afterSpam.data?.leads || []).length === 1,
+      'and the honeypot swallows a bot without telling it so');
+
+    const lead = (afterSpam.data?.leads || [])[0];
+    check(lead?.name === `Deal Asker ${stamp}` && lead.party_size === 2,
+      'the enquiry lands against the deal, not in a general pile',
+      JSON.stringify(lead));
+    check(afterSpam.data?.special?.headline.includes('Western Caribbean'),
+      'and the deal page can read it back');
+
+    // Turning it into a reservation should carry the deal across, and the
+    // contact details with it: an enquiry that becomes a booking for somebody
+    // with no phone number has lost the only useful thing it had.
+    const booked = await call(advisor, 'POST', `/api/specials/enquiries/${lead.id}/book`);
+    const newBooking = booked.data?.bookingId;
+    if (newBooking) cleanup('the reservation from the deal',
+      () => call(advisor, 'DELETE', `/api/bookings/${newBooking}`));
+    check(booked.status === 201 && newBooking, 'an enquiry becomes a reservation',
+      `status ${booked.status}`);
+
+    const rec = await call(advisor, 'GET', `/api/bookings/${newBooking}/record`);
+    check(rec.data?.booking?.supplier === 'Carnival Cruise Line'
+      && rec.data?.booking?.depart_date === isoDay(150),
+      'carrying the vendor and the sailing date from the deal',
+      JSON.stringify({ s: rec.data?.booking?.supplier, d: rec.data?.booking?.depart_date }));
+    check(rec.data?.client?.phone === '555-0199' || rec.data?.booking?.client_id,
+      'and the client it created knows how to be reached');
+
+    const twice = await call(advisor, 'POST', `/api/specials/enquiries/${lead.id}/book`);
+    check(twice.status === 400, 'booking the same enquiry twice is refused',
+      `status ${twice.status}`);
+
+    // An offer that has closed still takes names. Telling somebody who clicked
+    // a link that the page does not exist reads like a broken business.
+    await call(advisor, 'PUT', `/api/specials/${dealId}`, {
+      headline: `7 nights Western Caribbean ${stamp}`, vendor: 'Carnival Cruise Line',
+      endsOn: isoDay(-1), published: true,
+    });
+    const closed = await call(null, 'GET', `/s/${code}`);
+    check(closed.status === 200 && closed.raw.includes('offer has closed'),
+      'a finished deal says so rather than 404ing', `status ${closed.status}`);
+    const late = await call(null, 'POST', `/s/${code}`, {
+      name: `Late Asker ${stamp}`, email: `late-${stamp}@test.dev`,
+    });
+    check(late.status === 200, 'and still takes the name');
+
+    // Which list it falls into is the whole basis of the calendar above it.
+    const liveList = await call(advisor, 'GET', '/api/specials?state=live');
+    const goneList = await call(advisor, 'GET', '/api/specials?state=expired');
+    check(!(liveList.data?.specials || []).some((s) => s.id === dealId)
+      && (goneList.data?.specials || []).some((s) => s.id === dealId),
+      'and it moves from running to finished on its own');
+
+    // Deleting takes the enquiries with it, and says how many.
+    const gone = await call(advisor, 'DELETE', `/api/specials/${dealId}`);
+    check(gone.status === 200 && gone.data?.enquiriesRemoved === 2,
+      'deleting a deal says how many names went with it',
+      JSON.stringify(gone.data));
+  }
+
   // -------------------------------------------------- the Monday email -----
   step('The weekly call list');
   {
