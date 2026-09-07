@@ -53,6 +53,8 @@ function publicUser(u) {
     notifyEmail: u.notify_email,
     // Whether the portal chases their clients for payment on their behalf.
     autoRemindClients: Boolean(u.auto_remind_clients),
+    // Whether Monday brings them the list of people nothing else is chasing.
+    weeklyCallList: u.weekly_call_list === undefined ? true : Boolean(u.weekly_call_list),
     // Written when an admin approves the account and read by nobody until
     // now, which made it a fact the database kept to itself.
     approvedAt: u.approved_at,
@@ -200,6 +202,10 @@ export async function handleUpdateProfile(request, env) {
     sellerOfTravel: clean(body.sellerOfTravel, 80),
     notifyEmail: clean(body.notifyEmail, 254),
     autoRemindClients: body.autoRemindClients === true || body.autoRemindClients === 'on',
+    // Undefined rather than false when it is absent, so a save that never
+    // heard of this switch leaves it where the advisor put it.
+    weeklyCallList: body.weeklyCallList === undefined ? undefined
+      : (body.weeklyCallList === true || body.weeklyCallList === 'on'),
   });
   return json({ ok: true, user: publicUser(updated) });
 }

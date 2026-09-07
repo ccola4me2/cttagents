@@ -12,7 +12,7 @@ const USER_COLUMNS = `
   id, email, first_name, last_name, phone, agency_name, role, status,
   ghl_location_id, ghl_user_id, created_at, updated_at, last_login_at,
   approved_at, approved_by, default_split_pct, agency_address, seller_of_travel,
-  notify_email, auto_remind_clients
+  notify_email, auto_remind_clients, weekly_call_list, call_list_sent_at
 `;
 
 // The same columns qualified, for the session lookup that joins sessions to
@@ -75,7 +75,12 @@ export async function updateUserProfile(env, id, fields) {
     `UPDATE users
         SET first_name = ?, last_name = ?, phone = ?, agency_name = ?,
             agency_address = ?, seller_of_travel = ?, notify_email = ?,
-            auto_remind_clients = ?, updated_at = ?
+            auto_remind_clients = ?,
+            -- Left alone when the caller did not mention it. This one is on by
+            -- default, so treating a missing field as false would let any save
+            -- that predates the switch quietly turn it off.
+            weekly_call_list = COALESCE(?, weekly_call_list),
+            updated_at = ?
       WHERE id = ?`
   ).bind(
     fields.firstName || null,
@@ -86,6 +91,7 @@ export async function updateUserProfile(env, id, fields) {
     fields.sellerOfTravel || null,
     fields.notifyEmail || null,
     fields.autoRemindClients ? 1 : 0,
+    fields.weeklyCallList === undefined ? null : (fields.weeklyCallList ? 1 : 0),
     now(),
     id
   ).run();

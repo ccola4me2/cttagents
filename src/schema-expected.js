@@ -41,7 +41,7 @@ export const EXPECTED_SCHEMA = {
   travellers: ['booking_id', 'created_at', 'dob', 'email', 'id', 'is_lead', 'name', 'notes', 'passport_country', 'passport_expiry', 'passport_number', 'phone', 'updated_at', 'user_id'],
   trip_messages: ['body', 'booking_id', 'created_at', 'id', 'ip_hash', 'read_at', 'user_id'],
   user_prefs: ['dashboard_json', 'updated_at', 'user_id'],
-  users: ['agency_address', 'agency_name', 'approved_at', 'approved_by', 'auto_remind_clients', 'created_at', 'default_split_pct', 'email', 'first_name', 'ghl_location_id', 'ghl_user_id', 'id', 'last_login_at', 'last_name', 'notify_email', 'password_hash', 'phone', 'role', 'seller_of_travel', 'status', 'updated_at'],
+  users: ['agency_address', 'agency_name', 'approved_at', 'approved_by', 'auto_remind_clients', 'call_list_sent_at', 'created_at', 'default_split_pct', 'email', 'first_name', 'ghl_location_id', 'ghl_user_id', 'id', 'last_login_at', 'last_name', 'notify_email', 'password_hash', 'phone', 'role', 'seller_of_travel', 'status', 'updated_at', 'weekly_call_list'],
   vendors: ['account_number', 'bdm_email', 'bdm_info', 'bdm_name', 'bdm_phone', 'booking_instructions', 'budget_category', 'categories_json', 'category', 'commission_pct', 'commission_structure', 'created_at', 'deposit_days', 'email', 'favourite', 'final_days', 'id', 'name', 'notes', 'partner_status', 'phone', 'phones_json', 'portal_url', 'registration_instructions', 'signup_url', 'travel_types', 'updated_at', 'user_id', 'vendor_login', 'website'],
 };
 
@@ -493,6 +493,7 @@ export const COLUMN_ORIGIN = {
   'users.approved_at': '0001_init.sql',
   'users.approved_by': '0001_init.sql',
   'users.auto_remind_clients': '0044_auto_payment_reminders.sql',
+  'users.call_list_sent_at': '0048_weekly_call_list.sql',
   'users.created_at': '0001_init.sql',
   'users.default_split_pct': '0021_commission_split.sql',
   'users.email': '0001_init.sql',
@@ -509,6 +510,7 @@ export const COLUMN_ORIGIN = {
   'users.seller_of_travel': '0026_invoice.sql',
   'users.status': '0001_init.sql',
   'users.updated_at': '0001_init.sql',
+  'users.weekly_call_list': '0048_weekly_call_list.sql',
   'vendors.account_number': '0033_vendor_hub.sql',
   'vendors.bdm_email': '0033_vendor_hub.sql',
   'vendors.bdm_info': '0035_vendor_partner_fields.sql',

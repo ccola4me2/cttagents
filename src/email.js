@@ -264,6 +264,78 @@ export function sendTaskDigestEmail(env, { to, firstName, due = [], late = [] })
   });
 }
 
+
+/**
+ * The Monday call list.
+ *
+ * Written as five short lists rather than one long one, because the reason to
+ * ring is the useful part and it is different in each: a client who has gone
+ * quiet wants asking about next year, a credit about to lapse wants using, and
+ * somebody with a birthday on Thursday wants nothing except to be remembered.
+ * Rolled into one list they all read as "call these people", which is the
+ * version nobody acts on.
+ *
+ * Names only, no phone numbers. The page has those, and putting a client list
+ * into an inbox that may be read on a train is a leak looking for a reason.
+ */
+export function sendCallListEmail(env, { to, firstName, lists = [] }) {
+  // Grouped, because these run to five figures and $12480.00 is a number you
+  // have to count the digits of.
+  const money = (cents) => `$${((cents || 0) / 100).toLocaleString('en-US', {
+    minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // What each row says after the name. Same five reasons the page gives, in
+  // one line each.
+  const detail = (key, r) => {
+    if (key === 'quiet') {
+      const months = Math.round(Math.abs(r.days) / 30.44);
+      return `quiet ${months >= 24 ? `${Math.floor(months / 12)} years` : `${months} months`}`
+        + `, ${money(r.lifetimeCents)} with you`;
+    }
+    if (key === 'lapsing') {
+      return `${money(r.amountCents)} ${r.kind || 'credit'}`
+        + `${r.vendor ? ` with ${r.vendor}` : ''}, ${r.days} days left`;
+    }
+    if (key === 'home') {
+      const back = Math.abs(r.days);
+      return back === 0 ? 'home today' : `home ${back} days ago`;
+    }
+    if (r.days === 0) return 'today';
+    if (r.days === 1) return 'tomorrow';
+    return `in ${r.days} days`;
+  };
+
+  const block = (l) => {
+    const more = l.rows.length - l.shown.length;
+    return `<p style="margin:0 0 6px;font-weight:600;color:${BRAND_NAVY};">
+        ${escapeHtml(l.label)}
+        <span style="font-weight:400;color:#5c7286;">&middot; ${l.rows.length}${
+      l.truncated ? '+' : ''}</span></p>
+      <ul style="margin:0 0 18px;padding-left:20px;">${l.shown.map((r) => `
+        <li style="margin:0 0 5px;">${escapeHtml(r.name)}
+          <span style="color:#5c7286;">&middot; ${escapeHtml(detail(l.key, r))}</span></li>`).join('')}
+        ${more > 0 ? `<li style="margin:0 0 5px;color:#5c7286;">and ${more} more</li>` : ''}
+      </ul>`;
+  };
+
+  const total = lists.reduce((n, l) => n + l.rows.length, 0);
+  const headline = lists[0];
+
+  return send(env, {
+    to,
+    subject: `${total} to call this week, starting with ${headline.rows.length} ${
+      headline.label.toLowerCase()}`,
+    html: layout(env, {
+      heading: 'Who to call this week',
+      body: `<p style="margin:0 0 16px;">Morning ${escapeHtml(firstName || 'there')}.`
+        + ` Nobody is chasing you for any of these, which is the only reason they need saying.</p>`
+        + lists.map(block).join('')
+        + `<p style="margin:0;">Ticking a name off on the page keeps it out of next Monday's.</p>`,
+      cta: { label: 'Open the list', href: `${appUrl(env)}/app/hotlists` },
+    }),
+  });
+}
+
 /**
  * A client has said something on their trip page.
  *

@@ -1331,6 +1331,55 @@ async function main() {
       `status ${wrong.status}`);
   }
 
+
+  // -------------------------------------------------- the Monday email -----
+  step('The weekly call list');
+  {
+    // It goes to advisors, not clients, and only to whoever pressed it unless
+    // asked otherwise, so running it here is safe even against a live key.
+    const notAllowed = await call(advisor, 'POST', '/api/admin/call-lists', {});
+    check(notAllowed.status === 403 || notAllowed.status === 404,
+      'an advisor cannot fire the weekly send', `status ${notAllowed.status}`);
+
+    const me = await call(admin, 'GET', '/api/auth/me');
+    check(me.data?.user?.weeklyCallList === true,
+      'the weekly list is on unless somebody turns it off');
+
+    const ran = await call(admin, 'POST', '/api/admin/call-lists', {});
+    check(ran.status === 200 && ran.data?.considered === 1,
+      'and pressing it considers only whoever pressed it, not the whole agency',
+      JSON.stringify(ran.data));
+
+    // A profile save that never heard of the switch must leave it alone. This
+    // is the one that would go wrong quietly: the switch defaults to on, so
+    // reading a missing field as false turns it off for everybody who saves
+    // their name from a page that predates it.
+    const profile = me.data?.user || {};
+    const blind = await call(admin, 'PUT', '/api/auth/profile', {
+      firstName: profile.firstName || 'Local', lastName: profile.lastName || 'Admin',
+    });
+    check(blind.data?.user?.weeklyCallList === true,
+      'a profile save that does not mention it leaves it switched on',
+      JSON.stringify(blind.data?.user?.weeklyCallList));
+
+    // Off means off, all the way through to who the pass looks at.
+    const off = await call(admin, 'PUT', '/api/auth/profile', {
+      firstName: profile.firstName || 'Local', lastName: profile.lastName || 'Admin',
+      weeklyCallList: false,
+    });
+    check(off.data?.user?.weeklyCallList === false, 'it can be switched off');
+    const quiet = await call(admin, 'POST', '/api/admin/call-lists', {});
+    check(quiet.data?.considered === 0,
+      'and an advisor who switched it off is not written to',
+      JSON.stringify(quiet.data));
+
+    const on = await call(admin, 'PUT', '/api/auth/profile', {
+      firstName: profile.firstName || 'Local', lastName: profile.lastName || 'Admin',
+      weeklyCallList: true,
+    });
+    check(on.data?.user?.weeklyCallList === true, 'and switched back on again');
+  }
+
   // --------------------------------------------- merging keeps the detail ---
   step('Merging two records for one supplier');
   {

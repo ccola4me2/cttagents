@@ -9,6 +9,7 @@ import * as db from './db.js';
 import { sendAdvisorApprovedEmail, checkResend, sendTestEmail } from './email.js';
 import { remindTasks } from './taskmail.js';
 import { remindDuePayments } from './payremind.js';
+import { sendCallLists } from './calllist.js';
 import { schemaDrift } from './schema-drift.js';
 import { mirrorCatalogStep, mirrorStatus } from './catalogmirror.js';
 
@@ -240,6 +241,28 @@ export async function handleRunPaymentReminders(request, env) {
   const result = await remindDuePayments(env);
   await db.logActivity(env, user.id, 'admin.paymentReminders',
     'Ran the client payment reminder pass', result);
+  return json(result);
+}
+
+/**
+ * Send the weekly call list now, whatever day it is.
+ *
+ * It goes to advisors rather than to clients, so this is the safe one of the
+ * three. It still writes the real stamp: an advisor sent one here does not get
+ * another on Monday, which is the point of pressing it on a Friday to see what
+ * it looks like.
+ */
+export async function handleRunCallLists(request, env) {
+  const { user, response } = await requireAdmin(request, env);
+  if (response) return response;
+  const body = await readJson(request).catch(() => ({}));
+  const result = await sendCallLists(env, {
+    force: true,
+    // Just to whoever pressed it, unless they ask for everybody. Trying the
+    // wording out should not put an email in nine other inboxes.
+    only: body && body.everyone ? null : user.id,
+  });
+  await db.logActivity(env, user.id, 'admin.callLists', 'Sent the weekly call list', result);
   return json(result);
 }
 

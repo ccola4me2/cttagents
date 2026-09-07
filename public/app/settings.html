@@ -86,6 +86,23 @@
           </label>
         </div>
       </section>
+      <section class="card" id="weekly-card">
+        <div class="card-head"><h2>Your Monday call list</h2>
+          <span id="weekly-state" class="muted"></span></div>
+        <div class="card-pad">
+          <div class="notice notice-error" id="weekly-err" hidden></div>
+          <label style="display:flex;align-items:flex-start;gap:.6rem;font-weight:400;margin:0;">
+            <input type="checkbox" id="weeklyCallList" style="width:auto;flex:none;margin-top:.25rem;">
+            <span>
+              <strong style="color:var(--navy-800);">Email me who to call, once a week</strong>
+              <span class="field-hint" style="display:block;margin-top:.35rem;">
+                Monday morning: clients who have gone quiet, credits about to lapse, people just
+                home from a trip, and the week's birthdays and anniversaries. Your own book only,
+                names only. Nothing goes to any client. A week with nobody to ring sends nothing.</span>
+            </span>
+          </label>
+        </div>
+      </section>
       <section class="card" id="templates-card">
         <div class="card-head"><h2>Tasks that follow every trip</h2>
           <div class="toolbar" style="margin:0;">
@@ -197,45 +214,55 @@ onSubmit(pf, async (values) => {
 // switching it on did nothing until a Save button further down the page was
 // pressed: a switch you can turn on and walk away from is a switch that lies
 // about the state of the system.
-const chase = document.getElementById('autoRemindClients');
-const chaseState = document.getElementById('chase-state');
+// The whole profile, because the endpoint replaces it: sending one switch
+// alone would blank the name and the agency beside it.
+const profileBody = (extra) => ({
+  firstName: pf.elements.firstName.value,
+  lastName: pf.elements.lastName.value,
+  phone: pf.elements.phone.value,
+  agencyName: pf.elements.agencyName.value,
+  notifyEmail: pf.elements.notifyEmail.value,
+  agencyAddress: pf.elements.agencyAddress.value,
+  sellerOfTravel: pf.elements.sellerOfTravel.value,
+  ...extra,
+});
 
-function drawChase(on) {
-  chase.checked = Boolean(on);
-  chaseState.textContent = on ? 'On' : 'Off';
-  chaseState.style.color = on ? 'var(--green-600)' : '';
+/** A switch that is its own card and saves the moment it is ticked. */
+function liveSwitch({ box, state, err, field, read }) {
+  const input = document.getElementById(box);
+  const label = document.getElementById(state);
+  const draw = (on) => {
+    input.checked = Boolean(on);
+    label.textContent = on ? 'On' : 'Off';
+    label.style.color = on ? 'var(--green-600)' : '';
+  };
+  draw(read(user));
+  input.addEventListener('change', async () => {
+    const want = input.checked;
+    input.disabled = true;
+    label.textContent = 'Saving...';
+    label.style.color = '';
+    try {
+      const saved = await api('/api/auth/profile',
+        { method: 'PUT', body: profileBody({ [field]: want }) });
+      draw(read(saved.user || {}));
+    } catch (e) {
+      draw(!want);
+      showError(document.getElementById(err), e);
+    } finally {
+      input.disabled = false;
+    }
+  });
 }
 
-drawChase(user.autoRemindClients);
+liveSwitch({
+  box: 'autoRemindClients', state: 'chase-state', err: 'chase-err',
+  field: 'autoRemindClients', read: (u) => u.autoRemindClients,
+});
 
-chase.addEventListener('change', async () => {
-  const want = chase.checked;
-  chase.disabled = true;
-  chaseState.textContent = 'Saving...';
-  chaseState.style.color = '';
-  try {
-    // The whole profile, because the endpoint replaces it: sending the switch
-    // alone would blank the name and the agency beside it.
-    const saved = await api('/api/auth/profile', {
-      method: 'PUT',
-      body: {
-        firstName: pf.elements.firstName.value,
-        lastName: pf.elements.lastName.value,
-        phone: pf.elements.phone.value,
-        agencyName: pf.elements.agencyName.value,
-        notifyEmail: pf.elements.notifyEmail.value,
-        agencyAddress: pf.elements.agencyAddress.value,
-        sellerOfTravel: pf.elements.sellerOfTravel.value,
-        autoRemindClients: want,
-      },
-    });
-    drawChase(saved.user?.autoRemindClients);
-  } catch (err) {
-    drawChase(!want);
-    showError(document.getElementById('chase-err'), err);
-  } finally {
-    chase.disabled = false;
-  }
+liveSwitch({
+  box: 'weeklyCallList', state: 'weekly-state', err: 'weekly-err',
+  field: 'weeklyCallList', read: (u) => u.weeklyCallList,
 });
 
 // ------------------------------------------------ tasks that follow a trip --
