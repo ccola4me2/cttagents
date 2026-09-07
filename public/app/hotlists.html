@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Who to call | Trip Vara Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Who to call</h1>
+        <p class="sub">Five reasons to pick up the phone, drawn from what the portal already knows.</p></div>
+      <div class="toolbar" style="margin:0;">
+        <span id="scope"></span>
+        <label class="sr-only" for="quiet">Gone quiet for</label>
+        <select id="quiet" style="max-width:13rem;"></select>
+        <button class="btn btn-ghost btn-sm" id="refresh">Refresh</button>
+      </div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <div class="notice notice-info" id="intro"></div>
+      <div id="undo"></div>
+      <div class="tabs" id="tabs"></div>
+      <section class="card" id="panel"><p class="spinner">Working out who is worth a call...</p></section>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api, mountShell, esc, money, dateFmt, showError,
+         mountScopePicker, advisorParam } from '/js/app.js';
+const ME = (await mountShell()).id;
+
+const panel = document.getElementById('panel');
+const tabsEl = document.getElementById('tabs');
+const undoEl = document.getElementById('undo');
+const quietEl = document.getElementById('quiet');
+const errEl = document.getElementById('err');
+
+let data = null;
+let active = 'quiet';
+let quiet = 9;
+
+// What each list is for, said at the top rather than guessed at from the tab
+// name. A call list nobody understands the basis of is one nobody trusts.
+const BLURB = {
+  quiet: 'Clients who have travelled with you, have nothing booked or quoted, and have been quiet for a while. The warmest lead you own: they already know you, and nobody else is asking.',
+  lapsing: 'Money the client has already paid a vendor, with an expiry on it. If it lapses they lose it, and nobody at the vendor is going to ring to say so.',
+  home: 'Back from a trip in the last month and not yet rung. Ask how it went while they still want to tell you. Ticking one off here records the call on the reservation, the same as the Rang them button does.',
+  birthdays: 'Birthdays in the next month, from the client record or from the passport details on a reservation.',
+  anniversaries: 'Anniversaries in the next month, from the client record. Often the reason for the trip in the first place.',
+};
+
+const EMPTY = {
+  quiet: 'Nobody has been quiet that long. Try a shorter stretch above.',
+  lapsing: 'No credits or deposits lapse in the next three months.',
+  home: 'Everybody back in the last month has been rung.',
+  birthdays: 'No birthdays in the next month. They come from a client record, or from a traveller on a reservation.',
+  anniversaries: 'No anniversaries in the next month. Add one on a client record and it turns up here.',
+};
+
+const short = (iso) => (iso ? dateFmt(iso).replace(/,? \d{4}$/, '') : '');
+
+/** How the date reads on the row, which is different on every list. */
+function when(list, r) {
+  if (list === 'birthdays' || list === 'anniversaries') {
+    if (r.days === 0) return { text: 'today', tone: 'badge-coral' };
+    if (r.days === 1) return { text: 'tomorrow', tone: 'badge-coral' };
+    return { text: `in ${r.days} days`, tone: r.days <= 7 ? 'badge-amber' : 'badge-navy' };
+  }
+  if (list === 'lapsing') {
+    if (r.days <= 0) return { text: 'expires today', tone: 'badge-red' };
+    return { text: `${r.days} days left`, tone: r.days <= 30 ? 'badge-red' : 'badge-amber' };
+  }
+  const back = Math.abs(r.days);
+  if (list === 'home') {
+    return { text: back === 0 ? 'home today' : `home ${back} days ago`, tone: 'badge-green' };
+  }
+  const months = Math.round(back / 30.44);
+  return {
+    text: months >= 24 ? `quiet ${Math.floor(months / 12)} years` : `quiet ${months} months`,
+    tone: months >= 18 ? 'badge-navy' : 'badge-amber',
+  };
+}
+
+/** The line under the name. Escaped here; inserted as HTML. */
+function why(list, r) {
+  if (list === 'lapsing') {
+    return `${esc(r.vendor || 'A vendor')} ${esc(r.kind)}, ${money(r.amountCents)}`
+      + `${r.reference ? ' &middot; ' + esc(r.reference) : ''}`;
+  }
+  if (list === 'quiet') {
+    const bits = [`Last trip ${esc(short(r.date))}`];
+    if (r.supplier) bits.push(esc(r.supplier));
+    bits.push(`${r.trips} trip${r.trips === 1 ? '' : 's'}, ${money(r.lifetimeCents)} with you`);
+    return bits.join(' &middot; ');
+  }
+  if (list === 'home') {
+    return [esc(r.supplier || 'Trip'), r.product ? esc(r.product) : null,
+      `back ${esc(short(r.date))}`].filter(Boolean).join(' &middot; ');
+  }
+  if (list === 'birthdays') {
+    return [r.turning ? `Turning ${r.turning}` : 'Birthday', esc(short(r.date)),
+      r.forClient ? `on ${esc(r.forClient)}'s reservation` : null].filter(Boolean).join(' &middot; ');
+  }
+  return [r.years ? `${r.years} years` : 'Anniversary', esc(short(r.date))].join(' &middot; ');
+}
+
+/** What the task would say, so nobody has to type it. */
+function taskFor(list, r) {
+  if (list === 'quiet') return { title: `Call ${r.name} about their next trip`, kind: 'call' };
+  if (list === 'home') return { title: `Ask ${r.name} how the trip went`, kind: 'call' };
+  if (list === 'lapsing') return { title: `Use or extend ${r.name}'s ${r.vendor || 'vendor'} ${r.kind}`, kind: 'call' };
+  if (list === 'birthdays') return { title: `Wish ${r.name} a happy birthday`, kind: 'email' };
+  return { title: `Send ${r.name} an anniversary note`, kind: 'email' };
+}
+
+const listFor = (key) => (data.lists || []).find((l) => l.key === key)
+  || { key, rows: [], truncated: false, done: 'snooze', snooze: 90 };
+
+function drawTabs() {
+  tabsEl.innerHTML = data.lists.map((l) => `
+    <button class="tab" data-list="${esc(l.key)}" aria-selected="${l.key === active}">
+      ${esc(l.label)}<span class="n">${l.rows.length}${l.truncated ? '+' : ''}</span>
+    </button>`).join('');
+}
+
+function drawPanel() {
+  const list = listFor(active);
+  document.getElementById('intro').textContent = BLURB[active];
+
+  if (!list.rows.length) {
+    panel.innerHTML = `<div class="empty"><h3>Nothing to do here</h3><p>${esc(EMPTY[active])}</p></div>`;
+    return;
+  }
+
+  const showAdvisor = Boolean(data.scope && data.scope.all);
+  const doneLabel = list.done === 'welcomed' ? 'Rang them' : 'Done for now';
+
+  panel.innerHTML = `
+    ${list.truncated ? `<div class="notice notice-warn" style="margin:1rem 1.25rem 0;">
+      Showing the first ${list.rows.length}. There are more than this, so work through
+      these and refresh rather than reading the count as the whole answer.</div>` : ''}
+    <ul class="rows">${list.rows.map((r) => {
+      const w = when(active, r);
+      const mine = r.userId === ME;
+      return `<li data-row="${esc(r.subjectId)}">
+        <div class="call-row">
+          <div class="call-who">
+            <span class="nm">${r.clientId
+              ? `<a href="/app/client?id=${encodeURIComponent(r.clientId)}">${esc(r.name)}</a>`
+              : esc(r.name)}</span>
+            <span class="badge ${w.tone}" style="margin-left:.45rem;">${esc(w.text)}</span>
+            ${showAdvisor && r.advisor ? `<span class="badge badge-navy" style="margin-left:.3rem;">${esc(r.advisor)}</span>` : ''}
+            <div class="call-why">${why(active, r)}</div>
+            <div class="call-links">
+              ${r.phone ? `<a href="tel:${esc(r.phone.replace(/[^\d+]/g, ''))}">${esc(r.phone)}</a>` : ''}
+              ${r.email ? `<a href="mailto:${esc(r.email)}">${esc(r.email)}</a>` : ''}
+              ${r.bookingId ? `<a href="/app/reservation?id=${encodeURIComponent(r.bookingId)}">Open the reservation</a>` : ''}
+              ${!r.phone && !r.email && !r.bookingId
+                ? '<span class="muted">No phone or email on file</span>' : ''}
+            </div>
+          </div>
+          <div class="call-acts">
+            ${mine ? `<button class="btn btn-ghost btn-sm" data-task="${esc(r.subjectId)}">Make a task</button>` : ''}
+            ${mine || list.done === 'snooze'
+              ? `<button class="btn btn-secondary btn-sm" data-done="${esc(r.subjectId)}">${doneLabel}</button>`
+              : '<span class="muted">view only</span>'}
+          </div>
+        </div>
+      </li>`;
+    }).join('')}</ul>`;
+
+  panel.querySelectorAll('[data-done]').forEach((b) => {
+    b.addEventListener('click', () => tick(b.dataset.done, null));
+  });
+  panel.querySelectorAll('[data-task]').forEach((b) => {
+    b.addEventListener('click', () => tick(b.dataset.task, b));
+  });
+}
+
+/**
+ * Put a name away, and leave a task behind first if that is what was asked.
+ *
+ * The task is made before the name goes, so a task that will not save leaves
+ * the name on the list rather than losing both.
+ */
+async function tick(subjectId, taskBtn) {
+  const key = active;
+  const list = listFor(key);
+  const row = list.rows.find((r) => r.subjectId === subjectId);
+  if (!row) return;
+
+  if (taskBtn) {
+    taskBtn.disabled = true;
+    const t = taskFor(key, row);
+    try {
+      await api('/api/tasks', {
+        method: 'POST',
+        body: {
+          title: t.title, kind: t.kind, dueDate: data.today,
+          clientId: row.clientId || '', bookingId: row.bookingId || '',
+        },
+      });
+    } catch (err) {
+      taskBtn.disabled = false;
+      showError(errEl, err);
+      return;
+    }
+  }
+
+  try {
+    if (list.done === 'welcomed') {
+      await api(`/api/bookings/${encodeURIComponent(subjectId)}/welcomed`,
+        { method: 'POST', body: { welcomed: true } });
+    } else {
+      await api('/api/hotlists/done', { method: 'POST', body: { list: key, subjectId } });
+    }
+  } catch (err) { showError(errEl, err); return; }
+
+  list.rows = list.rows.filter((r) => r.subjectId !== subjectId);
+  drawTabs();
+  drawPanel();
+  showUndo(key, list, row, Boolean(taskBtn));
+}
+
+function showUndo(key, list, row, madeTask) {
+  const back = list.done === 'welcomed'
+    ? 'Recorded on the reservation.'
+    : `Back in ${list.snooze} days.`;
+  undoEl.innerHTML = `<div class="notice notice-ok call-undo">
+    <span>${esc(row.name)} ticked off${madeTask ? ', and a task made for today' : ''}. ${esc(back)}</span>
+    <button class="btn btn-ghost btn-sm" id="undo-btn">Undo</button></div>`;
+  document.getElementById('undo-btn').addEventListener('click', async () => {
+    try {
+      if (list.done === 'welcomed') {
+        await api(`/api/bookings/${encodeURIComponent(row.subjectId)}/welcomed`,
+          { method: 'POST', body: { welcomed: false } });
+      } else {
+        await api('/api/hotlists/undo', { method: 'POST', body: { list: key, subjectId: row.subjectId } });
+      }
+    } catch (err) { showError(errEl, err); return; }
+    undoEl.innerHTML = '';
+    await load();
+  });
+}
+
+const monthWord = (m) => (m >= 12 ? (m === 12 ? 'a year' : `${m / 12} years`) : `${m} months`);
+
+async function load() {
+  try {
+    const q = [`quiet=${quiet}`, advisorParam()].filter(Boolean).join('&');
+    data = await api(`/api/hotlists?${q}`);
+    quiet = data.quietMonths;
+    quietEl.innerHTML = data.quietOptions.map((m) =>
+      `<option value="${m}"${m === quiet ? ' selected' : ''}>Quiet for ${monthWord(m)}</option>`).join('');
+    mountScopePicker(document.getElementById('scope'), data, load);
+    drawTabs();
+    drawPanel();
+  } catch (err) { showError(panel, err); }
+}
+
+tabsEl.addEventListener('click', (e) => {
+  const tab = e.target.closest('[data-list]');
+  if (!tab) return;
+  active = tab.dataset.list;
+  undoEl.innerHTML = '';
+  drawTabs();
+  drawPanel();
+});
+
+quietEl.addEventListener('change', () => { quiet = Number(quietEl.value); load(); });
+document.getElementById('refresh').addEventListener('click', load);
+
+await load();
+</script>
+</body></html>

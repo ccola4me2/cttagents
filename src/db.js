@@ -884,15 +884,22 @@ export async function markReturnedTripsTravelled(env, { today, limit = 200 } = {
  * often entered before the CRM record exists and the name is the only thing
  * both records reliably share.
  */
-export async function rebookCandidates(env, scope, { today, limit = 25 } = {}) {
+export async function rebookCandidates(env, scope, { today, before, limit = 25 } = {}) {
   const scoped = scopeWhere(scope, 'b.user_id');
+  // How long ago they got back before it counts as a lead. The dashboard wants
+  // everyone with nothing on the books; the call list wants the ones who have
+  // been quiet a while, which is the same question with the line moved.
+  const cutoff = before || today;
   const { results } = await env.DB.prepare(
-    `SELECT b.client_name,
+    `SELECT b.user_id, b.client_name, ${ADVISOR_NAME},
+            MAX(c.id) AS client_id, MAX(c.email) AS email, MAX(c.phone) AS phone,
             MAX(COALESCE(b.return_date, b.depart_date)) AS last_travelled,
             COUNT(*) AS trips,
             SUM(b.gross_cents) AS lifetime_cents,
             MAX(b.supplier) AS last_vendor
        FROM bookings b
+       LEFT JOIN users u ON u.id = b.user_id
+       LEFT JOIN clients c ON c.user_id = b.user_id AND c.name = b.client_name
       WHERE ${scoped.sql}
         AND b.status IN ('booked','travelled')
         -- Not your own holiday. This list is people to ring about booking
@@ -900,7 +907,11 @@ export async function rebookCandidates(env, scope, { today, limit = 25 } = {}) {
         AND b.personal = 0
         AND COALESCE(b.return_date, b.depart_date) IS NOT NULL
         AND COALESCE(b.return_date, b.depart_date) < ?
-      GROUP BY b.client_name
+      -- By advisor as well as by name. Grouping on the name alone folded two
+      -- advisors' clients who happen to share one into a single row, which is
+      -- only visible when an owner looks across the agency and is wrong every
+      -- time it happens.
+      GROUP BY b.user_id, b.client_name
       HAVING NOT EXISTS (
         SELECT 1 FROM bookings f
          WHERE f.client_name = b.client_name
@@ -908,7 +919,7 @@ export async function rebookCandidates(env, scope, { today, limit = 25 } = {}) {
            AND f.status IN ('quoted','booked')
            AND COALESCE(f.return_date, f.depart_date) >= ?)
       ORDER BY last_travelled DESC LIMIT ?`
-  ).bind(...scoped.binds, today, today, Math.min(Number(limit) || 25, 100)).all();
+  ).bind(...scoped.binds, cutoff, today, Math.min(Number(limit) || 25, 500)).all();
   return results || [];
 }
 
@@ -1131,7 +1142,7 @@ export async function salesMix(env, scope, { from, to, includePersonal = false }
 
 const CLIENT_COLUMNS = `
   c.id, c.user_id, c.name, c.email, c.phone, c.notes, c.ghl_contact_id,
-  c.pinned_at, c.created_at, c.updated_at
+  c.birthday, c.anniversary, c.pinned_at, c.created_at, c.updated_at
 `;
 
 /** The client record for a name, made if it is new. Null for a blank name. */

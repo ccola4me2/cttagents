@@ -910,3 +910,16 @@ input.derived {
   color: var(--ink-500);
   cursor: default;
 }
+
+/* Who to call.
+   A call list rather than a table: the name and the number are the part you
+   want in your hand, and the rest is why you are ringing. Laid out as rows of
+   two so the buttons stay in one column however long a name runs. */
+.call-row { display: flex; gap: 1rem; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+.call-who { min-width: 0; flex: 1 1 18rem; }
+.call-who .nm { font-weight: 600; color: var(--navy-800); }
+.call-why { font-size: .8rem; color: var(--ink-500); margin-top: .15rem; }
+.call-links { display: flex; gap: .9rem; flex-wrap: wrap; margin-top: .35rem; font-size: .82rem; }
+.call-links a { font-weight: 600; }
+.call-acts { display: flex; gap: .4rem; align-items: center; flex-shrink: 0; }
+.call-undo { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }

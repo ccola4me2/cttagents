@@ -88,6 +88,9 @@ import {
 import {
   handleListCredits, handleCreateCredit, handleUpdateCredit, handleDeleteCredit,
 } from './credits.js';
+import {
+  handleHotLists, handleHotListDone, handleHotListUndo,
+} from './hotlists.js';
 import { handleGetGoals, handleSaveGoals } from './goals.js';
 import { handleListCommissions, handleSetCommissionStatus } from './commissions.js';
 import {
@@ -173,6 +176,7 @@ const PAGE_FILES = {
   '/app/new': '/app/new.html',
   '/app/groups': '/app/groups.html',
   '/app/credits': '/app/credits.html',
+  '/app/hotlists': '/app/hotlists.html',
   '/app/goals': '/app/goals.html',
   '/app/commissions': '/app/commissions.html',
   '/app/reservations': '/app/reservations.html',
@@ -553,6 +557,11 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/credits' && method === 'POST') return handleCreateCredit(request, env);
   if (creditMatch && method === 'PUT') return handleUpdateCredit(request, env, creditMatch[1]);
   if (creditMatch && method === 'DELETE') return handleDeleteCredit(request, env, creditMatch[1]);
+
+  // Who to call this week, drawn from what the other screens already hold.
+  if (path === '/api/hotlists' && method === 'GET') return handleHotLists(request, env);
+  if (path === '/api/hotlists/done' && method === 'POST') return handleHotListDone(request, env);
+  if (path === '/api/hotlists/undo' && method === 'POST') return handleHotListUndo(request, env);
   if (path === '/api/prefs/dashboard' && method === 'GET') return handleGetLayout(request, env);
   if (path === '/api/prefs/dashboard' && method === 'PUT') return handleSaveLayout(request, env);
   if (path === '/api/prefs/dashboard' && method === 'DELETE') return handleResetLayout(request, env);

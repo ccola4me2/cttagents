@@ -160,10 +160,12 @@ function drawContact(d) {
   if (!editing) {
     actions.innerHTML = d.editable
       ? '<button class="btn btn-ghost btn-sm" id="edit-contact">Edit</button>' : '';
-    box.innerHTML = (c.phone || c.email || c.notes)
+    box.innerHTML = (c.phone || c.email || c.notes || c.birthday || c.anniversary)
       ? `<dl class="pairs">
           ${c.phone ? `<dt>Phone</dt><dd><a href="tel:${esc(c.phone)}">${esc(c.phone)}</a></dd>` : ''}
           ${c.email ? `<dt>Email</dt><dd><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></dd>` : ''}
+          ${c.birthday ? `<dt>Birthday</dt><dd>${esc(dateFmt(c.birthday))}</dd>` : ''}
+          ${c.anniversary ? `<dt>Anniversary</dt><dd>${esc(dateFmt(c.anniversary))}</dd>` : ''}
           ${c.notes ? `<dt>Notes</dt><dd>${esc(c.notes)}</dd>` : ''}
         </dl>`
       : '<p class="muted" style="margin:0;font-size:.86rem;">No phone or email on file yet.</p>';
@@ -183,6 +185,13 @@ function drawContact(d) {
         <input id="cphone" name="phone" type="tel" maxlength="40" value="${esc(c.phone || '')}"></div>
       <div class="field"><label for="cemail">Email</label>
         <input id="cemail" name="email" type="email" maxlength="160" value="${esc(c.email || '')}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label for="cbirthday">Birthday</label>
+        <input id="cbirthday" name="birthday" type="date" value="${esc(c.birthday || '')}">
+        <p class="field-hint">Puts them on Who to call a month before it comes round.</p></div>
+      <div class="field"><label for="canniversary">Anniversary</label>
+        <input id="canniversary" name="anniversary" type="date" value="${esc(c.anniversary || '')}"></div>
     </div>
     <div class="field"><label for="cnotes">Notes</label>
       <textarea id="cnotes" name="notes" maxlength="4000">${esc(c.notes || '')}</textarea></div>

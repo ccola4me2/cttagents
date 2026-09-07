@@ -317,22 +317,49 @@ export async function handleDocumentWatch(request, env) {
  */
 export async function upcomingBirthdays(env, scope, { today, days = 30, limit = 12 } = {}) {
   const scoped = db.scopeWhere(scope, 't.user_id');
-  const { results } = await env.DB.prepare(
-    `SELECT t.name, t.dob, t.email, MAX(b.depart_date) AS last_trip,
-            COUNT(DISTINCT b.id) AS trips,
-            MAX(b.client_name) AS client_name
-       FROM travellers t
-       JOIN bookings b ON b.id = t.booking_id
-      WHERE ${scoped.sql} AND t.dob IS NOT NULL AND t.dob != ''
-        AND b.status IN ('booked','travelled')
-      GROUP BY t.name, t.dob
-      LIMIT 500`
-  ).bind(...scoped.binds).all();
+  const byClient = db.scopeWhere(scope, 'c.user_id');
+
+  // Two sources for the same fact. Most birthdays here were collected for a
+  // passport and belong to whoever was on the reservation, which is right: the
+  // husband travelling on his wife's booking has a birthday too. The second is
+  // the date put on the client record by hand, for the client you know well
+  // enough to know their birthday and have never sent on a trip.
+  const [fromTravellers, fromClients] = await Promise.all([
+    env.DB.prepare(
+      `SELECT t.user_id, t.name, t.dob, t.email, t.phone, MAX(b.depart_date) AS last_trip,
+              COUNT(DISTINCT b.id) AS trips,
+              MAX(b.client_name) AS client_name, MAX(b.client_id) AS client_id
+         FROM travellers t
+         JOIN bookings b ON b.id = t.booking_id
+        WHERE ${scoped.sql} AND t.dob IS NOT NULL AND t.dob != ''
+          AND b.status IN ('booked','travelled')
+        GROUP BY t.user_id, t.name, t.dob
+        LIMIT 1000`
+    ).bind(...scoped.binds).all(),
+    env.DB.prepare(
+      `SELECT c.user_id, c.name, c.birthday AS dob, c.email, c.phone, NULL AS last_trip,
+              0 AS trips, c.name AS client_name, c.id AS client_id
+         FROM clients c
+        WHERE ${byClient.sql} AND c.birthday IS NOT NULL AND c.birthday != ''
+        LIMIT 1000`
+    ).bind(...byClient.binds).all(),
+  ]);
+
+  // The client record wins where both know a date: it was typed by somebody
+  // who meant it, and a passport can be a scan of the wrong person's document.
+  const rows = [...(fromClients.results || [])];
+  const seen = new Set(rows.map((r) => `${r.user_id}|${String(r.name).trim().toLowerCase()}`));
+  for (const r of fromTravellers.results || []) {
+    const key = `${r.user_id}|${String(r.name).trim().toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push(r);
+  }
 
   const from = Date.parse(`${today}T00:00:00Z`);
   const out = [];
 
-  for (const r of results || []) {
+  for (const r of rows) {
     const dob = String(r.dob);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) continue;
     const md = dob.slice(5);
@@ -353,7 +380,9 @@ export async function upcomingBirthdays(env, scope, { today, days = 30, limit = 
     if (inDays > days) continue;
 
     out.push({
-      name: r.name, dob, email: r.email || null, client_name: r.client_name,
+      user_id: r.user_id,
+      name: r.name, dob, email: r.email || null, phone: r.phone || null,
+      client_name: r.client_name, client_id: r.client_id || null,
       trips: r.trips, last_trip: r.last_trip,
       on: next, in_days: inDays,
       // Only when the year is real. Ages are guessed often enough elsewhere

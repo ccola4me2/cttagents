@@ -11,7 +11,7 @@
 // can do the work. Contact details are added afterwards, when there is a
 // reason to.
 
-import { json, badRequest, notFound, clean, oneOf, uid, now, readJson } from './util.js';
+import { json, badRequest, notFound, clean, cleanDate, oneOf, uid, now, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 import * as ghl from './ghl.js';
@@ -173,10 +173,16 @@ export async function handleUpdateClient(request, env, id) {
   // existed, so renaming has to carry them along or the trips would be
   // orphaned from the person who took them.
   const res = await env.DB.prepare(
-    `UPDATE clients SET name = ?, email = ?, phone = ?, notes = ?, updated_at = ?
+    `UPDATE clients SET name = ?, email = ?, phone = ?, notes = ?,
+       birthday = ?, anniversary = ?, updated_at = ?
       WHERE id = ? AND user_id = ?`
   ).bind(name, clean(body.email, 160) || null, clean(body.phone, 40) || null,
-         clean(body.notes, 4000) || null, now(), id, user.id).run();
+         clean(body.notes, 4000) || null,
+         // Kept as written, year and all. A birthday with no year is still a
+         // birthday, but the field is a date input and half of these arrive
+         // from a passport, so there is no reason to throw the year away.
+         cleanDate(body.birthday), cleanDate(body.anniversary),
+         now(), id, user.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Client not found.');
 
   // A rename that reaches the client and not their reservations leaves the

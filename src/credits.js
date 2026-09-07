@@ -56,10 +56,12 @@ export async function listCredits(env, scope, { state = 'open', limit = 300 } = 
 
   const { results } = await env.DB.prepare(
     `SELECT ${COLUMNS}, b.client_name AS booking_client,
+            cl.email AS client_email, cl.phone AS client_phone,
             COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''), u.email)
               AS advisor_name
        FROM client_credits c
        LEFT JOIN bookings b ON b.id = c.booking_id
+       LEFT JOIN clients cl ON cl.id = c.client_id
        LEFT JOIN users u ON u.id = c.user_id
       WHERE ${where.join(' AND ')}
       ORDER BY COALESCE(c.expires_on, '9999-12-31') ASC LIMIT ?`

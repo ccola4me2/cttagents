@@ -190,6 +190,30 @@ export function cleanDate(value) {
 }
 
 /** Dollars (string or number) to integer cents. Negative and NaN become 0. */
+/**
+ * The next time a month and day comes round, on or after a given day.
+ *
+ * Birthdays and anniversaries are the two dates in the portal where the year
+ * is the part nobody wants. Returns an ISO date, or null when the date does
+ * not exist in either year worth looking at, which is February 29 and only
+ * February 29.
+ */
+export function nextAnnual(iso, today) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso || ''))) return null;
+  const from = Date.parse(`${today}T00:00:00Z`);
+  const md = String(iso).slice(5);
+  for (const year of [Number(today.slice(0, 4)), Number(today.slice(0, 4)) + 1]) {
+    const candidate = `${year}-${md}`;
+    const at = Date.parse(`${candidate}T00:00:00Z`);
+    if (!Number.isFinite(at)) continue;
+    // Date.parse takes 2025-02-29 and hands back March 1. Round-tripping it
+    // is how you find out the day was never there.
+    if (new Date(at).toISOString().slice(0, 10) !== candidate) continue;
+    if (at >= from) return candidate;
+  }
+  return null;
+}
+
 export function toCents(value) {
   const n = Number(String(value ?? '').replace(/[$,\s]/g, ''));
   if (!Number.isFinite(n) || n < 0) return 0;

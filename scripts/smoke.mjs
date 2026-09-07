@@ -1219,6 +1219,118 @@ async function main() {
       'and so can the task list', `${(taskQ.data?.tasks || []).length} found`);
   }
 
+
+  // ----------------------------------------------------- who to call next ---
+  step('The call lists, and ticking a name off one');
+  {
+    // Every list here reads a query that already fed a dashboard panel, so the
+    // risk is not that a query is wrong: it is that composing five of them
+    // silently drops one, or that a name ticked off comes straight back.
+    const anAgo = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Quiet Client ${stamp}`, supplier: 'Princess',
+      departDate: isoDay(-400), returnDate: isoDay(-393),
+      gross: '4000', commission: '400', status: 'travelled',
+    });
+    const quietBooking = anAgo.data?.booking?.id;
+    const quietClient = anAgo.data?.booking?.client_id;
+    if (quietBooking) cleanup('the quiet reservation', () => call(advisor, 'DELETE', `/api/bookings/${quietBooking}`));
+
+    const justBack = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Home Client ${stamp}`, supplier: 'Celebrity',
+      departDate: isoDay(-14), returnDate: isoDay(-7),
+      gross: '3000', commission: '300', status: 'travelled',
+    });
+    const homeBooking = justBack.data?.booking?.id;
+    if (homeBooking) cleanup('the welcome home reservation', () => call(advisor, 'DELETE', `/api/bookings/${homeBooking}`));
+
+    // A birthday and an anniversary inside the month the lists look over,
+    // written on the client record rather than a passport so both sources are
+    // covered: the traveller half is the dashboard's and already worked.
+    const soon = isoDay(10);
+    if (quietClient) {
+      await call(advisor, 'PUT', `/api/clients/${quietClient}`, {
+        name: `Quiet Client ${stamp}`, phone: '555-0100',
+        birthday: `1974-${soon.slice(5)}`, anniversary: `2001-${soon.slice(5)}`,
+      });
+      // Nothing deletes a client, so the dates come off instead. Without this
+      // every run leaves another permanent name on the birthday list of
+      // whichever database it ran against.
+      cleanup('the fixture birthday', () => call(advisor, 'PUT', `/api/clients/${quietClient}`,
+        { name: `Quiet Client ${stamp}`, birthday: '', anniversary: '' }));
+    }
+
+    const credit = await call(advisor, 'POST', '/api/credits', {
+      clientName: `Quiet Client ${stamp}`, vendor: 'Princess', kind: 'credit',
+      amount: '250', expiresOn: isoDay(45),
+    });
+    const creditId = credit.data?.credit?.id;
+    if (creditId) cleanup('the lapsing credit', () => call(advisor, 'DELETE', `/api/credits/${creditId}`));
+
+    const hot = await call(advisor, 'GET', '/api/hotlists?quiet=9');
+    const listOf = (k) => (hot.data?.lists || []).find((l) => l.key === k)?.rows || [];
+    const named = (k, name) => listOf(k).some((r) => r.name === name);
+
+    check(hot.status === 200 && (hot.data?.lists || []).length === 5,
+      'all five call lists come back', `status ${hot.status}`);
+    check(named('quiet', `Quiet Client ${stamp}`),
+      'a client home over a year with nothing booked is on Gone quiet');
+    check(named('home', `Home Client ${stamp}`),
+      'a client home last week is on Just home');
+    check(named('birthdays', `Quiet Client ${stamp}`),
+      'a birthday ten days out is on Birthdays');
+    check(named('anniversaries', `Quiet Client ${stamp}`),
+      'and the anniversary on the same record is on Anniversaries');
+    check(listOf('lapsing').some((r) => r.subjectId === creditId),
+      'a credit expiring in six weeks is on Money lapsing');
+
+    // The one that decides whether the page is worth opening twice.
+    const quietRow = listOf('quiet').find((r) => r.name === `Quiet Client ${stamp}`);
+    const tick = await call(advisor, 'POST', '/api/hotlists/done',
+      { list: 'quiet', subjectId: quietRow?.subjectId });
+    check(tick.status === 200, 'a name can be ticked off', `status ${tick.status}`);
+
+    const after = await call(advisor, 'GET', '/api/hotlists?quiet=9');
+    const goneFromQuiet = !(after.data?.lists || []).find((l) => l.key === 'quiet')
+      ?.rows.some((r) => r.name === `Quiet Client ${stamp}`);
+    check(goneFromQuiet, 'and does not come back on the next read');
+    check((after.data?.lists || []).find((l) => l.key === 'birthdays')
+      ?.rows.some((r) => r.name === `Quiet Client ${stamp}`),
+      'but is still on the other lists: ticking off a rebooking call is not '
+      + 'saying you sent a birthday card');
+
+    const back = await call(advisor, 'POST', '/api/hotlists/undo',
+      { list: 'quiet', subjectId: quietRow?.subjectId });
+    const undone = await call(advisor, 'GET', '/api/hotlists?quiet=9');
+    check(back.status === 200 && (undone.data?.lists || []).find((l) => l.key === 'quiet')
+      ?.rows.some((r) => r.name === `Quiet Client ${stamp}`),
+      'undo puts it straight back');
+
+    // The welcome home list writes to the reservation rather than to a private
+    // snooze, so the reservation should be able to see it happened.
+    const rang = await call(advisor, 'POST', `/api/bookings/${homeBooking}/welcomed`, { welcomed: true });
+    const record = await call(advisor, 'GET', `/api/bookings/${homeBooking}/record`);
+    check(rang.status === 200 && record.data?.booking?.welcomed_at,
+      'ringing somebody after their trip is recorded on the reservation, not just hidden');
+    const afterRang = await call(advisor, 'GET', '/api/hotlists?quiet=9');
+    check(!(afterRang.data?.lists || []).find((l) => l.key === 'home')
+      ?.rows.some((r) => r.subjectId === homeBooking),
+      'and takes them off Just home');
+
+    // A window that asks for people quiet two years is not the same question,
+    // and a client home fourteen months ago should fall out of it.
+    const twoYears = await call(advisor, 'GET', '/api/hotlists?quiet=24');
+    check(!(twoYears.data?.lists || []).find((l) => l.key === 'quiet')
+      ?.rows.some((r) => r.name === `Quiet Client ${stamp}`),
+      'the quiet-for window is real: at two years they drop off');
+
+    // Snoozing is per list, and the endpoint should say so rather than
+    // writing a row that nothing will ever read.
+    const wrong = await call(advisor, 'POST', '/api/hotlists/done',
+      { list: 'home', subjectId: homeBooking });
+    check(wrong.status === 400, 'and the welcome home list refuses to be snoozed',
+      `status ${wrong.status}`);
+  }
+
   // --------------------------------------------- merging keeps the detail ---
   step('Merging two records for one supplier');
   {
