@@ -1446,6 +1446,21 @@ async function main() {
     check(gone.status === 200 && gone.data?.enquiriesRemoved === 2,
       'deleting a deal says how many names went with it',
       JSON.stringify(gone.data));
+    // And that the names actually went. Counting them and reporting the count
+    // proves nothing about whether anything was removed: the first draft
+    // relied on ON DELETE CASCADE, which is a setting on the database rather
+    // than a fact about the code, and this check would have passed either way.
+    const orphans = await call(advisor, 'GET', `/api/specials/${dealId}`);
+    check(orphans.status === 404, 'and the deal is really gone', `status ${orphans.status}`);
+    // Probed by deleting the lead by its own id, which is the one route to it
+    // that does not join through the deal. Booking it looks like the obvious
+    // check and is worthless: that query joins to specials, so it answers 404
+    // whether the row went or is still sitting there orphaned.
+    const stillThere = await call(advisor, 'DELETE',
+      `/api/specials/enquiries/${lead.id}`);
+    check(stillThere.status === 404,
+      'along with its enquiries, rather than orphaned pointing at nothing',
+      `status ${stillThere.status}`);
   }
 
   // -------------------------------------------------- the Monday email -----

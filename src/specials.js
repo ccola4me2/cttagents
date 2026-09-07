@@ -241,9 +241,8 @@ export async function handleDeleteSpecial(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  // The enquiries go with it, which is why this counts them first: "deleted"
-  // reporting one row when it took four names with it is the kind of number
-  // that stops people trusting the rest.
+  // Counted first, because "deleted" reporting one row when it took four names
+  // with it is the kind of number that stops people trusting the rest.
   const { results } = await env.DB.prepare(
     'SELECT id FROM special_leads WHERE special_id = ? AND user_id = ?'
   ).bind(id, user.id).all();
@@ -251,6 +250,15 @@ export async function handleDeleteSpecial(request, env, id) {
   const res = await env.DB.prepare('DELETE FROM specials WHERE id = ? AND user_id = ?')
     .bind(id, user.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Special not found.');
+
+  // Said outright rather than left to ON DELETE CASCADE. The constraint is
+  // declared and SQLite will honour it where foreign keys are on, but that is
+  // a setting on the database rather than a fact about this code, and a table
+  // created without the clause, by a hand-run migration or a console that
+  // baulked at it, would silently leave every enquiry behind pointing at a
+  // deal that no longer exists.
+  await env.DB.prepare('DELETE FROM special_leads WHERE special_id = ? AND user_id = ?')
+    .bind(id, user.id).run();
 
   return json({ ok: true, enquiriesRemoved: (results || []).length });
 }
