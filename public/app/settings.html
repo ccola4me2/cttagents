@@ -37,15 +37,6 @@
               <input id="agencyAddress" name="agencyAddress" maxlength="200"
                      placeholder="120 Harbour Road, Suite 4, Tampa FL 33602">
               <p class="field-hint">Printed in the footer of every invoice and quote a client receives.</p></div>
-            <div class="field">
-              <label style="display:flex;align-items:center;gap:.5rem;font-weight:400;">
-                <input type="checkbox" id="autoRemindClients" name="autoRemindClients">
-                Remind clients about payments automatically
-              </label>
-              <p class="field-hint">Three weeks, one week and one day before a vendor deadline,
-                then once if it goes past. Sent to the client from your name, with replies coming
-                back to you. Only on real vendor deadlines, never on your own internal buffer, and
-                never on a payment you reminded them about yourself that day.</p></div>
             <div class="field"><label for="sellerOfTravel">Seller of travel registration</label>
               <input id="sellerOfTravel" name="sellerOfTravel" maxlength="80"
                      placeholder="FL ST-00000000">
@@ -75,6 +66,24 @@
               <p class="field-hint">Type it again. A typo here would lock you out.</p></div>
             <button class="btn btn-secondary" type="submit">Change password</button>
           </form>
+        </div>
+      </section>
+      <section class="card" id="chase-card">
+        <div class="card-head"><h2>Chasing clients for payment</h2>
+          <span id="chase-state" class="muted"></span></div>
+        <div class="card-pad">
+          <div class="notice notice-error" id="chase-err" hidden></div>
+          <label style="display:flex;align-items:flex-start;gap:.6rem;font-weight:400;margin:0;">
+            <input type="checkbox" id="autoRemindClients" style="width:auto;flex:none;margin-top:.25rem;">
+            <span>
+              <strong style="color:var(--navy-800);">Remind clients about payments automatically</strong>
+              <span class="field-hint" style="display:block;margin-top:.35rem;">
+                Three weeks, one week and one day before a vendor deadline, then once if it goes
+                past. Sent to the client in your name, with their replies coming back to you.
+                Only on real vendor deadlines, never on the internal buffer beside one, and never
+                on a payment you chased yourself that day.</span>
+            </span>
+          </label>
         </div>
       </section>
       <section class="card" id="templates-card">
@@ -168,21 +177,66 @@ pf.elements.agencyAddress.value = user.agencyAddress || '';
 pf.elements.sellerOfTravel.value = user.sellerOfTravel || '';
 pf.elements.notifyEmail.value = user.notifyEmail || '';
 pf.elements.notifyEmail.placeholder = user.email || '';
-pf.elements.autoRemindClients.checked = Boolean(user.autoRemindClients);
 
 document.getElementById('ghl-info').innerHTML = user.ghlLocationId
   ? `Bound to Trip Vara Tools account <code>${esc(user.ghlLocationId)}</code>.`
   : 'Using the shared Trip Vara Tools account. An administrator can bind you to your own.';
 
 onSubmit(pf, async (values) => {
-  // A checkbox reads as "on" or nothing through a form; the API wants a boolean
-  // either way round, so it cannot mistake a missing field for a false one.
-  values.autoRemindClients = pf.elements.autoRemindClients.checked;
+  // The reminder switch is not in this form. It saves on the tick, so sending
+  // its value from here would let a stale copy of it overwrite a fresh change.
   await api('/api/auth/profile', { method: 'PUT', body: values });
   const ok = document.getElementById('profile-ok');
   ok.hidden = false;
   setTimeout(() => { ok.hidden = true; }, 3000);
 }, { errorBox: document.getElementById('profile-err') });
+
+// ------------------------------------------------- chasing for payment -----
+//
+// Its own card, and it saves on the tick. It lived in the profile form, where
+// switching it on did nothing until a Save button further down the page was
+// pressed: a switch you can turn on and walk away from is a switch that lies
+// about the state of the system.
+const chase = document.getElementById('autoRemindClients');
+const chaseState = document.getElementById('chase-state');
+
+function drawChase(on) {
+  chase.checked = Boolean(on);
+  chaseState.textContent = on ? 'On' : 'Off';
+  chaseState.style.color = on ? 'var(--green-600)' : '';
+}
+
+drawChase(user.autoRemindClients);
+
+chase.addEventListener('change', async () => {
+  const want = chase.checked;
+  chase.disabled = true;
+  chaseState.textContent = 'Saving...';
+  chaseState.style.color = '';
+  try {
+    // The whole profile, because the endpoint replaces it: sending the switch
+    // alone would blank the name and the agency beside it.
+    const saved = await api('/api/auth/profile', {
+      method: 'PUT',
+      body: {
+        firstName: pf.elements.firstName.value,
+        lastName: pf.elements.lastName.value,
+        phone: pf.elements.phone.value,
+        agencyName: pf.elements.agencyName.value,
+        notifyEmail: pf.elements.notifyEmail.value,
+        agencyAddress: pf.elements.agencyAddress.value,
+        sellerOfTravel: pf.elements.sellerOfTravel.value,
+        autoRemindClients: want,
+      },
+    });
+    drawChase(saved.user?.autoRemindClients);
+  } catch (err) {
+    drawChase(!want);
+    showError(document.getElementById('chase-err'), err);
+  } finally {
+    chase.disabled = false;
+  }
+});
 
 // ------------------------------------------------ tasks that follow a trip --
 //
