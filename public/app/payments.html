@@ -176,7 +176,10 @@ function render(d) {
       ? '<div class="empty"><h3>Nothing posted yet</h3><p>Payments you mark as paid appear here.</p></div>'
       : '<div class="empty"><h3>Nothing outstanding</h3><p>Add a deposit amount and dates to a reservation, then build its schedule below.</p></div>';
   } else {
-    panel.innerHTML = `<div class="table-wrap"><table>
+    panel.innerHTML = `
+    ${d.truncated ? `<div class="notice notice-warn">Showing the first ${d.cap} only.
+      Search to narrow it down; filtering what is on screen will not reach the rest.</div>` : ''}
+    <div class="table-wrap"><table>
       <thead><tr><th>Client</th>${showAdvisor ? '<th>Advisor</th>' : ''}<th>Trip</th><th>Type</th>
         <th>Status</th><th class="num">Amount</th><th></th></tr></thead>
       <tbody>${d.payments.map((p) => {

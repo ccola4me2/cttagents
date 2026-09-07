@@ -24,9 +24,14 @@ export async function handleListClients(request, env) {
   const scope = db.scopeFor(env, user, request);
   const query = clean(url.searchParams.get('q'), 80);
   const clients = await db.listClients(env, scope, {
+    limit: url.searchParams.get('limit'),
     query,
     pinnedOnly: url.searchParams.get('pinned') === '1',
   });
+  // One row past the cap, so the page can say it was cut. Filtering a list
+  // that is already short is how a search for somebody who exists comes back
+  // with nothing.
+  const { rows: shown, truncated } = db.capped(clients, url.searchParams.get('limit'), db.CLIENT_CAP);
 
   // People who are in the CRM but have never been booked here.
   //
@@ -54,15 +59,17 @@ export async function handleListClients(request, env) {
   }
 
   return json({
-    clients,
+    clients: shown,
+    truncated,
+    cap: db.CLIENT_CAP,
     fromCrm,
     stats: {
-      total: clients.length,
-      pinned: clients.filter((c) => c.pinned_at).length,
+      total: shown.length,
+      pinned: shown.filter((c) => c.pinned_at).length,
       // Somebody who has travelled and has nothing ahead of them. The same
       // question the dashboard asks, answerable from this list too.
-      lapsed: clients.filter((c) => c.last_date && !c.next_date).length,
-      lifetimeCents: clients.reduce((n, c) => n + (c.lifetime_cents || 0), 0),
+      lapsed: shown.filter((c) => c.last_date && !c.next_date).length,
+      lifetimeCents: shown.reduce((n, c) => n + (c.lifetime_cents || 0), 0),
     },
     scope: db.scopeLabel(scope, user),
     advisors: await db.advisorOptions(env, user),

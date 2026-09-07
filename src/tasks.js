@@ -77,11 +77,18 @@ function parse(body) {
  * A task with no date is a someday task, not an urgent one, and sorting NULL
  * to the top would put the whole "one day" pile above this afternoon's work.
  */
-export async function listTasks(env, scope, { state = 'open', limit = 200 } = {}) {
+export async function listTasks(env, scope, { state = 'open', query, limit } = {}) {
   const scoped = db.scopeWhere(scope, 't.user_id');
   const where = [scoped.sql];
   if (state === 'open') where.push('t.done_at IS NULL');
   if (state === 'done') where.push('t.done_at IS NOT NULL');
+  // By title or by who it is about, so a task can be found on a list longer
+  // than the cap.
+  const binds = [];
+  if (query) {
+    where.push('(t.title LIKE ? OR c.name LIKE ? OR b.client_name LIKE ?)');
+    binds.push(`%${query}%`, `%${query}%`, `%${query}%`);
+  }
 
   // Pinned first, then by date. A pin means "this is what I am on now", which
   // outranks any date, and it is the whole reason for pinning.
@@ -109,7 +116,7 @@ export async function listTasks(env, scope, { state = 'open', limit = 200 } = {}
        LEFT JOIN users ab ON ab.id = t.assigned_by
       WHERE ${where.join(' AND ')}
       ORDER BY ${order} LIMIT ?`
-  ).bind(...scoped.binds, Math.min(Number(limit) || 200, 500)).all();
+  ).bind(...scoped.binds, ...binds, db.takeWithProbe(limit)).all();
   return results || [];
 }
 
@@ -120,11 +127,19 @@ export async function handleListTasks(request, env) {
   const url = new URL(request.url);
   const state = oneOf(url.searchParams.get('state'), ['open', 'done', 'all']) || 'open';
   const scope = db.scopeFor(env, user, request);
-  const tasks = await listTasks(env, scope, { state });
+  const found = await listTasks(env, scope, {
+    state,
+    query: clean(url.searchParams.get('q'), 80) || undefined,
+    limit: url.searchParams.get('limit'),
+  });
+  // One row past the cap, so the page can say the list was cut.
+  const { rows: tasks, truncated } = db.capped(found, url.searchParams.get('limit'));
 
   const today = new Date().toISOString().slice(0, 10);
   return json({
     tasks,
+    truncated,
+    cap: db.LIST_CAP,
     kinds: KINDS,
     advisors: await db.advisorOptions(env, user),
     counts: {

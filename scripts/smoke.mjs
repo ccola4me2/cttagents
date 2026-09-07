@@ -1181,6 +1181,44 @@ async function main() {
     }
   }
 
+  // ------------------------------------------ a list that admits it is cut --
+  step('A list says when it is only part of the answer');
+  {
+    // Two rows asked for out of however many exist. The point is not the
+    // number: it is that the answer says it is partial, and that a search
+    // reaches what the cut left out. A list quietly returning the first two
+    // hundred of a thousand is how a search for a client who is right there
+    // comes back empty.
+    for (const [path, key] of [
+      ['/api/bookings?limit=2', 'bookings'],
+      ['/api/tasks?state=all&limit=2', 'tasks'],
+      ['/api/clients?limit=2', 'clients'],
+      ['/api/payments?limit=2', 'payments'],
+    ]) {
+      const res = await call(advisor, 'GET', path);
+      const rows = res.data?.[key] || [];
+      const enough = rows.length >= 2;
+      check(!enough || res.data?.truncated === true,
+        `${key} says so when it is cut`,
+        `${rows.length} row(s), truncated ${res.data?.truncated}`);
+      check(!enough || rows.length === 2,
+        `and hands back what was asked for, not the probe row`, `${rows.length}`);
+    }
+
+    // The way out. Narrowing has to reach past the cut, or the flag is just an
+    // apology.
+    const narrowed = await call(advisor, 'GET',
+      `/api/bookings?limit=2&q=${encodeURIComponent(stamp)}`);
+    check(narrowed.status === 200,
+      'and searching narrows rather than filtering what came back',
+      `status ${narrowed.status}`);
+    const payQ = await call(advisor, 'GET', '/api/payments?q=Smoke');
+    check(payQ.status === 200, 'payments can be searched too', `status ${payQ.status}`);
+    const taskQ = await call(advisor, 'GET', `/api/tasks?state=all&q=${encodeURIComponent(stamp)}`);
+    check(taskQ.status === 200 && (taskQ.data?.tasks || []).length > 0,
+      'and so can the task list', `${(taskQ.data?.tasks || []).length} found`);
+  }
+
   // ---------------------------------------------------- client credits ------
   step('Credits a client holds with a vendor');
 

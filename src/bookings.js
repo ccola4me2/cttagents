@@ -121,13 +121,19 @@ export async function handleListBookings(request, env) {
   const url = new URL(request.url);
   const statusParam = url.searchParams.get('status');
   const scope = db.scopeFor(env, user, request);
-  const bookings = await db.listBookings(env, scope, {
+  const found = await db.listBookings(env, scope, {
     status: STATUSES.includes(statusParam) ? statusParam : undefined,
     search: clean(url.searchParams.get('q'), 80) || undefined,
     limit: url.searchParams.get('limit'),
   });
+  // One row past the cap came back if there is more behind it, so the page can
+  // say the list was cut rather than filtering an answer that is already
+  // missing what somebody is looking for.
+  const { rows: bookings, truncated } = db.capped(found, url.searchParams.get('limit'));
   return json({
     bookings,
+    truncated,
+    cap: db.LIST_CAP,
     stats: await db.bookingStats(env, scope),
     // The same lists the record page gets, so the new reservation form and the
     // validator cannot disagree about what a status may be.

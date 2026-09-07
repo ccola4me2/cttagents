@@ -144,13 +144,18 @@ export async function handlePayments(request, env) {
     db.listPayments(env, scope, {
       state: state === 'all' ? undefined : state,
       paymentClass: CLASSES.includes(cls) ? cls : undefined,
+      query: clean(url.searchParams.get('q'), 80) || undefined,
+      limit: url.searchParams.get('limit'),
     }),
     db.paymentStats(env, scope, { today: isoDay(0), soonThrough: isoDay(30) }),
     db.bookingBalances(env, scope),
   ]);
 
+  const { rows: shown, truncated } = db.capped(payments, url.searchParams.get('limit'));
   return json({
-    payments,
+    payments: shown,
+    truncated,
+    cap: db.LIST_CAP,
     stats,
     balances: balances.map((b) => ({
       ...b,

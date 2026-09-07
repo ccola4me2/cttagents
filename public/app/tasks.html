@@ -159,12 +159,16 @@ function render(d) {
       <p class="meta">Everything not yet done</p></div>`;
 
   if (!d.tasks.length) {
-    panel.innerHTML = `<div class="empty"><h3>Nothing on the list</h3>
+    panel.innerHTML = `
+    <div class="empty"><h3>Nothing on the list</h3>
       <p>Add a task to keep track of a call, a deposit or a document.</p></div>`;
     return;
   }
 
-  panel.innerHTML = `<ul class="rows task-rows">${d.tasks.map((t) => {
+  panel.innerHTML = `
+    ${d.truncated ? `<div class="notice notice-warn">Showing the first ${d.cap} only.
+      Search to narrow it down; filtering what is on screen will not reach the rest.</div>` : ''}
+    <ul class="rows task-rows">${d.tasks.map((t) => {
     const late = !t.done_at && t.due_date && t.due_date < today;
     const mine = t.user_id === ME;
     return `<li class="${t.done_at ? 'done' : ''}">

@@ -50,7 +50,7 @@ let cache = [];
 
 const STATUS_TONE = { booked: 'badge-green', quoted: 'badge-amber', travelled: 'badge-navy', cancelled: 'badge-red' };
 
-function render(bookings, stats, scope) {
+function render(bookings, stats, scope, d = {}) {
   // Only worth a column when the list spans more than one advisor. Showing
   // your own name in every row of your own list is noise.
   const showAdvisor = Boolean(scope && scope.all);
@@ -68,7 +68,9 @@ function render(bookings, stats, scope) {
     return;
   }
 
-  panel.innerHTML = `<div class="table-wrap"><table>
+  panel.innerHTML = `
+    ${d.truncated ? `<div class="notice notice-warn">Showing the first ${d.cap} only.
+      Search to narrow it down; filtering what is on screen will not reach the rest.</div>` : ''}<div class="table-wrap"><table>
     <thead><tr><th>Client</th>${showAdvisor ? '<th>Advisor</th>' : ''}<th>Vendor</th><th>Conf #</th>
       <th>Trip</th><th>Departing</th><th>Final payment</th>
       <th class="num">Gross</th><th class="num">Commission</th><th></th></tr></thead>
@@ -108,7 +110,7 @@ async function load() {
     if (advisorParam()) params.set('advisor', new URLSearchParams(location.search).get('advisor'));
     const data = await api(`/api/bookings${params.toString() ? '?' + params : ''}`);
     mountScopePicker(document.getElementById('scope'), data, load);
-    render(data.bookings, data.stats, data.scope);
+    render(data.bookings, data.stats, data.scope, data);
   } catch (err) {
     showError(panel, err);
   }

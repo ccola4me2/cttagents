@@ -53,12 +53,16 @@ function render(d) {
       <p class="meta">Across everyone listed</p></div>`;
 
   if (!d.clients.length) {
-    panel.innerHTML = `<div class="empty"><h3>No clients yet</h3>
+    panel.innerHTML = `
+    <div class="empty"><h3>No clients yet</h3>
       <p>A client record appears the first time you take a reservation for them.</p></div>`;
     return;
   }
 
-  panel.innerHTML = `<div class="table-wrap"><table>
+  panel.innerHTML = `
+    ${d.truncated ? `<div class="notice notice-warn">Showing the first ${d.cap} only.
+      Search to narrow it down; filtering what is on screen will not reach the rest.</div>` : ''}
+    <div class="table-wrap"><table>
     <thead><tr><th style="width:2rem;"></th><th>Client</th><th>Contact</th><th>Last trip</th>
       <th>Next trip</th><th class="num">Trips</th><th class="num">Lifetime</th></tr></thead>
     <tbody>${d.clients.map((c) => `<tr>

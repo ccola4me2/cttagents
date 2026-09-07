@@ -340,7 +340,52 @@ const BOOKING_COLUMNS = `
 // the session lookup spent an afternoon reading two profile fields as null.
 const BOOKING_COLUMNS_B = BOOKING_COLUMNS.split(',').map((c) => `b.${c.trim()}`).join(', ');
 
-export async function listBookings(env, scope, { status, search, limit = 200 } = {}) {
+/**
+ * How many rows a list hands back, and why there is one more.
+ *
+ * These lists are read whole by the page and filtered there, which works
+ * until a book outgrows the cap. Past it the page filters an answer that is
+ * already missing the row somebody is looking for, and nothing says so: a
+ * search for a client who exists comes back empty and reads as lost data.
+ *
+ * Every list asks for one row more than it will return. If that row arrives,
+ * the list was cut, and the page can say so instead of quietly lying.
+ */
+export const LIST_CAP = 500;
+export const CLIENT_CAP = 500;
+
+/**
+ * How many rows to ask for: what was requested, never more than the cap, plus
+ * one to see past it.
+ *
+ * The plus one is the whole mechanism, and the first version of this got it
+ * wrong in a way that looked right. The lists defaulted to fewer rows than the
+ * cap, so the probe row was never inside the limit, and every list reported
+ * itself complete while returning two hundred of a possible thousand.
+ */
+export function pageSize(limit, cap = LIST_CAP) {
+  return Math.min(Number(limit) || cap, cap);
+}
+
+export function takeWithProbe(limit, cap = LIST_CAP) {
+  return pageSize(limit, cap) + 1;
+}
+
+/**
+ * Take what was asked for, and say whether there was more behind it.
+ *
+ * Sliced to the size that was actually requested rather than to the cap. An
+ * earlier version always sliced to the cap, so asking for two rows returned
+ * three and reported the answer complete: the probe row came back and nothing
+ * looked at it.
+ */
+export function capped(rows, limit, cap = LIST_CAP) {
+  const all = rows || [];
+  const size = pageSize(limit, cap);
+  return { rows: all.slice(0, size), truncated: all.length > size };
+}
+
+export async function listBookings(env, scope, { status, search, limit } = {}) {
   const scoped = scopeWhere(scope, 'b.user_id');
   const where = [scoped.sql];
   const binds = [...scoped.binds];
@@ -350,7 +395,7 @@ export async function listBookings(env, scope, { status, search, limit = 200 } =
     const like = `%${search}%`;
     binds.push(like, like, like, like);
   }
-  binds.push(Math.min(Number(limit) || 200, 500));
+  binds.push(takeWithProbe(limit));
   const { results } = await env.DB.prepare(
     `SELECT ${BOOKING_COLUMNS_B}, ${ADVISOR_NAME}
        FROM bookings b LEFT JOIN users u ON u.id = b.user_id
@@ -1127,7 +1172,7 @@ export async function resolveClient(env, userId, name, { ghlContactId } = {}) {
   return row ? row.id : null;
 }
 
-export async function listClients(env, scope, { query, pinnedOnly, limit = 300 } = {}) {
+export async function listClients(env, scope, { query, pinnedOnly, limit } = {}) {
   const scoped = scopeWhere(scope, 'c.user_id');
   const where = [scoped.sql];
   const binds = [...scoped.binds];
@@ -1152,7 +1197,7 @@ export async function listClients(env, scope, { query, pinnedOnly, limit = 300 }
       WHERE ${where.join(' AND ')}
       ORDER BY c.pinned_at IS NULL ASC, c.pinned_at ASC, lifetime_cents DESC
       LIMIT ?`
-  ).bind(...binds, Math.min(Number(limit) || 300, 500)).all();
+  ).bind(...binds, takeWithProbe(limit, CLIENT_CAP)).all();
   return results || [];
 }
 
@@ -1364,7 +1409,8 @@ export const PAYMENT_COLUMNS = `
   p.payment_type, p.paid_by, p.credit_id, p.card_last4
 `;
 
-export async function listPayments(env, scope, { bookingId, state, paymentClass, limit = 300 } = {}) {
+export async function listPayments(env, scope,
+  { bookingId, state, paymentClass, query, limit } = {}) {
   const scoped = scopeWhere(scope, 'p.user_id');
   const where = [scoped.sql];
   const binds = [...scoped.binds];
@@ -1372,6 +1418,13 @@ export async function listPayments(env, scope, { bookingId, state, paymentClass,
   if (state === 'outstanding') where.push('p.paid_date IS NULL');
   if (state === 'paid') where.push('p.paid_date IS NOT NULL');
   if (paymentClass) { where.push('p.payment_class = ?'); binds.push(paymentClass); }
+  // By client or by trip, so a payment can be found on a book bigger than the
+  // cap. Filtering a list that was already cut is how a search comes back
+  // empty for a client who is right there.
+  if (query) {
+    where.push('(b.client_name LIKE ? OR b.product_name LIKE ? OR b.supplier LIKE ?)');
+    binds.push(`%${query}%`, `%${query}%`, `%${query}%`);
+  }
 
   const { results } = await env.DB.prepare(
     `SELECT ${PAYMENT_COLUMNS},
@@ -1383,7 +1436,7 @@ export async function listPayments(env, scope, { bookingId, state, paymentClass,
       WHERE ${where.join(' AND ')}
       ORDER BY COALESCE(p.due_date, '9999-12-31') ASC, p.created_at ASC
       LIMIT ?`
-  ).bind(...binds, Math.min(Number(limit) || 300, 500)).all();
+  ).bind(...binds, takeWithProbe(limit)).all();
   return results || [];
 }
 
