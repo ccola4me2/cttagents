@@ -1219,6 +1219,71 @@ async function main() {
       'and so can the task list', `${(taskQ.data?.tasks || []).length} found`);
   }
 
+  // --------------------------------------------- merging keeps the detail ---
+  step('Merging two records for one supplier');
+  {
+    // The duplicate is normally the one the import filled in: the phone, the
+    // commission rate, the desk contact and how to book all sit on the record
+    // about to be deleted. Merging used to move the reservations and throw the
+    // rest away, which left a tidy list and none of the detail.
+    const thin = await call(advisor, 'POST', '/api/vendors', {
+      name: `Kestrel ${stamp}`, category: 'Cruise Lines', commissionPct: '16',
+    });
+    const rich = await call(advisor, 'POST', '/api/vendors', {
+      name: `Kestrel ${stamp} Cruises`, category: 'Escorted Tours',
+    });
+    const keepId = thin.data?.id;
+    const dropId = rich.data?.id;
+    check(keepId && dropId, 'two records for one supplier',
+      `${keepId} / ${dropId}`);
+
+    // Filled in on the duplicate, which is where the detail normally is: the
+    // import writes everything and the hand-made record has a name and a rate.
+    await call(advisor, 'PUT', `/api/vendors/${dropId}`, {
+      name: `Kestrel ${stamp} Cruises`, category: 'Escorted Tours',
+      phone: '1-800-555-0100', email: `desk-${stamp}@example.com`,
+      bookingInstructions: 'Ring the desk, quote the agency number.',
+      commissionPct: '10', notes: 'Pays base plus a bonus on groups.',
+    });
+
+    await call(advisor, 'POST', `/api/vendors/${dropId}/favourite`, { favourite: true });
+
+    const merged = await call(advisor, 'POST', '/api/vendors/merge',
+      { keep: keepId, drop: [dropId] });
+    check(merged.status === 200, 'they merge', `status ${merged.status}`);
+    if (keepId) {
+      cleanup('the merged vendor', () => call(advisor, 'DELETE', `/api/vendors/${keepId}`));
+    }
+
+    const after = (await call(advisor, 'GET', `/api/vendors?q=${encodeURIComponent(stamp)}`))
+      .data?.vendors?.find((v) => v.id === keepId);
+
+    check(after?.name === `Kestrel ${stamp}`,
+      'under the name that was ticked', after?.name);
+    check(after?.phone === '1-800-555-0100',
+      'and the blank it had is filled from the one folded in', after?.phone);
+    check((after?.booking_instructions || '').includes('Ring the desk'),
+      'including how to book them');
+    // The kept record already said sixteen. The advisor chose it; a merge does
+    // not get to overrule that with the other record's ten.
+    check(Number(after?.commission_pct) === 16,
+      'while what it already knew is left alone', `${after?.commission_pct}`);
+    check(after?.favourite === 1,
+      'starred on either record means starred', `${after?.favourite}`);
+
+    const shelves = JSON.parse(after?.categories_json || '[]');
+    check(shelves.includes('Cruise Lines') && shelves.includes('Escorted Tours'),
+      'and it sits on both their shelves', JSON.stringify(shelves));
+
+    check((merged.data?.filled || []).length > 0,
+      'the answer names what came across rather than counting it',
+      JSON.stringify(merged.data?.filled));
+
+    const gone = (await call(advisor, 'GET', `/api/vendors?q=${encodeURIComponent(stamp)}`))
+      .data?.vendors?.find((v) => v.id === dropId);
+    check(!gone, 'and the duplicate is gone');
+  }
+
   // ---------------------------------------------------- client credits ------
   step('Credits a client holds with a vendor');
 

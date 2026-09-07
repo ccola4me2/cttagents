@@ -714,6 +714,44 @@ export async function handleFavouriteVendor(request, env, id) {
  * looking merged on one screen and split on another, which is worse than
  * leaving them alone.
  */
+// Everything worth carrying from a record about to be deleted. The name is
+// not here: the advisor chose which name to keep, and that choice is the whole
+// point of the picker. Nor are the timestamps or the ids.
+const MERGE_FIELDS = [
+  'phone', 'email', 'website', 'portal_url', 'signup_url', 'account_number',
+  'vendor_login', 'commission_pct', 'commission_structure', 'deposit_days',
+  'final_days', 'booking_instructions', 'registration_instructions',
+  'partner_status', 'budget_category', 'travel_types', 'phones_json',
+  'bdm_name', 'bdm_email', 'bdm_phone', 'bdm_info', 'notes',
+];
+
+// What each is called when the advisor is told it came across.
+const FIELD_WORD = {
+  phone: 'phone', email: 'email', website: 'website', portal_url: 'booking portal',
+  signup_url: 'sign-up link', account_number: 'account number',
+  vendor_login: 'login', commission_pct: 'commission rate',
+  commission_structure: 'commission terms', deposit_days: 'deposit terms',
+  final_days: 'final payment terms', booking_instructions: 'how to book',
+  registration_instructions: 'how to register', partner_status: 'partner status',
+  budget_category: 'price bracket', travel_types: 'travel types',
+  phones_json: 'sales desks', bdm_name: 'BDM', bdm_email: 'BDM email',
+  bdm_phone: 'BDM phone', bdm_info: 'BDM notes', notes: 'notes',
+  favourite: 'the star',
+};
+
+const blank = (v) => v === null || v === undefined || String(v).trim() === '';
+
+/** The shelves one vendor sits on, from either column. */
+function shelvesOf(v) {
+  let list = [];
+  try {
+    const a = JSON.parse(v.categories_json || '[]');
+    if (Array.isArray(a)) list = a.filter(Boolean);
+  } catch { list = []; }
+  if (v.category && !list.includes(v.category)) list.unshift(v.category);
+  return list;
+}
+
 export async function handleMergeVendors(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
@@ -724,11 +762,63 @@ export async function handleMergeVendors(request, env) {
     ? body.drop.filter((x) => typeof x === 'string' && x !== keepId).slice(0, 50) : [];
   if (!keepId || !dropIds.length) return badRequest('Pick one vendor to keep and at least one to fold in.');
 
-  const keep = await env.DB.prepare('SELECT id, name FROM vendors WHERE id = ? AND user_id = ?')
-    .bind(keepId, user.id).first();
+  // Aliased, because COLUMNS is written with the v. prefix the list query uses.
+  const keep = await env.DB.prepare(
+    `SELECT ${COLUMNS} FROM vendors v WHERE v.id = ? AND v.user_id = ?`
+  ).bind(keepId, user.id).first();
   if (!keep) return notFound('Vendor not found.');
 
   const marks = dropIds.map(() => '?').join(',');
+  const { results: dropped } = await env.DB.prepare(
+    `SELECT ${COLUMNS} FROM vendors v WHERE v.user_id = ? AND v.id IN (${marks})
+      ORDER BY v.updated_at DESC`
+  ).bind(user.id, ...dropIds).all();
+
+  // Everything the other records knew, moved across before they go.
+  //
+  // This used to delete them outright and keep only the reservations. The
+  // duplicate is usually the one the import filled in: the phone number, the
+  // booking instructions, the commission rate and the desk contact all sat on
+  // the record being thrown away, and the advisor was left with a tidy list
+  // and none of the detail they had been collecting.
+  //
+  // A blank on the kept record is filled from the first other record that has
+  // it. Nothing already answered is overwritten: the one being kept is the one
+  // the advisor chose.
+  const filled = [];
+  const sets = [];
+  const binds = [];
+  for (const field of MERGE_FIELDS) {
+    if (!blank(keep[field])) continue;
+    const source = (dropped || []).find((d) => !blank(d[field]));
+    if (!source) continue;
+    sets.push(`${field} = ?`);
+    binds.push(source[field]);
+    filled.push(field);
+  }
+
+  // The shelves are a set, not a choice: a supplier on Cruise Lines in one
+  // record and Favorite Suppliers in the other belongs on both.
+  const shelves = new Set(shelvesOf(keep));
+  for (const d of dropped || []) for (const c of shelvesOf(d)) shelves.add(c);
+  if (shelves.size) {
+    sets.push('categories_json = ?', 'category = ?');
+    binds.push(JSON.stringify([...shelves]), keep.category || [...shelves][0]);
+  }
+
+  // Starred on either record means starred: a star is a decision, and losing
+  // it to a merge is losing the decision.
+  if (!keep.favourite && (dropped || []).some((d) => d.favourite)) {
+    sets.push('favourite = 1');
+    filled.push('favourite');
+  }
+
+  if (sets.length) {
+    await env.DB.prepare(
+      `UPDATE vendors SET ${sets.join(', ')}, updated_at = ? WHERE id = ? AND user_id = ?`
+    ).bind(...binds, now(), keepId, user.id).run();
+  }
+
   const moved = await env.DB.prepare(
     `UPDATE bookings SET vendor_id = ?, supplier = ?, updated_at = ?
       WHERE user_id = ? AND vendor_id IN (${marks})`
@@ -740,9 +830,17 @@ export async function handleMergeVendors(request, env) {
   const changed = moved.meta ? moved.meta.changes || 0 : 0;
   await db.logActivity(env, user.id, 'vendor.merge',
     `Folded ${dropIds.length} vendor${dropIds.length === 1 ? '' : 's'} into ${keep.name}`,
-    { keep: keepId, moved: changed });
+    { keep: keepId, moved: changed, filled });
 
-  return json({ ok: true, keptName: keep.name, mergedFrom: dropIds.length, reservationsMoved: changed });
+  return json({
+    ok: true,
+    keptName: keep.name,
+    mergedFrom: dropIds.length,
+    reservationsMoved: changed,
+    // Named, so the advisor can see what came across rather than trusting it.
+    filled: filled.map((f) => FIELD_WORD[f] || f),
+    categories: [...shelves],
+  });
 }
 
 /**

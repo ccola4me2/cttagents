@@ -323,7 +323,10 @@ function drawDupes(s) {
         <input type="radio" name="keep-${gi}" value="${esc(v.id)}"${i === 0 ? ' checked' : ''}>
         ${esc(v.name)} <span class="muted">${v.trips} trip${v.trips === 1 ? '' : 's'}</span>
       </label>`).join('')}
-      <button class="btn btn-secondary btn-sm" data-merge="${gi}">Keep the ticked one</button>
+      <p class="field-hint" style="margin:.2rem 0 .5rem;">Merging keeps the ticked name and
+        moves everything else onto it: the reservations, and any detail the others have that
+        it is missing. Nothing already filled in on the ticked one is overwritten.</p>
+      <button class="btn btn-secondary btn-sm" data-merge="${gi}">Merge them</button>
     </div>`).join('');
 
   document.querySelectorAll('[data-merge]').forEach((btn) => {
@@ -335,8 +338,14 @@ function drawDupes(s) {
       btn.disabled = true;
       try {
         const res = await api('/api/vendors/merge', { method: 'POST', body: { keep, drop } });
-        err.innerHTML = `<div class="notice notice-ok">Folded into ${esc(res.keptName)}.
-          ${res.reservationsMoved} reservation${res.reservationsMoved === 1 ? '' : 's'} moved.</div>`;
+        // Named rather than counted. "Three fields carried across" is not
+        // something anybody can check; "the phone, the commission rate and how
+        // to book" is.
+        const carried = (res.filled || []).length
+          ? ` Carried across: ${res.filled.join(', ')}.` : '';
+        err.innerHTML = `<div class="notice notice-ok">Merged into ${esc(res.keptName)}.
+          ${res.reservationsMoved} reservation${res.reservationsMoved === 1 ? '' : 's'} moved.${
+          esc(carried)}</div>`;
         await load();
       } catch (e) { showError(err, e); btn.disabled = false; }
     });
