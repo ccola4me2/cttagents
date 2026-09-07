@@ -3166,6 +3166,84 @@ async function main() {
     `status ${notYours.status}`);
   }
 
+  // -------------------------------------------- the rate a charge earns ----
+  step('Commission worked out from a rate rather than typed');
+  {
+    const rated = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Rated ${stamp}`, supplier: 'Royal Caribbean', status: 'booked',
+      departDate: isoDay(150),
+    });
+    const ratedId = rated.data?.booking?.id;
+    if (ratedId) {
+      cleanup('the rated reservation', () => call(advisor, 'DELETE', `/api/bookings/${ratedId}`));
+    }
+
+    // Two passengers, each with their own fare. The rate is per charge and the
+    // fare is per person, so the commission is twice one passenger's: getting
+    // this wrong by counting the whole-booking column as a third passenger is
+    // exactly the mistake this pins down.
+    const pax1 = await call(advisor, 'POST', `/api/bookings/${ratedId}/travellers`,
+      { name: `First ${stamp}`, isLead: true });
+    const pax2 = await call(advisor, 'POST', `/api/bookings/${ratedId}/travellers`,
+      { name: `Second ${stamp}` });
+
+    const put = await call(advisor, 'PUT', `/api/bookings/${ratedId}/pricing`, {
+      cells: [
+        { kind: 'fare', travellerId: pax1.data.id, amount: '2000', commissionable: true },
+        { kind: 'fare', travellerId: pax2.data.id, amount: '2000', commissionable: true },
+        { kind: 'taxes', travellerId: pax1.data.id, amount: '150' },
+        { kind: 'taxes', travellerId: pax2.data.id, amount: '150' },
+        { kind: 'insurance', travellerId: null, amount: '500', commissionable: true },
+      ],
+      // Worked out in the page and sent as cash, which is what the vendor
+      // actually pays: sixteen per cent of each fare, ten of the insurance.
+      commissions: [
+        { travellerId: pax1.data.id, amount: '320' },
+        { travellerId: pax2.data.id, amount: '320' },
+        { travellerId: null, amount: '50' },
+      ],
+      rates: [{ kind: 'fare', pct: 16 }, { kind: 'insurance', pct: 10 }],
+    });
+    check(put.status === 200, 'a grid saves with a rate on each earning charge',
+      `status ${put.status}`);
+
+    const back = await call(advisor, 'GET', `/api/bookings/${ratedId}/record`);
+    const lines = back.data?.pricing || [];
+    const fare = lines.find((l) => l.kind === 'fare');
+    const ins = lines.find((l) => l.kind === 'insurance');
+    const taxes = lines.find((l) => l.kind === 'taxes');
+
+    check(fare?.commission_pct === 16, 'the rate comes back with the charge',
+      `${fare?.commission_pct}`);
+    check(ins?.commission_pct === 10, 'and a second charge keeps its own rate',
+      `${ins?.commission_pct}`);
+    // Nought and "not said" are different answers, and a charge that earns
+    // nothing was never asked.
+    check(taxes?.commission_pct === null,
+      'a charge that earns nothing has no rate at all', `${taxes?.commission_pct}`);
+
+    // 16% of two $2,000 fares is $640, plus 10% of $500 insurance is $50.
+    check(back.data?.booking?.commission_cents === 69000,
+      'the commission counts each passenger, not the cabin once',
+      `${back.data?.booking?.commission_cents}`);
+    // $4,000 of fare and $500 of insurance. The $300 of taxes earns nothing.
+    check(back.data?.priceSummary?.commissionableCents === 450000,
+      'over the charges that earn, and not the taxes',
+      `${back.data?.priceSummary?.commissionableCents}`);
+
+    // A rate outside nought to a hundred is a typo, not a rate.
+    const silly = await call(advisor, 'PUT', `/api/bookings/${ratedId}/pricing`, {
+      cells: [{ kind: 'fare', travellerId: null, amount: '2000', commissionable: true }],
+      commissions: [],
+      rates: [{ kind: 'fare', pct: 1600 }],
+    });
+    const afterSilly = await call(advisor, 'GET', `/api/bookings/${ratedId}/record`);
+    check(silly.status === 200
+      && (afterSilly.data?.pricing || []).every((l) => l.commission_pct !== 1600),
+      'and a rate of sixteen hundred per cent is dropped rather than stored',
+      JSON.stringify((afterSilly.data?.pricing || []).map((l) => l.commission_pct)));
+  }
+
   // ---------------------------------------------------- pricing grid -------
   {
   step('Pricing a cabin per traveller');

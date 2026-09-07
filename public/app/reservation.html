@@ -899,6 +899,14 @@ function drawPricing() {
     const line = forHere.find((l) => (l.traveller_id || null) === travellerId && l.commission_cents);
     return line ? line.commission_cents : 0;
   };
+  // The rate this kind of charge earns, from whichever of its lines carries
+  // one. Every line of a kind is saved with the same figure, so the first that
+  // has one is the answer.
+  const pctFor = (kind) => {
+    const line = forHere.find((l) => l.kind === kind
+      && l.commission_pct !== null && l.commission_pct !== undefined);
+    return line ? line.commission_pct : null;
+  };
   const used = (k) => columns.some((c) => at(k.kind, c.id));
 
   const rows = showAllRows ? kinds : kinds.filter((k) => used(k) || k.kind === 'fare');
@@ -919,18 +927,31 @@ function drawPricing() {
   document.getElementById('pricing').innerHTML = `
     <div class="table-wrap"><table class="price-grid">
       <thead><tr><th style="min-width:11rem;">Charge</th>
-        <th style="width:6rem;">Commission</th>
+        <th style="width:9.5rem;">Commission</th>
         ${columns.map((c) => `<th class="num">${esc(c.name)}</th>`).join('')}
         <th class="num">Row</th></tr></thead>
       <tbody>
         ${rows.map((k) => `<tr data-kind="${esc(k.kind)}">
           <td><span class="name">${esc(k.label)}</span>${k.credit
             ? '<div class="muted">comes off the total</div>' : ''}</td>
-          <td><label class="task-tick" style="gap:.35rem;">
-            <input type="checkbox" data-comm="${esc(k.kind)}"${
-              (at(k.kind, columns[0].id) ? at(k.kind, columns[0].id).commissionable : k.commissionable)
-                ? ' checked' : ''}${d.editable ? '' : ' disabled'}>
-            <span class="m">earns</span></label></td>
+          <td>${(() => {
+            const earns = at(k.kind, columns[0].id)
+              ? at(k.kind, columns[0].id).commissionable : k.commissionable;
+            // The rate is per charge, so it comes off whichever line of this
+            // kind carries one. They are all saved with the same figure.
+            const pct = pctFor(k.kind);
+            return `<label class="task-tick" style="gap:.35rem;">
+              <input type="checkbox" data-comm="${esc(k.kind)}"${earns ? ' checked' : ''}${
+                d.editable ? '' : ' disabled'}>
+              <span class="m">earns</span></label>
+            <div class="rate-wrap"${earns ? '' : ' hidden'}>
+              <input class="rate" inputmode="decimal" data-rate="${esc(k.kind)}"
+                value="${pct === null ? '' : esc(String(pct))}"
+                placeholder="${esc(d.vendorRate ? String(d.vendorRate) : '%')}"
+                ${d.editable ? '' : 'disabled'}><span class="m">%</span>
+              <span class="m rate-earned"></span>
+            </div>`;
+          })()}</td>
           ${columns.map((c) => `<td class="num"><input class="cell" inputmode="decimal"
             data-cell="${esc(k.kind)}" data-col="${esc(c.id || '')}"
             value="${esc(cash(at(k.kind, c.id) ? at(k.kind, c.id).amount_cents : 0))}"
@@ -958,6 +979,11 @@ function drawPricing() {
     <div class="card-pad" id="money-block" style="border-top:1px solid var(--navy-100);"></div>`;
 
   const cells = () => [...document.querySelectorAll('[data-cell]')];
+  const rates = () => [...document.querySelectorAll('[data-rate]')];
+  const pctNum = (el) => {
+    const v = String(el.value).replace(/[^0-9.]/g, '').trim();
+    return v === '' ? null : Number(v);
+  };
   const num = (el) => Math.round((Number(String(el.value).replace(/[^0-9.-]/g, '')) || 0) * 100);
   const creditKinds = new Set(kinds.filter((k) => k.credit).map((k) => k.kind));
 
@@ -988,13 +1014,77 @@ function drawPricing() {
       if (cell) cell.textContent = sum ? money(sum) : '';
     }
 
+    // Commission from the rates, where any are given. The per-column boxes stay
+    // the stored figure, so a vendor who pays an odd number that matches no
+    // rate is still recorded exactly; entering a rate fills them in rather
+    // than replacing them, and they go back to being typed if the rates are
+    // cleared.
+    const anyRate = rates().some((el) => pctNum(el) !== null);
+    if (anyRate) {
+      for (const c of columns) {
+        let earned = 0;
+        for (const el of cells()) {
+          if ((el.dataset.col || '') !== (c.id || '')) continue;
+          const tick = document.querySelector(`[data-comm="${el.dataset.cell}"]`);
+          if (!tick || !tick.checked) continue;
+          const rate = document.querySelector(`[data-rate="${el.dataset.cell}"]`);
+          const pct = rate ? pctNum(rate) : null;
+          if (pct === null) continue;
+          earned += Math.round(num(el) * (pct / 100));
+        }
+        const box = document.querySelector(`[data-commission="${c.id || ''}"]`);
+        if (box) {
+          box.value = earned ? (earned / 100).toFixed(2) : '';
+          box.readOnly = true;
+          box.title = 'Worked out from the rates. Clear the rates to type it yourself.';
+        }
+      }
+    } else {
+      for (const el of document.querySelectorAll('[data-commission]')) {
+        el.readOnly = false;
+        el.title = '';
+      }
+    }
+
     let comm = 0;
     for (const el of document.querySelectorAll('[data-commission]')) comm += num(el);
     const ct = document.querySelector('[data-commtotal]');
     if (ct) ct.textContent = comm ? money(comm) : '';
+
+    // What each row earns, beside the rate, so the arithmetic is visible per
+    // charge rather than only in one figure at the bottom.
+    for (const el of rates()) {
+      const pct = pctNum(el);
+      const out = el.parentElement.querySelector('.rate-earned');
+      if (!out) continue;
+      if (pct === null) { out.textContent = ''; continue; }
+      let rowSum = 0;
+      for (const c of cells()) {
+        if (c.dataset.cell !== el.dataset.rate) continue;
+        rowSum += num(c);
+      }
+      const earned = Math.round(rowSum * (pct / 100));
+      out.textContent = earned ? money(earned) : '';
+    }
   }
 
   document.querySelectorAll('.cell').forEach((el) => el.addEventListener('input', retotal));
+  document.querySelectorAll('.rate').forEach((el) => el.addEventListener('input', retotal));
+  // A charge that earns nothing has no rate to give, so the box appears with
+  // the tick rather than sitting there greyed out asking to be filled in.
+  document.querySelectorAll('[data-comm]').forEach((tick) => {
+    tick.addEventListener('change', () => {
+      const wrap = tick.closest('td').querySelector('.rate-wrap');
+      if (wrap) {
+        wrap.hidden = !tick.checked;
+        if (!tick.checked) {
+          const rate = wrap.querySelector('.rate');
+          if (rate) rate.value = '';
+        }
+      }
+      retotal();
+    });
+  });
   retotal();
   drawPriceSummary();
   drawMoney();
@@ -1041,6 +1131,14 @@ function drawPricing() {
     for (const el of document.querySelectorAll('[data-commission]')) {
       if (!el.value.trim()) continue;
       body.commissions.push({ travellerId: el.dataset.commission || null, amount: el.value });
+    }
+    // The rates themselves, so they come back next time and the money can be
+    // worked out again when an amount changes.
+    body.rates = [];
+    for (const el of rates()) {
+      const pct = pctNum(el);
+      if (pct === null) continue;
+      body.rates.push({ kind: el.dataset.rate, pct });
     }
     try {
       await api(`/api/bookings/${encodeURIComponent(id)}/pricing`, { method: 'PUT', body });

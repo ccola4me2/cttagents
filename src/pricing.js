@@ -71,7 +71,8 @@ export async function listPricing(env, bookingId, scope) {
   const scoped = db.scopeWhere(scope, 'user_id');
   const { results } = await env.DB.prepare(
     `SELECT id, booking_id, user_id, traveller_id, component_id, kind, label,
-            amount_cents, commissionable, commission_cents, commission_kind, sort_order
+            amount_cents, commissionable, commission_cents, commission_pct,
+            commission_kind, sort_order
        FROM booking_pricing WHERE booking_id = ? AND ${scoped.sql}
       ORDER BY sort_order ASC, rowid ASC`
   ).bind(bookingId, ...scoped.binds).all().catch(() => ({ results: [] }));
@@ -174,6 +175,20 @@ export async function handleSavePricingGrid(request, env, bookingId) {
   const cells = Array.isArray(body.cells) ? body.cells.slice(0, 400) : [];
   const commissions = Array.isArray(body.commissions) ? body.commissions.slice(0, 50) : [];
 
+  // The rate each kind of charge earns. Stored so it comes back next time and
+  // so the grid can work the money out again when an amount changes; the
+  // commission itself still arrives as cash above, because a vendor who pays
+  // an odd number that matches no rate has to be recordable exactly.
+  const rates = new Map();
+  for (const r of (Array.isArray(body.rates) ? body.rates.slice(0, 50) : [])) {
+    const kind = oneOf(r.kind, KINDS);
+    const pct = Number(r.pct);
+    // Nought is a real answer and null is "not said", so they are kept apart.
+    if (r.pct === '' || r.pct === null || r.pct === undefined) continue;
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) continue;
+    rates.set(kind, Math.round(pct * 100) / 100);
+  }
+
   // Whose columns these are, checked once. A traveller id from another
   // reservation would price somebody who is not on this trip.
   const { results: people } = await env.DB.prepare(
@@ -210,6 +225,7 @@ export async function handleSavePricingGrid(request, env, bookingId) {
       commissionable: cell.commissionable ? 1 : 0,
       amountCents,
       commissionCents: 0,
+      commissionPct: rates.has(kind) ? rates.get(kind) : null,
       sortOrder: order.get(kind) || 0,
       commissionKind: 'base',
     });
@@ -231,7 +247,7 @@ export async function handleSavePricingGrid(request, env, bookingId) {
     if (fare) { fare.commissionCents = cents; continue; }
     rows.push({
       travellerId, componentId, kind: 'fare', commissionable: 1,
-      amountCents: 0, commissionCents: cents, sortOrder: 0,
+      amountCents: 0, commissionCents: cents, commissionPct: null, sortOrder: 0,
       commissionKind,
     });
   }
@@ -254,12 +270,13 @@ export async function handleSavePricingGrid(request, env, bookingId) {
   for (const r of rows) {
     await env.DB.prepare(
       `INSERT INTO booking_pricing (id, booking_id, user_id, traveller_id, component_id,
-         kind, label, amount_cents, commissionable, commission_cents, commission_kind,
-         sort_order, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`
+         kind, label, amount_cents, commissionable, commission_cents, commission_pct,
+         commission_kind, sort_order, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(uid(), bookingId, user.id, r.travellerId, r.componentId, r.kind, r.amountCents,
-           r.commissionable, r.commissionCents, r.commissionKind || 'base',
-           r.sortOrder, ts, ts).run();
+           r.commissionable, r.commissionCents,
+           r.commissionPct === undefined ? null : r.commissionPct,
+           r.commissionKind || 'base', r.sortOrder, ts, ts).run();
   }
 
   await syncBookingTotals(env, bookingId, user.id);

@@ -151,6 +151,15 @@ textarea { min-height: 90px; resize: vertical; }
 .notice-ok { background: var(--green-50); color: var(--green-600); }
 .notice-info { background: var(--navy-50); color: var(--navy-700); }
 .notice-warn { background: var(--amber-50); color: var(--amber-600); }
+
+/* The rate a charge earns, beside the tick that says it earns anything. */
+.rate-wrap { display: flex; align-items: center; gap: .25rem; margin-top: .3rem; }
+.rate-wrap .rate {
+  width: 3.4rem; padding: .2rem .35rem; font-size: .8rem; text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.rate-wrap .m { font-size: .74rem; color: var(--ink-500); }
+.rate-wrap .rate-earned { font-weight: 650; color: var(--navy-700); }
 .notice-setup {
   background: var(--navy-50); border: 1px dashed var(--navy-300);
   color: var(--ink-700); padding: 1.5rem;
