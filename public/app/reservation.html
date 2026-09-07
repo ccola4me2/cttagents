@@ -888,11 +888,26 @@ function drawPricing() {
   // blanks for every row that belongs to the other one.
   if (pricingComponent && !parts.some((c) => c.id === pricingComponent)) pricingComponent = null;
   const people = (d.travellers || []).map((t) => ({ id: t.id, name: t.name }));
-  // The reservation itself is always a column: a transfer for the cabin or a
-  // discount on the booking belongs to nobody in particular.
-  const columns = [...people, { id: null, name: people.length ? 'Whole booking' : 'This trip' }];
 
   const forHere = (d.pricing || []).filter((l) => (l.component_id || null) === pricingComponent);
+
+  // A column per passenger, and the totals at the bottom. There used to be a
+  // "Whole booking" column beside them for what belonged to the cabin rather
+  // than a person, and it was the easiest mistake in the grid: a fare typed
+  // into it counts as a passenger who is not on the trip, and the commission
+  // comes out one head too many.
+  //
+  // It still appears in two cases. With nobody named yet there has to be
+  // somewhere to type, and it is called "This trip". And where a reservation
+  // already has amounts sitting in it, hiding the column would not remove
+  // them: it would leave them out of the grid and delete them on the next
+  // save, which is a quiet way to lose somebody's pricing.
+  const strays = forHere.some((l) => !l.traveller_id
+    && ((l.amount_cents || 0) !== 0 || (l.commission_cents || 0) !== 0));
+  const wholeBooking = { id: null, name: people.length ? 'Whole booking' : 'This trip' };
+  const columns = people.length
+    ? (strays ? [...people, wholeBooking] : [...people])
+    : [wholeBooking];
   const at = (kind, travellerId) => forHere
     .find((l) => l.kind === kind && (l.traveller_id || null) === travellerId);
   const commissionAt = (travellerId) => {
@@ -929,7 +944,7 @@ function drawPricing() {
       <thead><tr><th style="min-width:11rem;">Charge</th>
         <th style="width:9.5rem;">Commission</th>
         ${columns.map((c) => `<th class="num">${esc(c.name)}</th>`).join('')}
-        <th class="num">Row</th></tr></thead>
+        </tr></thead>
       <tbody>
         ${rows.map((k) => `<tr data-kind="${esc(k.kind)}">
           <td><span class="name">${esc(k.label)}</span>${k.credit
@@ -956,7 +971,6 @@ function drawPricing() {
             data-cell="${esc(k.kind)}" data-col="${esc(c.id || '')}"
             value="${esc(cash(at(k.kind, c.id) ? at(k.kind, c.id).amount_cents : 0))}"
             placeholder="0.00" ${d.editable ? '' : 'disabled'}></td>`).join('')}
-          <td class="num" data-rowtotal="${esc(k.kind)}"></td>
         </tr>`).join('')}
         <tr style="border-top:2px solid var(--navy-100);">
           <td><span class="name">Commission</span>
@@ -965,13 +979,23 @@ function drawPricing() {
           ${columns.map((c) => `<td class="num"><input class="cell" inputmode="decimal"
             data-commission="${esc(c.id || '')}" value="${esc(cash(commissionAt(c.id)))}"
             placeholder="0.00" ${d.editable ? '' : 'disabled'}></td>`).join('')}
-          <td class="num" data-commtotal></td>
         </tr>
       </tbody>
-      <tfoot><tr><th>Traveller total</th><th></th>
-        ${columns.map((c) => `<th class="num" data-coltotal="${esc(c.id || '')}"></th>`).join('')}
-        <th class="num" data-grand></th></tr></tfoot>
+      <tfoot>
+        <tr><th>Each passenger</th><th></th>
+          ${columns.map((c) => `<th class="num" data-coltotal="${esc(c.id || '')}"></th>`).join('')}
+        </tr>
+        <tr class="grand"><th>Trip total</th><th></th>
+          <th class="num" colspan="${columns.length}" data-grand></th></tr>
+        <tr class="grand"><th>Commission</th><th></th>
+          <th class="num" colspan="${columns.length}" data-commtotal></th></tr>
+      </tfoot>
     </table></div>
+    ${people.length && strays ? `<div class="card-pad" style="padding-top:0;">
+      <p class="field-hint" style="margin:0;">The <strong>Whole booking</strong> column is on its
+      way out: every charge belongs to a passenger, and the totals add up at the bottom. It is
+      still here because this reservation has amounts in it. Move them onto the passengers and
+      it will go.</p></div>` : ''}
     ${d.editable ? `<div class="card-foot">
       <span class="muted" id="grid-note"></span>
       <button class="btn btn-primary" id="save-pricing">Save pricing</button></div>` : ''}
@@ -1003,16 +1027,6 @@ function drawPricing() {
     }
     const g = document.querySelector('[data-grand]');
     if (g) g.textContent = money(grand);
-
-    for (const k of rows) {
-      let sum = 0;
-      for (const el of cells()) {
-        if (el.dataset.cell !== k.kind) continue;
-        sum += creditKinds.has(k.kind) ? -num(el) : num(el);
-      }
-      const cell = document.querySelector(`[data-rowtotal="${k.kind}"]`);
-      if (cell) cell.textContent = sum ? money(sum) : '';
-    }
 
     // Commission from the rates, where any are given. The per-column boxes stay
     // the stored figure, so a vendor who pays an odd number that matches no
