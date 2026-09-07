@@ -12,7 +12,7 @@
 // named here to reach a client, which means a column added to the reservation
 // next month cannot leak into a client's inbox by default.
 
-import { json, badRequest, notFound, readJson, now } from './util.js';
+import { json, badRequest, notFound, readJson, now, sha256Hex } from './util.js';
 import { requireUser } from './auth.js';
 import { layout, escapeHtml, sendHtml } from './email.js';
 import { listPricing } from './pricing.js';
@@ -174,6 +174,24 @@ function rows(items, { strike = false } = {}) {
     <td style="padding:6px 0;text-align:right;color:#2f4459;white-space:nowrap;">${
       strike && i.deduct ? '&minus;' : ''}${money(i.amountCents)}</td>
   </tr>`).join('');
+}
+
+/**
+ * A fingerprint of what the client was actually told.
+ *
+ * Taken over the built statement rather than the reservation, so it moves when
+ * the client's copy would move and stays still otherwise: an internal note, a
+ * commission figure or a passport number can change all day without making the
+ * document in their inbox wrong.
+ *
+ * Three fields are left out on purpose. `to` is who it went to, not what it
+ * said. `invoiceNo` and `invoiceIssuedAt` are assigned by the act of sending,
+ * so including them would make every invoice differ from itself the moment it
+ * was sent.
+ */
+export async function statementFingerprint(statement) {
+  const { to, invoiceNo, invoiceIssuedAt, ...content } = statement;
+  return (await sha256Hex(JSON.stringify(content))).slice(0, 32);
 }
 
 export function renderStatement(env, s) {
@@ -388,6 +406,14 @@ export async function handleStatement(request, env, id) {
       // and followed up never.
       alreadySent: (statement.mode === 'quote' ? booking.quote_sent_at : booking.statement_sent_at)
         || null,
+      // Whether what they are holding still matches the booking. Only means
+      // anything once something has been sent.
+      changedSince: Boolean(booking.statement_hash)
+        && booking.statement_hash !== (await statementFingerprint(statement)),
+      // The fingerprint of what this preview would send. Not secret, and the
+      // only way to answer "why does it think this changed" without guessing.
+      fingerprint: await statementFingerprint(statement),
+      sentFingerprint: booking.statement_hash || null,
       sentCount: statement.mode === 'quote' ? (booking.quote_sent_count || 0) : 0,
       // So the page can say so rather than showing a gap where a number goes.
       willNumber: issuing && !booking.invoice_no,
@@ -433,15 +459,21 @@ export async function handleStatement(request, env, id) {
   // Recorded only after the send returns. A failed send that still marked the
   // quote as sent would be worse than no record at all: the follow-up list is
   // the one place that would have caught it.
+  // Taken from the statement that actually went, after the number was assigned
+  // and the object rebuilt. Fingerprinting the earlier one would have marked
+  // every invoice as changed the instant it was sent.
+  const fingerprint = await statementFingerprint(statement);
+
   if (statement.mode === 'quote') {
     await env.DB.prepare(
       `UPDATE bookings SET quote_sent_at = ?, quote_sent_count = quote_sent_count + 1,
-              updated_at = ? WHERE id = ? AND user_id = ?`
-    ).bind(now(), now(), id, user.id).run();
+              statement_hash = ?, updated_at = ? WHERE id = ? AND user_id = ?`
+    ).bind(now(), fingerprint, now(), id, user.id).run();
   } else {
     await env.DB.prepare(
-      'UPDATE bookings SET statement_sent_at = ?, updated_at = ? WHERE id = ? AND user_id = ?'
-    ).bind(now(), now(), id, user.id).run();
+      `UPDATE bookings SET statement_sent_at = ?, statement_hash = ?, updated_at = ?
+        WHERE id = ? AND user_id = ?`
+    ).bind(now(), fingerprint, now(), id, user.id).run();
   }
 
   await db.logActivity(env, user.id, `booking.${statement.mode}`,

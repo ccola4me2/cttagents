@@ -272,14 +272,21 @@ document.getElementById('add-traveller').addEventListener('click', () => addTrav
  */
 const firstTraveller = () => document.querySelector('.traveller-name');
 let mirrored = '';
-form.elements.clientName.addEventListener('input', () => {
+function mirrorClientName() {
   const box = firstTraveller();
   if (!box) return;
   const typed = box.value.trim();
   if (typed && typed !== mirrored) return;
   box.value = form.elements.clientName.value;
   mirrored = box.value.trim();
-});
+}
+
+// Both events, and the second one is the whole point. Picking a name from the
+// suggestion list sets the box's value in script, which fires change and not
+// input: typing "bre" mirrored "bre" into the traveller, then choosing
+// "Brent Beasley" from the list left the traveller reading "bre".
+form.elements.clientName.addEventListener('input', mirrorClientName);
+form.elements.clientName.addEventListener('change', mirrorClientName);
 
 
 // Straight to the reservation, which is where the pricing, the travellers and

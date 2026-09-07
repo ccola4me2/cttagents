@@ -741,7 +741,8 @@ function drawDetail() {
      <dl class="pairs">
        <dt>Booking agent</dt><dd>${esc(b.advisor_name || '-')}</dd>
        ${b.invoice_no ? `<dt>Invoice</dt><dd>${esc(b.invoice_no)}${b.statement_sent_at
-         ? ` <span class="muted">sent ${esc(timeAgo(b.statement_sent_at))}</span>` : ''}</dd>` : ''}
+         ? ` <span class="muted">sent ${esc(timeAgo(b.statement_sent_at))}</span>` : ''}${
+         d.statementStale ? ' <span class="badge badge-amber">changed since</span>' : ''}</dd>` : ''}
        ${b.quote_sent_at ? `<dt>Quote sent</dt><dd>${esc(timeAgo(b.quote_sent_at))}${
          b.quote_sent_count > 1 ? ` &middot; ${b.quote_sent_count} times` : ''}</dd>` : ''}
        ${b.welcomed_at ? `<dt>Rang them after</dt><dd>${esc(timeAgo(b.welcomed_at))}</dd>` : ''}
@@ -1219,12 +1220,19 @@ function render() {
   // Offered once they are home and once, because the point is remembering
   // whether the call happened, not counting how many times.
   const backHome = b.status === 'travelled' && !b.welcomed_at;
+  const invoicing = b.status === 'booked' || b.status === 'travelled';
+  // The copy the client is holding no longer matches the booking. Said on the
+  // button, because an advisor who has to open the preview to find out whether
+  // anything changed will not open it.
+  const stale = Boolean(d.statementStale);
   const outgoing = b.status === 'cancelled' ? null
-    : (b.status === 'booked' || b.status === 'travelled') ? 'Send invoice' : 'Send quote';
+    : stale ? (invoicing ? 'Send updated invoice' : 'Send updated quote')
+    : invoicing ? 'Send invoice' : 'Send quote';
   document.getElementById('actions').innerHTML = d.editable
     ? `${backHome ? '<button class="btn btn-secondary btn-sm" id="welcomed-btn">Rang them</button>' : ''}
        <button class="btn btn-ghost btn-sm" id="split-btn">Commission split</button>
-       ${outgoing ? `<button class="btn btn-ghost btn-sm" id="send-statement">${esc(outgoing)}</button>` : ''}
+       ${outgoing ? `<button class="btn ${stale ? 'btn-secondary' : 'btn-ghost'} btn-sm"
+         id="send-statement">${esc(outgoing)}</button>` : ''}
 `
     : '<span class="muted">Another advisor\'s reservation</span>';
   const sb = document.getElementById('send-statement');
@@ -1484,6 +1492,9 @@ async function statement() {
   } catch (e) { body.innerHTML = `<div class="notice notice-error">${esc(e.message)}</div>`; return; }
 
   const s = p.statement;
+  // Named in the preview as well, so the advisor sending it can see why the
+  // button changed rather than wondering whether they imagined it.
+  const changed = p.changedSince;
   if (p.problem) {
     body.innerHTML = `<div class="notice notice-error">${esc(p.problem)}</div>
       ${p.clientId ? `<p style="margin-top:.8rem;"><a class="btn btn-primary btn-sm"
@@ -1492,8 +1503,10 @@ async function statement() {
   }
 
   body.innerHTML = `
-    ${p.alreadySent ? `<div class="notice notice-info">Already sent ${esc(timeAgo(p.alreadySent))}${
-      p.sentCount > 1 ? `, ${p.sentCount} times in all` : ''}.</div>` : ''}
+    ${p.alreadySent ? `<div class="notice notice-${changed ? 'warn' : 'info'}">Already sent ${
+      esc(timeAgo(p.alreadySent))}${p.sentCount > 1 ? `, ${p.sentCount} times in all` : ''}.${
+      changed ? ' The reservation has changed since, so the copy they are holding is out of date.'
+        : ' Nothing has changed since, so this is the same document again.'}</div>` : ''}
     <dl class="pairs" style="margin-bottom:1rem;">
       <dt>To</dt><dd>${esc(s.clientName)} &lt;${esc(p.to)}&gt;</dd>
       <dt>Replies to</dt><dd>${esc(s.advisorEmail)}</dd>

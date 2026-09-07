@@ -1095,6 +1095,67 @@ async function main() {
       'and only an owner can set a pass running', `status ${notAdmin.status}`);
   }
 
+  // ------------------------------------- the invoice going out of date ------
+  step('Knowing the invoice the client holds is stale');
+  {
+    const inv = await call(advisor, 'POST', `/api/bookings/${bookingId}/statement`,
+      { preview: true });
+    check(inv.status === 200 && inv.data?.fingerprint,
+      'a statement has a fingerprint of what it would say', `${inv.data?.fingerprint}`);
+    check(inv.data?.changedSince === false,
+      'nothing has changed while nothing has been sent', `${inv.data?.changedSince}`);
+
+    // The send needs a working mail key, which a local run does not have, so
+    // the fingerprint is written the way a send would write it. What is being
+    // checked is the comparison, not the emailing.
+    const sent = inv.data.fingerprint;
+    const record = () => call(advisor, 'GET', `/api/bookings/${bookingId}/record`);
+
+    // The commission, which is the single thing that most must not reach a
+    // client, changed through the narrow endpoint so nothing else moves with
+    // it. An earlier version of this rebuilt the whole reservation by hand and
+    // blanked the money it forgot to mention, which moved the fingerprint for
+    // reasons that had nothing to do with the note it was testing.
+    const wasCommission = (await record()).data?.booking?.commission_cents || 0;
+    await call(advisor, 'PUT', `/api/bookings/${bookingId}/quick`, { commission: '1234' });
+    const afterNote = await call(advisor, 'POST', `/api/bookings/${bookingId}/statement`,
+      { preview: true });
+    check(afterNote.data?.fingerprint === sent,
+      'changing the commission does not change what the client would be told',
+      `${afterNote.data?.fingerprint}`);
+    // Put back at once. Later checks add up this reservation's money, and a
+    // test that leaves the figures it borrowed lying around breaks the one
+    // after it for reasons that look nothing like the cause.
+    await call(advisor, 'PUT', `/api/bookings/${bookingId}/quick`,
+      { commission: String(wasCommission / 100) });
+
+    // Something the client does see.
+    const extra = await call(advisor, 'POST', '/api/payments', {
+      bookingId, kind: 'installment', amount: '250',
+      dueDate: isoDay(20), paidDate: isoDay(0), paymentClass: 'hard',
+    });
+    const afterPayment = await call(advisor, 'POST', `/api/bookings/${bookingId}/statement`,
+      { preview: true });
+    check(afterPayment.data?.fingerprint !== sent,
+      'posting a payment does', `${afterPayment.data?.fingerprint}`);
+
+    // Taken away here rather than at the end. A later check adds this
+    // reservation's money up against its total, and a borrowed payment left
+    // sitting there until cleanup fails that check instead of this one.
+    if (extra.data?.payment?.id) {
+      await call(advisor, 'DELETE', `/api/payments/${extra.data.payment.id}`);
+    }
+    const restored = await call(advisor, 'POST', `/api/bookings/${bookingId}/statement`,
+      { preview: true });
+    check(restored.data?.fingerprint === sent,
+      'and taking it away again puts the fingerprint back', `${restored.data?.fingerprint}`);
+
+    // And the reservation says so without anybody opening the preview.
+    const before = await record();
+    check(before.data?.statementStale === false,
+      'a reservation nothing was sent for is not stale', `${before.data?.statementStale}`);
+  }
+
   // ---------------------------------------------------- client credits ------
   step('Credits a client holds with a vendor');
 

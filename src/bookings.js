@@ -12,6 +12,7 @@ import * as ghl from './ghl.js';
 import { fireTrigger } from './automations.js';
 import { applyTemplates } from './tasktemplates.js';
 import { PRODUCT_TYPES } from './producttypes.js';
+import { buildStatement, statementFingerprint } from './statement.js';
 import { resolveVendor } from './vendors.js';
 import { listTravellers, listAmenities, passportProblem } from './travellers.js';
 import { PAYMENT_TYPES, releaseCredit } from './payments.js';
@@ -228,6 +229,13 @@ export async function handleBookingRecord(request, env, id) {
     listComponents(env, id, scope),
   ]);
 
+  // Looked up the way the statement looks it up. The client's name reaches the
+  // document, so a fingerprint taken without them would never match one taken
+  // with them, and the invoice would read as stale from the moment it was sent.
+  const statementClient = booking.client_id
+    ? await db.getClient(env, scope, { id: booking.client_id })
+    : await db.getClient(env, scope, { name: booking.client_name });
+
   // The vendor's own rate, so an expected commission can be worked out and
   // compared with what actually arrived.
   const vendor = booking.vendor_id
@@ -266,6 +274,18 @@ export async function handleBookingRecord(request, env, id) {
     // request of its own: a note nobody sees is the read-only page quietly
     // breaking the promise that telling you is enough.
     messages: await tripMessages(env, booking.id, booking.user_id),
+    // Whether the invoice or quote the client is holding still matches this
+    // reservation. Answered here so the page can say "changed since you sent
+    // it" without the advisor having to open the preview and compare by eye.
+    statementStale: await statementStale(env, booking, {
+      // The same inputs the statement itself is built from, under the names
+      // this handler happens to use for them. `people` rather than the
+      // enriched travellers above: the statement reads only names, and
+      // fingerprinting a passport warning would make the client's copy look
+      // stale because a passport moved closer to expiring.
+      pricing: priceLines, travellers: people || [], amenities: extras || [],
+      payments: payments.results || [], options, client: statementClient, user,
+    }),
     // The lists the edit form needs, so the page and the validator can never
     // disagree about what a status or a product type may be. The reservations
     // list hardcoded its own copies and drifted from these twice.
@@ -319,6 +339,23 @@ export async function handleBookingRecord(request, env, id) {
     editable: booking.user_id === user.id,
     today: new Date().toISOString().slice(0, 10),
   });
+}
+
+/**
+ * Has the reservation moved since the client's copy was sent?
+ *
+ * False when nothing has been sent: there is no copy to be out of date. Wrapped
+ * because a fingerprint that throws must not cost the whole page.
+ */
+async function statementStale(env, booking, parts) {
+  if (!booking.statement_hash) return false;
+  try {
+    const built = buildStatement({ booking, ...parts });
+    return booking.statement_hash !== (await statementFingerprint(built));
+  } catch (e) {
+    console.error('statement stale', e);
+    return false;
+  }
 }
 
 /** Notes the client left on their trip page, newest first. */

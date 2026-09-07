@@ -150,6 +150,7 @@ textarea { min-height: 90px; resize: vertical; }
 .notice-error { background: var(--red-50); color: var(--red-600); }
 .notice-ok { background: var(--green-50); color: var(--green-600); }
 .notice-info { background: var(--navy-50); color: var(--navy-700); }
+.notice-warn { background: var(--amber-50); color: var(--amber-600); }
 .notice-setup {
   background: var(--navy-50); border: 1px dashed var(--navy-300);
   color: var(--ink-700); padding: 1.5rem;
