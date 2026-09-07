@@ -27,10 +27,17 @@ const id = crypto.randomUUID();
 // Single-quotes doubled, the SQLite escape, in case a name ever carries one.
 const q = (v) => `'${String(v).replace(/'/g, "''")}'`;
 
+// The agency and the portal flag are set here rather than left to migration
+// 0050. That migration backfills every user who exists when it runs, and this
+// row is written after it: on a database built from the migrations and seeded
+// afterwards, which is exactly what CI does, the admin came out with no agency
+// and no platform flag. An owner with no agency now sees only themselves,
+// which is the right way for that to fail and the wrong way to start a test
+// run.
 process.stdout.write(
   `INSERT OR REPLACE INTO users
      (id, email, password_hash, first_name, last_name, agency_name,
-      role, status, created_at, updated_at)
+      role, status, agency_id, platform_owner, created_at, updated_at)
    VALUES (${q(id)}, ${q(email)}, ${q(hash)}, 'Local', 'Admin', 'Trip Vara',
-           'admin', 'active', ${ts}, ${ts});\n`
+           'admin', 'active', 'agency-house', 1, ${ts}, ${ts});\n`
 );
