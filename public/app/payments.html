@@ -100,7 +100,7 @@
 <script type="module">
 import { api, mountShell, esc, money, dateFmt, daysUntil, showError, onSubmit,
          mountScopePicker, advisorParam } from '/js/app.js';
-await mountShell();
+const ME = (await mountShell()).id;
 
 const panel = document.getElementById('panel');
 const balancesEl = document.getElementById('balances');
@@ -181,6 +181,7 @@ function render(d) {
         <th>Status</th><th class="num">Amount</th><th></th></tr></thead>
       <tbody>${d.payments.map((p) => {
         const st = statusOf(p, d.today);
+        const mine = p.user_id === ME;
         return `<tr>
           <td><span class="name">${esc(p.client_name)}</span>
             <div class="muted">${esc(p.depart_date ? 'Departs ' + dateFmt(p.depart_date) : '')}</div></td>
@@ -195,11 +196,16 @@ function render(d) {
                 ? 'Posted ' + dateFmt(p.paid_date) + (howPaid(p) ? ' · ' + howPaid(p) : '')
                 : p.due_date ? dateFmt(p.due_date) : '')}</div></td>
           <td class="num">${money(p.amount_cents)}</td>
-          <td class="num" style="white-space:nowrap;">
-            ${!p.paid_date ? `<button class="btn btn-primary btn-sm" data-paid="${esc(p.id)}">Mark posted</button>` : ''}
-            ${st.atRisk ? `<button class="btn btn-danger btn-sm" data-cancel="${esc(p.booking_id)}"
-               data-name="${esc(p.client_name)}">Reservation cancelled</button>` : ''}
-            <button class="btn btn-ghost btn-sm" data-edit="${esc(p.id)}">Edit</button></td>
+          <td class="num" style="white-space:nowrap;">${mine
+            // An owner reads the agency's payments and writes only their own,
+            // so every button here was refused on somebody else's row. Offered
+            // where it works and named where it does not, which is the same
+            // rule the reservation and the to do list follow.
+            ? `${!p.paid_date ? `<button class="btn btn-primary btn-sm" data-paid="${esc(p.id)}">Mark posted</button>` : ''}
+               ${st.atRisk ? `<button class="btn btn-danger btn-sm" data-cancel="${esc(p.booking_id)}"
+                  data-name="${esc(p.client_name)}">Reservation cancelled</button>` : ''}
+               <button class="btn btn-ghost btn-sm" data-edit="${esc(p.id)}">Edit</button>`
+            : '<span class="muted">view only</span>'}</td>
         </tr>`;
       }).join('')}</tbody></table></div>`;
 

@@ -1156,6 +1156,31 @@ async function main() {
       'a reservation nothing was sent for is not stale', `${before.data?.statementStale}`);
   }
 
+  // ------------------------------ what an owner may see but may not touch ---
+  step('Reading the agency, writing only your own');
+  {
+    // The payments list reads at the viewing scope and every write on it is
+    // self scoped. The page has to carry enough to tell the two apart, or it
+    // offers buttons the server is right to refuse: that shipped on the vendor
+    // stars, on the to do drawer, and here.
+    const agency = await call(admin, 'GET', '/api/payments');
+    const rows = agency.data?.payments || [];
+    check(rows.length === 0 || rows.every((p) => p.user_id),
+      'every payment row says whose it is', `${rows.length} row(s)`);
+
+    const theirs = rows.find((p) => p.user_id === advisorId);
+    if (theirs) {
+      // The button on the page, which takes almost no body and so answers
+      // about the row rather than about what was sent.
+      const posted = await call(admin, 'POST', `/api/payments/${theirs.id}/paid`, {});
+      check(posted.status === 404,
+        'and an owner cannot post an associate\'s payment as paid',
+        `status ${posted.status}`);
+    } else {
+      check(false, 'the suite made an associate payment for this to be about');
+    }
+  }
+
   // ---------------------------------------------------- client credits ------
   step('Credits a client holds with a vendor');
 

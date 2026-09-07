@@ -285,7 +285,7 @@ function renderSignups(rows) {
       btn.disabled = true;
       btn.textContent = 'Booking...';
       try {
-        const r = await api(`/api/group-registrations/${encodeURIComponent(btn.dataset.book)}/book`,
+        const r = await api(`/api/groups/registrations/${encodeURIComponent(btn.dataset.book)}/book`,
           { method: 'POST' });
         location.href = `/app/reservation?id=${encodeURIComponent(r.bookingId)}`;
       } catch (err) {
