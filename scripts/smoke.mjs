@@ -1646,6 +1646,86 @@ async function main() {
   }
 
 
+
+  // --------------------------------------- the agency's way of working -----
+  // Templates used to be one advisor's, so somebody joining booked their first
+  // cruise and nothing happened. They work from memory and work differently,
+  // which is the difference between an agency and a group of people sharing a
+  // login page. The agency's now, with room for an advisor's own on top.
+  step('The tasks that follow every trip belong to the agency');
+  {
+    const shared = await call(admin, 'POST', '/api/task-templates', {
+      title: `Confirm the group rate ${stamp}`, kind: 'call',
+      anchor: 'depart_date', offsetDays: -30, shared: true,
+    });
+    const sharedId = (shared.data?.templates || []).find(
+      (t) => t.title === `Confirm the group rate ${stamp}`)?.id;
+    check(shared.status === 201 && sharedId,
+      'the agency owner writes a template for everybody', `status ${shared.status}`);
+    if (sharedId) {
+      cleanup('the shared template',
+        () => call(admin, 'DELETE', `/api/task-templates/${sharedId}`));
+    }
+
+    // The whole point: an advisor who wrote nothing has it.
+    const theirs = await call(advisor, 'GET', '/api/task-templates');
+    const seen = (theirs.data?.templates || []).find((t) => t.id === sharedId);
+    check(Boolean(seen) && seen.shared === 1,
+      'and an advisor who wrote nothing has it, marked as the agency\'s');
+    check(theirs.data?.canShare === false,
+      'while an associate is not offered the tick at all');
+
+    // And it actually fires, which is the only thing that matters.
+    const fresh = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Agency Process ${stamp}`, supplier: 'Princess',
+      departDate: isoDay(120), status: 'booked',
+    });
+    const freshId = fresh.data?.booking?.id;
+    if (freshId) cleanup('the agency process reservation',
+      () => call(advisor, 'DELETE', `/api/bookings/${freshId}`));
+    const madeTasks = await call(advisor, 'GET', `/api/tasks?booking=${freshId}`);
+    const fromShared = (madeTasks.data?.tasks || [])
+      .find((t) => t.title === `Confirm the group rate ${stamp}`);
+    check(Boolean(fromShared),
+      'and a new reservation runs the agency\'s process, not an empty list',
+      (madeTasks.data?.tasks || []).map((t) => t.title).join(' / ') || '(none)');
+    check(fromShared?.due_date === isoDay(90),
+      'on the date the template asked for', fromShared?.due_date);
+
+    // An associate must not be able to change how their colleagues work.
+    const edit = await call(advisor, 'PUT', `/api/task-templates/${sharedId}`,
+      { title: 'Rewritten', anchor: 'depart_date', offsetDays: -30 });
+    check(edit.status === 400, 'an associate cannot rewrite the agency\'s template',
+      `status ${edit.status}`);
+    const drop = await call(advisor, 'DELETE', `/api/task-templates/${sharedId}`);
+    check(drop.status === 400, 'nor remove it', `status ${drop.status}`);
+    const askShare = await call(advisor, 'POST', '/api/task-templates', {
+      title: `Sneaky ${stamp}`, anchor: 'depart_date', offsetDays: -1, shared: true,
+    });
+    check(askShare.status === 400,
+      'nor write one for everybody by asking nicely', `status ${askShare.status}`);
+
+    // Their own stay their own, in both directions.
+    const mine = await call(advisor, 'POST', '/api/task-templates', {
+      title: `My own habit ${stamp}`, anchor: 'depart_date', offsetDays: -2,
+    });
+    const mineId = (mine.data?.templates || []).find(
+      (t) => t.title === `My own habit ${stamp}`)?.id;
+    check(mine.status === 201 && mineId, 'an advisor can still keep a template of their own');
+    if (mineId) {
+      cleanup('the personal template',
+        () => call(advisor, 'DELETE', `/api/task-templates/${mineId}`));
+    }
+    const ownerSees = await call(admin, 'GET', '/api/task-templates');
+    check(!(ownerSees.data?.templates || []).some((t) => t.id === mineId),
+      'and it is not pushed onto anybody else, the owner included');
+
+    const stillShared = await call(admin, 'GET', '/api/task-templates');
+    check((stillShared.data?.templates || []).find((t) => t.id === sharedId)?.title
+      === `Confirm the group rate ${stamp}`,
+      'and the agency template survived being reached for');
+  }
+
   // ------------------------------------------- one directory per agency -----
   // The supplier directory used to belong to whoever typed it in, so a new
   // joiner opened an empty screen while the rates and the desk contacts sat on

@@ -169,6 +169,13 @@
           Make this task on new reservations
         </label>
         <p class="field-hint">Turn it off to keep the template without it firing.</p></div>
+      <div class="field" id="tpl-shared-field" hidden>
+        <label style="display:flex;align-items:center;gap:.5rem;font-weight:400;">
+          <input type="checkbox" id="tpl-shared" name="shared">
+          Everybody at the agency gets this one
+        </label>
+        <p class="field-hint">Off keeps it to your own reservations. On makes it part of
+          how the agency works, including for advisors who join later.</p></div>
       <div class="field"><label for="tpl-notes">Notes on the task</label>
         <textarea id="tpl-notes" name="notes" maxlength="2000"></textarea></div>
       <p class="field-hint" id="tpl-preview"></p>
@@ -300,12 +307,16 @@ function drawTemplates(list) {
   tplList.innerHTML = `<ul class="rows" style="border:1px solid var(--navy-100);border-radius:10px;">
     ${list.map((t) => `<li><div class="row-between">
       <div><div class="t">${esc(t.title)}
+        ${t.shared ? '<span class="badge badge-green">agency</span>'
+      : '<span class="badge badge-navy">yours</span>'}
         ${t.active ? '' : '<span class="badge badge-navy">off</span>'}</div>
         <div class="m">${esc(offsetWords(t.offset_days, t.anchor))}${
           t.product_type ? ` &middot; ${esc(t.product_type)} only` : ''}${
           KIND_WORD[t.kind] ? ` &middot; ${esc(KIND_WORD[t.kind])}` : ''}${
           t.priority === 'high' ? ' &middot; high' : ''}</div></div>
-      <button type="button" class="btn btn-ghost btn-sm" data-tpl="${esc(t.id)}">Edit</button>
+      ${t.shared && !tplCanShare
+      ? '<span class="muted" style="font-size:.8rem;">set by the agency</span>'
+      : `<button type="button" class="btn btn-ghost btn-sm" data-tpl="${esc(t.id)}">Edit</button>`}
     </div></li>`).join('')}</ul>`;
 
   tplList.querySelectorAll('[data-tpl]').forEach((b) =>
@@ -341,15 +352,23 @@ function openTemplate(t) {
     tplForm.elements.productType.value = t.product_type || '';
     tplForm.elements.notes.value = t.notes || '';
     tplForm.elements.active.checked = Boolean(t.active);
+    tplForm.elements.shared.checked = Boolean(t.shared);
   }
   tplPreview();
   tplDlg.showModal();
 }
 
+// Whether this reader may write a template for everybody. Only the agency
+// owner can, so for anybody else the tick is not shown at all rather than
+// shown and refused.
+let tplCanShare = false;
+
 async function loadTemplates() {
   try {
     const d = await api('/api/task-templates');
     anchors = d.anchors || [];
+    tplCanShare = Boolean(d.canShare);
+    document.getElementById('tpl-shared-field').hidden = !tplCanShare;
     tplForm.elements.anchor.innerHTML = anchors
       .map((a) => `<option value="${esc(a.key)}">${esc(a.label)}</option>`).join('');
     tplForm.elements.productType.innerHTML = '<option value="">Every kind of trip</option>'
@@ -384,6 +403,7 @@ tplDelete.addEventListener('click', async () => {
 onSubmit(tplForm, async (values) => {
   // A checkbox is "on" or missing through a form, and the API wants a boolean.
   values.active = tplForm.elements.active.checked;
+  values.shared = tplCanShare && tplForm.elements.shared.checked;
   const path = tplEditing ? `/api/task-templates/${encodeURIComponent(tplEditing)}`
     : '/api/task-templates';
   const d = await api(path, { method: tplEditing ? 'PUT' : 'POST', body: values });

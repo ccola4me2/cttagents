@@ -60,6 +60,17 @@ const EXEMPT = new Map([
 // claim that somebody checked, which is the point of writing it down instead
 // of widening the rule until nothing fails.
 const ALLOWED = [
+  // A task template is either the agency's or the advisor's, and everybody
+  // gets both. The two writes below reach a shared row, which by definition
+  // belongs to somebody else: that is what shared means. The predicate in the
+  // SQL is the outer bound, matching the read exactly so a statement can never
+  // touch a row the caller could not see; mayWrite() in front of it is the
+  // precise rule, and it lets only the agency owner change a shared one.
+  ['UPDATE task_templates SET title = ?, kind = ?',
+    'the agency\'s shared templates, which only its owner reaches: mayWrite gates '
+    + 'the role, and this predicate stops the statement leaving the agency'],
+  ['DELETE FROM task_templates\n      WHERE id = ? AND (user_id = ? OR (shared = 1 AND ${reach.sql}))',
+    'the same, removing one'],
   // The supplier directory is the agency's, not the advisor's, so every write
   // to it widens on purpose. Listed one at a time rather than exempting the
   // table, because "vendors are shared" is a claim about the directory and not

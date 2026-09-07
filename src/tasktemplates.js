@@ -34,7 +34,7 @@ const ANCHOR_KEYS = ANCHORS.map((a) => a.key);
 const PRIORITIES = ['normal', 'high', 'low'];
 
 const COLUMNS = `id, user_id, title, kind, priority, notes, anchor, offset_days,
-                 product_type, active, position, created_at, updated_at`;
+                 product_type, active, position, shared, created_at, updated_at`;
 
 function parse(body) {
   const title = clean(body.title, 200);
@@ -56,26 +56,62 @@ function parse(body) {
       productType: PRODUCT_TYPES.includes(clean(body.productType, 40))
         ? clean(body.productType, 40) : null,
       active: body.active === false ? 0 : 1,
+      shared: body.shared === true || body.shared === 1 ? 1 : 0,
     },
   };
 }
 
-export async function listTemplates(env, userId) {
+/**
+ * Everything that fires for this advisor: the agency's, and their own.
+ *
+ * Shared first, because that is the order they read in. The agency's process
+ * is the spine and an advisor's own habits hang off it, and a list that
+ * interleaved the two by creation date would make it impossible to see at a
+ * glance which is which.
+ */
+export async function listTemplates(env, user) {
+  const scope = db.scopeWhere(db.agencyScope(user), 'user_id');
   const { results } = await env.DB.prepare(
-    `SELECT ${COLUMNS} FROM task_templates WHERE user_id = ?
-      ORDER BY position ASC, created_at ASC`
-  ).bind(userId).all();
+    `SELECT ${COLUMNS} FROM task_templates
+      WHERE user_id = ? OR (shared = 1 AND ${scope.sql})
+      ORDER BY shared DESC, position ASC, created_at ASC`
+  ).bind(user.id, ...scope.binds).all();
   return results || [];
+}
+
+/**
+ * Whether this person may write this template.
+ *
+ * Their own, always. The agency's, only if they own the agency: a shared
+ * template fires on everybody's reservations, so an associate editing one is
+ * changing how their colleagues work without anybody agreeing to it.
+ */
+function mayWrite(user, row) {
+  if (!row) return false;
+  if (row.shared) return user.role === 'admin' && Boolean(user.agency_id);
+  return row.user_id === user.id;
+}
+
+async function getTemplate(env, user, id) {
+  const scope = db.scopeWhere(db.agencyScope(user), 'user_id');
+  return env.DB.prepare(
+    `SELECT ${COLUMNS} FROM task_templates
+      WHERE id = ? AND (user_id = ? OR (shared = 1 AND ${scope.sql}))`
+  ).bind(id, user.id, ...scope.binds).first();
 }
 
 export async function handleListTemplates(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
   return json({
-    templates: await listTemplates(env, user.id),
+    templates: await listTemplates(env, user),
     anchors: ANCHORS,
     kinds: KINDS,
     productTypes: PRODUCT_TYPES,
+    // So the page can say whose a template is, and offer the shared tick only
+    // to somebody allowed to use it.
+    canShare: user.role === 'admin' && Boolean(user.agency_id),
+    me: user.id,
   });
 }
 
@@ -85,17 +121,37 @@ export async function handleSaveTemplate(request, env, id = null) {
 
   const { fields, error } = parse(await readJson(request));
   if (error) return badRequest(error);
+  const canShare = user.role === 'admin' && Boolean(user.agency_id);
+  // Asking to share without being allowed to is refused rather than quietly
+  // filed as personal: a template somebody believes their colleagues are
+  // getting, and who are not, is worse than being told no.
+  if (fields.shared && !canShare) {
+    return badRequest('Only the agency owner can write a template for everybody.');
+  }
   const ts = now();
 
   if (id) {
+    const before = await getTemplate(env, user, id);
+    if (!before) return notFound('Template not found.');
+    if (!mayWrite(user, before)) {
+      return badRequest(before.shared
+        ? 'That is one of the agency\'s templates. Only the owner can change it.'
+        : 'That template is not yours.');
+    }
+    // The same predicate the read used, carried into the write. mayWrite above
+    // is the precise rule and this is the outer bound: the statement cannot
+    // touch a row the caller could not see, whatever a later edit does to the
+    // check in front of it.
+    const reach = db.scopeWhere(db.agencyScope(user), 'user_id');
     const res = await env.DB.prepare(
       `UPDATE task_templates SET title = ?, kind = ?, priority = ?, notes = ?, anchor = ?,
-         offset_days = ?, product_type = ?, active = ?, updated_at = ?
-       WHERE id = ? AND user_id = ?`
+         offset_days = ?, product_type = ?, active = ?, shared = ?, updated_at = ?
+       WHERE id = ? AND (user_id = ? OR (shared = 1 AND ${reach.sql}))`
     ).bind(fields.title, fields.kind, fields.priority, fields.notes || null, fields.anchor,
-           fields.offsetDays, fields.productType, fields.active, ts, id, user.id).run();
+           fields.offsetDays, fields.productType, fields.active,
+           canShare ? fields.shared : before.shared, ts, id, user.id, ...reach.binds).run();
     if (!res.meta || res.meta.changes === 0) return notFound('Template not found.');
-    return json({ ok: true, templates: await listTemplates(env, user.id) });
+    return json({ ok: true, templates: await listTemplates(env, user) });
   }
 
   const count = await env.DB.prepare(
@@ -108,22 +164,34 @@ export async function handleSaveTemplate(request, env, id = null) {
   await env.DB.prepare(
     `INSERT INTO task_templates
        (id, user_id, title, kind, priority, notes, anchor, offset_days,
-        product_type, active, position, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        product_type, active, position, shared, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(uid(), user.id, fields.title, fields.kind, fields.priority, fields.notes || null,
          fields.anchor, fields.offsetDays, fields.productType, fields.active,
-         count?.n || 0, ts, ts).run();
+         count?.n || 0, fields.shared, ts, ts).run();
 
-  return json({ ok: true, templates: await listTemplates(env, user.id) }, 201);
+  return json({ ok: true, templates: await listTemplates(env, user) }, 201);
 }
 
 export async function handleDeleteTemplate(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  const res = await env.DB.prepare('DELETE FROM task_templates WHERE id = ? AND user_id = ?')
-    .bind(id, user.id).run();
+
+  const before = await getTemplate(env, user, id);
+  if (!before) return notFound('Template not found.');
+  if (!mayWrite(user, before)) {
+    return badRequest(before.shared
+      ? 'That is one of the agency\'s templates. Only the owner can remove it.'
+      : 'That template is not yours.');
+  }
+
+  const reach = db.scopeWhere(db.agencyScope(user), 'user_id');
+  const res = await env.DB.prepare(
+    `DELETE FROM task_templates
+      WHERE id = ? AND (user_id = ? OR (shared = 1 AND ${reach.sql}))`
+  ).bind(id, user.id, ...reach.binds).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Template not found.');
-  return json({ ok: true, templates: await listTemplates(env, user.id) });
+  return json({ ok: true, templates: await listTemplates(env, user) });
 }
 
 function shift(iso, days) {
@@ -145,12 +213,15 @@ function shift(iso, days) {
  * payment" task, which is right: a task due on a date nobody knows is a task
  * that sits undated for ever.
  */
-export async function applyTemplates(env, userId, booking) {
+export async function applyTemplates(env, user, booking) {
   if (!booking || !booking.id) return { made: 0 };
+  const userId = user.id;
 
   let templates;
   try {
-    templates = await listTemplates(env, userId);
+    // The agency's and their own, which is the whole change: an advisor's
+    // first booking now runs the agency's process rather than nothing.
+    templates = await listTemplates(env, user);
   } catch (e) {
     console.error('task templates', e);
     return { made: 0 };
@@ -213,19 +284,24 @@ export async function handleSeedTemplates(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const existing = await listTemplates(env, user.id);
+  const existing = await listTemplates(env, user);
   if (existing.length) {
     return badRequest('You already have templates. Add or edit them instead.');
   }
+
+  // An owner seeding the usual four is setting the agency's process, so they
+  // go in shared. An associate doing it is setting their own, which is the
+  // only thing they are allowed to set.
+  const shared = user.role === 'admin' && Boolean(user.agency_id) ? 1 : 0;
 
   const ts = now();
   await env.DB.batch(STARTER_TEMPLATES.map((t, i) => env.DB.prepare(
     `INSERT INTO task_templates
        (id, user_id, title, kind, priority, notes, anchor, offset_days,
-        product_type, active, position, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        product_type, active, position, shared, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(uid(), user.id, t.title, t.kind, t.priority || 'normal', null,
-         t.anchor, t.offsetDays, null, 1, i, ts, ts)));
+         t.anchor, t.offsetDays, null, 1, i, shared, ts, ts)));
 
-  return json({ ok: true, templates: await listTemplates(env, user.id) }, 201);
+  return json({ ok: true, templates: await listTemplates(env, user) }, 201);
 }

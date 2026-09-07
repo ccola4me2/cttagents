@@ -405,7 +405,7 @@ export async function handleCreateBooking(request, env) {
   // The standard tasks that follow this kind of trip. Best effort: a template
   // that cannot work out its date is skipped, and a failure here does not cost
   // the reservation, which would be entirely the wrong way round.
-  const tasks = await applyTemplates(env, user.id, booking);
+  const tasks = await applyTemplates(env, user, booking);
 
   return json({ ok: true, booking, tasksMade: tasks.made }, 201);
 }
