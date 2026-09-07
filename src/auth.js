@@ -12,6 +12,7 @@ import {
   isValidEmail, normalizeEmail, clean, readJson,
 } from './util.js';
 import * as db from './db.js';
+import { getAgencyBySlug, houseAgency } from './brand.js';
 import { sendAdvisorPendingEmail, sendAdminNewSignupEmail, sendPasswordResetEmail } from './email.js';
 
 export const SESSION_COOKIE = 'tv_session';
@@ -55,6 +56,9 @@ function publicUser(u) {
     autoRemindClients: Boolean(u.auto_remind_clients),
     // Whether Monday brings them the list of people nothing else is chasing.
     weeklyCallList: u.weekly_call_list === undefined ? true : Boolean(u.weekly_call_list),
+    // Which agency they are in, and whether they run the portal itself.
+    agencyId: u.agency_id || null,
+    platformOwner: Boolean(u.platform_owner),
     // Written when an admin approves the account and read by nobody until
     // now, which made it a fact the database kept to itself.
     approvedAt: u.approved_at,
@@ -110,10 +114,22 @@ export async function handleSignup(request, env) {
   const lastName = clean(body.lastName, 80);
   const phone = clean(body.phone, 40);
   const agencyName = clean(body.agencyName, 120);
+  // Which agency they are joining, from the link they followed. No slug means
+  // the portal's own, which is what /signup has always meant.
+  const joining = clean(body.agency, 64);
 
   if (!isValidEmail(email)) return badRequest('Enter a valid email address.');
   if (password.length < 10) return badRequest('Password must be at least 10 characters.');
   if (!firstName || !lastName) return badRequest('First and last name are required.');
+
+  const agency = joining
+    ? await getAgencyBySlug(env, joining)
+    : await houseAgency(env);
+  // A closed door is a closed door. Said plainly rather than filed as pending,
+  // because an advisor who signs up and hears nothing assumes it worked.
+  if (joining && (!agency || !agency.join_open)) {
+    return badRequest('That agency is not taking signups at the moment.');
+  }
 
   if (await db.emailExists(env, email)) {
     // Do not confirm or deny that an address is registered.
@@ -121,6 +137,10 @@ export async function handleSignup(request, env) {
   }
 
   const user = await db.createUser(env, {
+    agencyId: agency ? agency.id : null,
+    // Their agency's CRM sub-account, so a new advisor is pointed at the right
+    // one without anybody having to remember to set it.
+    ghlLocationId: agency ? agency.ghl_location_id : null,
     email,
     passwordHash: await hashPassword(password),
     firstName,

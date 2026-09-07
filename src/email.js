@@ -10,6 +10,8 @@
 
 import { PermanentError } from './util.js';
 
+import { DEFAULT_BRAND, HEX_COLOR } from './brand.js';
+
 const BRAND_NAVY = '#1b3a5f';
 const BRAND_CORAL = '#f1705b';
 
@@ -29,8 +31,21 @@ function appUrl(env) {
  * account there and being sent to a login screen by their travel agent is a
  * small betrayal of who the message is from.
  */
-export function layout(env, { heading, body, cta, footer }) {
+/**
+ * The frame every message goes in.
+ *
+ * `brand` is optional and defaults to the portal's own, because most of these
+ * are sent to advisors about the portal. The ones a client reads pass the
+ * agency's, so a payment reminder from a white-labelled agency carries their
+ * name and their colour rather than Trip Vara's.
+ */
+export function layout(env, { heading, body, cta, footer, brand }) {
   const url = appUrl(env);
+  const b = brand || DEFAULT_BRAND;
+  const head = HEX_COLOR.test(b.color || '') ? b.color : BRAND_NAVY;
+  // The wordmark is letter-spaced, which reads as a logo on a short name and
+  // as a ransom note on a long one.
+  const spacing = String(b.name).length > 18 ? '.06em' : '.22em';
   const button = cta
     ? `<tr><td style="padding:8px 0 24px;">
          <a href="${escapeHtml(cta.href)}"
@@ -47,9 +62,13 @@ export function layout(env, { heading, body, cta, footer }) {
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
            style="max-width:560px;background:#ffffff;border:1px solid #e4edf5;border-radius:14px;
                   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
-      <tr><td style="background:${BRAND_NAVY};border-radius:14px 14px 0 0;padding:22px 32px;">
-        <span style="color:#fff;font-size:17px;font-weight:600;letter-spacing:.22em;">TRIPVARA</span><br>
-        <span style="color:${BRAND_CORAL};font-size:11px;letter-spacing:.06em;">From first inquiry to welcome home.</span>
+      <tr><td style="background:${head};border-radius:14px 14px 0 0;padding:22px 32px;">
+        ${b.logoUrl ? `<img src="${escapeHtml(b.logoUrl)}" alt="${escapeHtml(b.name)}"
+             height="30" style="display:block;max-height:30px;margin-bottom:8px;border:0;"><br>` : ''}
+        <span style="color:#fff;font-size:17px;font-weight:600;letter-spacing:${spacing};">${
+  escapeHtml(String(b.name).toUpperCase())}</span><br>
+        <span style="color:#ffffffcc;font-size:11px;letter-spacing:.06em;">${
+  escapeHtml(b.tagline || '')}</span>
       </td></tr>
       <tr><td style="padding:32px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -61,7 +80,7 @@ export function layout(env, { heading, body, cta, footer }) {
         </table>
       </td></tr>
       <tr><td style="border-top:1px solid #e4edf5;padding:18px 32px;font-size:12px;color:#5c7286;">
-        ${footer || `Trip Vara advisor portal &middot; <a href="${url}" style="color:${BRAND_NAVY};">${
+        ${footer || `${escapeHtml(b.name)} &middot; <a href="${url}" style="color:${head};">${
           escapeHtml(url.replace(/^https?:\/\//, ''))}</a>`}
       </td></tr>
     </table>

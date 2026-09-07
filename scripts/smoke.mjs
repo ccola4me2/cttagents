@@ -1333,6 +1333,140 @@ async function main() {
 
 
 
+
+  // ------------------------------------------------- two agencies at once --
+  // The point of the whole exercise. Until now the data was fenced by
+  // sub-account and the people were not fenced at all: an owner saw every
+  // advisor on the portal and could suspend or re-split any of them. Two
+  // agencies is the only way to find out whether that is still true.
+  step('A second agency, and the fence between them');
+  {
+    const made = await call(admin, 'POST', '/api/agencies', {
+      name: `Rival Travel ${stamp}`, tagline: 'Somewhere else entirely',
+      brandColor: '#7a2f5f', joinOpen: true,
+    });
+    const rivalId = made.data?.agency?.id;
+    const rivalSlug = made.data?.agency?.slug;
+    check(made.status === 201 && rivalId && rivalSlug,
+      'the portal owner opens a second agency', `status ${made.status}`);
+    check(/^rival-travel/.test(rivalSlug || ''),
+      'with a join link named after it', rivalSlug);
+
+    // Colour is interpolated into a style attribute on pages strangers read.
+    const badColour = await call(admin, 'POST', '/api/agencies',
+      { name: `Bad ${stamp}`, brandColor: 'red; } body { display:none' });
+    check(badColour.status === 400, 'and a brand colour that is not a colour is refused',
+      `status ${badColour.status}`);
+    const badLogo = await call(admin, 'POST', '/api/agencies',
+      { name: `Bad2 ${stamp}`, logoUrl: 'http://insecure.test/logo.png' });
+    check(badLogo.status === 400, 'as is a logo served over http', `status ${badLogo.status}`);
+
+    // Somebody joins the new agency through its own link.
+    const joinInfo = await call(null, 'GET', `/api/join/${rivalSlug}`);
+    check(joinInfo.status === 200 && joinInfo.data?.brand?.name === `Rival Travel ${stamp}`,
+      'the join link tells a stranger whose it is', JSON.stringify(joinInfo.data?.agency));
+    check(joinInfo.raw && !joinInfo.raw.includes('ghl_location_id')
+      && !joinInfo.raw.includes('address'),
+      'and nothing else about the agency');
+
+    const rivalEmail = `rival-${stamp}@test.dev`;
+    const joined = await call(null, 'POST', '/api/auth/signup', {
+      email: rivalEmail, password: 'rival-test-12345',
+      firstName: 'Rival', lastName: 'Owner', agency: rivalSlug,
+    });
+    check(joined.status === 200 && joined.data?.status === 'pending',
+      'and an advisor can sign up through it');
+
+    // Approve them and make them the owner of that agency.
+    const all = await call(admin, 'GET', '/api/admin/advisors');
+    const rivalUser = (all.data?.users || []).find((u) => u.email === rivalEmail);
+    check(Boolean(rivalUser), 'the portal owner sees advisors from every agency');
+    check(all.data?.platformOwner === true, 'and knows they run the portal');
+
+    await call(admin, 'PUT', `/api/admin/advisors/${rivalUser.id}/status`, { status: 'active' });
+    // The owner of their agency, and not of the portal. This is the account
+    // the fence is actually about: an associate is stopped by requireAdmin
+    // long before any of it, so testing with one would prove nothing.
+    const promoted = await call(admin, 'PUT', `/api/admin/advisors/${rivalUser.id}/agency`,
+      { agencyId: rivalId, platformOwner: false, role: 'admin' });
+    check(promoted.status === 200 && promoted.data?.user?.role === 'admin',
+      'and can be made the owner of that agency', JSON.stringify(promoted.data?.user?.role));
+
+    const rival = jar();
+    const rivalIn = await call(rival, 'POST', '/api/auth/login',
+      { email: rivalEmail, password: 'rival-test-12345' });
+    check(rivalIn.status === 200, 'the new advisor signs in', `status ${rivalIn.status}`);
+    const rivalMe = await call(rival, 'GET', '/api/auth/me');
+    check(rivalMe.data?.user?.agencyId === rivalId,
+      'into the agency whose link they followed, not whichever came first',
+      rivalMe.data?.user?.agencyId);
+    check(rivalMe.data?.user?.platformOwner === false,
+      'and without the keys to the portal');
+
+    // The fence, from the other side. Everything below is what used to leak.
+    const theirList = await call(rival, 'GET', '/api/admin/advisors');
+    const names = (theirList.data?.users || []).map((u) => u.email);
+    check(theirList.status === 200 && !names.includes(ADVISOR_EMAIL)
+      && !names.includes(ADMIN_EMAIL),
+      'an agency owner reads their own advisor list and nobody else\'s',
+      names.join(', ') || '(empty)');
+    check(theirList.data?.platformOwner === false,
+      'and is not handed the portal\'s own controls');
+
+    const theirAgencies = await call(rival, 'GET', '/api/agencies');
+    check(theirAgencies.status === 200 && (theirAgencies.data?.agencies || []).length === 1
+      && theirAgencies.data.agencies[0].id === rivalId,
+      'and sees their own agency, not the portal\'s client list',
+      (theirAgencies.data?.agencies || []).map((a) => a.name).join(', '));
+
+    const notMine = await call(rival, 'PUT', '/api/agencies/agency-house', { name: 'Hijacked' });
+    check(notMine.status === 403, 'and cannot rebrand somebody else\'s agency',
+      `status ${notMine.status}`);
+
+    const notTheirs = await call(rival, 'POST', '/api/agencies', { name: `Sneaky ${stamp}` });
+    check(notTheirs.status === 403, 'nor open one of their own', `status ${notTheirs.status}`);
+
+    const houseOwner = await call(admin, 'GET', '/api/agencies');
+    check((houseOwner.data?.agencies || []).length >= 2,
+      'the portal owner sees every agency', (houseOwner.data?.agencies || []).length);
+
+    // Reaching for somebody in another agency answers the same as reaching for
+    // somebody who does not exist.
+    const reach = await call(rival, 'PUT', `/api/admin/advisors/${advisorId}/status`,
+      { status: 'suspended' });
+    check(reach.status === 403 || reach.status === 404,
+      'and one agency cannot suspend another agency\'s advisor', `status ${reach.status}`);
+
+    const reachSplit = await call(rival, 'PUT', `/api/admin/advisors/${advisorId}/split`,
+      { defaultSplitPct: 5 });
+    check(reachSplit.status === 403 || reachSplit.status === 404,
+      'nor change their commission split', `status ${reachSplit.status}`);
+
+    const stillThere = await call(admin, 'GET', '/api/admin/advisors');
+    const smokeStill = (stillThere.data?.users || []).find((u) => u.email === ADVISOR_EMAIL);
+    check(smokeStill?.status === 'active',
+      'and the advisor they reached for is untouched', smokeStill?.status);
+
+    // A closed door stops taking names without changing the address.
+    await call(admin, 'PUT', `/api/agencies/${rivalId}`,
+      { name: `Rival Travel ${stamp}`, joinOpen: false });
+    const shut = await call(null, 'GET', `/api/join/${rivalSlug}`);
+    check(shut.status === 404, 'closing the join link shuts it', `status ${shut.status}`);
+    const lateJoin = await call(null, 'POST', '/api/auth/signup', {
+      email: `late-${stamp}@test.dev`, password: 'late-test-12345',
+      firstName: 'Late', lastName: 'Arrival', agency: rivalSlug,
+    });
+    check(lateJoin.status === 400,
+      'and says so rather than filing a signup nobody will ever approve',
+      `status ${lateJoin.status}`);
+
+    // Put the smoke advisor back where the rest of the suite expects them.
+    await call(admin, 'PUT', `/api/admin/advisors/${advisorId}/agency`,
+      { agencyId: 'agency-house', platformOwner: false });
+    cleanup('the rival advisor', () => call(admin, 'PUT',
+      `/api/admin/advisors/${rivalUser.id}/status`, { status: 'suspended' }));
+  }
+
   // -------------------------------------------------- deals and their page --
   step('A special, its public page, and the enquiry it pulls');
   {

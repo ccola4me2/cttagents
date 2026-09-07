@@ -15,21 +15,59 @@ import { mirrorCatalogStep, mirrorStatus } from './catalogmirror.js';
 
 const STATUSES = ['pending', 'active', 'suspended'];
 
+/**
+ * Whether this owner may act on this advisor.
+ *
+ * The three handlers below took a user id and checked only that the caller was
+ * an owner, which with one agency meant "an owner of the only agency there is".
+ * With two it meant one agency could suspend another's staff.
+ */
+async function reachable(env, admin, userId) {
+  const target = await db.getUserById(env, userId);
+  if (!target) return { error: notFound('Advisor not found.') };
+  if (admin.platform_owner) return { target };
+  if (!admin.agency_id || target.agency_id !== admin.agency_id) {
+    // The same answer as a user who does not exist. Telling one agency that an
+    // address belongs to somebody at another is itself the leak.
+    return { error: notFound('Advisor not found.') };
+  }
+  return { target };
+}
+
 export async function handleListAdvisors(request, env) {
-  const { response } = await requireAdmin(request, env);
+  const { user: admin, response } = await requireAdmin(request, env);
   if (response) return response;
 
   const url = new URL(request.url);
   const status = url.searchParams.get('status');
+  // Their own agency, unless they run the portal. Unfiltered, this handed
+  // every owner the name, email and phone of every advisor on the platform.
+  const agencyId = admin.platform_owner ? undefined : (admin.agency_id || '__none__');
   const users = await db.listUsers(env, {
     status: STATUSES.includes(status) ? status : undefined,
+    agencyId,
   });
-  return json({ users: users.map(publicUser), counts: await db.countUsers(env) });
+  return json({
+    users: users.map(publicUser),
+    counts: await db.countUsers(env, { agencyId }),
+    platformOwner: Boolean(admin.platform_owner),
+    agencies: admin.platform_owner ? await agencyNames(env) : [],
+  });
+}
+
+/** Agency names for the platform owner's advisor list, so a row says whose. */
+async function agencyNames(env) {
+  const { results } = await env.DB.prepare(
+    'SELECT id, name FROM agencies ORDER BY name ASC LIMIT 200'
+  ).all().catch(() => ({ results: [] }));
+  return results || [];
 }
 
 export async function handleSetAdvisorStatus(request, env, userId) {
   const { user: admin, response } = await requireAdmin(request, env);
   if (response) return response;
+  const reach = await reachable(env, admin, userId);
+  if (reach.error) return reach.error;
 
   const body = await readJson(request);
   const status = String(body.status || '');
@@ -60,6 +98,8 @@ export async function handleSetAdvisorStatus(request, env, userId) {
 export async function handleSetAdvisorGhl(request, env, userId) {
   const { user: admin, response } = await requireAdmin(request, env);
   if (response) return response;
+  const reach = await reachable(env, admin, userId);
+  if (reach.error) return reach.error;
 
   const body = await readJson(request);
   const updated = await db.setUserGhl(env, userId, {
@@ -83,6 +123,8 @@ export async function handleSetAdvisorGhl(request, env, userId) {
 export async function handleSetAdvisorSplit(request, env, userId) {
   const { user: admin, response } = await requireAdmin(request, env);
   if (response) return response;
+  const reach = await reachable(env, admin, userId);
+  if (reach.error) return reach.error;
 
   const body = await readJson(request);
   const raw = body.defaultSplitPct;

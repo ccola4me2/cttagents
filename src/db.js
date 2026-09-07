@@ -12,7 +12,8 @@ const USER_COLUMNS = `
   id, email, first_name, last_name, phone, agency_name, role, status,
   ghl_location_id, ghl_user_id, created_at, updated_at, last_login_at,
   approved_at, approved_by, default_split_pct, agency_address, seller_of_travel,
-  notify_email, auto_remind_clients, weekly_call_list, call_list_sent_at
+  notify_email, auto_remind_clients, weekly_call_list, call_list_sent_at,
+  agency_id, platform_owner
 `;
 
 // The same columns qualified, for the session lookup that joins sessions to
@@ -50,8 +51,8 @@ export async function createUser(env, fields) {
   await env.DB.prepare(
     `INSERT INTO users
        (id, email, password_hash, first_name, last_name, phone, agency_name,
-        role, status, ghl_location_id, ghl_user_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        role, status, ghl_location_id, ghl_user_id, created_at, updated_at, agency_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     id,
     fields.email,
@@ -65,7 +66,8 @@ export async function createUser(env, fields) {
     fields.ghlLocationId || null,
     fields.ghlUserId || null,
     ts,
-    ts
+    ts,
+    fields.agencyId || null
   ).run();
   return getUserById(env, id);
 }
@@ -107,11 +109,13 @@ export async function setLastLogin(env, id) {
   await env.DB.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').bind(now(), id).run();
 }
 
-export async function listUsers(env, { status, role } = {}) {
+export async function listUsers(env, { status, role, agencyId } = {}) {
   const where = [];
   const binds = [];
   if (status) { where.push('status = ?'); binds.push(status); }
   if (role) { where.push('role = ?'); binds.push(role); }
+  // Left out only by the platform operator, deliberately and in one place.
+  if (agencyId) { where.push('agency_id = ?'); binds.push(agencyId); }
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const { results } = await env.DB.prepare(
     `SELECT ${USER_COLUMNS} FROM users ${clause} ORDER BY created_at DESC LIMIT 500`
@@ -154,14 +158,14 @@ export async function setUserSplit(env, id, pct) {
   return getUserById(env, id);
 }
 
-export async function countUsers(env) {
+export async function countUsers(env, { agencyId } = {}) {
   const row = await env.DB.prepare(
     `SELECT
        COUNT(*) AS total,
        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
        SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active
-     FROM users WHERE role = 'advisor'`
-  ).first();
+     FROM users WHERE role = 'advisor'${agencyId ? ' AND agency_id = ?' : ''}`
+  ).bind(...(agencyId ? [agencyId] : [])).first();
   return { total: row?.total || 0, pending: row?.pending || 0, active: row?.active || 0 };
 }
 
@@ -235,14 +239,27 @@ export async function consumeResetToken(env, tokenHash) {
 // query string is honoured only when the caller is an admin, so asking for
 // someone else's data is not a matter of editing a URL.
 
-/** Resolves what the signed in user may see. */
+/**
+ * Resolves what the signed in user may see.
+ *
+ * The widening used to be by GoHighLevel sub-account, falling back to a
+ * default when an advisor had none. That worked while there was one agency and
+ * broke the moment there were two: an agency with no sub-account of its own
+ * landed on the same default as every other one, and their books merged. The
+ * fence is the agency now, which is a row rather than a fallback.
+ *
+ * An owner with no agency sees only themselves. It should not happen after the
+ * migration, and if it ever does the answer is too little rather than too much.
+ */
 export function visibilityScope(env, user, advisorId = null) {
-  const locationId = user.ghl_location_id || env.GHL_DEFAULT_LOCATION_ID || '';
-  if (user.role !== 'admin') return { all: false, userId: user.id, locationId, self: true };
-  if (advisorId && advisorId !== 'all') {
-    return { all: false, userId: advisorId, locationId, self: advisorId === user.id };
+  const agencyId = user.agency_id || null;
+  if (user.role !== 'admin' || !agencyId) {
+    return { all: false, userId: user.id, agencyId, self: true };
   }
-  return { all: true, locationId, self: false };
+  if (advisorId && advisorId !== 'all') {
+    return { all: false, userId: advisorId, agencyId, self: advisorId === user.id };
+  }
+  return { all: true, agencyId, userId: user.id, self: false };
 }
 
 /** The scope for a request, honouring ?advisor= only for admins. */
@@ -281,7 +298,10 @@ export function scopeLabel(scope, user) {
  */
 export async function advisorOptions(env, user) {
   if (user.role !== 'admin') return [];
-  const users = await listUsers(env, {});
+  // Their own agency, never the platform. This list is the scope picker on a
+  // dozen screens, and unfiltered it named every advisor on the portal to
+  // every owner on it.
+  const users = await listUsers(env, { agencyId: user.agency_id });
   return users
     .filter((u) => u.status === 'active')
     .map((u) => ({
@@ -310,12 +330,18 @@ export function personalFilter(includePersonal, alias = '') {
 
 export function scopeWhere(scope, column = 'user_id') {
   if (!scope.all) return { sql: `${column} = ?`, binds: [scope.userId] };
-  // Every advisor bound to this agency. Written as a subquery rather than a
-  // list of ids so it stays one statement however many advisors there are,
-  // and so an advisor added mid-request cannot fall outside it.
+  // Every advisor in this agency. Written as a subquery rather than a list of
+  // ids so it stays one statement however many advisors there are, and so an
+  // advisor added mid-request cannot fall outside it.
+  //
+  // A widened scope with no agency behind it would match every user whose
+  // agency is also null, which is the whole platform. It narrows to the reader
+  // instead: the fence failing shut is a screen with too little on it, and
+  // failing open is one agency reading another's book.
+  if (!scope.agencyId) return { sql: `${column} = ?`, binds: [scope.userId] };
   return {
-    sql: `${column} IN (SELECT id FROM users WHERE COALESCE(ghl_location_id, ?) = ?)`,
-    binds: [scope.locationId, scope.locationId],
+    sql: `${column} IN (SELECT id FROM users WHERE agency_id = ?)`,
+    binds: [scope.agencyId],
   };
 }
 

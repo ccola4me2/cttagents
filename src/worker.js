@@ -97,6 +97,10 @@ import {
   handleListSpecials, handleGetSpecial, handleCreateSpecial, handleUpdateSpecial,
   handleDeleteSpecial, handleBookEnquiry, handleDeleteEnquiry,
 } from './specials.js';
+import {
+  handleListAgencies, handleCreateAgency, handleUpdateAgency,
+  handleSetAdvisorAgency, handleJoinInfo,
+} from './agencies.js';
 import { handleGetGoals, handleSaveGoals } from './goals.js';
 import { handleListCommissions, handleSetCommissionStatus } from './commissions.js';
 import {
@@ -152,6 +156,7 @@ const PUBLIC_PAGES = new Set([
   '/forgot-password', '/forgot-password.html',
   '/reset-password', '/reset-password.html',
   '/pending', '/pending.html',
+  '/join', '/join.html',
 ]);
 
 // Extension-less page paths mapped to the file that serves them.
@@ -184,6 +189,8 @@ const PAGE_FILES = {
   '/app/groups': '/app/groups.html',
   '/app/credits': '/app/credits.html',
   '/app/hotlists': '/app/hotlists.html',
+  '/join': '/join.html',
+  '/admin/agencies': '/admin/agencies.html',
   '/app/specials': '/app/specials.html',
   '/app/special': '/app/special.html',
   '/app/goals': '/app/goals.html',
@@ -351,6 +358,9 @@ async function routeApi(request, env, path, method) {
   const groupBookMatch = path.match(/^\/api\/groups\/registrations\/([^/]+)\/book$/);
   const creditMatch = path.match(/^\/api\/credits\/([^/]+)$/);
   const specialMatch = path.match(/^\/api\/specials\/([^/]+)$/);
+  const agencyMatch = path.match(/^\/api\/agencies\/([^/]+)$/);
+  const joinMatch = path.match(/^\/api\/join\/([^/]+)$/);
+  const advisorAgencyMatch = path.match(/^\/api\/admin\/advisors\/([^/]+)\/agency$/);
   const enquiryBookMatch = path.match(/^\/api\/specials\/enquiries\/([^/]+)\/book$/);
   const enquiryMatch = path.match(/^\/api\/specials\/enquiries\/([^/]+)$/);
   const receiptMatch = path.match(/^\/api\/commissions\/receipts\/([^/]+)$/);
@@ -650,6 +660,21 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/admin/task-reminders' && method === 'POST') return handleRunTaskReminders(request, env);
   if (path === '/api/admin/payment-reminders' && method === 'POST') return handleRunPaymentReminders(request, env);
   if (path === '/api/admin/call-lists' && method === 'POST') return handleRunCallLists(request, env);
+
+  // Agencies: who is on this portal, and what each of them looks like.
+  if (path === '/api/agencies' && method === 'GET') return handleListAgencies(request, env);
+  if (path === '/api/agencies' && method === 'POST') return handleCreateAgency(request, env);
+  if (agencyMatch && method === 'PUT') return handleUpdateAgency(request, env, agencyMatch[1]);
+  if (advisorAgencyMatch && method === 'PUT') {
+    return handleSetAdvisorAgency(request, env, advisorAgencyMatch[1]);
+  }
+  // What a join link shows before anybody has typed anything. No session,
+  // because the whole point of the link is that whoever follows it has no
+  // account yet. It answers with the agency's name and colours and nothing
+  // else, so having the link tells you only what the page has to display.
+  if (joinMatch && method === 'GET') {
+    return handleJoinInfo(request, env, decodeURIComponent(joinMatch[1]));
+  }
   if (path === '/api/admin/sync' && method === 'GET') return handleSyncStatus(request, env);
   if (path === '/api/admin/sync' && method === 'POST') return handleRunSync(request, env);
   if (path === '/api/admin/lifecycle' && method === 'POST') return handleRunLifecycle(request, env);
@@ -698,6 +723,9 @@ async function routePage(request, env, path) {
       ? handleGroupRegistration(request, env, code)
       : renderGroupPage(request, env, code);
   }
+
+  const joinPage = path.match(/^\/join\/([^/]+)\/?$/);
+  if (joinPage) return env.ASSETS.fetch(new Request(new URL('/join.html', request.url), request));
 
   // A deal's own page, public because it is what gets posted and emailed.
   const specialPage = path.match(/^\/s\/([^/]+)\/?$/);

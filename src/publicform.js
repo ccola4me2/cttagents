@@ -14,6 +14,28 @@ import { upsertContact } from './sync.js';
 import { hydrateForm } from './formbuilder.js';
 import { fireTrigger } from './automations.js';
 import { sendSignupNoticeEmail } from './email.js';
+import { brandForUser, brandOf, DEFAULT_BRAND, HEX_COLOR } from './brand.js';
+
+/**
+ * The agency behind a hosted form.
+ *
+ * Forms are keyed to a GoHighLevel sub-account rather than to an advisor, so
+ * this is the one public page reached through the location instead. Two
+ * agencies sharing a sub-account would be ambiguous; the oldest wins, which is
+ * a guess, and the default brand rather than a wrong one when there is no
+ * match at all.
+ */
+async function brandForLocation(env, locationId) {
+  if (!locationId) return { ...DEFAULT_BRAND };
+  try {
+    const row = await env.DB.prepare(
+      'SELECT * FROM agencies WHERE ghl_location_id = ? ORDER BY created_at ASC LIMIT 1'
+    ).bind(locationId).first();
+    return brandOf(row);
+  } catch {
+    return { ...DEFAULT_BRAND };
+  }
+}
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => (
@@ -100,7 +122,7 @@ export async function renderPublicForm(request, env, slug) {
       });
     </script>`;
 
-  return new Response(page(f.name, body), {
+  return new Response(page(f.name, body, await brandForLocation(env, found.row.location_id)), {
     headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
   });
 }
@@ -208,7 +230,7 @@ export async function renderGroupPage(request, env, code) {
     GROUP_SCRIPT,
   ].join('\n');
 
-  return new Response(page(g.name, body),
+  return new Response(page(g.name, body, await brandForUser(env, g.user_id)),
     { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
@@ -379,7 +401,7 @@ export async function renderSpecialPage(request, env, code) {
     SPECIAL_SCRIPT,
   ].filter(Boolean).join('\n');
 
-  return new Response(page(s.headline, body),
+  return new Response(page(s.headline, body, await brandForUser(env, s.user_id)),
     { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
@@ -599,15 +621,24 @@ export async function handlePublicSubmit(request, env, slug) {
 }
 
 /** Standalone page shell. No external requests at all. */
-function page(title, body) {
+/**
+ * The frame for every page somebody outside the business sees.
+ *
+ * `brand` is the agency whose page this is. It defaults to the portal's own,
+ * so a page rendered before anybody knew whose it was still looks finished
+ * rather than half painted.
+ */
+function page(title, body, brand) {
+  const b = brand || DEFAULT_BRAND;
+  const accent = HEX_COLOR.test(b.color || '') ? b.color : DEFAULT_BRAND.color;
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(title)} | Trip Vara</title>
+<title>${esc(title)} | ${esc(b.name)}</title>
 <link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
 <style>
-  :root { --navy:#1b3a5f; --navy-d:#12294a; --coral:#f1705b; --ink:#2f4459;
+  :root { --navy:${accent}; --navy-d:#12294a; --coral:#f1705b; --ink:#2f4459;
           --line:#e4edf5; --shell:#fbf9f5; }
   *{box-sizing:border-box}
   body{margin:0;background:var(--shell);color:var(--ink);
@@ -643,9 +674,9 @@ function page(title, body) {
   [hidden]{display:none!important}
 </style></head>
 <body><div class="wrap">
-  <div class="brand"><img src="/logo-mark.svg" alt="">
-    <span><b>TripVara</b><small>From first inquiry to welcome home.</small></span></div>
+  <div class="brand"><img src="${esc(b.logoUrl || '/logo-mark.svg')}" alt="">
+    <span><b>${esc(b.name)}</b><small>${esc(b.tagline || '')}</small></span></div>
   <div class="card">${body}</div>
-  <p class="foot">&copy; ${new Date().getFullYear()} Trip Vara Travel</p>
+  <p class="foot">&copy; ${new Date().getFullYear()} ${esc(b.name)}</p>
 </div></body></html>`;
 }

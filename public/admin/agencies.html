@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agencies | Trip Vara</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Agencies</h1>
+        <p class="sub" id="sub">Who is on this portal, what they look like, and the link their advisors join on.</p></div>
+      <div class="toolbar" style="margin:0;" id="actions"></div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <div class="notice notice-info" id="intro" hidden></div>
+      <section class="card" id="panel"><p class="spinner">Loading...</p></section>
+    </div>
+  </div>
+</div>
+
+<dialog id="dlg">
+  <form id="agency-form" method="dialog">
+    <div class="card-head"><h2 id="dlg-title">Add an agency</h2>
+      <button class="btn btn-ghost btn-sm" type="button" id="close">Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" hidden></div>
+      <div class="field"><label for="name">Agency name</label>
+        <input id="name" name="name" maxlength="120" required>
+        <p class="field-hint">Shown to their clients on every page and email they send.</p></div>
+      <div class="field"><label for="tagline">Tagline</label>
+        <input id="tagline" name="tagline" maxlength="160"
+          placeholder="From first inquiry to welcome home."></div>
+      <div class="field-row">
+        <div class="field"><label for="logoUrl">Logo address</label>
+          <input id="logoUrl" name="logoUrl" maxlength="500" placeholder="https://...">
+          <p class="field-hint">Wherever it already lives on their own site.</p></div>
+        <div class="field"><label for="brandColor">Brand colour</label>
+          <input id="brandColor" name="brandColor" maxlength="7" placeholder="#1b3a5f">
+          <p class="field-hint">Six hex digits after a hash.</p></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="phone">Phone</label>
+          <input id="phone" name="phone" maxlength="40"></div>
+        <div class="field"><label for="email">Email</label>
+          <input id="email" name="email" type="email" maxlength="254"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="website">Website</label>
+          <input id="website" name="website" maxlength="200"></div>
+        <div class="field"><label for="sellerOfTravel">Seller of travel</label>
+          <input id="sellerOfTravel" name="sellerOfTravel" maxlength="120"></div>
+      </div>
+      <div class="field"><label for="address">Address</label>
+        <textarea id="address" name="address" maxlength="300"></textarea></div>
+      <div class="field" id="ghl-field"><label for="ghlLocationId">GoHighLevel sub-account</label>
+        <input id="ghlLocationId" name="ghlLocationId" maxlength="64">
+        <p class="field-hint">Their CRM. New advisors inherit it. It no longer decides
+          who can see whose records: the agency does that.</p></div>
+      <label style="display:flex;align-items:flex-start;gap:.6rem;font-weight:400;">
+        <input type="checkbox" id="joinOpen" name="joinOpen" style="width:auto;flex:none;margin-top:.25rem;">
+        <span><strong style="color:var(--navy-800);">The join link is open</strong>
+          <span class="field-hint" style="display:block;margin-top:.3rem;">
+            Turn it off and the link stops taking anybody, without changing the address.</span></span>
+      </label>
+    </div>
+    <div class="card-foot">
+      <button class="btn btn-primary" type="submit">Save agency</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module">
+import { api, mountShell, esc, showError, onSubmit } from '/js/app.js';
+await mountShell({ admin: true });
+
+const panel = document.getElementById('panel');
+const dlg = document.getElementById('dlg');
+const form = document.getElementById('agency-form');
+let d = null;
+let editingId = null;
+
+function draw() {
+  document.getElementById('actions').innerHTML = d.platformOwner
+    ? '<button class="btn btn-primary btn-sm" id="add">Add an agency</button>' : '';
+  const add = document.getElementById('add');
+  if (add) add.addEventListener('click', openCreate);
+
+  const intro = document.getElementById('intro');
+  intro.hidden = false;
+  intro.textContent = d.platformOwner
+    ? 'You run this portal, so you see every agency on it. Each agency owner sees only '
+      + 'their own, and can neither see nor touch another agency’s advisors.'
+    : 'Your agency, and how it looks to your clients. The name, logo and colour here '
+      + 'appear on every page and email your clients receive.';
+
+  if (!d.agencies.length) {
+    panel.innerHTML = '<div class="empty"><h3>No agencies yet</h3>'
+      + '<p>Add one and it gets a join link of its own.</p></div>';
+    return;
+  }
+
+  panel.innerHTML = `<ul class="rows">${d.agencies.map((a) => {
+    const link = `${d.appUrl}/join/${a.slug}`;
+    return `<li>
+      <div class="call-row">
+        <div class="call-who">
+          <span class="nm">${esc(a.name)}</span>
+          ${a.id === d.myAgencyId ? '<span class="badge badge-green" style="margin-left:.45rem;">yours</span>' : ''}
+          ${a.join_open
+      ? `<span class="badge badge-navy" style="margin-left:.3rem;">${a.pending_advisors || 0} waiting</span>`
+      : '<span class="badge badge-amber" style="margin-left:.3rem;">join closed</span>'}
+          <div class="call-why">${a.active_advisors || 0} active of ${a.advisors || 0} advisor${
+      a.advisors === 1 ? '' : 's'}${a.tagline ? ` &middot; ${esc(a.tagline)}` : ''}</div>
+          <div class="call-links">
+            ${a.join_open
+      ? `<a href="${esc(link)}" target="_blank" rel="noopener">${esc(link.replace(/^https?:\/\//, ''))}</a>`
+      : '<span class="muted">join link is switched off</span>'}
+            ${a.brand_color ? `<span class="muted">
+              <span style="display:inline-block;width:.7rem;height:.7rem;border-radius:3px;
+                vertical-align:-1px;background:${esc(a.brand_color)};"></span>
+              ${esc(a.brand_color)}</span>` : ''}
+          </div>
+        </div>
+        <div class="call-acts">
+          ${a.join_open ? `<button class="btn btn-ghost btn-sm" data-copy="${esc(link)}">Copy link</button>` : ''}
+          <button class="btn btn-secondary btn-sm" data-edit="${esc(a.id)}">Edit</button>
+        </div>
+      </div>
+    </li>`;
+  }).join('')}</ul>`;
+
+  panel.querySelectorAll('[data-edit]').forEach((b) => {
+    b.addEventListener('click', () => openEdit(d.agencies.find((a) => a.id === b.dataset.edit)));
+  });
+  panel.querySelectorAll('[data-copy]').forEach((b) => {
+    b.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(b.dataset.copy);
+      b.textContent = 'Copied';
+      setTimeout(() => { b.textContent = 'Copy link'; }, 1500);
+    });
+  });
+}
+
+function openCreate() {
+  editingId = null;
+  form.reset();
+  form.elements.joinOpen.checked = true;
+  document.getElementById('dlg-title').textContent = 'Add an agency';
+  form.querySelector('.notice-error').hidden = true;
+  dlg.showModal();
+}
+
+function openEdit(a) {
+  if (!a) return;
+  editingId = a.id;
+  document.getElementById('dlg-title').textContent = `Edit ${a.name}`;
+  form.querySelector('.notice-error').hidden = true;
+  const set = (n, v) => { const el = form.elements[n]; if (el) el.value = v ?? ''; };
+  set('name', a.name); set('tagline', a.tagline); set('logoUrl', a.logo_url);
+  set('brandColor', a.brand_color); set('phone', a.phone); set('email', a.email);
+  set('website', a.website); set('sellerOfTravel', a.seller_of_travel);
+  set('address', a.address); set('ghlLocationId', a.ghl_location_id);
+  form.elements.joinOpen.checked = Boolean(a.join_open);
+  dlg.showModal();
+}
+
+onSubmit(form, async (values) => {
+  const body = { ...values, joinOpen: form.elements.joinOpen.checked };
+  const path = editingId ? `/api/agencies/${encodeURIComponent(editingId)}` : '/api/agencies';
+  await api(path, { method: editingId ? 'PUT' : 'POST', body });
+  dlg.close();
+  await load();
+});
+
+document.getElementById('close').addEventListener('click', () => dlg.close());
+
+async function load() {
+  try {
+    d = await api('/api/agencies');
+    document.getElementById('err').innerHTML = '';
+    draw();
+  } catch (e) { showError(panel, e); }
+}
+
+await load();
+</script>
+</body></html>

@@ -28,6 +28,7 @@
 
 import { json, badRequest, notFound, clean, cleanText, uid, now, sha256Hex, readJson }
   from './util.js';
+import { brandForUser, DEFAULT_BRAND, HEX_COLOR } from './brand.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 import { sendTripMessageEmail } from './email.js';
@@ -328,7 +329,8 @@ export async function renderTripPage(request, env, code) {
     </footer>
     ${SAY_SCRIPT}`;
 
-  return html(page(b.itinerary || b.product_name || 'Your trip', body));
+  return html(page(b.itinerary || b.product_name || 'Your trip', body,
+    await brandForUser(env, b.user_id)));
 }
 
 const PAYMENT_WORD = {
@@ -444,17 +446,19 @@ document.getElementById('say').addEventListener('submit', async (e) => {
 });
 </scr${''}ipt>`;
 
-function page(title, body) {
+function page(title, body, brand) {
+  const b = brand || DEFAULT_BRAND;
+  const accent = HEX_COLOR.test(b.color || '') ? b.color : DEFAULT_BRAND.color;
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>${esc(title)} | Trip Vara</title>
+<title>${esc(title)} | ${esc(b.name)}</title>
 <link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
 <style>
   :root {
-    --navy:#1b3a5f; --navy-d:#12294a; --coral:#e55942; --ink:#2f4459;
+    --navy:${accent}; --navy-d:#12294a; --coral:#e55942; --ink:#2f4459;
     --dim:#5c7286; --line:#e4edf5; --shell:#fbf9f5; --ok:#1f7a5a; --late:#b3382a;
   }
   *{box-sizing:border-box}
@@ -533,8 +537,8 @@ function page(title, body) {
 <body>
 <div class="wrap">
   <div class="brand">
-    <img src="/logo-mark.svg" alt="">
-    <span><b>Tripvara</b><small>From first inquiry to welcome home.</small></span>
+    <img src="${esc(b.logoUrl || '/logo-mark.svg')}" alt="">
+    <span><b>${esc(b.name)}</b><small>${esc(b.tagline || '')}</small></span>
   </div>
   ${body}
 </div>
