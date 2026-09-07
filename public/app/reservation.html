@@ -962,7 +962,7 @@ function drawPricing() {
             <div class="rate-wrap"${earns ? '' : ' hidden'}>
               <input class="rate" inputmode="decimal" data-rate="${esc(k.kind)}"
                 value="${pct === null ? '' : esc(String(pct))}"
-                placeholder="${esc(d.vendorRate ? String(d.vendorRate) : '%')}"
+                placeholder="${esc(d.vendorRate ? String(d.vendorRate) : '')}"
                 ${d.editable ? '' : 'disabled'}><span class="m">%</span>
               <span class="m rate-earned"></span>
             </div>`;

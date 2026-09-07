@@ -634,6 +634,46 @@ function mountTodo(sidebar, user) {
  * Fills #sidebar, wires sign out and the mobile menu, and returns the signed
  * in user. Every portal page calls this first.
  */
+/**
+ * Put a currency sign on every box that holds money.
+ *
+ * Money and percentages both use inputmode="decimal", so the name is what
+ * tells them apart: a rate, a percentage, a count of days or nights is not
+ * money however it is typed. Marked by class rather than wrapped, so nothing
+ * in the surrounding markup moves.
+ *
+ * Watched rather than done once, because most of these boxes are drawn after
+ * the page loads and half of them are drawn again on every save.
+ */
+const NOT_MONEY = /(pct|percent|rate|days|nights|qty|count|travellers|cabins|year|month)/i;
+
+export function markMoneyFields(root = document) {
+  const boxes = root.querySelectorAll
+    ? root.querySelectorAll('input[inputmode="decimal"]:not(.money):not(.rate)')
+    : [];
+  for (const el of boxes) {
+    if (NOT_MONEY.test(`${el.name || ''} ${el.id || ''}`)) continue;
+    el.classList.add('money');
+  }
+}
+
+function watchMoneyFields() {
+  markMoneyFields();
+  const observer = new MutationObserver((records) => {
+    for (const r of records) {
+      for (const node of r.addedNodes) {
+        if (node.nodeType !== 1) continue;
+        if (node.matches && node.matches('input[inputmode="decimal"]')) {
+          markMoneyFields(node.parentElement || document);
+        } else {
+          markMoneyFields(node);
+        }
+      }
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
 export async function mountShell({ admin = false } = {}) {
   const { user } = await api('/api/auth/me');
   if (!user) { window.location.href = '/login'; throw new Error('Signed out'); }
@@ -692,6 +732,7 @@ export async function mountShell({ admin = false } = {}) {
   });
 
   if (!admin) { mountSearch(sidebar); mountTodo(sidebar, user); }
+  watchMoneyFields();
 
   sidebar.querySelectorAll('.hub-toggle').forEach((button) => {
     button.addEventListener('click', () => {
