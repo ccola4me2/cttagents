@@ -3,32 +3,243 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Advisor portal | Trip Vara Portal</title>
-<meta name="robots" content="noindex, nofollow">
+<title>Trip Vara | The back office for travel advisors</title>
+<meta name="description" content="The advisor back office that knows which half of a trip earns commission, which credits are about to lapse, and which of your clients have gone quiet.">
 <link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/css/app.css">
+<style>
+  /* The front door.
+     Its own layout rather than lines in app.css, because nothing else in the
+     portal is shaped like this and every signed-in page would carry the weight.
+     The colours and the buttons are app.css's, so this reads as the front of
+     the thing rather than a different site that happens to link to it. */
+
+  body { background: var(--shell); color: var(--ink-700); }
+
+  .lp-wrap { max-width: 68rem; margin: 0 auto; padding: 0 1.5rem; }
+
+  /* ---------- bar ---------- */
+  .lp-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 1rem; padding: 1.4rem 0;
+  }
+  .lp-brand { display: flex; align-items: center; gap: .6rem; text-decoration: none; }
+  .lp-brand img { width: 34px; height: 34px; }
+  .lp-brand b {
+    display: block; font-size: .95rem; font-weight: 700; letter-spacing: .24em;
+    text-transform: uppercase; color: var(--navy-800); line-height: 1.2;
+  }
+  .lp-brand small {
+    display: block; font-size: .6rem; letter-spacing: .05em; color: var(--coral-400);
+  }
+  .lp-bar nav { display: flex; align-items: center; gap: .5rem; }
+
+  /* ---------- hero ---------- */
+  .lp-hero { padding: 3.4rem 0 3.8rem; max-width: 44rem; }
+  .lp-eyebrow {
+    font-size: .7rem; font-weight: 700; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--coral-500); margin: 0 0 1rem;
+  }
+  .lp-hero h1 {
+    font-size: clamp(2.1rem, 5.4vw, 3.3rem); line-height: 1.08; letter-spacing: -.02em;
+    color: var(--navy-900); margin: 0; font-weight: 700; text-wrap: balance;
+  }
+  .lp-hero h1 span { color: var(--coral-500); }
+  .lp-hero .lede {
+    font-size: 1.12rem; line-height: 1.6; color: var(--ink-500);
+    margin: 1.2rem 0 0; max-width: 36rem;
+  }
+  .lp-cta { display: flex; flex-wrap: wrap; gap: .7rem; margin-top: 2rem; align-items: center; }
+  .lp-cta .btn { padding: .78rem 1.5rem; font-size: .92rem; }
+  .lp-note { font-size: .82rem; color: var(--ink-400); margin: .9rem 0 0; }
+
+  /* ---------- the losses ---------- */
+  .lp-band { background: var(--navy-900); color: #eaf1f8; padding: 3.6rem 0; margin-top: 1rem; }
+  .lp-band h2 {
+    font-size: clamp(1.5rem, 3.4vw, 2rem); line-height: 1.2; letter-spacing: -.015em;
+    color: #fff; margin: 0 0 .7rem; font-weight: 700; max-width: 32rem; text-wrap: balance;
+  }
+  .lp-band .sub { color: #a9c1d8; margin: 0; max-width: 38rem; font-size: 1rem; }
+  .lp-losses {
+    list-style: none; margin: 2.4rem 0 0; padding: 0;
+    display: grid; gap: 1.6rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  }
+  .lp-losses li { border-top: 2px solid var(--coral-400); padding-top: 1rem; }
+  .lp-losses .fig {
+    display: block; font-size: 1.55rem; font-weight: 700; color: #fff;
+    font-variant-numeric: tabular-nums; letter-spacing: -.02em; line-height: 1.1;
+  }
+  .lp-losses .lbl {
+    display: block; font-size: .74rem; font-weight: 700; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--coral-400); margin: .5rem 0 .55rem;
+  }
+  .lp-losses p { margin: 0; font-size: .92rem; line-height: 1.55; color: #a9c1d8; }
+
+  /* ---------- what it does ---------- */
+  .lp-does { padding: 3.8rem 0 1rem; }
+  .lp-does h2 {
+    font-size: clamp(1.5rem, 3.4vw, 2rem); line-height: 1.2; letter-spacing: -.015em;
+    color: var(--navy-900); margin: 0 0 2.2rem; font-weight: 700;
+    max-width: 32rem; text-wrap: balance;
+  }
+  .lp-grid { display: grid; gap: 1.7rem; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
+  .lp-grid h3 {
+    font-size: 1.02rem; color: var(--navy-800); margin: 0 0 .35rem; font-weight: 700;
+  }
+  .lp-grid p { margin: 0; font-size: .93rem; line-height: 1.6; color: var(--ink-500); }
+
+  /* ---------- the promise ---------- */
+  .lp-promise {
+    margin: 3.6rem 0 0; padding: 1.9rem 2rem;
+    background: #fff; border: 1px solid var(--navy-100); border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+  }
+  .lp-promise h3 {
+    margin: 0 0 .4rem; font-size: 1.08rem; color: var(--navy-800); font-weight: 700;
+  }
+  .lp-promise p { margin: 0; font-size: .94rem; line-height: 1.6; color: var(--ink-500); }
+
+  /* ---------- close ---------- */
+  .lp-close { padding: 3.8rem 0 4.4rem; text-align: center; }
+  .lp-close h2 {
+    font-size: clamp(1.6rem, 4vw, 2.2rem); line-height: 1.15; letter-spacing: -.02em;
+    color: var(--navy-900); margin: 0 0 .8rem; font-weight: 700; text-wrap: balance;
+  }
+  .lp-close p { margin: 0 auto 1.7rem; color: var(--ink-500); max-width: 32rem; }
+  .lp-close .lp-cta { justify-content: center; }
+
+  .lp-foot {
+    border-top: 1px solid var(--navy-100); padding: 1.6rem 0 2.6rem;
+    font-size: .78rem; color: var(--ink-400);
+    display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+  }
+  .lp-foot a { color: var(--ink-500); }
+
+  @media (max-width: 640px) {
+    .lp-bar { padding: 1.1rem 0; }
+    .lp-hero { padding: 2.4rem 0 2.8rem; }
+    .lp-band { padding: 2.6rem 0; }
+  }
+</style>
 </head>
 <body>
-<div class="auth-page">
-  <a class="auth-brand" href="/">
-    <img src="/logo-mark.svg" alt="">
-    <span><b>TripVara</b><small>From first inquiry to welcome home.</small></span>
-  </a>
-  <div class="auth-card">
-    <div class="auth-card-head">
-      <h1>Trip Vara Portal</h1>
-      <p>The back office for Trip Vara travel advisors.</p>
+
+<div class="lp-wrap">
+  <header class="lp-bar">
+    <a class="lp-brand" href="/">
+      <img src="/logo-mark.svg" alt="">
+      <span><b>TripVara</b><small>From first inquiry to welcome home.</small></span>
+    </a>
+    <nav>
+      <a class="btn btn-ghost btn-sm" href="/login">Sign in</a>
+      <a class="btn btn-primary btn-sm" href="/signup">Request access</a>
+    </nav>
+  </header>
+
+  <section class="lp-hero">
+    <p class="lp-eyebrow">The advisor back office</p>
+    <h1>You have already earned money you are <span>never going to see</span>.</h1>
+    <p class="lede">A credit that lapses on a date nobody watched. A supplier who paid less than
+      their own terms say. A client who came home fourteen months ago and has not been rung. None
+      of it shows up as a problem, because none of it shows up at all.</p>
+    <div class="lp-cta">
+      <a class="btn btn-primary" href="/signup">Request access</a>
+      <a class="btn btn-secondary" href="/login">Sign in</a>
     </div>
-    <div class="auth-card-body">
-      <p style="margin-top:0;">If you have an account, sign in to pick up where you left off.</p>
-      <a class="btn btn-primary" href="/login" style="margin-top:1.2rem;">Sign in</a>
-      <p class="auth-foot">No account yet? <a href="/signup">Request access</a></p>
-    </div>
+    <p class="lp-note">Every account is approved by a person before it goes live.</p>
+  </section>
+</div>
+
+<section class="lp-band">
+  <div class="lp-wrap">
+    <h2>The three that cost the most are the three nothing tells you about.</h2>
+    <p class="sub">Not because anybody is careless. Because a spreadsheet has no opinion about
+      what is missing from it, and neither does an inbox.</p>
+
+    <ul class="lp-losses">
+      <li>
+        <span class="fig">$250.00</span>
+        <span class="lbl">Lapses in 28 days</span>
+        <p>A future cruise credit or deposit the client has already paid for. The supplier keeps
+          it if nobody uses it in time, and nobody at the supplier is going to ring and say so.</p>
+      </li>
+      <li>
+        <span class="fig">&minus;$84.00</span>
+        <span class="lbl">Underpaid, quietly</span>
+        <p>Trip Vara prices a booking by the parts it is really made of, so it knows what the
+          commissionable half should have earned and can say when a payment came in short.</p>
+      </li>
+      <li>
+        <span class="fig">14 months</span>
+        <span class="lbl">Gone quiet, $12,480 with you</span>
+        <p>Somebody who has travelled with you three times and has nothing on the books. The
+          warmest lead you own, and the only one with no deadline pushing you to make the call.</p>
+      </li>
+    </ul>
   </div>
-  <p class="auth-legal">&copy; 2026 Trip Vara. All rights reserved.<br>
+</section>
+
+<div class="lp-wrap">
+  <section class="lp-does">
+    <h2>Built around the way a trip is actually sold.</h2>
+    <div class="lp-grid">
+      <div>
+        <h3>Every charge knows if it earns</h3>
+        <p>A cruise fare earns and the port taxes do not. A tour is a land package with air bolted
+          on that pays nothing. Price it properly once and the commission checks itself.</p>
+      </div>
+      <div>
+        <h3>Who to call, every Monday</h3>
+        <p>Five lists drawn from records you already keep: gone quiet, money lapsing, just home,
+          birthdays, anniversaries. Emailed to you, so it does not need remembering.</p>
+      </div>
+      <div>
+        <h3>The chasing, done for you</h3>
+        <p>Deposits, final payments, documents, the welcome home call. On real supplier deadlines
+          rather than the buffer you set yourself, and never twice in a day.</p>
+      </div>
+      <div>
+        <h3>A page for your client</h3>
+        <p>What is booked, what they have paid, what falls due next, and the documents you chose
+          to share. One link instead of nine emails.</p>
+      </div>
+      <div>
+        <h3>Suppliers, shared</h3>
+        <p>Rates, desk contacts, booking instructions and payment terms in one directory the whole
+          agency works from, so nobody rebuilds it from memory.</p>
+      </div>
+      <div>
+        <h3>Groups that sell themselves</h3>
+        <p>A page that takes names for a departure, a deal page with a book-by date, and every
+          enquiry landing against the offer that pulled it.</p>
+      </div>
+    </div>
+
+    <div class="lp-promise">
+      <h3>Your client pays the supplier. They always did.</h3>
+      <p>Trip Vara records what was paid and chases what is due. It never sits between your client
+        and their money, so there is nothing held, nothing to reconcile, and no merchant account
+        to answer for. And your client's page never shows your commission or your mark-up.</p>
+    </div>
+  </section>
+
+  <section class="lp-close">
+    <h2>Find out what your book has been hiding.</h2>
+    <p>Request access and somebody will approve your account. If you run an agency and want your
+      own advisors on it under your own name, say so and we will set that up.</p>
+    <div class="lp-cta">
+      <a class="btn btn-primary" href="/signup">Request access</a>
+      <a class="btn btn-secondary" href="/login">Sign in</a>
+    </div>
+  </section>
+
+  <footer class="lp-foot">
+    <span>&copy; 2026 Trip Vara. All rights reserved.</span>
+    <span><a href="/login">Sign in</a> &middot; <a href="/signup">Request access</a></span>
     <!-- Seller of travel registration numbers go here once issued. Nothing is
          placed in this slot until the real numbers exist: a plausible looking
          licence number is worse than none. -->
-  </p>
+  </footer>
 </div>
+
 </body></html>
