@@ -6,7 +6,7 @@
 // and are deliberately not mirrored here.
 
 import { uid, now } from './util.js';
-import { SPLIT_PCT_SQL, ADVISOR_SHARE_SQL } from './split.js';
+import { SPLIT_PCT_SQL, ADVISOR_SHARE_SQL, UNSPLIT_SQL } from './split.js';
 
 const USER_COLUMNS = `
   id, email, first_name, last_name, phone, agency_name, role, status,
@@ -476,7 +476,8 @@ export async function bookingStats(env, scope) {
   // commission figure is what the vendor pays the agency; the share is what
   // the person reading the screen actually keeps, and for an associate on a
   // split those are not the same number.
-  const share = ADVISOR_SHARE_SQL('b.commission_cents', SPLIT_PCT_SQL('b.advisor_split_pct', 'u.default_split_pct'));
+  const share = ADVISOR_SHARE_SQL('b.commission_cents',
+    SPLIT_PCT_SQL('b.advisor_split_pct', 'u.default_split_pct'), UNSPLIT_SQL('b.id'));
   const row = await env.DB.prepare(
     `SELECT
        COUNT(*) AS total,
@@ -571,7 +572,8 @@ export async function productionByAdvisor(env, scope, sinceDate, { includePerson
             -- What this advisor keeps, and what the agency keeps out of what
             -- they billed. An owner reading a combined report needs both: the
             -- agency is owed the whole commission and pays out only part of it.
-            COALESCE(SUM(${ADVISOR_SHARE_SQL('b.commission_cents', SPLIT_PCT_SQL('b.advisor_split_pct', 'u.default_split_pct'))}), 0)
+            COALESCE(SUM(${ADVISOR_SHARE_SQL('b.commission_cents',
+              SPLIT_PCT_SQL('b.advisor_split_pct', 'u.default_split_pct'), UNSPLIT_SQL('b.id'))}), 0)
               AS advisor_share_cents,
             u.default_split_pct
        FROM users u

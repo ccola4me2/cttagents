@@ -749,7 +749,9 @@ function drawDetail() {
        ${d.split && d.split.pct !== 100 ? `<dt>You keep</dt><dd>${money(d.split.advisorCents)}
          <span class="muted">${esc(String(d.split.pct))}% ${d.split.overridden
            ? 'set on this trip' : 'by your standing agreement'}; the agency keeps ${
-           money(d.split.agencyCents)}</span></dd>` : ''}
+           money(d.split.agencyCents)}${d.split.unsplitCents
+             ? `. ${money(d.split.unsplitCents)} of it is TC or bonus and is yours in full,
+                so the split applies to the rest` : ''}</span></dd>` : ''}
        <dt>Created</dt><dd>${esc(timeAgo(b.created_at))}</dd>
        <dt>Last changed</dt><dd>${esc(timeAgo(b.updated_at))}</dd>
      </dl>`,
@@ -880,6 +882,22 @@ let showAllRows = true;
 // Which vendor's charges the grid is showing. Null is the reservation's own.
 let pricingComponent = null;
 
+/**
+ * The rows under the charges, where commission is entered rather than worked
+ * out from a charge.
+ *
+ * Base is what the vendor pays on the fare and follows the rates above. The
+ * other two are money that arrives on its own: a tour conductor credit for
+ * filling a group, or a vendor bonus. They are the same money and differ only
+ * in who ends up with it, which is why the labels say so rather than saying
+ * "commissionable", a word already spoken for in the column beside them.
+ */
+const COMMISSION_ROWS = [
+  { kind: 'base', label: 'Commission', note: 'what the vendor pays you' },
+  { kind: 'bonus', label: 'TC or bonus', note: 'yours in full, no agency split' },
+  { kind: 'bonus_shared', label: 'TC or bonus, casino', note: 'split with the agency' },
+];
+
 function drawPricing() {
   const kinds = d.priceKinds || [];
   const parts = d.components || [];
@@ -910,10 +928,13 @@ function drawPricing() {
     : [wholeBooking];
   const at = (kind, travellerId) => forHere
     .find((l) => l.kind === kind && (l.traveller_id || null) === travellerId);
-  const commissionAt = (travellerId) => {
-    const line = forHere.find((l) => (l.traveller_id || null) === travellerId && l.commission_cents);
-    return line ? line.commission_cents : 0;
-  };
+  // Commission for one column, in one of the parts the vendor pays it in. The
+  // base rides on a charge row; a bonus is a row of its own with no amount, so
+  // both are found the same way and told apart by their kind.
+  const commissionAt = (travellerId, kind) => forHere
+    .filter((l) => (l.traveller_id || null) === travellerId && l.commission_cents
+      && (l.commission_kind || 'base') === kind)
+    .reduce((n, l) => n + l.commission_cents, 0);
   // The rate this kind of charge earns, from whichever of its lines carries
   // one. Every line of a kind is saved with the same figure, so the first that
   // has one is the answer.
@@ -972,14 +993,16 @@ function drawPricing() {
             value="${esc(cash(at(k.kind, c.id) ? at(k.kind, c.id).amount_cents : 0))}"
             placeholder="0.00" ${d.editable ? '' : 'disabled'}></td>`).join('')}
         </tr>`).join('')}
-        <tr style="border-top:2px solid var(--navy-100);">
-          <td><span class="name">Commission</span>
-            <div class="muted">what the vendor pays you</div></td>
+        ${COMMISSION_ROWS.map((row, i) => `
+        <tr${i === 0 ? ' style="border-top:2px solid var(--navy-100);"' : ''}>
+          <td><span class="name">${esc(row.label)}</span>
+            <div class="muted">${esc(row.note)}</div></td>
           <td></td>
           ${columns.map((c) => `<td class="num"><input class="cell" inputmode="decimal"
-            data-commission="${esc(c.id || '')}" value="${esc(cash(commissionAt(c.id)))}"
+            data-commission="${esc(c.id || '')}" data-ckind="${esc(row.kind)}"
+            value="${esc(cash(commissionAt(c.id, row.kind)))}"
             placeholder="0.00" ${d.editable ? '' : 'disabled'}></td>`).join('')}
-        </tr>
+        </tr>`).join('')}
       </tbody>
       <tfoot>
         <tr><th>Each passenger</th><th></th>
@@ -1046,7 +1069,8 @@ function drawPricing() {
           if (pct === null) continue;
           earned += Math.round(num(el) * (pct / 100));
         }
-        const box = document.querySelector(`[data-commission="${c.id || ''}"]`);
+        const box = document.querySelector(
+          `[data-commission="${c.id || ''}"][data-ckind="base"]`);
         if (box) {
           box.value = earned ? (earned / 100).toFixed(2) : '';
           box.readOnly = true;
@@ -1054,7 +1078,7 @@ function drawPricing() {
         }
       }
     } else {
-      for (const el of document.querySelectorAll('[data-commission]')) {
+      for (const el of document.querySelectorAll('[data-commission][data-ckind="base"]')) {
         el.readOnly = false;
         el.title = '';
       }
@@ -1144,7 +1168,11 @@ function drawPricing() {
     }
     for (const el of document.querySelectorAll('[data-commission]')) {
       if (!el.value.trim()) continue;
-      body.commissions.push({ travellerId: el.dataset.commission || null, amount: el.value });
+      body.commissions.push({
+        travellerId: el.dataset.commission || null,
+        kind: el.dataset.ckind || 'base',
+        amount: el.value,
+      });
     }
     // The rates themselves, so they come back next time and the money can be
     // worked out again when an amount changes.
@@ -1666,8 +1694,11 @@ function openSplit() {
   const sp = d.split || {};
   splitForm.reset();
   splitForm.querySelector('.notice-error').hidden = true;
-  document.getElementById('split-what').textContent =
-    `${money(d.booking.commission_cents)} commission on this reservation.`;
+  document.getElementById('split-what').textContent = sp.unsplitCents
+    ? `${money(d.booking.commission_cents)} commission on this reservation, of which ${
+      money(sp.unsplitCents)} is TC or bonus and is yours whatever this says. `
+      + `The percentage applies to the other ${money(d.booking.commission_cents - sp.unsplitCents)}.`
+    : `${money(d.booking.commission_cents)} commission on this reservation.`;
   splitForm.elements.advisorSplitPct.value = sp.overridden ? String(sp.pct) : '';
   document.getElementById('sp-hint').textContent = sp.defaultPct === null
     ? 'Leave it blank to keep all of it, which is your standing arrangement.'

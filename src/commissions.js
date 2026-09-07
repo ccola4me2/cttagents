@@ -13,7 +13,7 @@
 import { json, badRequest, oneOf, uid, now, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
-import { SPLIT_PCT_SQL, ADVISOR_SHARE_SQL } from './split.js';
+import { SPLIT_PCT_SQL, ADVISOR_SHARE_SQL, UNSPLIT_SQL } from './split.js';
 import { settlement, SETTLEMENT_STATES, COMMISSION_KINDS } from './reconcile.js';
 
 const STATUSES = ['pending', 'invoiced', 'paid'];
@@ -70,16 +70,19 @@ export async function handleListCommissions(request, env) {
             COALESCE((SELECT SUM(r.amount_cents) FROM commission_receipts r
                        WHERE r.booking_id = b.id AND r.kind = 'package'), 0) AS received_package_cents,
             COALESCE((SELECT SUM(r.amount_cents) FROM commission_receipts r
-                       WHERE r.booking_id = b.id AND r.kind = 'bonus'), 0) AS received_bonus_cents,
+                       WHERE r.booking_id = b.id AND r.kind IN ('bonus','bonus_shared')), 0)
+              AS received_bonus_cents,
             COALESCE((SELECT SUM(p.commission_cents) FROM booking_pricing p
                        WHERE p.booking_id = b.id AND p.commission_kind = 'base'), 0) AS expected_base_cents,
             COALESCE((SELECT SUM(p.commission_cents) FROM booking_pricing p
                        WHERE p.booking_id = b.id AND p.commission_kind = 'package'), 0) AS expected_package_cents,
             COALESCE((SELECT SUM(p.commission_cents) FROM booking_pricing p
-                       WHERE p.booking_id = b.id AND p.commission_kind = 'bonus'), 0) AS expected_bonus_cents,
+                       WHERE p.booking_id = b.id AND p.commission_kind IN ('bonus','bonus_shared')), 0)
+              AS expected_bonus_cents,
             (SELECT MAX(r.received_on) FROM commission_receipts r
               WHERE r.booking_id = b.id) AS last_received_on,
-            ${ADVISOR_SHARE_SQL('b.commission_cents', pct)} AS advisor_cents,
+            ${ADVISOR_SHARE_SQL('b.commission_cents', pct, UNSPLIT_SQL('b.id'))} AS advisor_cents,
+            ${UNSPLIT_SQL('b.id')} AS unsplit_cents,
             COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''), u.email)
               AS advisor_name
        FROM bookings b LEFT JOIN users u ON u.id = b.user_id

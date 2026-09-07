@@ -4188,6 +4188,78 @@ async function main() {
 
   // An owner reading the combined report sees both sides of the same money.
   await call(admin, 'PUT', `/api/admin/advisors/${advisorId}/split`, { defaultSplitPct: 50 });
+  // ------------------------------------------------- TC and bonus money -----
+  // A tour conductor credit is the advisor's in full. A casino deal is not,
+  // because running casino rates through the agency uses its licence. The two
+  // are the same money in the same box, and the only thing telling them apart
+  // is which row it was typed into, so this is worth pinning down.
+  {
+    const tc = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `TC ${stamp}`, supplier: 'Carnival Cruise Line', status: 'booked',
+      departDate: isoDay(80), returnDate: isoDay(87), gross: '2000',
+    });
+    const tcId = tc.data?.booking?.id;
+    if (tcId) cleanup('the TC reservation', () => call(advisor, 'DELETE', `/api/bookings/${tcId}`));
+    const rider = await call(advisor, 'POST', `/api/bookings/${tcId}/travellers`, { name: 'Ann Rider' });
+    const riderId = rider.data?.id || rider.data?.traveller?.id;
+
+    // $1,000 fare earning $200 base, plus a $300 TC credit and a $100 casino
+    // bonus. On a 50% agreement the advisor should keep half of the $300 that
+    // splits and all $300 of the TC: 150 + 300 = $450 of the $600 total.
+    await call(advisor, 'PUT', `/api/bookings/${tcId}/pricing`, {
+      cells: [{ kind: 'fare', travellerId: riderId, amount: '1000', commissionable: true }],
+      commissions: [
+        { travellerId: riderId, kind: 'base', amount: '200' },
+        { travellerId: riderId, kind: 'bonus', amount: '300' },
+        { travellerId: riderId, kind: 'bonus_shared', amount: '100' },
+      ],
+    });
+
+    const rec = await call(advisor, 'GET', `/api/bookings/${tcId}/record`);
+    const sp2 = rec.data?.split || {};
+    check(rec.data?.booking?.commission_cents === 60000,
+      'the three parts add up to one commission on the reservation',
+      rec.data?.booking?.commission_cents);
+    check(sp2.unsplitCents === 30000,
+      'the TC credit is the part the agency has no share of',
+      `${sp2.unsplitCents}`);
+    check(sp2.advisorCents === 45000,
+      'so on a half share the advisor keeps all the TC and half of the rest',
+      `${sp2.advisorCents}`);
+    check(sp2.advisorCents + sp2.agencyCents === 60000,
+      'and the two sides still add back up to the commission exactly',
+      `${sp2.advisorCents} + ${sp2.agencyCents}`);
+
+    // The same figure worked out by SQLite instead of JavaScript. This is the
+    // pair that would drift apart unnoticed, because they are read on
+    // different screens by different people.
+    const commTc = await call(advisor, 'GET', '/api/commissions');
+    const tcRow = (commTc.data?.rows || []).find((r) => r.id === tcId);
+    check(tcRow?.advisor_cents === sp2.advisorCents,
+      'the commission report agrees with the reservation to the cent',
+      `${tcRow?.advisor_cents} vs ${sp2.advisorCents}`);
+    check(tcRow?.expected_bonus_cents === 40000,
+      'and both bonus kinds are chased as one lot of bonus money',
+      `${tcRow?.expected_bonus_cents}`);
+
+    // The casino row on its own must behave like ordinary commission.
+    const casinoOnly = await call(advisor, 'PUT', `/api/bookings/${tcId}/pricing`, {
+      cells: [{ kind: 'fare', travellerId: riderId, amount: '1000', commissionable: true }],
+      commissions: [{ travellerId: riderId, kind: 'bonus_shared', amount: '400' }],
+    });
+    const casinoRec = await call(advisor, 'GET', `/api/bookings/${tcId}/record`);
+    check(casinoOnly.status === 200 && casinoRec.data?.split?.unsplitCents === 0
+      && casinoRec.data?.split?.advisorCents === 20000,
+      'a casino bonus on its own splits like anything else',
+      JSON.stringify(casinoRec.data?.split));
+
+    // A reservation with no breakdown has nowhere to say any of this, and must
+    // keep splitting the whole commission as it always did.
+    const plain = await call(advisor, 'GET', `/api/bookings/${halfId}/record`);
+    check(plain.data?.split?.unsplitCents === 0,
+      'a reservation with no pricing breakdown has no exempt part');
+  }
+
   const rep = await call(admin, 'GET', '/api/reports/production?months=12');
   const line = (rep.data?.byAdvisor || []).find((r) => r.user_id === advisorId);
   if (line) {

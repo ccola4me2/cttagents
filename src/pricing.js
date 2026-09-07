@@ -10,6 +10,7 @@
 import { json, badRequest, notFound, clean, oneOf, toCents, uid, now, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
+import { UNSPLIT_COMMISSION_KINDS } from './split.js';
 
 // Order is the order they appear on the screen. Whether each earns commission
 // by default is the industry norm, not a rule: any line can be flipped.
@@ -45,20 +46,28 @@ export const PRICE_KINDS = [
 // Which kinds come off the total. Read from the list above rather than named
 // twice, so adding a credit kind cannot leave it counting the wrong way.
 /**
- * The three parts a vendor pays commission in.
+ * The parts a vendor pays commission in.
  *
  * Base is the normal rate on the fare. Package is an override on an amenity or
- * a promotion, settled with the base or just after. Bonus is what a vendor
- * pays for hitting a target, and it lands a quarter later if it lands at all,
- * which is exactly why it cannot be one number with the rest.
+ * a promotion, settled with the base or just after. The last two are what a
+ * vendor pays for filling a group or hitting a target: a tour conductor credit
+ * or a bonus, landing a quarter later if it lands at all, which is exactly why
+ * they cannot be one number with the rest.
+ *
+ * The two bonus kinds are the same money and differ only in who ends up with
+ * it. A TC credit or a vendor bonus is the advisor's in full. A casino deal is
+ * split like anything else, because running casino rates through the agency
+ * uses its licence and its risk. `agencyShares` is read by nothing here: the
+ * arithmetic lives in split.js, and this says which is which for the screen.
  *
  * base leads because oneOf falls back to the first entry, and a commission
  * figure entered without saying which part it is has always meant the base.
  */
 export const COMMISSION_KINDS = [
-  { kind: 'base', label: 'Base' },
-  { kind: 'package', label: 'Package or override' },
-  { kind: 'bonus', label: 'Bonus' },
+  { kind: 'base', label: 'Base', agencyShares: true },
+  { kind: 'package', label: 'Package or override', agencyShares: true },
+  { kind: 'bonus', label: 'TC or bonus, yours in full', agencyShares: false },
+  { kind: 'bonus_shared', label: 'TC or bonus on a casino deal, split', agencyShares: true },
 ];
 
 export const COMMISSION_KIND_KEYS = COMMISSION_KINDS.map((k) => k.kind);
@@ -101,7 +110,7 @@ export function summarise(lines, vendorPct) {
 
   // The same total, broken into the parts a vendor pays it in, so a
   // reservation whose base has arrived and whose bonus has not can say so.
-  const byKind = { base: 0, package: 0, bonus: 0 };
+  const byKind = { base: 0, package: 0, bonus: 0, bonus_shared: 0 };
   for (const l of lines) {
     if (!l.commission_cents) continue;
     const k = byKind[l.commission_kind] === undefined ? 'base' : l.commission_kind;
@@ -114,6 +123,9 @@ export function summarise(lines, vendorPct) {
     commissionableCents: commissionable,
     commissionCents: commission,
     commissionByKind: byKind,
+    // The part of the commission the agency takes no share of, so the split
+    // shown on the reservation is the one that will actually be paid out.
+    unsplitCents: UNSPLIT_COMMISSION_KINDS.reduce((n, k) => n + (byKind[k] || 0), 0),
     expectedCents: expected,
     // The gap worth looking at. A vendor paying less than their own rate on
     // the commissionable part is the thing an agency never notices.

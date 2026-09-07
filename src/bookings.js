@@ -16,7 +16,7 @@ import { buildStatement, statementFingerprint } from './statement.js';
 import { resolveVendor } from './vendors.js';
 import { listTravellers, listAmenities, passportProblem } from './travellers.js';
 import { PAYMENT_TYPES, releaseCredit } from './payments.js';
-import { splitPct, shareOf } from './split.js';
+import { splitPct, shareOf, UNSPLIT_COMMISSION_KINDS } from './split.js';
 import { listOptions } from './options.js';
 import { listTiers, penaltyToday } from './penalties.js';
 import { listDocuments, docsReady, CATEGORIES as DOC_CATEGORIES } from './documents.js';
@@ -329,6 +329,11 @@ export async function handleBookingRecord(request, env, id) {
     // percentage with no money beside it is easy to get backwards.
     split: (() => {
       const pct = splitPct(booking.advisor_split_pct, booking.default_split_pct);
+      // A TC credit or a bonus is the advisor's in full, so it comes out of
+      // the sum before the percentage is applied and goes back on afterwards.
+      const unsplit = priceLines
+        .filter((l) => UNSPLIT_COMMISSION_KINDS.includes(l.commission_kind))
+        .reduce((n, l) => n + (l.commission_cents || 0), 0);
       return {
         pct,
         // Whether this trip carries its own figure or is following the
@@ -337,7 +342,7 @@ export async function handleBookingRecord(request, env, id) {
         overridden: booking.advisor_split_pct !== null && booking.advisor_split_pct !== undefined,
         defaultPct: booking.default_split_pct === null || booking.default_split_pct === undefined
           ? null : Number(booking.default_split_pct),
-        ...shareOf(booking.commission_cents, pct),
+        ...shareOf(booking.commission_cents, pct, unsplit),
       };
     })(),
     // Whether this reader may change any of it, so the page does not offer
