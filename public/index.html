@@ -21,16 +21,21 @@
   /* ---------- bar ---------- */
   .lp-bar {
     display: flex; align-items: center; justify-content: space-between;
-    gap: 1rem; padding: 1.4rem 0;
+    gap: 1rem; padding: 1.9rem 0 1.7rem;
   }
-  .lp-brand { display: flex; align-items: center; gap: .6rem; text-decoration: none; }
-  .lp-brand img { width: 34px; height: 34px; }
+  /* The lockup is the first thing on the page and the only thing carrying the
+     name, so it is set at a size that reads as a masthead rather than as a
+     link back to the top. The letter-spacing eases off as the type grows:
+     .24em is right at 15px and starts to fall apart above 19. */
+  .lp-brand { display: flex; align-items: center; gap: .85rem; text-decoration: none; }
+  .lp-brand img { width: 48px; height: 48px; flex: none; }
   .lp-brand b {
-    display: block; font-size: .95rem; font-weight: 700; letter-spacing: .24em;
-    text-transform: uppercase; color: var(--navy-800); line-height: 1.2;
+    display: block; font-size: 1.32rem; font-weight: 700; letter-spacing: .2em;
+    text-transform: uppercase; color: var(--navy-800); line-height: 1.15;
   }
   .lp-brand small {
-    display: block; font-size: .6rem; letter-spacing: .05em; color: var(--coral-400);
+    display: block; font-size: .78rem; letter-spacing: .02em; color: var(--coral-400);
+    margin-top: .12rem;
   }
   .lp-bar nav { display: flex; align-items: center; gap: .5rem; }
 
@@ -116,7 +121,12 @@
   .lp-foot a { color: var(--ink-500); }
 
   @media (max-width: 640px) {
-    .lp-bar { padding: 1.1rem 0; }
+    .lp-bar { padding: 1.3rem 0 1.1rem; }
+    /* Enough to still read as the masthead, small enough that the name and the
+       two buttons do not fight over one line. */
+    .lp-brand img { width: 40px; height: 40px; }
+    .lp-brand b { font-size: 1.08rem; letter-spacing: .18em; }
+    .lp-brand small { font-size: .68rem; }
     .lp-hero { padding: 2.4rem 0 2.8rem; }
     .lp-band { padding: 2.6rem 0; }
   }
