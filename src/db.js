@@ -1194,7 +1194,7 @@ export async function salesMix(env, scope, { from, to, includePersonal = false }
 
 const CLIENT_COLUMNS = `
   c.id, c.user_id, c.name, c.email, c.phone, c.notes, c.ghl_contact_id,
-  c.birthday, c.anniversary, c.pinned_at, c.created_at, c.updated_at
+  c.birthday, c.anniversary, c.household_id, c.pinned_at, c.created_at, c.updated_at
 `;
 
 /** The client record for a name, made if it is new. Null for a blank name. */
@@ -1255,7 +1255,8 @@ export async function listClients(env, scope, { query, pinnedOnly, limit } = {})
             (SELECT MAX(COALESCE(b.return_date, b.depart_date)) FROM bookings b
               WHERE b.client_id = c.id AND b.status IN ('booked','travelled')) AS last_date,
             (SELECT MIN(b.depart_date) FROM bookings b WHERE b.client_id = c.id
-              AND b.status IN ('quoted','booked') AND b.depart_date >= date('now')) AS next_date
+              AND b.status IN ('quoted','booked') AND b.depart_date >= date('now')) AS next_date,
+            (SELECT h.name FROM households h WHERE h.id = c.household_id) AS household_name
        FROM clients c
       WHERE ${where.join(' AND ')}
       ORDER BY c.pinned_at IS NULL ASC, c.pinned_at ASC, lifetime_cents DESC

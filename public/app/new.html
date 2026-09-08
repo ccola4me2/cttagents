@@ -134,6 +134,7 @@ document.getElementById('fields').innerHTML = [
   `<p class="field-hint" style="margin:-.2rem 0 .6rem;">Named here, they get a column each in
     the pricing grid, and their passports get checked against the return date. The client is
     filled in as the first traveller; change it if the person who booked is not going.</p>
+   <div id="household-offer"></div>
    <div id="traveller-rows"></div>
    <button class="btn btn-ghost btn-sm" type="button" id="add-traveller">Add another traveller</button>`,
 
@@ -287,6 +288,57 @@ function mirrorClientName() {
 // "Brent Beasley" from the list left the traveller reading "bre".
 form.elements.clientName.addEventListener('input', mirrorClientName);
 form.elements.clientName.addEventListener('change', mirrorClientName);
+
+/**
+ * The rest of the client's house, offered rather than typed.
+ *
+ * The second name on a leisure booking is nearly always somebody at the same
+ * address, and it is typed from memory every time, which is where "Jim Gallo"
+ * and "James Gallo" come from. Offered as buttons instead: one tap puts them
+ * in a traveller row.
+ *
+ * Asked for on change and not on every keystroke. The suggestion list sets the
+ * box in script and fires change, so choosing a client from it is exactly the
+ * moment there is a real name to look up.
+ */
+const houseOffer = document.getElementById('household-offer');
+let offered = new Set();
+
+async function offerHousehold() {
+  const name = form.elements.clientName.value.trim();
+  if (!name) { houseOffer.innerHTML = ''; return; }
+  let d;
+  try {
+    d = await api(`/api/households/travellers?name=${encodeURIComponent(name)}`);
+  } catch { houseOffer.innerHTML = ''; return; }
+
+  const left = (d.travellers || []).filter((t) => !offered.has(t.name));
+  if (!d.household || !left.length) { houseOffer.innerHTML = ''; return; }
+
+  houseOffer.innerHTML = `<div class="notice notice-info" style="margin:0 0 .7rem;">
+    <div style="margin-bottom:.5rem;">Also at <strong>${esc(d.household.name)}</strong>${
+    d.household.address ? '' : ''}. Add them to the trip?</div>
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap;">
+      ${left.map((t) => `<button type="button" class="btn btn-secondary btn-sm"
+        data-house="${esc(t.name)}">${esc(t.name)}</button>`).join('')}
+    </div></div>`;
+
+  houseOffer.querySelectorAll('[data-house]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const who = b.dataset.house;
+      offered.add(who);
+      // Into the first empty row if there is one, so picking two of them does
+      // not leave a blank row between them.
+      const empty = [...document.querySelectorAll('.traveller-name')]
+        .find((el) => !el.value.trim());
+      if (empty) empty.value = who;
+      else addTravellerRow(who);
+      offerHousehold();
+    });
+  });
+}
+
+form.elements.clientName.addEventListener('change', () => { offered = new Set(); offerHousehold(); });
 
 
 // Straight to the reservation, which is where the pricing, the travellers and

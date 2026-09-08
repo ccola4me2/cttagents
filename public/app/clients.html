@@ -24,6 +24,7 @@
         <label style="display:flex;align-items:center;gap:.4rem;font-weight:400;">
           <input type="checkbox" id="pinned-only" style="width:auto;"> Pinned only</label>
       </div>
+      <div id="picked"></div>
       <section class="card" id="panel"><p class="spinner">Loading clients...</p></section>
     </div>
   </div>
@@ -40,6 +41,52 @@ const pinnedOnly = document.getElementById('pinned-only');
 let timer = null;
 
 const short = (iso) => (iso ? dateFmt(iso).replace(/,? \d{4}$/, '') : '-');
+
+/**
+ * The people ticked, which survives a search.
+ *
+ * Two of a household are rarely next to each other in a nineteen thousand row
+ * list, so this has to hold across the searches it takes to find them both.
+ * Names are kept alongside the ids because the bar names who is picked, and a
+ * client filtered off the screen is no longer in the rows to look it up from.
+ */
+const picked = new Set();
+const pickedNames = new Map();
+const pickedBar = document.getElementById('picked');
+
+function drawPicked() {
+  if (picked.size === 0) { pickedBar.innerHTML = ''; return; }
+  const who = [...picked].map((id) => pickedNames.get(id) || 'somebody');
+  pickedBar.innerHTML = `<div class="notice notice-info call-undo">
+    <span><strong>${picked.size} chosen</strong> &middot; ${esc(who.join(', '))}${
+    picked.size < 2 ? ' &middot; pick one more to make a household' : ''}</span>
+    <span style="display:flex;gap:.4rem;">
+      ${picked.size >= 2
+    ? '<button class="btn btn-primary btn-sm" id="make-house">Make a household</button>' : ''}
+      <button class="btn btn-ghost btn-sm" id="clear-picked">Clear</button></span></div>`;
+
+  document.getElementById('clear-picked').addEventListener('click', () => {
+    picked.clear();
+    pickedNames.clear();
+    document.querySelectorAll('[data-pick]').forEach((b) => { b.checked = false; });
+    drawPicked();
+  });
+
+  const make = document.getElementById('make-house');
+  if (make) make.addEventListener('click', async () => {
+    make.disabled = true;
+    try {
+      const out = await api('/api/households',
+        { method: 'POST', body: { clientIds: [...picked] } });
+      picked.clear();
+      pickedNames.clear();
+      pickedBar.innerHTML = '';
+      err.innerHTML = `<div class="notice notice-ok">${esc(out.name)} &middot; ${
+        out.members} people now live together. Their address goes on the household.</div>`;
+      await load();
+    } catch (e) { make.disabled = false; showError(err, e); }
+  });
+}
 
 function render(d) {
   const s = d.stats;
@@ -63,9 +110,14 @@ function render(d) {
     ${d.truncated ? `<div class="notice notice-warn">Showing the first ${d.cap} only.
       Search to narrow it down; filtering what is on screen will not reach the rest.</div>` : ''}
     <div class="table-wrap"><table>
-    <thead><tr><th style="width:2rem;"></th><th>Client</th><th>Contact</th><th>Last trip</th>
+    <thead><tr><th style="width:2rem;"></th><th style="width:2rem;"></th>
+      <th>Client</th><th>Contact</th><th>Last trip</th>
       <th>Next trip</th><th class="num">Trips</th><th class="num">Lifetime</th></tr></thead>
     <tbody>${d.clients.map((c) => `<tr>
+      <td>${c.user_id === ME
+        ? `<input type="checkbox" class="pick" data-pick="${esc(c.id)}" style="width:auto;"
+             ${picked.has(c.id) ? 'checked' : ''}
+             aria-label="Choose ${esc(c.name)}">` : ''}</td>
       <td>${c.user_id === ME
         ? `<button type="button" class="pin${c.pinned_at ? ' on' : ''}" data-pin="${esc(c.id)}"
              aria-pressed="${Boolean(c.pinned_at)}" aria-label="${c.pinned_at ? 'Unpin' : 'Pin'} ${esc(c.name)}">
@@ -73,7 +125,9 @@ function render(d) {
                stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true">
                <path d="M9 3h6l-1 6 4 3v2H6v-2l4-3-1-6Zm3 11v7"/></svg></button>`
         : ''}</td>
-      <td><a class="name" href="/app/client?id=${esc(c.id)}">${esc(c.name)}</a></td>
+      <td><a class="name" href="/app/client?id=${esc(c.id)}">${esc(c.name)}</a>
+        ${c.household_name
+      ? `<div class="muted" style="font-size:.76rem;">${esc(c.household_name)}</div>` : ''}</td>
       <td>${[c.phone ? `<a href="tel:${esc(c.phone)}">${esc(c.phone)}</a>` : '',
              c.email ? `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>` : '']
             .filter(Boolean).join('<br>') || '<span class="muted">none on file</span>'}</td>
@@ -82,6 +136,20 @@ function render(d) {
       <td class="num">${c.trips}</td>
       <td class="num">${money(c.lifetime_cents)}</td>
     </tr>`).join('')}</tbody></table></div>`;
+
+  panel.querySelectorAll('[data-pick]').forEach((box) => {
+    box.addEventListener('change', () => {
+      const row = box.closest('tr');
+      if (box.checked) {
+        picked.add(box.dataset.pick);
+        pickedNames.set(box.dataset.pick, row.querySelector('.name').textContent.trim());
+      } else {
+        picked.delete(box.dataset.pick);
+        pickedNames.delete(box.dataset.pick);
+      }
+      drawPicked();
+    });
+  });
 
   panel.querySelectorAll('[data-pin]').forEach((btn) => {
     btn.addEventListener('click', async () => {

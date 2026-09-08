@@ -1647,6 +1647,116 @@ async function main() {
 
 
 
+
+  // ------------------------------------------------ people in one house -----
+  // A client record is one person and stays one. A household is the fact that
+  // two of those rows are married, which the portal had no way to know, so the
+  // second name on a leisure booking was typed from memory every time.
+  step('Two clients who live together');
+  {
+    const one = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Ada Fair${stamp}`, supplier: 'Princess',
+      departDate: isoDay(140), gross: '4000', status: 'booked',
+    });
+    const two = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Bram Fair${stamp}`, supplier: 'Princess',
+      departDate: isoDay(141), gross: '1000', status: 'booked',
+    });
+    const aId = one.data?.booking?.client_id;
+    const bId = two.data?.booking?.client_id;
+    if (one.data?.booking?.id) cleanup('the household reservation A',
+      () => call(advisor, 'DELETE', `/api/bookings/${one.data.booking.id}`));
+    if (two.data?.booking?.id) cleanup('the household reservation B',
+      () => call(advisor, 'DELETE', `/api/bookings/${two.data.booking.id}`));
+
+    const alone = await call(advisor, 'POST', '/api/households', { clientIds: [aId] });
+    check(alone.status === 400, 'one person is not a household', `status ${alone.status}`);
+
+    const made = await call(advisor, 'POST', '/api/households', { clientIds: [aId, bId] });
+    const houseId = made.data?.id;
+    if (houseId) cleanup('the household',
+      () => call(advisor, 'DELETE', `/api/households/${houseId}`));
+    check(made.status === 201 && houseId && made.data?.members === 2,
+      'two of them can be made one', JSON.stringify(made.data));
+    check(made.data?.name === `The Fair${stamp} household`,
+      'named from the surname they share', made.data?.name);
+
+    // Two surnames under one roof, which is the commoner case than anybody
+    // building this feature expects.
+    const mixedA = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Cara Vance${stamp}`, supplier: 'Princess',
+      departDate: isoDay(142), gross: '1000', status: 'booked',
+    });
+    const mixedB = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Dan Ridley${stamp}`, supplier: 'Princess',
+      departDate: isoDay(143), gross: '1000', status: 'booked',
+    });
+    for (const r of [mixedA, mixedB]) {
+      if (r.data?.booking?.id) cleanup('a mixed household reservation',
+        () => call(advisor, 'DELETE', `/api/bookings/${r.data.booking.id}`));
+    }
+    const mixed = await call(advisor, 'POST', '/api/households',
+      { clientIds: [mixedA.data?.booking?.client_id, mixedB.data?.booking?.client_id] });
+    if (mixed.data?.id) cleanup('the mixed household',
+      () => call(advisor, 'DELETE', `/api/households/${mixed.data.id}`));
+    check(mixed.data?.name === `Vance${stamp} & Ridley${stamp}`,
+      'two surnames are both kept rather than one being invented for them',
+      mixed.data?.name);
+
+    // Somebody else's client must not be draggable into your house.
+    const theirs = await call(admin, 'POST', '/api/households', { clientIds: [aId, bId] });
+    check(theirs.status === 400,
+      'and another advisor cannot make a household of your clients',
+      `status ${theirs.status}`);
+
+    const rec = await call(advisor, 'GET', `/api/client?id=${aId}`);
+    const h = rec.data?.household;
+    check(Boolean(h) && h.members.length === 2,
+      'the client record knows who else lives there', JSON.stringify(h && h.members.length));
+    check(h?.lifetimeCents === 500000,
+      'and what the house is worth together, not just this one',
+      `${h?.lifetimeCents}`);
+
+    // The address is typed once, on the house.
+    await call(advisor, 'PUT', `/api/households/${houseId}`, {
+      name: 'The Fixtures', address: '12 Harbour Row', phone: '409-555-0100',
+    });
+    const named = await call(advisor, 'GET', `/api/client?id=${bId}`);
+    check(named.data?.household?.name === 'The Fixtures'
+      && named.data?.household?.address === '12 Harbour Row',
+      'and both of them read the same address', named.data?.household?.address);
+
+    // The payoff: writing a reservation for one offers the other.
+    const offer = await call(advisor, 'GET',
+      `/api/households/travellers?client=${aId}`);
+    check(offer.data?.travellers?.length === 1
+      && offer.data.travellers[0].name === `Bram Fair${stamp}`,
+      'booking one of them offers the rest of the house as travellers',
+      JSON.stringify(offer.data?.travellers));
+    check(!offer.data.travellers.some((t) => t.clientId === aId),
+      'and never the person already on the booking');
+
+    const byName = await call(advisor, 'GET',
+      `/api/households/travellers?name=${encodeURIComponent(`Ada Fair${stamp}`)}`);
+    check(byName.data?.travellers?.length === 1,
+      'by name too, which is all the new reservation form has while it is typed');
+
+    const lonely = await call(advisor, 'GET',
+      `/api/households/travellers?name=${encodeURIComponent(`Priced ${stamp}`)}`);
+    check(lonely.status === 200 && lonely.data?.household === null
+      && (lonely.data?.travellers || []).length === 0,
+      'somebody in no household offers nobody, rather than failing');
+
+    // Moving out leaves them with everything they had, and one person left
+    // behind is not a household.
+    const out = await call(advisor, 'DELETE', `/api/households/${houseId}/members/${bId}`);
+    check(out.status === 200 && out.data?.dissolved === true,
+      'moving one out of a pair dissolves the household', JSON.stringify(out.data));
+    const after = await call(advisor, 'GET', `/api/client?id=${aId}`);
+    check(after.data?.household === null && after.data?.client?.trips === 1,
+      'and the one left keeps their own trips', JSON.stringify(after.data?.client?.trips));
+  }
+
   // --------------------------------------- the agency's way of working -----
   // Templates used to be one advisor's, so somebody joining booked their first
   // cruise and nothing happened. They work from memory and work differently,

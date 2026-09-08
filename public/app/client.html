@@ -26,6 +26,10 @@
         <div class="card-head"><h2>Contact</h2><span id="contact-actions"></span></div>
         <div class="card-pad" id="contact"></div>
       </section>
+      <section class="card" id="house-card" style="margin-top:1.5rem;" hidden>
+        <div class="card-head"><h2>Household</h2><span id="house-actions"></span></div>
+        <div class="card-pad" id="house"></div>
+      </section>
       <section id="stats" class="stat-grid" style="margin-top:1.5rem;"></section>
       <div class="split" style="margin-top:1.5rem;">
         <div>
@@ -54,6 +58,32 @@
   </div>
 </div>
 
+<dialog id="house-dlg">
+  <form id="house-form" method="dialog">
+    <div class="card-head"><h2>Household</h2>
+      <button class="btn btn-ghost btn-sm" type="button" id="house-close">Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" hidden></div>
+      <div class="field"><label for="h-name">Name</label>
+        <input id="h-name" name="name" maxlength="120" required>
+        <p class="field-hint">What you would write on a card to the house.</p></div>
+      <div class="field"><label for="h-address">Address</label>
+        <textarea id="h-address" name="address" maxlength="300"></textarea>
+        <p class="field-hint">Typed once here rather than on each of them, which is how the two
+          copies end up disagreeing.</p></div>
+      <div class="field"><label for="h-phone">Phone</label>
+        <input id="h-phone" name="phone" type="tel" maxlength="40">
+        <p class="field-hint">The number that reaches the house rather than a person.</p></div>
+      <div class="field"><label for="h-notes">Notes</label>
+        <textarea id="h-notes" name="notes" maxlength="2000"></textarea></div>
+    </div>
+    <div class="card-foot">
+      <button class="btn btn-danger btn-sm" type="button" id="house-break">Break it up</button>
+      <button class="btn btn-primary" type="submit">Save household</button>
+    </div>
+  </form>
+</dialog>
+
 <script type="module">
 import { api, mountShell, esc, money, dateFmt, daysUntil, showError, onSubmit } from '/js/app.js';
 await mountShell();
@@ -66,6 +96,105 @@ let editing = false;
 
 const short = (iso) => (iso ? dateFmt(iso) : '-');
 const STATUS_TONE = { quoted: 'badge-navy', booked: 'badge-green', travelled: 'badge-navy', cancelled: 'badge-red' };
+
+/**
+ * The rest of the house.
+ *
+ * The figure worth having is what they are worth together: one of them booked
+ * the cruise and the other has never booked anything, and read separately
+ * neither of them looks like much.
+ */
+function drawHousehold(d) {
+  const card = document.getElementById('house-card');
+  const h = d.household;
+  card.hidden = !h;
+  if (!h) return;
+
+  document.getElementById('house-actions').innerHTML = d.editable
+    ? `<button class="btn btn-ghost btn-sm" id="house-edit">Edit</button>` : '';
+
+  const others = h.members.filter((m) => m.id !== d.client.id);
+  document.getElementById('house').innerHTML = `
+    <div class="row-between" style="align-items:flex-start;gap:1rem;flex-wrap:wrap;">
+      <div>
+        <div class="t" style="font-weight:600;color:var(--navy-800);">${esc(h.name)}</div>
+        ${h.address ? `<div class="muted" style="font-size:.85rem;white-space:pre-wrap;">${
+    esc(h.address)}</div>` : ''}
+        ${h.phone ? `<div class="muted" style="font-size:.85rem;">
+          <a href="tel:${esc(String(h.phone).replace(/[^\d+]/g, ''))}">${esc(h.phone)}</a></div>` : ''}
+      </div>
+      <div style="text-align:right;">
+        <div style="font-weight:600;">${money(h.lifetimeCents)}</div>
+        <div class="muted" style="font-size:.78rem;">together, over ${h.trips} trip${
+    h.trips === 1 ? '' : 's'}</div>
+      </div>
+    </div>
+    ${others.length ? `<ul class="rows" style="margin-top:1rem;border-top:1px solid var(--navy-100);">
+      ${others.map((m) => `<li style="padding-left:0;padding-right:0;">
+        <div class="row-between">
+          <div><a class="name" href="/app/client?id=${esc(m.id)}">${esc(m.name)}</a>
+            <div class="muted" style="font-size:.78rem;">${
+    [m.phone, m.email].filter(Boolean).map(esc).join(' &middot; ') || 'no contact on file'}</div></div>
+          <div style="text-align:right;">
+            <div style="font-size:.85rem;">${money(m.lifetime_cents)}</div>
+            ${d.editable ? `<button class="btn btn-ghost btn-sm" data-move-out="${esc(m.id)}"
+              style="margin-top:.2rem;">Move out</button>` : ''}
+          </div>
+        </div></li>`).join('')}
+    </ul>` : '<p class="muted" style="margin:1rem 0 0;">Nobody else in it yet.</p>'}`;
+
+  document.querySelectorAll('[data-move-out]').forEach((b) => {
+    b.addEventListener('click', async () => {
+      if (!confirm('Move them out? Their trips and credits stay with them.')) return;
+      try {
+        const out = await api(
+          `/api/households/${encodeURIComponent(h.id)}/members/${encodeURIComponent(b.dataset.moveOut)}`,
+          { method: 'DELETE' });
+        if (out.dissolved) {
+          err.innerHTML = '<div class="notice notice-info">That left one person, so the '
+            + 'household was dissolved. Nothing else changed.</div>';
+        }
+        await load();
+      } catch (e) { showError(err, e); }
+    });
+  });
+
+  const edit = document.getElementById('house-edit');
+  if (edit) edit.addEventListener('click', () => openHouse(h));
+}
+
+const houseDlg = document.getElementById('house-dlg');
+const houseForm = document.getElementById('house-form');
+let houseId = null;
+
+function openHouse(h) {
+  houseId = h.id;
+  houseForm.reset();
+  houseForm.querySelector('.notice-error').hidden = true;
+  houseForm.elements.name.value = h.name || '';
+  houseForm.elements.address.value = h.address || '';
+  houseForm.elements.phone.value = h.phone || '';
+  houseForm.elements.notes.value = h.notes || '';
+  houseDlg.showModal();
+}
+
+document.getElementById('house-close').addEventListener('click', () => houseDlg.close());
+
+document.getElementById('house-break').addEventListener('click', async () => {
+  if (!houseId) return;
+  if (!confirm('Break up this household? Everybody in it keeps their own trips and credits.')) return;
+  try {
+    await api(`/api/households/${encodeURIComponent(houseId)}`, { method: 'DELETE' });
+    houseDlg.close();
+    await load();
+  } catch (e) { showError(err, e); }
+});
+
+onSubmit(houseForm, async (values) => {
+  await api(`/api/households/${encodeURIComponent(houseId)}`, { method: 'PUT', body: values });
+  houseDlg.close();
+  await load();
+});
 
 function render(d) {
   const c = d.client;
@@ -92,6 +221,7 @@ function render(d) {
   });
 
   drawContact(d);
+  drawHousehold(d);
 
   document.getElementById('stats').innerHTML = `
     <div class="stat"><p class="label">Lifetime value</p><p class="value">${money(c.lifetimeCents)}</p>

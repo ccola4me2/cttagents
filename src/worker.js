@@ -101,6 +101,10 @@ import {
   handleListAgencies, handleCreateAgency, handleUpdateAgency,
   handleSetAdvisorAgency, handleJoinInfo,
 } from './agencies.js';
+import {
+  handleListHouseholds, handleCreateHousehold, handleUpdateHousehold,
+  handleAddMember, handleRemoveMember, handleDeleteHousehold, handleHouseholdTravellers,
+} from './households.js';
 import { handleGetGoals, handleSaveGoals } from './goals.js';
 import { handleListCommissions, handleSetCommissionStatus } from './commissions.js';
 import {
@@ -358,6 +362,9 @@ async function routeApi(request, env, path, method) {
   const groupBookMatch = path.match(/^\/api\/groups\/registrations\/([^/]+)\/book$/);
   const creditMatch = path.match(/^\/api\/credits\/([^/]+)$/);
   const specialMatch = path.match(/^\/api\/specials\/([^/]+)$/);
+  const houseMatch = path.match(/^\/api\/households\/([^/]+)$/);
+  const houseMemberMatch = path.match(/^\/api\/households\/([^/]+)\/members$/);
+  const houseDropMatch = path.match(/^\/api\/households\/([^/]+)\/members\/([^/]+)$/);
   const agencyMatch = path.match(/^\/api\/agencies\/([^/]+)$/);
   const joinMatch = path.match(/^\/api\/join\/([^/]+)$/);
   const advisorAgencyMatch = path.match(/^\/api\/admin\/advisors\/([^/]+)\/agency$/);
@@ -587,6 +594,20 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/hotlists' && method === 'GET') return handleHotLists(request, env);
   if (path === '/api/hotlists/done' && method === 'POST') return handleHotListDone(request, env);
   if (path === '/api/hotlists/undo' && method === 'POST') return handleHotListUndo(request, env);
+
+  // People who live at the same address, kept together.
+  if (path === '/api/households' && method === 'GET') return handleListHouseholds(request, env);
+  if (path === '/api/households' && method === 'POST') return handleCreateHousehold(request, env);
+  // Before the single-segment match, which would otherwise swallow it.
+  if (path === '/api/households/travellers' && method === 'GET') {
+    return handleHouseholdTravellers(request, env);
+  }
+  if (houseMemberMatch && method === 'POST') return handleAddMember(request, env, houseMemberMatch[1]);
+  if (houseDropMatch && method === 'DELETE') {
+    return handleRemoveMember(request, env, houseDropMatch[1], houseDropMatch[2]);
+  }
+  if (houseMatch && method === 'PUT') return handleUpdateHousehold(request, env, houseMatch[1]);
+  if (houseMatch && method === 'DELETE') return handleDeleteHousehold(request, env, houseMatch[1]);
 
   // Deals worth telling people about, and when each one dies.
   if (path === '/api/specials' && method === 'GET') return handleListSpecials(request, env);
