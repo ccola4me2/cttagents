@@ -124,6 +124,10 @@ export const FIELD_CATALOGUE = [
       { key: 'destination', label: 'Where you want to go', type: 'text' },
       { key: 'travel_date', label: 'Roughly when', type: 'date' },
       { key: 'party_size', label: 'How many travelling', type: 'number' },
+      // Cabins, not people. A group is held in cabins and a block is sized in
+      // them, so eight travelling is four rooms or eight, and the difference
+      // is the whole booking.
+      { key: 'cabins_wanted', label: 'How many rooms or cabins', type: 'number' },
       { key: 'nights', label: 'How long', type: 'select',
         options: ['A long weekend', 'About a week', 'Ten days or so', 'Two weeks or more'] },
       { key: 'budget', label: 'Budget you are working to', type: 'select',
@@ -183,7 +187,41 @@ export const FIELD_CATALOGUE = [
     fields: [
       { key: 'email_opt_in', label: 'Yes, send me travel offers by email', type: 'checkbox' },
       { key: 'sms_opt_in', label: 'Yes, send me trip updates by text', type: 'checkbox' },
+      // Declined is a different fact from never asked, and the difference is
+      // the advisor's position if something goes wrong on the trip. Worth
+      // having on any form, not only the one built for it.
+      { key: 'insurance_choice', label: 'Travel insurance', type: 'select',
+        options: ['I would like a quote for travel insurance',
+                  'I decline travel insurance for this trip',
+                  'I already have my own cover'] },
+      { key: 'insurance_provider', label: 'If you have your own cover, who is it with',
+        type: 'text' },
       { key: 'notes', label: 'Anything else we should know', type: 'textarea' },
+    ],
+  },
+  {
+    // The half of the arc nothing else asks about. A trip that went well is
+    // worth a quote and a referral, and one that did not is worth hearing
+    // about from the client rather than reading in a review.
+    group: 'After the trip',
+    fields: [
+      { key: 'trip_rating', label: 'How was it overall', type: 'select',
+        options: ['Better than we hoped', 'Very good', 'Fine', 'Some problems', 'Poor'] },
+      { key: 'trip_highlight', label: 'What was the best part', type: 'textarea' },
+      { key: 'trip_problem', label: 'Anything that did not go to plan', type: 'textarea' },
+      // Asked outright rather than assumed. Quoting somebody without checking
+      // is how a nice note becomes a complaint.
+      { key: 'testimonial_ok', label: 'May we quote you on our website', type: 'checkbox' },
+      { key: 'next_trip', label: 'Where would you like to go next', type: 'text' },
+    ],
+  },
+  {
+    group: 'Referral',
+    fields: [
+      { key: 'referral_name', label: 'Their name', type: 'text' },
+      { key: 'referral_email', label: 'Their email', type: 'email' },
+      { key: 'referral_phone', label: 'Their phone', type: 'tel' },
+      { key: 'referral_warm', label: 'Have you told them to expect us', type: 'checkbox' },
     ],
   },
 ];
@@ -270,6 +308,114 @@ export const FORM_TEMPLATES = [
       { label: 'When', key: 'travel_date', type: 'date', required: false },
       { label: 'How many travelling', key: 'party_size', type: 'number', required: false },
       { label: 'Budget you are working to', key: 'budget', type: 'text', required: false },
+    ],
+  },
+  {
+    key: 'group_interest',
+    label: 'Group trip interest',
+    blurb: 'Collect names for a group before there is a sailing to point them at.',
+    headline: 'Put your name down',
+    description: 'No deposit and no commitment. We will send the details as soon as they are set.',
+    fields: [
+      ...REACH,
+      { label: 'How many in your party', key: 'party_size', type: 'number', required: false },
+      // Cabins, not people. A group is held in cabins and the block is sized
+      // in them, so "eight travelling" is four rooms or eight, and the
+      // difference is the whole booking.
+      { label: 'How many rooms or cabins', key: 'cabins_wanted', type: 'number', required: false },
+      { label: 'Which dates work', key: 'travel_date', type: 'date', required: false },
+      { label: 'Flying from', key: 'flying_from', type: 'text', required: false },
+      { label: 'Anything else we should know', key: 'notes', type: 'textarea', required: false },
+    ],
+  },
+  {
+    key: 'cruise_enquiry',
+    label: 'Cruise enquiry',
+    blurb: 'The things a cruise needs that a general enquiry does not ask for.',
+    headline: 'Tell us about the cruise',
+    description: 'A few details and we will come back with what is actually available.',
+    fields: [
+      ...REACH,
+      { label: 'Where you would like to sail', key: 'destination', type: 'text', required: false },
+      { label: 'Roughly when', key: 'travel_date', type: 'date', required: false },
+      { label: 'How many nights', key: 'nights', type: 'select', required: false,
+        options: ['3 to 5', '6 to 8', '9 to 12', 'Two weeks or more', 'Not sure yet'] },
+      { label: 'How many travelling', key: 'party_size', type: 'number', required: false },
+      { label: 'Kind of cabin', key: 'bed_preference', type: 'select', required: false,
+        options: ['Interior', 'Ocean view', 'Balcony', 'Suite', 'Whatever is best value'] },
+      // Past guest status is money: it is the difference between the fare on
+      // the website and the one the advisor can actually book.
+      { label: 'Past guest number, if you have one', key: 'loyalty_number', type: 'text',
+        required: false },
+      { label: 'Dining you prefer', key: 'dining_preference', type: 'select', required: false,
+        options: ['Early seating', 'Late seating', 'Anytime', 'No preference'] },
+      { label: 'Anything else', key: 'notes', type: 'textarea', required: false },
+    ],
+  },
+  {
+    key: 'insurance_choice',
+    label: 'Travel insurance, in writing',
+    blurb: 'Their answer recorded, whichever way it goes. This is the one you want on file.',
+    headline: 'Travel insurance',
+    description: 'We offer insurance on every trip. Whether you take it or not, we record what you '
+      + 'chose, so there is never a question later about what was offered.',
+    fields: [
+      ...REACH,
+      { label: 'Which trip is this about', key: 'destination', type: 'text', required: true },
+      { label: 'Departure date', key: 'travel_date', type: 'date', required: false },
+      // Both answers are recorded and neither is the default. Declined is a
+      // different fact from never asked, and the difference is the advisor's
+      // position if something goes wrong on the trip.
+      { label: 'Your decision', key: 'insurance_choice', type: 'select', required: true,
+        options: ['I would like a quote for travel insurance',
+          'I decline travel insurance for this trip',
+          'I already have my own cover'] },
+      { label: 'If you have your own, who is it with', key: 'insurance_provider', type: 'text',
+        required: false },
+      { label: 'Anything you want noted', key: 'notes', type: 'textarea', required: false },
+    ],
+  },
+  {
+    key: 'welcome_home',
+    label: 'How was the trip',
+    blurb: 'Sent after they land. The one moment they are most willing to say something nice.',
+    headline: 'Welcome home',
+    description: 'Two minutes on how it went. It tells us who to send where next time, and if '
+      + 'anything went wrong we would rather hear it from you than read it.',
+    fields: [
+      ...REACH,
+      { label: 'Where you have just been', key: 'destination', type: 'text', required: false },
+      { label: 'How was it overall', key: 'trip_rating', type: 'select', required: false,
+        options: ['Better than we hoped', 'Very good', 'Fine', 'Some problems', 'Poor'] },
+      { label: 'What was the best part', key: 'trip_highlight', type: 'textarea', required: false },
+      { label: 'Anything that did not go to plan', key: 'trip_problem', type: 'textarea',
+        required: false },
+      // Asked outright rather than assumed. Quoting somebody without checking
+      // is how a nice note becomes a complaint.
+      { label: 'May we quote you on our website', key: 'testimonial_ok', type: 'checkbox',
+        required: false },
+      { label: 'Where would you like to go next', key: 'next_trip', type: 'text', required: false },
+    ],
+  },
+  {
+    key: 'referral',
+    label: 'Refer a friend',
+    blurb: 'The cheapest lead there is, and the one nobody has a form for.',
+    headline: 'Who should we look after next',
+    description: 'Tell us who to speak to and we will take it from there. We will mention you '
+      + 'sent us, and we will not pester them.',
+    fields: [
+      { label: 'Your name', key: 'full_name', type: 'text', required: true },
+      { label: 'Your email', key: 'email', type: 'email', required: true },
+      { label: 'Their name', key: 'referral_name', type: 'text', required: true },
+      { label: 'Their email', key: 'referral_email', type: 'email', required: false },
+      { label: 'Their phone', key: 'referral_phone', type: 'tel', required: false },
+      // One of the two, or there is nobody to contact. Said on the form rather
+      // than enforced, because a required pair is not something a form builder
+      // this simple can express and a half-filled referral is still a name.
+      { label: 'What are they thinking about', key: 'notes', type: 'textarea', required: false },
+      { label: 'Have you told them to expect us', key: 'referral_warm', type: 'checkbox',
+        required: false },
     ],
   },
   {
