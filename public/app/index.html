@@ -931,10 +931,16 @@ try {
   // "we could not work out who to welcome home" are different facts.
   const err = document.getElementById('err');
   if (err && d.failed?.length) {
-    err.innerHTML = `<div class="notice notice-error">${d.failed.length} panel${
-      d.failed.length === 1 ? '' : 's'} could not be built, so ${
-      d.failed.length === 1 ? 'it is' : 'they are'} showing empty: ${
-      esc(d.failed.join(', '))}.</div>`;
+    const names = d.failed.map((f) => (typeof f === 'string' ? f : f.name));
+    // The reason, where the server worked one out. A missing column names the
+    // migration to run, which turns this from a mystery into an instruction.
+    const hints = [...new Set(d.failed
+      .map((f) => (typeof f === 'string' ? null : f.hint))
+      .filter(Boolean))];
+    err.innerHTML = `<div class="notice notice-error">
+      <div>${names.length} panel${names.length === 1 ? '' : 's'} could not be built, so ${
+  names.length === 1 ? 'it is' : 'they are'} showing empty: ${esc(names.join(', '))}.</div>
+      ${hints.map((h) => `<div style="margin-top:.4rem;">${esc(h)}</div>`).join('')}</div>`;
   }
 
   build();

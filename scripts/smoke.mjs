@@ -3238,7 +3238,14 @@ async function main() {
   check(Array.isArray(panelDash.data?.failed), 'the dashboard reports which panels it could not build',
     JSON.stringify(panelDash.data?.failed));
   check(panelDash.data.failed.length === 0, 'and on a working system that list is empty',
-    panelDash.data.failed.join(', '));
+    JSON.stringify(panelDash.data.failed));
+  // Entries are objects carrying the reason, not bare names. A panel that
+  // broke because a migration has not been run should say which one, the way
+  // every other page in the portal does; the dashboard used to log that to a
+  // console nobody reading the screen can see.
+  check(panelDash.data.failed.every((f) => f && typeof f === 'object' && typeof f.name === 'string'),
+    'and a failure names the panel and, where it can be worked out, the reason',
+    JSON.stringify(panelDash.data.failed));
   // An empty panel and a panel that could not load look identical on screen,
   // and the empty one reads as "nothing to do today".
   check('tasks' in panelDash.data && 'welcome' in panelDash.data && 'insurance' in panelDash.data,

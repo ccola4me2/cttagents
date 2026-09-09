@@ -12,6 +12,7 @@ import { listTasks } from './tasks.js';
 import { documentWatch, upcomingBirthdays } from './travellers.js';
 import { listGroups } from './groups.js';
 import { listCredits } from './credits.js';
+import { migrationHint } from './schema-drift.js';
 import { goalProgress } from './goals.js';
 import { BUCKETS } from './commissions.js';
 import * as ghl from './ghl.js';
@@ -30,12 +31,26 @@ function isoDay(offsetDays = 0) {
  * "nothing to do today". The names of the ones that failed go back with the
  * payload so the page can say so.
  */
+/**
+ * One panel, and what to say when it will not build.
+ *
+ * A panel that breaks leaves the rest of the dashboard standing, which is
+ * right: one bad query should not take down the screen somebody opens first
+ * thing every morning.
+ *
+ * What was wrong with it, though, is that the reason went to the console and
+ * the advisor got "could not be built". Every other page in the portal names
+ * the migration to run when a column is missing, because a correct query
+ * against a stale database looks exactly like a bug in the code. This one made
+ * the person holding the screen do that reasoning themselves.
+ */
 async function panel(failed, name, work, fallback) {
   try {
     return await work;
   } catch (e) {
     console.error('dashboard panel', name, e);
-    failed.push(name);
+    const hint = migrationHint(e && e.message);
+    failed.push(hint ? { name, hint } : { name });
     return fallback;
   }
 }
