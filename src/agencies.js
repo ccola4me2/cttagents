@@ -21,6 +21,7 @@
 import { json, badRequest, notFound, clean, cleanText, uid, now, readJson } from './util.js';
 import { requireAdmin } from './auth.js';
 import * as db from './db.js';
+import * as ghl from './ghl.js';
 import {
   AGENCY_COLUMNS as COLUMNS, HEX_COLOR as HEX, getAgency, getAgencyBySlug, brandOf,
 } from './brand.js';
@@ -203,6 +204,82 @@ export async function handleSetAdvisorAgency(request, env, userId) {
   await db.logActivity(env, user.id, 'admin.agency',
     `Moved ${target.email}`, { userId, agencyId });
   return json({ ok: true, user: await db.getUserById(env, userId) });
+}
+
+/**
+ * Whether the portal can make a sub-account, and what it could copy into one.
+ *
+ * Read only. Answered before anybody is asked to fill in a form, because the
+ * honest failure here is "your token is scoped to a sub-account and cannot
+ * create one", and that is worth knowing before a name is typed rather than
+ * after.
+ */
+export async function handleAgencyGhlStatus(request, env) {
+  const { user, response } = await requireAdmin(request, env);
+  if (response) return response;
+  if (!user.platform_owner) return json({ error: 'Only the portal owner can set agencies up.' }, 403);
+
+  const configured = ghl.agencyConfigured(env);
+  return json({
+    configured,
+    // Named individually so a half-finished setup says which half.
+    hasToken: Boolean(env.GHL_AGENCY_TOKEN),
+    hasCompanyId: Boolean(env.GHL_COMPANY_ID),
+    access: configured ? await ghl.probeAgencyAccess(env) : null,
+  });
+}
+
+/**
+ * Make the GoHighLevel sub-account for an agency that already exists here.
+ *
+ * Two steps rather than one, deliberately. The agency is a row in this portal
+ * whether or not it has a CRM behind it, and creating a location is the one
+ * action in this file that reaches outside and cannot be undone from here: a
+ * sub-account made by mistake is removed in GoHighLevel, not by deleting a row.
+ */
+export async function handleProvisionAgency(request, env, id) {
+  const { user, response } = await requireAdmin(request, env);
+  if (response) return response;
+  if (!user.platform_owner) return json({ error: 'Only the portal owner can set agencies up.' }, 403);
+  if (!ghl.agencyConfigured(env)) {
+    return json({ error: 'No agency access to Trip Vara Tools is set up yet.' }, 503);
+  }
+
+  const agency = await getAgency(env, id);
+  if (!agency) return notFound('Agency not found.');
+  // Refused rather than quietly making a second one. Two sub-accounts for one
+  // agency is a mess that takes longer to unpick than it takes to make.
+  if (agency.ghl_location_id) {
+    return badRequest('That agency already has a sub-account. Clear its location id first.');
+  }
+
+  const body = await readJson(request);
+  let made;
+  try {
+    made = await ghl.createLocation(env, {
+      name: agency.name,
+      snapshotId: clean(body.snapshotId, 64) || null,
+      address: agency.address || undefined,
+      phone: agency.phone || undefined,
+      email: agency.email || undefined,
+      website: agency.website || undefined,
+      country: clean(body.country, 2) || 'US',
+      timezone: clean(body.timezone, 64) || undefined,
+    });
+  } catch (e) {
+    return json({ error: String((e && e.message) || e), detail: e && e.detail }, 502);
+  }
+
+  // Written back immediately. A sub-account that exists and is not recorded
+  // here is the worst of both: it is real, it is billing, and nothing points
+  // at it.
+  await env.DB.prepare('UPDATE agencies SET ghl_location_id = ?, updated_at = ? WHERE id = ?')
+    .bind(made.id, now(), id).run();
+
+  await db.logActivity(env, user.id, 'agency.provision',
+    `Made the sub-account for ${agency.name}`, { id, locationId: made.id });
+
+  return json({ ok: true, locationId: made.id, agency: await getAgency(env, id) }, 201);
 }
 
 /** What a join page shows before anybody has typed anything. */

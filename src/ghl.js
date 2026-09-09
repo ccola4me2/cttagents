@@ -61,9 +61,24 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * that did not exist. Auth and validation failures are never retried, since
  * repeating them cannot change the answer.
  */
-async function request(env, path, { method = 'GET', query, body } = {}) {
-  if (!ghlConfigured(env)) {
-    throw new GhlError('Trip Vara Tools is not connected yet.', 503, { code: 'not_configured' });
+async function request(env, path, { method = 'GET', query, body, agency = false } = {}) {
+  // Two credentials, doing two different jobs.
+  //
+  // The everyday token is scoped to one sub-account: contacts, conversations,
+  // calendars, everything the portal reads all day. It cannot create a
+  // sub-account, and no scope on it ever will, because a sub-account token
+  // cannot see the level above itself.
+  //
+  // Creating a sub-account and stamping a snapshot onto it happens at the
+  // agency, so those calls carry the agency token instead. Kept apart on
+  // purpose: the agency token can create and delete locations, and handing
+  // that reach to every contact lookup would be careless.
+  const token = agency ? env.GHL_AGENCY_TOKEN : env.GHL_API_TOKEN;
+  if (!token) {
+    throw agency
+      ? new GhlError('No agency access to Trip Vara Tools is set up.', 503,
+        { code: 'no_agency_token' })
+      : new GhlError('Trip Vara Tools is not connected yet.', 503, { code: 'not_configured' });
   }
 
   const url = new URL(apiBase(env) + path);
@@ -79,7 +94,7 @@ async function request(env, path, { method = 'GET', query, body } = {}) {
       res = await fetch(url.toString(), {
         method,
         headers: {
-          Authorization: `Bearer ${env.GHL_API_TOKEN}`,
+          Authorization: `Bearer ${token}`,
           Version: env.GHL_API_VERSION || '2021-07-28',
           Accept: 'application/json',
           ...(body ? { 'Content-Type': 'application/json' } : {}),
@@ -1247,4 +1262,99 @@ export function ghlErrorResponse(e) {
     status,
     headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Agency level: creating a sub-account and stamping a snapshot onto it
+// ---------------------------------------------------------------------------
+//
+// Everything above this line runs against one sub-account. These do not: they
+// run against the agency that owns the sub-accounts, on a separate token, and
+// they are the only calls in the file that can bring a new location into
+// existence.
+//
+// A snapshot is GoHighLevel's own answer to "set the new one up like ours":
+// workflows, funnels, pipelines, custom fields, calendars, email templates and
+// forms, packaged at the agency and applied when a sub-account is made. That
+// is the mirror an agency wants on day one, and it is not something worth
+// rebuilding by walking the API object by object.
+
+export function agencyConfigured(env) {
+  return Boolean(env.GHL_AGENCY_TOKEN && env.GHL_COMPANY_ID);
+}
+
+/** The snapshots the agency has, to choose what a new sub-account starts as. */
+export async function listSnapshots(env) {
+  const data = await request(env, '/snapshots/', {
+    agency: true,
+    query: { companyId: env.GHL_COMPANY_ID },
+  });
+  const rows = data?.snapshots || data?.data || [];
+  return (Array.isArray(rows) ? rows : []).map((s) => ({
+    id: s.id || s._id,
+    name: s.name || 'Untitled snapshot',
+    type: s.type || null,
+  })).filter((s) => s.id);
+}
+
+/**
+ * Whether the agency credential actually reaches the agency.
+ *
+ * Read only, and it creates nothing. A token minted at the sub-account by
+ * mistake answers 401 or 403 here, which is the whole point: finding that out
+ * from a listing is better than finding it out halfway through making
+ * somebody's agency.
+ */
+export async function probeAgencyAccess(env) {
+  if (!env.GHL_AGENCY_TOKEN) return { ok: false, reason: 'No agency token set.' };
+  if (!env.GHL_COMPANY_ID) return { ok: false, reason: 'No company id set.' };
+  try {
+    const snapshots = await listSnapshots(env);
+    return { ok: true, snapshots: snapshots.length, names: snapshots.slice(0, 20) };
+  } catch (e) {
+    return {
+      ok: false,
+      reason: e instanceof GhlError ? e.message : String(e),
+      // 401 and 403 mean the token is not agency scoped, which is a different
+      // problem from the endpoint being unavailable, and the fix is different
+      // too. Kept rather than flattened.
+      httpStatus: e && e.httpStatus ? e.httpStatus : null,
+    };
+  }
+}
+
+/**
+ * Make a sub-account, optionally loaded from a snapshot.
+ *
+ * The address fields are not decoration: GoHighLevel refuses a location
+ * without a country, and several of the things a snapshot brings across, from
+ * calendars to invoice templates, read the timezone off the location rather
+ * than off whatever created it.
+ */
+export async function createLocation(env, {
+  name, snapshotId, address, city, state, postalCode, country = 'US',
+  timezone, website, phone, email, firstName, lastName,
+}) {
+  const body = {
+    name,
+    companyId: env.GHL_COMPANY_ID,
+    country,
+    ...(address ? { address } : {}),
+    ...(city ? { city } : {}),
+    ...(state ? { state } : {}),
+    ...(postalCode ? { postalCode } : {}),
+    ...(timezone ? { timezone } : {}),
+    ...(website ? { website } : {}),
+    ...(phone ? { phone } : {}),
+    ...(email ? { email } : {}),
+    ...(firstName ? { firstName } : {}),
+    ...(lastName ? { lastName } : {}),
+    ...(snapshotId ? { snapshot: { id: snapshotId, override: false } } : {}),
+  };
+  const data = await request(env, '/locations/', { method: 'POST', agency: true, body });
+  const id = data?.id || data?._id || data?.location?.id || data?.location?._id;
+  if (!id) {
+    throw new GhlError('Trip Vara Tools made the sub-account but did not say which.', 502, data);
+  }
+  return { id, raw: data };
 }

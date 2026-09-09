@@ -85,6 +85,11 @@ const dlg = document.getElementById('dlg');
 const form = document.getElementById('agency-form');
 let d = null;
 let editingId = null;
+// Whether the portal can reach the agency level at all. False leaves the
+// button off entirely rather than offering something that will fail: a
+// sub-account token cannot create a sub-account, and no scope on it ever will.
+let ghlReady = false;
+let snapshots = [];
 
 function draw() {
   document.getElementById('actions').innerHTML = d.platformOwner
@@ -122,6 +127,9 @@ function draw() {
             ${a.join_open
       ? `<a href="${esc(link)}" target="_blank" rel="noopener">${esc(link.replace(/^https?:\/\//, ''))}</a>`
       : '<span class="muted">join link is switched off</span>'}
+            ${a.ghl_location_id
+    ? '<span class="muted">CRM connected</span>'
+    : '<span class="muted">no CRM yet</span>'}
             ${a.brand_color ? `<span class="muted">
               <span style="display:inline-block;width:.7rem;height:.7rem;border-radius:3px;
                 vertical-align:-1px;background:${esc(a.brand_color)};"></span>
@@ -130,12 +138,17 @@ function draw() {
         </div>
         <div class="call-acts">
           ${a.join_open ? `<button class="btn btn-ghost btn-sm" data-copy="${esc(link)}">Copy link</button>` : ''}
+          ${!a.ghl_location_id && ghlReady
+    ? `<button class="btn btn-secondary btn-sm" data-make="${esc(a.id)}">Make their CRM</button>` : ''}
           <button class="btn btn-secondary btn-sm" data-edit="${esc(a.id)}">Edit</button>
         </div>
       </div>
     </li>`;
   }).join('')}</ul>`;
 
+  panel.querySelectorAll('[data-make]').forEach((b) => {
+    b.addEventListener('click', () => openProvision(d.agencies.find((a) => a.id === b.dataset.make)));
+  });
   panel.querySelectorAll('[data-edit]').forEach((b) => {
     b.addEventListener('click', () => openEdit(d.agencies.find((a) => a.id === b.dataset.edit)));
   });
@@ -181,9 +194,56 @@ onSubmit(form, async (values) => {
 
 document.getElementById('close').addEventListener('click', () => dlg.close());
 
+/**
+ * Make the sub-account for an agency that exists here but has no CRM yet.
+ *
+ * A snapshot is GoHighLevel's own way of saying "set this one up like that
+ * one": the workflows, funnels, pipelines and templates, packaged and stamped
+ * on at creation. Choosing none makes an empty sub-account, which is a real
+ * choice and not a mistake, so it is offered rather than prevented.
+ */
+async function openProvision(a) {
+  if (!a) return;
+  const names = snapshots.length
+    ? snapshots.map((s, i) => `${i + 1}. ${s.name}`).join('\n')
+    : '(none found on your account)';
+  const pick = prompt(
+    `Make the Trip Vara Tools sub-account for ${a.name}.\n\n`
+    + `Which snapshot should it start from?\n${names}\n\n`
+    + 'Enter a number, or leave blank for an empty sub-account.',
+    snapshots.length ? '1' : ''
+  );
+  if (pick === null) return;
+
+  const chosen = snapshots[Number(pick) - 1] || null;
+  const warn = chosen
+    ? `Create it and copy "${chosen.name}" into it?`
+    : 'Create it empty, with nothing copied in?';
+  // Confirmed because this reaches outside the portal and cannot be undone
+  // from here: a sub-account made by mistake is removed in GoHighLevel.
+  if (!confirm(`${warn}\n\nThis makes a real sub-account and cannot be undone here.`)) return;
+
+  try {
+    const out = await api(`/api/agencies/${encodeURIComponent(a.id)}/provision`,
+      { method: 'POST', body: { snapshotId: chosen ? chosen.id : null } });
+    document.getElementById('err').innerHTML = `<div class="notice notice-ok">
+      ${esc(a.name)} has its own sub-account${chosen ? `, set up from ${esc(chosen.name)}` : ''}.
+      Its location id is on the agency now.</div>`;
+    await load();
+    return out;
+  } catch (e) { showError(document.getElementById('err'), e); return null; }
+}
+
 async function load() {
   try {
     d = await api('/api/agencies');
+    // Best effort, and never fatal: the agencies screen is worth having
+    // whether or not the portal can make a CRM for one.
+    try {
+      const g = await api('/api/agencies/ghl');
+      ghlReady = Boolean(g.configured && g.access && g.access.ok);
+      snapshots = (g.access && g.access.names) || [];
+    } catch { ghlReady = false; snapshots = []; }
     document.getElementById('err').innerHTML = '';
     draw();
   } catch (e) { showError(panel, e); }

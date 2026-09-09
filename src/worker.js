@@ -100,6 +100,7 @@ import {
 } from './specials.js';
 import {
   handleListAgencies, handleCreateAgency, handleUpdateAgency,
+  handleAgencyGhlStatus, handleProvisionAgency,
   handleSetAdvisorAgency, handleJoinInfo,
 } from './agencies.js';
 import {
@@ -364,6 +365,7 @@ async function routeApi(request, env, path, method) {
   const creditMatch = path.match(/^\/api\/credits\/([^/]+)$/);
   const specialMatch = path.match(/^\/api\/specials\/([^/]+)$/);
   const myTplMatch = path.match(/^\/api\/form-templates\/([^/]+)$/);
+  const provisionMatch = path.match(/^\/api\/agencies\/([^/]+)\/provision$/);
   const houseMatch = path.match(/^\/api\/households\/([^/]+)$/);
   const houseMemberMatch = path.match(/^\/api\/households\/([^/]+)\/members$/);
   const houseDropMatch = path.match(/^\/api\/households\/([^/]+)\/members\/([^/]+)$/);
@@ -691,6 +693,12 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/admin/call-lists' && method === 'POST') return handleRunCallLists(request, env);
 
   // Agencies: who is on this portal, and what each of them looks like.
+  // Whether the portal can reach the agency level at all, and what it could
+  // copy. Before the single-segment match, which would otherwise swallow it.
+  if (path === '/api/agencies/ghl' && method === 'GET') return handleAgencyGhlStatus(request, env);
+  if (provisionMatch && method === 'POST') {
+    return handleProvisionAgency(request, env, provisionMatch[1]);
+  }
   if (path === '/api/agencies' && method === 'GET') return handleListAgencies(request, env);
   if (path === '/api/agencies' && method === 'POST') return handleCreateAgency(request, env);
   if (agencyMatch && method === 'PUT') return handleUpdateAgency(request, env, agencyMatch[1]);

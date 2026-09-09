@@ -1524,6 +1524,35 @@ async function main() {
   }
 
   // -------------------------------------------------- deals and their page --
+
+  // ------------------------------------- making an agency's CRM for them ----
+  // A sub-account cannot create a sub-account: that is the shape of
+  // GoHighLevel, not a scope anybody can grant. So this needs a second
+  // credential at the agency, and everything here has to behave sensibly when
+  // that credential is absent, which is the state on this machine and in CI.
+  const ghlState = await call(admin, 'GET', '/api/agencies/ghl');
+  check(ghlState.status === 200 && typeof ghlState.data?.configured === 'boolean',
+    'the portal says whether it can reach the agency level at all',
+    JSON.stringify(ghlState.data));
+  check(ghlState.data?.configured === false
+    ? (ghlState.data.hasToken === false || ghlState.data.hasCompanyId === false)
+    : true,
+    'and a half-finished setup names which half is missing');
+
+  const notOwner = await call(advisor, 'GET', '/api/agencies/ghl');
+  check(notOwner.status === 403,
+    'an agency owner cannot ask: only the portal owner sets agencies up',
+    `status ${notOwner.status}`);
+
+  if (!ghlState.data?.configured) {
+    const cannot = await call(admin, 'POST', '/api/agencies/agency-house/provision', {});
+    check(cannot.status === 503,
+      'and making a sub-account is refused outright rather than half attempted',
+      `status ${cannot.status}`);
+    check(/agency access/i.test(cannot.data?.error || ''),
+      'saying what is missing', cannot.data?.error);
+  }
+
   step('A special, its public page, and the enquiry it pulls');
   {
     const made = await call(advisor, 'POST', '/api/specials', {
