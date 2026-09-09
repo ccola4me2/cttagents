@@ -418,6 +418,62 @@ async function main() {
   check(strays.every((k) => ['wedding_date', 'sailing', 'sailed_before', 'best_time'].includes(k)),
     'and the templates draw their questions from it', `outside it: ${strays.join(', ')}`);
 
+  // ------------------------------------------------- an advisor's own -------
+  // The built-in ten cover what everybody meets. What they cannot cover is the
+  // form one advisor sends every week, in their wording and their order.
+  const savedTpl = await call(advisor, 'POST', '/api/form-templates', {
+    name: `My evening sheet ${stamp}`,
+    blurb: 'What I actually ask',
+    headline: 'Thanks for coming tonight',
+    submitLabel: 'Send it',
+    fields: [
+      { label: 'Your name', key: 'full_name', type: 'text', required: true },
+      { label: 'Email', key: 'email', type: 'email', required: true },
+      { label: 'Which sailing', key: 'sailing', type: 'text' },
+    ],
+  });
+  const tplId = savedTpl.data?.id;
+  if (tplId) cleanup('the advisor form template',
+    () => call(advisor, 'DELETE', `/api/form-templates/${tplId}`));
+  check(savedTpl.status === 201 && tplId, 'an advisor can keep a form of their own as a template',
+    JSON.stringify(savedTpl.data).slice(0, 120));
+
+  const tplNoFields = await call(advisor, 'POST', '/api/form-templates', { name: 'Nothing' });
+  check(tplNoFields.status === 400, 'a template with no questions is refused',
+    `status ${tplNoFields.status}`);
+
+  const withMine = await call(advisor, 'GET', '/api/myforms');
+  const mineList = withMine.data?.myTemplates || [];
+  const mineOne = mineList.find((t) => t.id === tplId);
+  check(Boolean(mineOne), 'and it arrives with the form list, so the picker needs one request');
+  check(mineOne?.key === `mine:${tplId}`,
+    'namespaced away from the built-in keys, which share the one dropdown',
+    mineOne?.key);
+  check(mineOne?.headline === 'Thanks for coming tonight' && mineOne?.submitLabel === 'Send it',
+    'carrying the wording, which is the part worth keeping');
+  check((withMine.data?.templates || []).every((t) => !t.mine),
+    'and the built-in ones are not marked as anybody’s own');
+
+  // A template is a starting point, not a parent.
+  const fromTpl = await call(advisor, 'POST', '/api/myforms', {
+    name: `Built from a template ${stamp}`,
+    headline: mineOne?.headline,
+    fields: mineOne?.fields || [],
+  });
+  if (fromTpl.data?.form?.id) cleanup('the form built from a template',
+    () => call(advisor, 'DELETE', `/api/myforms/${fromTpl.data.form.id}`));
+  check(fromTpl.status === 201 && (fromTpl.data?.form?.fields || []).length === 3,
+    'a form built from one keeps its questions', JSON.stringify(fromTpl.data?.form?.fields?.length));
+
+  // Somebody else's templates are not yours, even though the forms themselves
+  // are shared across everybody at one location.
+  const theirTpls = await call(admin, 'GET', '/api/form-templates');
+  check(!(theirTpls.data?.templates || []).some((t) => t.id === tplId),
+    'another advisor does not see it, though they share the forms themselves');
+  const theirEdit = await call(admin, 'PUT', `/api/form-templates/${tplId}`,
+    { name: 'Stolen', fields: [{ label: 'Email', key: 'email', type: 'email' }] });
+  check(theirEdit.status === 404, 'nor can they edit it', `status ${theirEdit.status}`);
+
   // A form that closes before it opens is a form nobody can fill in.
   const formBackwards = await call(advisor, 'POST', '/api/myforms', {
     name: `Backwards ${stamp}`, startsOn: isoDay(30), endsOn: isoDay(10),

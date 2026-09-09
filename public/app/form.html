@@ -51,6 +51,7 @@
       </div>
       <span class="toolbar" style="margin:0;padding:0;">
         <a class="btn btn-ghost btn-sm" id="view-live" target="_blank" rel="noopener" hidden>View it</a>
+        <button class="btn btn-ghost btn-sm" id="save-template">Save as template</button>
         <button class="btn btn-primary btn-sm" id="save">Save form</button>
       </span>
     </header>
@@ -65,6 +66,8 @@
                 <div class="field" id="template-field">
                   <label for="template">Start from</label>
                   <select id="template" name="template"></select>
+                  <button class="btn btn-ghost btn-sm" type="button" id="drop-template"
+                    style="margin-top:.5rem;" hidden>Remove this template</button>
                   <p class="field-hint">A set of questions that kind of form usually needs.
                     Everything can be changed afterwards.</p>
                 </div>
@@ -170,6 +173,25 @@ const catalogueEl = document.getElementById('catalogue');
 
 let catalogue = [];
 let templates = [];
+// The advisor's own, kept apart from the built-in ten so the picker can say
+// which is which and so a saved one can be removed without touching the rest.
+let mine = [];
+
+const option = (t) => `<option value="${esc(t.key)}">${esc(t.label)}${
+  t.blurb ? ` - ${esc(t.blurb)}` : ''}</option>`;
+
+function drawTemplatePicker() {
+  const sel = document.getElementById('template');
+  sel.innerHTML = `<option value="">A blank form</option>`
+    + (mine.length
+      ? `<optgroup label="My templates">${mine.map(option).join('')}</optgroup>` : '')
+    + `<optgroup label="Trip Vara templates">${templates.map(option).join('')}</optgroup>`;
+  // Removing one is on the picker rather than a screen of its own: it is the
+  // only place they are ever looked at.
+  const drop = document.getElementById('drop-template');
+  const chosenTpl = mine.find((t) => t.key === sel.value);
+  drop.hidden = !chosenTpl;
+}
 let chosen = [];          // the questions on the form, in order
 let dragKey = null;
 
@@ -290,14 +312,68 @@ document.getElementById('add-custom').addEventListener('click', () => {
 });
 
 document.getElementById('template').addEventListener('change', (e) => {
-  const t = templates.find((x) => x.key === e.target.value);
+  const t = [...mine, ...templates].find((x) => x.key === e.target.value);
+  document.getElementById('drop-template').hidden = !(t && t.mine);
   if (!t) return;
   const form = document.getElementById('builder');
   form.elements.name.value = t.label;
   form.elements.headline.value = t.headline;
   form.elements.description.value = t.description;
+  // Only the advisor's own carry these; a built-in leaves them at whatever the
+  // form already had, which for a new form is empty.
+  if (t.submitLabel) form.elements.submitLabel.value = t.submitLabel;
+  if (t.successMessage) form.elements.successMessage.value = t.successMessage;
   chosen = t.fields.map((f) => ({ ...f }));
   drawChosen(); drawCatalogue();
+});
+
+document.getElementById('drop-template').addEventListener('click', async () => {
+  const sel = document.getElementById('template');
+  const t = mine.find((x) => x.key === sel.value);
+  if (!t) return;
+  if (!confirm(`Remove the template "${t.label}"? Forms already built from it are untouched.`)) return;
+  try {
+    const d = await api(`/api/form-templates/${encodeURIComponent(t.id)}`, { method: 'DELETE' });
+    mine = d.templates || [];
+    sel.value = '';
+    drawTemplatePicker();
+    err.innerHTML = '<div class="notice notice-ok">Template removed.</div>';
+  } catch (e) { showError(err, e); }
+});
+
+/**
+ * Keep what is on screen as a starting point for next time.
+ *
+ * The questions and the wording, not the web address, the dates or whether it
+ * is accepting answers: those belong to one form at one show, and carrying
+ * them over is how a new form quietly arrives closed.
+ */
+document.getElementById('save-template').addEventListener('click', async () => {
+  const form = document.getElementById('builder');
+  if (!chosen.length) {
+    showError(err, new Error('Add a question or two before saving this as a template.'));
+    return;
+  }
+  const suggested = form.elements.name.value.trim() || 'My template';
+  const name = prompt('Name this template', suggested);
+  if (name === null) return;
+  try {
+    const d = await api('/api/form-templates', {
+      method: 'POST',
+      body: {
+        name,
+        headline: form.elements.headline.value,
+        description: form.elements.description.value,
+        submitLabel: form.elements.submitLabel.value,
+        successMessage: form.elements.successMessage.value,
+        fields: chosen,
+      },
+    });
+    mine = d.templates || [];
+    drawTemplatePicker();
+    err.innerHTML = `<div class="notice notice-ok">Saved as a template. It is in
+      <strong>Start from</strong> the next time you make a form.</div>`;
+  } catch (e) { showError(err, e); }
 });
 
 document.getElementById('save').addEventListener('click', async () => {
@@ -332,6 +408,7 @@ async function load() {
       const d = await api(`/api/myforms/${encodeURIComponent(id)}`);
       catalogue = d.catalogue || [];
       templates = d.templates || [];
+      mine = d.myTemplates || [];
       const form = document.getElementById('builder');
       const f = d.form;
       document.getElementById('crumb').textContent = f.name;
@@ -360,10 +437,10 @@ async function load() {
       const d = await api('/api/myforms');
       catalogue = d.catalogue || [];
       templates = d.templates || [];
+      mine = d.myTemplates || [];
     }
 
-    document.getElementById('template').innerHTML = `<option value="">A blank form</option>${
-      templates.map((t) => `<option value="${esc(t.key)}">${esc(t.label)} - ${esc(t.blurb)}</option>`).join('')}`;
+    drawTemplatePicker();
 
     drawCatalogue();
     drawChosen();

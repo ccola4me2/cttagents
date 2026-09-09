@@ -9,7 +9,7 @@
 // API was rate limiting would be much worse than a contact arriving late.
 
 import {
-  json, badRequest, notFound, forbidden, uid, now, clean, cleanDate, oneOf,
+  json, badRequest, notFound, forbidden, uid, now, clean, cleanText, cleanDate, oneOf,
   isValidEmail, normalizeEmail, readJson,
 } from './util.js';
 import { requireUser } from './auth.js';
@@ -439,6 +439,136 @@ export const FORM_TEMPLATES = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// An advisor's own templates
+// ---------------------------------------------------------------------------
+//
+// The built-in ten cover situations everybody meets. What they cannot cover is
+// the form one advisor sends every week, in their wording and their order.
+// Build it once, keep it, start the next one from it.
+
+const MY_TEMPLATE_COLUMNS = `id, user_id, name, blurb, headline, description,
+  submit_label, success_message, fields_json, created_at, updated_at`;
+
+/** Shaped exactly like a built-in, so the picker does not care which it has. */
+function hydrateTemplate(row) {
+  let fields = [];
+  try { fields = JSON.parse(row.fields_json); } catch { fields = []; }
+  return {
+    // Namespaced, because a built-in key and a row id share one dropdown and
+    // "quick" must never collide with somebody's own template.
+    key: `mine:${row.id}`,
+    id: row.id,
+    mine: true,
+    label: row.name,
+    blurb: row.blurb || '',
+    headline: row.headline || '',
+    description: row.description || '',
+    submitLabel: row.submit_label || '',
+    successMessage: row.success_message || '',
+    fields,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function listMyTemplates(env, userId) {
+  const { results } = await env.DB.prepare(
+    `SELECT ${MY_TEMPLATE_COLUMNS} FROM form_templates
+      WHERE user_id = ? ORDER BY name ASC LIMIT 100`
+  ).bind(userId).all().catch(() => ({ results: [] }));
+  return (results || []).map(hydrateTemplate);
+}
+
+export async function handleListMyTemplates(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  return json({ templates: await listMyTemplates(env, user.id) });
+}
+
+/**
+ * Keep a form as a starting point.
+ *
+ * Takes a form id and copies it, or takes the fields directly for a builder
+ * that has not been saved yet. Copied rather than referenced: editing the form
+ * afterwards must not quietly rewrite the template it came from, and deleting
+ * the form must not take the template with it.
+ */
+export async function handleSaveMyTemplate(request, env, id = null) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const body = await readJson(request);
+  let source = body;
+
+  if (body.fromForm) {
+    const row = await env.DB.prepare('SELECT * FROM forms WHERE id = ? AND location_id = ?')
+      .bind(clean(body.fromForm, 64), ghl.locationFor(env, user)).first();
+    if (!row) return notFound('Form not found.');
+    const form = hydrate(row);
+    source = {
+      name: body.name || form.name,
+      blurb: body.blurb,
+      headline: form.headline,
+      description: form.description,
+      submitLabel: form.submitLabel,
+      successMessage: form.successMessage,
+      fields: form.fields,
+    };
+  }
+
+  const name = clean(source.name, 120);
+  if (!name) return badRequest('Give the template a name.');
+
+  const fields = parseFields(source.fields);
+  if (!fields.length) return badRequest('A template with no questions is not a template.');
+
+  const ts = now();
+  if (id) {
+    const res = await env.DB.prepare(
+      `UPDATE form_templates SET name = ?, blurb = ?, headline = ?, description = ?,
+         submit_label = ?, success_message = ?, fields_json = ?, updated_at = ?
+       WHERE id = ? AND user_id = ?`
+    ).bind(name, cleanText(source.blurb, 200) || null, clean(source.headline, 160) || null,
+           cleanText(source.description, 1000) || null, clean(source.submitLabel, 40) || null,
+           cleanText(source.successMessage, 500) || null, JSON.stringify(fields), ts,
+           id, user.id).run();
+    if (!res.meta || res.meta.changes === 0) return notFound('Template not found.');
+    return json({ ok: true, templates: await listMyTemplates(env, user.id) });
+  }
+
+  const count = await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM form_templates WHERE user_id = ?'
+  ).bind(user.id).first();
+  if ((count?.n || 0) >= 40) {
+    return badRequest('Forty templates is plenty. Remove one rather than adding another.');
+  }
+
+  const newId = uid();
+  await env.DB.prepare(
+    `INSERT INTO form_templates (id, user_id, name, blurb, headline, description,
+       submit_label, success_message, fields_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(newId, user.id, name, cleanText(source.blurb, 200) || null,
+         clean(source.headline, 160) || null, cleanText(source.description, 1000) || null,
+         clean(source.submitLabel, 40) || null, cleanText(source.successMessage, 500) || null,
+         JSON.stringify(fields), ts, ts).run();
+
+  await db.logActivity(env, user.id, 'formTemplate.create', `Saved the template ${name}`,
+    { id: newId });
+  return json({ ok: true, id: newId, templates: await listMyTemplates(env, user.id) }, 201);
+}
+
+export async function handleDeleteMyTemplate(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  const res = await env.DB.prepare('DELETE FROM form_templates WHERE id = ? AND user_id = ?')
+    .bind(id, user.id).run();
+  if (!res.meta || res.meta.changes === 0) return notFound('Template not found.');
+  // The forms already built from it are untouched: a template is a starting
+  // point, not a parent.
+  return json({ ok: true, templates: await listMyTemplates(env, user.id) });
+}
+
 export async function handleListForms(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
@@ -454,6 +584,9 @@ export async function handleListForms(request, env) {
     // Sent with the list so the builder can offer a starting point without a
     // second round trip before anybody has typed anything.
     templates: FORM_TEMPLATES,
+    // The advisor's own, in the same payload and the same shape, so the
+    // picker offers both without a second round trip.
+    myTemplates: await listMyTemplates(env, user.id),
     catalogue: FIELD_CATALOGUE,
   });
 }

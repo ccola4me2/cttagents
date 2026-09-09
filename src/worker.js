@@ -64,6 +64,7 @@ import {
 import { handleCrmLinks } from './crm.js';
 import {
   handleListForms as handleListOwnForms, handleGetForm, handleSaveForm, handleDeleteForm,
+  handleListMyTemplates, handleSaveMyTemplate, handleDeleteMyTemplate,
   handleFormsReport, handleReservationFromLead,
 } from './formbuilder.js';
 import {
@@ -362,6 +363,7 @@ async function routeApi(request, env, path, method) {
   const groupBookMatch = path.match(/^\/api\/groups\/registrations\/([^/]+)\/book$/);
   const creditMatch = path.match(/^\/api\/credits\/([^/]+)$/);
   const specialMatch = path.match(/^\/api\/specials\/([^/]+)$/);
+  const myTplMatch = path.match(/^\/api\/form-templates\/([^/]+)$/);
   const houseMatch = path.match(/^\/api\/households\/([^/]+)$/);
   const houseMemberMatch = path.match(/^\/api\/households\/([^/]+)\/members$/);
   const houseDropMatch = path.match(/^\/api\/households\/([^/]+)\/members\/([^/]+)$/);
@@ -492,6 +494,12 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/crm/links' && method === 'GET') return handleCrmLinks(request, env);
 
   // Our own forms, built and hosted here.
+  // An advisor's own form templates.
+  if (path === '/api/form-templates' && method === 'GET') return handleListMyTemplates(request, env);
+  if (path === '/api/form-templates' && method === 'POST') return handleSaveMyTemplate(request, env, null);
+  if (myTplMatch && method === 'PUT') return handleSaveMyTemplate(request, env, myTplMatch[1]);
+  if (myTplMatch && method === 'DELETE') return handleDeleteMyTemplate(request, env, myTplMatch[1]);
+
   if (path === '/api/myforms' && method === 'GET') return handleListOwnForms(request, env);
   // Before the /:id match, or "report" is read as a form id.
   if (path === '/api/myforms/report' && method === 'GET') return handleFormsReport(request, env);
