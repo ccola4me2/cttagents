@@ -471,11 +471,21 @@ function hydrateTemplate(row) {
   };
 }
 
+/**
+ * Deliberately not wrapped in a catch.
+ *
+ * It was, and that made a missing table look like an advisor who had simply
+ * not saved any templates yet: the page loaded, My templates was absent rather
+ * than empty, and the only sign of trouble came later when Save as template
+ * failed. That is the same silent drift that emptied the dashboard's pinned
+ * panel, and swallowing a schema error to keep a picker tidy buys nothing when
+ * every properly migrated database has this table.
+ */
 export async function listMyTemplates(env, userId) {
   const { results } = await env.DB.prepare(
     `SELECT ${MY_TEMPLATE_COLUMNS} FROM form_templates
       WHERE user_id = ? ORDER BY name ASC LIMIT 100`
-  ).bind(userId).all().catch(() => ({ results: [] }));
+  ).bind(userId).all();
   return (results || []).map(hydrateTemplate);
 }
 
