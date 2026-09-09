@@ -110,6 +110,30 @@ input, select, textarea {
   width: 100%; font: inherit; color: var(--ink-900); background: #fff;
   border: 1px solid var(--navy-200); border-radius: 9px; padding: .55rem .7rem;
 }
+/* A date field is the same height as the box above it.
+   WebKit wraps the mm/dd/yyyy segments in a shadow element that carries its
+   own padding, on top of whatever the input is given. That made every date
+   input two pixels taller than every text input beside it: not enough to look
+   broken on its own, enough that a row of Opens and Closes sat proud of the
+   field above and the whole card looked slightly off. Zeroing the inner
+   padding leaves the outer padding to do the job on its own.
+
+   The picker button gets a little room and comes down off full black, which is
+   the one part of these fields the browser draws and the page does not. */
+input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+input[type="time"]::-webkit-datetime-edit-fields-wrapper,
+input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper {
+  padding: 0;
+}
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  margin-left: .35rem; opacity: .5; cursor: pointer;
+}
+input[type="date"]:hover::-webkit-calendar-picker-indicator,
+input[type="time"]:hover::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]:hover::-webkit-calendar-picker-indicator { opacity: .8; }
+
 /* A tick box is not a text field. The rule above stretched every radio and
    checkbox to the width of its container, which drew the dot in the middle of
    the row with its label stranded at the left edge. Places that noticed had
@@ -123,6 +147,13 @@ textarea { min-height: 90px; resize: vertical; }
 .field { margin-bottom: 1rem; }
 .field-hint { font-size: .78rem; color: var(--ink-400); margin-top: .3rem; }
 .field-row { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
+/* A grid item will not shrink below its own min-content width unless it is
+   told it may, and a date input's minimum is wide: the mm/dd/yyyy segments
+   plus the picker button the browser draws. In a narrow 1fr track that made
+   the second field hang past the edge of the card it lives in, clipped by
+   whatever came next. Every other field type shrinks happily, which is why
+   this only ever showed up on rows with a date in them. */
+.field-row > * { min-width: 0; }
 @media (max-width: 620px) { .field-row { grid-template-columns: 1fr; } }
 
 /* ---------------------------------------------------------------- cards -- */
