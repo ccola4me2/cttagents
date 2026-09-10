@@ -499,8 +499,12 @@ export async function getBooking(env, id, userId) {
  * skips rather than sitting behind the ordinary getBooking.
  */
 export async function getBookingUnscoped(env, id) {
+  // The LIMIT is not for the database, which is looking up a primary key. It
+  // makes this statement distinguishable from the scoped getBooking above,
+  // whose SQL this would otherwise be a prefix of, so the line excusing it in
+  // check-scope.mjs cannot silently excuse some future unscoped lookup too.
   return env.DB.prepare(
-    `SELECT ${BOOKING_COLUMNS} FROM bookings WHERE id = ?`
+    `SELECT ${BOOKING_COLUMNS} FROM bookings WHERE id = ? LIMIT 1`
   ).bind(id).first();
 }
 

@@ -128,6 +128,21 @@ const ALLOWED = [
     'a rate limit on a public page, counted for the group being signed up to; there is '
     + 'no session on that request and the owner comes from the group'],
   ['UPDATE travellers SET is_lead = 0', 'follows an ownership check on the traveller being promoted'],
+  // How a commission divides is the agency's decision, not the advisor's, so
+  // the two statements behind it reach a reservation that by definition
+  // belongs to somebody else. The fence is still there and is one step out:
+  // handleSetBookingSplit reads the booking, then runs the owner through
+  // reachable(), which is the same agency check the rest of admin.js uses, and
+  // answers "not found" rather than "not yours" when it fails. Scoping these
+  // to the caller would confine an owner to their own reservations, which is
+  // the one thing the endpoint exists not to do.
+  ['FROM bookings WHERE id = ? LIMIT 1',
+    'the admin path onto one reservation: the caller is put through reachable() '
+    + 'on the advisor who owns it before this runs. The LIMIT is what makes this '
+    + 'fragment distinct from the scoped lookup it would otherwise be a prefix of'],
+  ['UPDATE bookings SET advisor_split_pct = ?, lead_source = ?',
+    'the same, writing the two fields an owner may set; the booking was fetched and '
+    + 'its owner checked against the caller\'s agency first'],
   ['UPDATE bookings SET travellers =', 'called only after the booking was fetched for this user'],
   ['UPDATE bookings SET gross_cents', 'called only after the booking was fetched for this user'],
   ['SELECT COUNT(*) AS n FROM travellers', 'counts rows on a booking already resolved for this user'],
