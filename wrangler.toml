@@ -51,7 +51,15 @@ bucket_name = "cttagents-docs"
 # Non-secret config. Secrets (GHL_API_TOKEN, RESEND_API_KEY) are set in the
 # dashboard under Settings > Variables and Secrets. Never committed.
 [vars]
-APP_URL = "https://cttagents.com"
+# The host people are sent to from outside the portal: client trip pages,
+# quote and statement emails, public form and specials links, password resets.
+#
+# Pointed at workers.dev on purpose until cttagents.com is attached, because
+# that domain currently redirects to the main agency site, and a trip page
+# link that lands a client on cruisestoursandtravel.com is worse than one that
+# looks unpolished. workers.dev keeps answering after the domain is attached,
+# so links sent in the meantime do not break when this flips.
+APP_URL = "https://cttagents.brentbeasley2003.workers.dev"
 MAIL_FROM = "CTT Agent Portal <noreply@cttagents.com>"
 # Where operator notifications go (new advisor signups awaiting approval).
 NOTIFY_EMAIL = "brentb@cruisestoursandtravel.com"
