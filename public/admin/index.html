@@ -13,7 +13,7 @@
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main">
     <header class="topbar">
-      <div><h1>Advisors</h1><p class="sub">Approve access and bind advisors to a CTT Tools account.</p></div>
+      <div><h1>Advisors</h1><p class="sub">Add advisors, bind them to a CTT Tools account, and set what they keep.</p></div>
       <select id="filter" aria-label="Filter" style="width:auto;">
         <option value="">Everyone</option>
         <option value="pending">Pending approval</option>
@@ -39,6 +39,37 @@
           </div>
         </div>
         <div id="mail-body" class="card-pad"><p class="spinner">Loading...</p></div>
+      </section>
+      <section class="card" id="add">
+        <div class="card-head"><h2>Add an advisor</h2></div>
+        <div class="card-pad">
+          <p class="muted" style="margin:0 0 1rem;">Nobody signs themselves up. Create the account
+            here and send them the link it gives you, which lets them choose their own password.</p>
+          <form id="add-form" novalidate>
+            <div class="notice notice-error" id="add-err" hidden></div>
+            <div class="field-row">
+              <div class="field"><label for="firstName">First name</label>
+                <input id="firstName" name="firstName" required></div>
+              <div class="field"><label for="lastName">Last name</label>
+                <input id="lastName" name="lastName" required></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label for="email">Work email</label>
+                <input id="email" name="email" type="email" required></div>
+              <div class="field"><label for="phone">Phone <span class="muted">(optional)</span></label>
+                <input id="phone" name="phone"></div>
+            </div>
+            <div class="field" id="role-field" hidden>
+              <label for="role">Role</label>
+              <select id="role" name="role">
+                <option value="advisor">Advisor &mdash; their own book only</option>
+                <option value="admin">Administrator &mdash; sees every book in the agency</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" type="submit">Create account</button>
+          </form>
+          <div id="add-done" hidden></div>
+        </div>
       </section>
       <section id="stats" class="stat-grid"></section>
       <section class="card" id="panel"><p class="spinner">Loading advisors...</p></section>
@@ -127,7 +158,7 @@ function render(users, counts) {
   statsEl.innerHTML = `
     <div class="stat"><p class="label">Advisors</p><p class="value">${counts.total}</p>
       <p class="meta">All accounts</p></div>
-    <div class="stat"><p class="label">Awaiting approval</p><p class="value">${counts.pending}</p>
+    <div class="stat"><p class="label">Pending</p><p class="value">${counts.pending}</p>
       <p class="meta">Cannot sign in yet</p></div>
     <div class="stat"><p class="label">Active</p><p class="value">${counts.active}</p>
       <p class="meta">Have portal access</p></div>`;
@@ -159,9 +190,29 @@ function render(users, counts) {
         ${u.approvedAt ? `<div class="muted" style="font-size:.72rem;">approved ${
           esc(timeAgo(u.approvedAt))}</div>` : ''}</td>
       <td class="num">
-        ${u.status !== 'active' ? `<button class="btn btn-primary btn-sm" data-set="active" data-id="${esc(u.id)}">Approve</button>` : ''}
+        ${u.status !== 'active' ? `<button class="btn btn-primary btn-sm" data-set="active" data-id="${esc(u.id)}">Activate</button>` : ''}
+        <button class="btn btn-ghost btn-sm" data-invite="${esc(u.id)}">New link</button>
         ${u.status === 'active' ? `<button class="btn btn-danger btn-sm" data-set="suspended" data-id="${esc(u.id)}">Suspend</button>` : ''}
       </td></tr>`).join('')}</tbody></table></div>`;
+
+  // For the advisor who never got their invite, or let it run out. Issuing a
+  // new one silently retires nothing: the old link keeps working until it
+  // expires, so sending two is confusing rather than dangerous.
+  panel.querySelectorAll('[data-invite]').forEach((btn) => btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    const was = btn.textContent;
+    btn.textContent = 'Making...';
+    try {
+      const d = await api(`/api/admin/advisors/${encodeURIComponent(btn.dataset.invite)}/invite`,
+        { method: 'POST', body: {} });
+      const row = users.find((x) => x.id === btn.dataset.invite) || {};
+      addDone.innerHTML = invitePanel(row, d.invite);
+      addDone.hidden = false;
+      wireCopy();
+      addDone.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch (err) { alert(err.message); }
+    finally { btn.disabled = false; btn.textContent = was; }
+  }));
 
   panel.querySelectorAll('[data-set]').forEach((btn) => btn.addEventListener('click', async () => {
     btn.disabled = true;
@@ -205,6 +256,11 @@ async function load() {
     const q = filter.value ? `?status=${filter.value}` : '';
     const data = await api(`/api/admin/advisors${q}`);
     render(data.users, data.counts);
+    // Handing out the role that sees every book in the agency is the portal
+    // owner's call, not an agency owner's, so the choice only appears for one
+    // of them. The server refuses it either way; this stops the other from
+    // being offered something they cannot have.
+    document.getElementById('role-field').hidden = !data.platformOwner;
   } catch (err) { showError(panel, err); }
 }
 // --- CRM sync -------------------------------------------------------------
@@ -272,6 +328,71 @@ document.getElementById('sync-full').addEventListener('click', async (e) => {
   } finally {
     btn.disabled = false;
     btn.textContent = 'Full resync';
+  }
+});
+
+// ----------------------------------------------------------------- add
+// The invite link is shown rather than only emailed. Email is best effort and
+// does nothing at all until Resend is configured, so a link that exists only
+// in a message nobody received would strand the advisor and leave the admin
+// with nothing to hand them.
+const addForm = document.getElementById('add-form');
+const addErr = document.getElementById('add-err');
+const addDone = document.getElementById('add-done');
+
+function invitePanel(user, invite) {
+  const warn = invite.emailed
+    ? `<p class="muted" style="margin:.4rem 0 0;">Also emailed to ${esc(user.email)}.</p>`
+    : `<p class="muted" style="margin:.4rem 0 0;">Email is not set up yet, so nothing was sent.
+       Send them this link yourself.</p>`;
+  return `<div class="notice notice-ok" style="margin-top:1rem;">
+      <p style="margin:0 0 .5rem;"><strong>${esc(user.firstName || '')} ${esc(user.lastName || '')}</strong>
+        can now set a password. The link works once and expires in ${invite.expiresInDays} days.</p>
+      <div class="toolbar" style="margin:0 0 .5rem;">
+        <input readonly id="invite-url" value="${esc(invite.url)}" style="flex:1;min-width:16rem;">
+        <button class="btn btn-ghost btn-sm" type="button" id="invite-copy">Copy link</button>
+      </div>${warn}
+    </div>`;
+}
+
+function wireCopy() {
+  const btn = document.getElementById('invite-copy');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const box = document.getElementById('invite-url');
+    box.select();
+    try {
+      await navigator.clipboard.writeText(box.value);
+      btn.textContent = 'Copied';
+      setTimeout(() => { btn.textContent = 'Copy link'; }, 1500);
+    } catch {
+      // Clipboard access is refused often enough that the selection above has
+      // to be the fallback rather than an error nobody can act on.
+      btn.textContent = 'Press Cmd+C';
+    }
+  });
+}
+
+addForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  addErr.hidden = true;
+  const btn = addForm.querySelector('button[type=submit]');
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+  try {
+    const values = Object.fromEntries(new FormData(addForm).entries());
+    const d = await api('/api/admin/advisors', { method: 'POST', body: values });
+    addDone.innerHTML = invitePanel(d.user, d.invite);
+    addDone.hidden = false;
+    wireCopy();
+    addForm.reset();
+    await load();
+  } catch (err) {
+    addErr.textContent = err.message || 'Could not create that account.';
+    addErr.hidden = false;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create account';
   }
 });
 

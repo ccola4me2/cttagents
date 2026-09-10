@@ -9,7 +9,7 @@
 
 import { redirect, notFound, json } from './util.js';
 import {
-  handleSignup, handleLogin, handleLogout, handleMe,
+  handleLogin, handleLogout, handleMe,
   handleForgot, handleReset, handleChangePassword, handleUpdateProfile,
   getCurrentUser, isAdmin,
 } from './auth.js';
@@ -101,7 +101,7 @@ import {
 import {
   handleListAgencies, handleCreateAgency, handleUpdateAgency,
   handleAgencyGhlStatus, handleProvisionAgency,
-  handleSetAdvisorAgency, handleJoinInfo,
+  handleSetAdvisorAgency,
 } from './agencies.js';
 import {
   handleListHouseholds, handleCreateHousehold, handleUpdateHousehold,
@@ -145,6 +145,7 @@ import {
 import { handleDashboard, handleProduction, handleMonth } from './reports.js';
 import {
   handleListAdvisors, handleSetAdvisorStatus, handleSetAdvisorGhl, handleSetAdvisorSplit,
+  handleCreateAdvisor, handleReissueInvite,
   handleRunLifecycle,
   handleHealth, handleTestEmail, handleRunTaskReminders, handleRunPaymentReminders,
   handleRunCallLists, handleMirrorCatalog, handleMirrorStatus,
@@ -158,18 +159,15 @@ import { locationFor } from './ghl.js';
 const PUBLIC_PAGES = new Set([
   '/', '/index.html',
   '/login', '/login.html',
-  '/signup', '/signup.html',
   '/forgot-password', '/forgot-password.html',
   '/reset-password', '/reset-password.html',
   '/pending', '/pending.html',
-  '/join', '/join.html',
 ]);
 
 // Extension-less page paths mapped to the file that serves them.
 const PAGE_FILES = {
   '/': '/index.html',
   '/login': '/login.html',
-  '/signup': '/signup.html',
   '/forgot-password': '/forgot-password.html',
   '/reset-password': '/reset-password.html',
   '/pending': '/pending.html',
@@ -195,7 +193,6 @@ const PAGE_FILES = {
   '/app/groups': '/app/groups.html',
   '/app/credits': '/app/credits.html',
   '/app/hotlists': '/app/hotlists.html',
-  '/join': '/join.html',
   '/admin/agencies': '/admin/agencies.html',
   '/app/specials': '/app/specials.html',
   '/app/special': '/app/special.html',
@@ -353,7 +350,7 @@ async function routeApi(request, env, path, method) {
   const payRemindMatch = path.match(/^\/api\/payments\/([^/]+)\/remind$/);
   const scheduleMatch = path.match(/^\/api\/bookings\/([^/]+)\/schedule$/);
   const bookingStatusMatch = path.match(/^\/api\/bookings\/([^/]+)\/status$/);
-  const advisorMatch = path.match(/^\/api\/admin\/advisors\/([^/]+)\/(status|ghl|split)$/);
+  const advisorMatch = path.match(/^\/api\/admin\/advisors\/([^/]+)\/(status|ghl|split|invite)$/);
   const myTaskMatch = path.match(/^\/api\/tasks\/([^/]+)$/);
   // Checklist steps hang off a task; the steps themselves are addressed by
   // their own id, so ticking one off does not need to name its task twice.
@@ -370,7 +367,6 @@ async function routeApi(request, env, path, method) {
   const houseMemberMatch = path.match(/^\/api\/households\/([^/]+)\/members$/);
   const houseDropMatch = path.match(/^\/api\/households\/([^/]+)\/members\/([^/]+)$/);
   const agencyMatch = path.match(/^\/api\/agencies\/([^/]+)$/);
-  const joinMatch = path.match(/^\/api\/join\/([^/]+)$/);
   const advisorAgencyMatch = path.match(/^\/api\/admin\/advisors\/([^/]+)\/agency$/);
   const enquiryBookMatch = path.match(/^\/api\/specials\/enquiries\/([^/]+)\/book$/);
   const enquiryMatch = path.match(/^\/api\/specials\/enquiries\/([^/]+)$/);
@@ -382,7 +378,6 @@ async function routeApi(request, env, path, method) {
   const vendorStarMatch = path.match(/^\/api\/vendors\/([^/]+)\/favourite$/);
 
   // ---- auth -------------------------------------------------------------
-  if (path === '/api/auth/signup' && method === 'POST') return handleSignup(request, env);
   if (path === '/api/auth/login' && method === 'POST') return handleLogin(request, env);
   if (path === '/api/auth/logout' && method === 'POST') return handleLogout(request, env);
   if (path === '/api/auth/me' && method === 'GET') return handleMe(request, env);
@@ -705,22 +700,25 @@ async function routeApi(request, env, path, method) {
   if (advisorAgencyMatch && method === 'PUT') {
     return handleSetAdvisorAgency(request, env, advisorAgencyMatch[1]);
   }
-  // What a join link shows before anybody has typed anything. No session,
-  // because the whole point of the link is that whoever follows it has no
-  // account yet. It answers with the agency's name and colours and nothing
-  // else, so having the link tells you only what the page has to display.
-  if (joinMatch && method === 'GET') {
-    return handleJoinInfo(request, env, decodeURIComponent(joinMatch[1]));
-  }
   if (path === '/api/admin/sync' && method === 'GET') return handleSyncStatus(request, env);
   if (path === '/api/admin/sync' && method === 'POST') return handleRunSync(request, env);
   if (path === '/api/admin/lifecycle' && method === 'POST') return handleRunLifecycle(request, env);
   if (path === '/api/admin/advisors' && method === 'GET') return handleListAdvisors(request, env);
+  // The only way an account comes into being. Nobody signs themselves up.
+  if (path === '/api/admin/advisors' && method === 'POST') return handleCreateAdvisor(request, env);
+  // A fresh set-password link. POST rather than PUT: each call mints a new
+  // token rather than editing something that already exists.
+  if (advisorMatch && advisorMatch[2] === 'invite' && method === 'POST') {
+    return handleReissueInvite(request, env, decodeURIComponent(advisorMatch[1]));
+  }
+
   if (advisorMatch && method === 'PUT') {
     const id = decodeURIComponent(advisorMatch[1]);
     if (advisorMatch[2] === 'status') return handleSetAdvisorStatus(request, env, id);
     if (advisorMatch[2] === 'split') return handleSetAdvisorSplit(request, env, id);
-    return handleSetAdvisorGhl(request, env, id);
+    // Named rather than trailing, so PUT .../invite falls through to a 404
+    // instead of being quietly treated as a GoHighLevel change.
+    if (advisorMatch[2] === 'ghl') return handleSetAdvisorGhl(request, env, id);
   }
 
   return notFound('No such endpoint.');
@@ -761,8 +759,6 @@ async function routePage(request, env, path) {
       : renderGroupPage(request, env, code);
   }
 
-  const joinPage = path.match(/^\/join\/([^/]+)\/?$/);
-  if (joinPage) return env.ASSETS.fetch(new Request(new URL('/join.html', request.url), request));
 
   // A deal's own page, public because it is what gets posted and emailed.
   const specialPage = path.match(/^\/s\/([^/]+)\/?$/);

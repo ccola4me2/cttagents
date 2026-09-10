@@ -189,6 +189,30 @@ export function sendAdvisorApprovedEmail(env, user) {
   });
 }
 
+/**
+ * The one email a new advisor gets: a link to choose their own password.
+ *
+ * The link is passed in rather than built here, because the admin who created
+ * the account may be on cttagents.brentbeasley2003.workers.dev while APP_URL
+ * still says cttagents.com. A welcome that lands on a host the portal does not
+ * answer on is worse than no welcome at all.
+ */
+export function sendAdvisorInviteEmail(env, user, inviteUrl, days) {
+  return send(env, {
+    to: user.email,
+    subject: 'Your Cruises Tours & Travel advisor account',
+    html: layout(env, {
+      heading: 'Choose your password',
+      body: `<p style="margin:0 0 12px;">Hi ${escapeHtml(user.first_name || 'there')},</p>
+             <p style="margin:0 0 12px;">An account has been set up for you on the Cruises Tours &amp;
+             Travel advisor portal. Use the button below to choose a password, and you are in.</p>
+             <p style="margin:0;">The link works once and expires in ${Number(days) || 7} days. If it
+             runs out, ask the office to send you another.</p>`,
+      cta: { label: 'Choose your password', href: inviteUrl },
+    }),
+  });
+}
+
 export function sendAdminNewSignupEmail(env, user) {
   const to = env.NOTIFY_EMAIL;
   if (!to) return Promise.resolve({ skipped: true });

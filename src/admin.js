@@ -1,12 +1,16 @@
 // Admin: approve advisor accounts, bind them to a GoHighLevel sub-account,
 // and suspend access.
 
-import { json, badRequest, notFound, clean, readJson } from './util.js';
+import {
+  json, badRequest, notFound, clean, readJson,
+  isValidEmail, normalizeEmail, randomToken, sha256Hex, hashPassword,
+} from './util.js';
 import * as ghl from './ghl.js';
 import { listSyncState, runSync, resetSync } from './sync.js';
 import { requireAdmin, publicUser } from './auth.js';
 import * as db from './db.js';
-import { sendAdvisorApprovedEmail, checkResend, sendTestEmail } from './email.js';
+import { getAgency } from './brand.js';
+import { sendAdvisorApprovedEmail, sendAdvisorInviteEmail, checkResend, sendTestEmail } from './email.js';
 import { remindTasks } from './taskmail.js';
 import { remindDuePayments } from './payremind.js';
 import { sendCallLists } from './calllist.js';
@@ -61,6 +65,120 @@ async function agencyNames(env) {
     'SELECT id, name FROM agencies ORDER BY name ASC LIMIT 200'
   ).all().catch(() => ({ results: [] }));
   return results || [];
+}
+
+/** How long a new advisor has to choose a password before the link dies. */
+const INVITE_TTL_DAYS = 7;
+
+/**
+ * Where an invite link should point.
+ *
+ * The host the admin is actually using, not APP_URL. The two disagree
+ * whenever the custom domain is not attached yet, and a welcome link on a
+ * hostname the portal does not answer on is worse than no link at all.
+ */
+function inviteBase(env, request) {
+  try {
+    return new URL(request.url).origin;
+  } catch {
+    return String(env.APP_URL || '').replace(/\/$/, '');
+  }
+}
+
+/**
+ * A one-time link that lets somebody set the password on their own account.
+ *
+ * Deliberately the same machinery as a password reset: one table, one expiry
+ * rule, one consume-once path already used in anger. An invite is not a
+ * different idea, it is a reset for an account that has never had a password.
+ *
+ * The link is returned to the admin whether or not the email went out. Email
+ * is best effort and silently does nothing until Resend is configured, so an
+ * invite that exists only in an email nobody received would strand the advisor
+ * and give the admin nothing to hand them.
+ */
+async function issueInvite(env, request, user) {
+  const token = randomToken(32);
+  await db.createResetToken(env, user.id, await sha256Hex(token), INVITE_TTL_DAYS * 86400);
+  const url = `${inviteBase(env, request)}/reset-password?token=${encodeURIComponent(token)}`;
+  const emailed = await sendAdvisorInviteEmail(env, user, url, INVITE_TTL_DAYS)
+    .then((r) => !(r && r.skipped))
+    .catch(() => false);
+  return { url, expiresInDays: INVITE_TTL_DAYS, emailed };
+}
+
+/**
+ * Create an advisor. Nobody signs themselves up here: the agency decides who
+ * is an advisor, so this is the only way an account comes into being.
+ *
+ * The account is active from the start rather than pending. Pending exists to
+ * hold a stranger who asked for access at the door, and there are no strangers
+ * in this flow: an admin typed the address. What stands in for approval is the
+ * password, which only the person reading the invite can set.
+ */
+export async function handleCreateAdvisor(request, env) {
+  const { user: admin, response } = await requireAdmin(request, env);
+  if (response) return response;
+
+  const body = await readJson(request);
+  const email = normalizeEmail(body.email);
+  const firstName = clean(body.firstName, 80);
+  const lastName = clean(body.lastName, 80);
+  const phone = clean(body.phone, 40);
+  const role = body.role === 'admin' ? 'admin' : 'advisor';
+
+  if (!isValidEmail(email)) return badRequest('Enter a valid email address.');
+  if (!firstName || !lastName) return badRequest('First and last name are required.');
+  // Only the operator of the portal hands out the role that sees every book in
+  // an agency. An owner who could promote their own staff could widen who sees
+  // their advisors' clients and money with nobody outside the agency knowing.
+  if (role === 'admin' && !admin.platform_owner) {
+    return badRequest('Only the portal owner can create an administrator.');
+  }
+  if (await db.emailExists(env, email)) {
+    // Said plainly. This is an admin who just typed the address, not a
+    // stranger probing which of their colleagues are registered.
+    return badRequest('There is already an account with that email address.');
+  }
+
+  const agencyId = admin.agency_id || null;
+  const agency = agencyId ? await getAgency(env, agencyId) : null;
+
+  const user = await db.createUser(env, {
+    agencyId,
+    // Their agency's CRM sub-account, so a new advisor lands in the right one
+    // without anybody remembering to set it.
+    ghlLocationId: agency ? agency.ghl_location_id : null,
+    email,
+    // Random and thrown away. The account cannot be signed into until the
+    // invite sets a real one, which is the point: no default password exists
+    // to be guessed, shared, or left in place for a year.
+    passwordHash: await hashPassword(randomToken(32)),
+    firstName,
+    lastName,
+    phone,
+    agencyName: agency ? agency.name : null,
+    role,
+    status: 'active',
+  });
+
+  const invite = await issueInvite(env, request, user);
+  await db.logActivity(env, admin.id, 'admin.advisor.create',
+    `Created ${email} as ${role}`, { userId: user.id, role });
+  return json({ ok: true, user: publicUser(user), invite });
+}
+
+/** A fresh link, for the advisor who lost theirs or let it expire. */
+export async function handleReissueInvite(request, env, userId) {
+  const { user: admin, response } = await requireAdmin(request, env);
+  if (response) return response;
+  const reach = await reachable(env, admin, userId);
+  if (reach.error) return reach.error;
+
+  const invite = await issueInvite(env, request, reach.target);
+  await db.logActivity(env, admin.id, 'admin.advisor.invite',
+    `Re-sent invite to ${reach.target.email}`, { userId });
+  return json({ ok: true, invite });
 }
 
 export async function handleSetAdvisorStatus(request, env, userId) {

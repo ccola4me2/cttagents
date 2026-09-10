@@ -12,8 +12,7 @@ import {
   isValidEmail, normalizeEmail, clean, readJson,
 } from './util.js';
 import * as db from './db.js';
-import { getAgencyBySlug, houseAgency } from './brand.js';
-import { sendAdvisorPendingEmail, sendAdminNewSignupEmail, sendPasswordResetEmail } from './email.js';
+import { sendPasswordResetEmail } from './email.js';
 
 export const SESSION_COOKIE = 'tv_session';
 
@@ -105,69 +104,6 @@ export async function requireAdmin(request, env) {
 
 // ---------------------------------------------------------------------------
 // Signup
-// ---------------------------------------------------------------------------
-export async function handleSignup(request, env) {
-  const body = await readJson(request);
-  const email = normalizeEmail(body.email);
-  const password = String(body.password || '');
-  const firstName = clean(body.firstName, 80);
-  const lastName = clean(body.lastName, 80);
-  const phone = clean(body.phone, 40);
-  // Which agency they are joining, from the link they followed. No slug means
-  // the portal's own, which is what /signup has always meant.
-  const joining = clean(body.agency, 64);
-
-  if (!isValidEmail(email)) return badRequest('Enter a valid email address.');
-  if (password.length < 10) return badRequest('Password must be at least 10 characters.');
-  if (!firstName || !lastName) return badRequest('First and last name are required.');
-
-  const agency = joining
-    ? await getAgencyBySlug(env, joining)
-    : await houseAgency(env);
-  // A closed door is a closed door. Said plainly rather than filed as pending,
-  // because an advisor who signs up and hears nothing assumes it worked.
-  if (joining && (!agency || !agency.join_open)) {
-    return badRequest('That agency is not taking signups at the moment.');
-  }
-
-  if (await db.emailExists(env, email)) {
-    // Do not confirm or deny that an address is registered.
-    return json({ ok: true, status: 'pending' });
-  }
-
-  const user = await db.createUser(env, {
-    agencyId: agency ? agency.id : null,
-    // Their agency's CRM sub-account, so a new advisor is pointed at the right
-    // one without anybody having to remember to set it.
-    ghlLocationId: agency ? agency.ghl_location_id : null,
-    email,
-    passwordHash: await hashPassword(password),
-    firstName,
-    lastName,
-    phone,
-    // The agency's own name, not something the advisor typed. Everybody
-    // signing up here joins Cruises Tours & Travel, and this string is printed
-    // on the statements and quotes their clients read, so letting each advisor
-    // spell it themselves is how one agency ends up on client paperwork as
-    // three different companies.
-    agencyName: agency ? agency.name : null,
-    role: 'advisor',
-    status: 'pending',
-  });
-
-  await db.logActivity(env, user.id, 'account.signup', `${firstName} ${lastName} requested access`);
-
-  // Notifications must not block the signup response.
-  await Promise.allSettled([
-    sendAdvisorPendingEmail(env, user),
-    sendAdminNewSignupEmail(env, user),
-  ]);
-
-  return json({ ok: true, status: 'pending' });
-}
-
-// ---------------------------------------------------------------------------
-// Sign in and out
 // ---------------------------------------------------------------------------
 export async function handleLogin(request, env) {
   const body = await readJson(request);
