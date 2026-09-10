@@ -416,8 +416,14 @@ async function main() {
       check(rest.status === 200 && !rest.data?.remainder,
         'posting the balance with no amount clears it in full',
         JSON.stringify(rest.data?.remainder));
-      cleanup('the part payment', () => call(advisor, 'DELETE', `/api/payments/${payId}`));
-      cleanup('the balance', () => call(advisor, 'DELETE', `/api/payments/${restId}`));
+      // Removed here rather than at the end of the run. A later check adds the
+      // trip's paid, scheduled and unscheduled figures up and expects the
+      // reservation's own total; two payments of this suite's making left
+      // lying about make that sum $6,000 on a $5,000 trip. A test that leaves
+      // the thing it borrowed exactly as it found it is the only kind that
+      // does not break something further down.
+      await call(advisor, 'DELETE', `/api/payments/${restId}`);
+      await call(advisor, 'DELETE', `/api/payments/${payId}`);
     }
 
     // A trip that never earns is not a trip owing money.
