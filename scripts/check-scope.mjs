@@ -42,6 +42,7 @@ const OWNED = new Set([
   'goals', 'user_prefs', 'commission_statements', 'commission_receipts',
   'group_registrations', 'task_items', 'task_templates', 'trip_messages',
   'hotlist_actions', 'specials', 'special_leads', 'households', 'form_templates',
+  'advisor_billing',
 ]);
 
 // Shared by a whole agency through a GoHighLevel sub-account, so location_id
@@ -128,6 +129,15 @@ const ALLOWED = [
     'a rate limit on a public page, counted for the group being signed up to; there is '
     + 'no session on that request and the owner comes from the group'],
   ['UPDATE travellers SET is_lead = 0', 'follows an ownership check on the traveller being promoted'],
+  // Stripe's webhook knows its own customer id and nothing about this portal's
+  // users, so the row has to be found by the id Stripe sent. There is no
+  // session on that request to scope it to: it arrives from Stripe, and what
+  // makes it trustworthy is the signature over the raw body, checked before
+  // anything reads the payload. The lookup only ever returns the one advisor
+  // that customer id belongs to, and an unknown one is answered and ignored.
+  ['FROM advisor_billing WHERE stripe_customer_id = ?',
+    'the Stripe webhook, which is signature-verified and identifies the advisor by '
+    + 'the customer id Stripe issued; there is no session on that request'],
   // How a commission divides is the agency's decision, not the advisor's, so
   // the two statements behind it reach a reservation that by definition
   // belongs to somebody else. The fence is still there and is one step out:

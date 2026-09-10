@@ -13,6 +13,7 @@ import {
 } from './util.js';
 import * as db from './db.js';
 import { sendPasswordResetEmail } from './email.js';
+import { required as billingRequired, writeState, exemptFromGate } from './billinggate.js';
 
 export const SESSION_COOKIE = 'tv_session';
 
@@ -94,6 +95,31 @@ export async function requireUser(request, env) {
   if (user.status !== 'active') {
     return { response: forbidden('This account is not active.') };
   }
+
+  // An advisor whose membership has lapsed keeps reading and stops writing.
+  //
+  // Here rather than in the router because this is where the user is already
+  // loaded, and one gate is easier to trust than a check repeated in ninety
+  // handlers -- the one that gets forgotten is the one that matters. Reads
+  // pass untouched, and the whole thing short-circuits to nothing while the
+  // fee is not being enforced, so it costs no query until somebody turns it
+  // on.
+  if (request.method !== 'GET' && billingRequired(env)) {
+    const path = new URL(request.url).pathname;
+    if (!exemptFromGate(path)) {
+      const state = writeState(env, user, await db.getBilling(env, user.id));
+      if (!state.mayWrite) {
+        return {
+          response: json({
+            error: 'Your portal membership is not current, so this account is read-only.',
+            code: 'membership',
+            reason: state.reason,
+          }, 402),
+        };
+      }
+    }
+  }
+
   return { user };
 }
 

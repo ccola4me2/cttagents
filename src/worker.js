@@ -155,6 +155,9 @@ import {
 import { purgeExpiredSessions } from './db.js';
 import { runSync } from './sync.js';
 import { locationFor } from './ghl.js';
+import {
+  handleMembership, handleCheckout, handlePortal, handleStripeWebhook,
+} from './membership.js';
 
 // Pages any visitor may reach.
 const PUBLIC_PAGES = new Set([
@@ -194,6 +197,7 @@ const PAGE_FILES = {
   '/app/groups': '/app/groups.html',
   '/app/credits': '/app/credits.html',
   '/app/hotlists': '/app/hotlists.html',
+  '/app/membership': '/app/membership.html',
   '/admin/agencies': '/admin/agencies.html',
   '/app/specials': '/app/specials.html',
   '/app/special': '/app/special.html',
@@ -381,6 +385,15 @@ async function routeApi(request, env, path, method) {
   const vendorStarMatch = path.match(/^\/api\/vendors\/([^/]+)\/favourite$/);
 
   // ---- auth -------------------------------------------------------------
+  // ---- membership -------------------------------------------------------
+  // Stripe's callback, before anything that needs a session: it arrives from
+  // Stripe with no cookie, and is trusted only because the signature over the
+  // raw body checks out.
+  if (path === '/api/stripe/webhook' && method === 'POST') return handleStripeWebhook(request, env);
+  if (path === '/api/billing/membership' && method === 'GET') return handleMembership(request, env);
+  if (path === '/api/billing/checkout' && method === 'POST') return handleCheckout(request, env);
+  if (path === '/api/billing/portal' && method === 'POST') return handlePortal(request, env);
+
   if (path === '/api/auth/login' && method === 'POST') return handleLogin(request, env);
   if (path === '/api/auth/logout' && method === 'POST') return handleLogout(request, env);
   if (path === '/api/auth/me' && method === 'GET') return handleMe(request, env);

@@ -6,6 +6,7 @@
 
 export const EXPECTED_SCHEMA = {
   activity_log: ['created_at', 'id', 'kind', 'meta_json', 'subject', 'user_id'],
+  advisor_billing: ['current_period_end', 'grace_until', 'status', 'stripe_customer_id', 'subscription_id', 'updated_at', 'user_id'],
   agencies: ['address', 'brand_color', 'created_at', 'email', 'ghl_location_id', 'id', 'join_open', 'logo_url', 'name', 'phone', 'seller_of_travel', 'slug', 'tagline', 'updated_at', 'website'],
   amenities: ['amount_cents', 'booking_id', 'created_at', 'description', 'id', 'notes', 'requested_on', 'source', 'status', 'updated_at', 'user_id'],
   automation_logs: ['action', 'automation_id', 'created_at', 'detail', 'id', 'run_id', 'status', 'step_index'],
@@ -58,6 +59,13 @@ export const COLUMN_ORIGIN = {
   'activity_log.meta_json': '0001_init.sql',
   'activity_log.subject': '0001_init.sql',
   'activity_log.user_id': '0001_init.sql',
+  'advisor_billing.current_period_end': '0056_advisor_billing.sql',
+  'advisor_billing.grace_until': '0056_advisor_billing.sql',
+  'advisor_billing.status': '0056_advisor_billing.sql',
+  'advisor_billing.stripe_customer_id': '0056_advisor_billing.sql',
+  'advisor_billing.subscription_id': '0056_advisor_billing.sql',
+  'advisor_billing.updated_at': '0056_advisor_billing.sql',
+  'advisor_billing.user_id': '0056_advisor_billing.sql',
   'agencies.address': '0050_agencies.sql',
   'agencies.brand_color': '0050_agencies.sql',
   'agencies.created_at': '0050_agencies.sql',

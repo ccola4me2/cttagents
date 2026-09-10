@@ -76,6 +76,23 @@ APP_URL = "https://cttagents.brentbeasley2003.workers.dev"
 MAIL_FROM = "CTT Agent Portal <noreply@cruisestoursandtravel.com>"
 # Where operator notifications go (new advisor signups awaiting approval).
 NOTIFY_EMAIL = "brentb@cruisestoursandtravel.com"
+# What an advisor pays the agency for access to this portal. Nothing to do with
+# the money on a reservation, which goes to the supplier and never comes near
+# this Worker.
+#
+# STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are secrets, set in the
+# dashboard. STRIPE_PRICE_ID is the recurring price in that Stripe account and
+# is not a secret, so it lives here where it can be read.
+STRIPE_PRICE_ID = ""
+# Days an advisor keeps working after Stripe first reports a payment problem,
+# so a card that fails on a Tuesday and is fixed on a Wednesday costs nobody a
+# day's work.
+BILLING_GRACE_DAYS = "7"
+# Off until the agency says otherwise. Turning this to "1" drops every advisor
+# who has not paid into read-only on the next deploy, which should be a day
+# somebody picks rather than a side effect of shipping.
+BILLING_REQUIRED = "0"
+
 SESSION_TTL_DAYS = "30"
 RESET_TTL_MINUTES = "60"
 

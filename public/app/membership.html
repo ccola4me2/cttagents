@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Membership | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Membership</h1>
+        <p class="sub">What you pay Cruises Tours &amp; Travel for access to this portal.</p></div>
+    </header>
+    <div class="content">
+      <section class="card" id="panel"><p class="spinner">Loading...</p></section>
+    </div>
+  </div>
+</div>
+<script type="module">
+import { api, mountShell, esc, showError } from '/js/app.js';
+await mountShell();
+
+const panel = document.getElementById('panel');
+const day = (ts) => (ts ? new Date(ts * 1000).toLocaleDateString(undefined,
+  { day: 'numeric', month: 'long', year: 'numeric' }) : '');
+
+// Stripe's own words, said plainly. The state matters most when somebody is
+// worried about it, which is the worst moment to be reading jargon.
+const SAY = {
+  none: ['Not started', 'You have not set up your membership yet.'],
+  trialing: ['On trial', 'Your trial is running.'],
+  active: ['Active', 'Your membership is up to date.'],
+  past_due: ['Payment failed', 'The last payment did not go through. Stripe will try again.'],
+  unpaid: ['Unpaid', 'The last payment did not go through.'],
+  incomplete: ['Not finished', 'The payment was started but not completed.'],
+  canceled: ['Cancelled', 'Your membership has been cancelled.'],
+};
+
+function render(d) {
+  if (!d.configured) {
+    panel.innerHTML = '<div class="card-pad"><div class="empty"><h3>Payments are not set up yet</h3>'
+      + '<p>Nothing is owed and nothing is restricted. This page will do something '
+      + 'once the agency has connected Stripe.</p></div></div>';
+    return;
+  }
+
+  const [title, line] = SAY[d.status] || ['Unknown', ''];
+  const bits = [];
+
+  if (d.currentPeriodEnd) {
+    bits.push(`<p style="margin:0 0 .4rem;"><span class="muted">${
+      d.status === 'canceled' ? 'Access until' : 'Next payment'}:</span>
+      <strong>${esc(day(d.currentPeriodEnd))}</strong></p>`);
+  }
+  // The date that actually matters when something has gone wrong.
+  if (!d.mayWrite || d.reason === 'grace') {
+    if (d.graceUntil) {
+      bits.push(`<p style="margin:0 0 .4rem;"><span class="muted">Read-only from:</span>
+        <strong>${esc(day(d.graceUntil))}</strong></p>`);
+    }
+  }
+
+  const readOnly = !d.mayWrite
+    ? '<div class="notice notice-warn" style="margin:1rem 0 0;">This account is read-only. '
+      + 'You can still see everything in your book; you cannot add or change anything '
+      + 'until the membership is current. Nothing has been deleted.</div>'
+    : '';
+
+  const buttons = [];
+  if (d.status === 'none' || d.status === 'canceled' || d.status === 'incomplete') {
+    buttons.push('<button class="btn btn-primary" id="pay">Set up membership</button>');
+  }
+  if (d.hasCustomer) {
+    buttons.push('<button class="btn btn-secondary" id="manage">Manage payment method</button>');
+  }
+
+  panel.innerHTML = `<div class="card-pad">
+    <h2 style="margin:0 0 .3rem;">${esc(title)}</h2>
+    <p class="muted" style="margin:0 0 1rem;">${esc(line)}</p>
+    ${bits.join('')}
+    ${readOnly}
+    <div class="toolbar" style="margin:1.2rem 0 0;">${buttons.join('')}</div>
+    ${d.required ? '' : '<p class="muted" style="margin:1rem 0 0;font-size:.82rem;">'
+      + 'The agency is not enforcing membership at the moment, so nothing here '
+      + 'restricts your account.</p>'}
+  </div>`;
+
+  const go = async (path, btn) => {
+    btn.disabled = true;
+    btn.textContent = 'Opening...';
+    try {
+      const r = await api(path, { method: 'POST', body: {} });
+      // Stripe hosts the page that takes the card. Nothing sensitive is
+      // typed into this portal, which is why there is no form here.
+      window.location.href = r.url;
+    } catch (err) {
+      btn.disabled = false;
+      alert(err.message || 'Could not open Stripe.');
+      load();
+    }
+  };
+  const pay = document.getElementById('pay');
+  if (pay) pay.addEventListener('click', () => go('/api/billing/checkout', pay));
+  const manage = document.getElementById('manage');
+  if (manage) manage.addEventListener('click', () => go('/api/billing/portal', manage));
+}
+
+async function load() {
+  try { render(await api('/api/billing/membership')); }
+  catch (err) { showError(panel, err); }
+}
+
+await load();
+</script>
+</body></html>

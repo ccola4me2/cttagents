@@ -159,6 +159,45 @@ export async function setUserSplit(env, id, pct, leadPct) {
   return getUserById(env, id);
 }
 
+// ---------------------------------------------------------------------------
+// What an advisor pays for access
+// ---------------------------------------------------------------------------
+export async function getBilling(env, userId) {
+  return env.DB.prepare(
+    `SELECT user_id, stripe_customer_id, subscription_id, status,
+            current_period_end, grace_until, updated_at
+       FROM advisor_billing WHERE user_id = ?`
+  ).bind(userId).first();
+}
+
+/** By customer, for the webhook, which knows Stripe's ids and not ours. */
+export async function getBillingByCustomer(env, customerId) {
+  return env.DB.prepare(
+    `SELECT user_id, stripe_customer_id, subscription_id, status,
+            current_period_end, grace_until, updated_at
+       FROM advisor_billing WHERE stripe_customer_id = ?`
+  ).bind(customerId).first();
+}
+
+export async function saveBilling(env, userId, f) {
+  const ts = now();
+  await env.DB.prepare(
+    `INSERT INTO advisor_billing
+       (user_id, stripe_customer_id, subscription_id, status, current_period_end,
+        grace_until, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET
+       stripe_customer_id = COALESCE(excluded.stripe_customer_id, advisor_billing.stripe_customer_id),
+       subscription_id    = COALESCE(excluded.subscription_id, advisor_billing.subscription_id),
+       status             = excluded.status,
+       current_period_end = excluded.current_period_end,
+       grace_until        = excluded.grace_until,
+       updated_at         = excluded.updated_at`
+  ).bind(userId, f.stripeCustomerId || null, f.subscriptionId || null,
+    f.status || 'none', f.currentPeriodEnd || null, f.graceUntil || null, ts).run();
+  return getBilling(env, userId);
+}
+
 export async function countUsers(env, { agencyId } = {}) {
   const row = await env.DB.prepare(
     `SELECT

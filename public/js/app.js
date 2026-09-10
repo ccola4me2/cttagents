@@ -167,6 +167,7 @@ const NAV = [
     hub: 'Setup', icon: I.gear, items: [
       { href: '/app/account', label: 'Account' },
       { href: '/app/settings', label: 'Settings' },
+      { href: '/app/membership', label: 'Membership' },
       { href: '/app/crm', label: 'CTT Tools' },
     ],
   },
