@@ -449,12 +449,23 @@ Nothing here is wired to a live Cloudflare resource yet. In order:
 2. ~~**R2.**~~ Done 2026-09-10. Bucket `cttagents-docs`, public access
    disabled, which is not optional: every download goes through the Worker so
    it can check the session and the advisor who owns the row first.
-3. **Migrations.** Apply `migrations/0001` through `0053` in order. These are
-   applied by hand through the D1 console here, so "committed" and "applied" are
-   separate facts. `GET /api/admin/health` compares the live database against
-   `src/schema-expected.js` and names any file still outstanding.
-4. **Worker.** Connect the repo in Workers Builds so `main` deploys itself, then
-   attach `cttagents.com`.
+3. ~~**Migrations.**~~ Done 2026-09-10. All 53 applied through the D1 console,
+   and `d1_migrations` was written at the same time so a later
+   `wrangler d1 migrations apply --remote` does not try to run them again.
+   Verified live: 43 tables, 95 indexes, 53 migration rows, and the
+   `agency-house` row reading Cruises Tours & Travel / `ctt`.
+
+   Two things worth knowing before the next one. The console input is a single
+   line and **strips newlines**, so a pasted file with `--` comments collapses
+   into one long comment and silently does nothing; strip comments first.
+   Multiple `;`-separated statements in one execution do work. These are still
+   applied by hand, so "committed" and "applied" remain separate facts, and
+   `GET /api/admin/health` is what tells you which.
+4. **Worker.** ~~Connect the repo in Workers Builds so `main` deploys itself~~
+   done 2026-09-10, live at `cttagents.brentbeasley2003.workers.dev`. Note the
+   connect dialog offers more than one GitHub account; this repo is under
+   `ccola4me2`, not `brentb-collab`. Still to do: attach `cttagents.com`, whose
+   zone is already on the account.
 5. **GoHighLevel.** The sub-account id is already in `GHL_DEFAULT_LOCATION_ID`.
    What is left is `GHL_API_TOKEN`: create a Private Integration Token on that
    sub-account (Settings > Private Integrations) with contacts read/write,
