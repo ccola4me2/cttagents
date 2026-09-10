@@ -15,15 +15,26 @@ import { EXPECTED_SCHEMA, COLUMN_ORIGIN } from './schema-expected.js';
 const SAFE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
- * The migration that creates a table, found through any one of its columns:
- * a CREATE TABLE registers every column it declares against its own file.
+ * The migration that creates a table: the earliest file any of its columns
+ * came from.
+ *
+ * Not the first one found. A table's columns are held in alphabetical order,
+ * and a column added by a later ALTER TABLE sorts wherever its name puts it,
+ * so the first entry is often not from the CREATE TABLE at all. `users` is the
+ * clearest case: seven migrations touch it, and the alphabetically first
+ * column is `agency_address`, added in 0026, which had this naming 0026 as the
+ * file to run when the whole table was missing and the answer was 0001.
+ *
+ * Comparing the filenames as strings is enough to order them, because every
+ * migration is named with the same zero-padded four-digit prefix.
  */
 function tableOrigin(table) {
+  let earliest = null;
   for (const col of EXPECTED_SCHEMA[table] || []) {
     const file = COLUMN_ORIGIN[`${table}.${col}`];
-    if (file) return file;
+    if (file && (earliest === null || file < earliest)) earliest = file;
   }
-  return null;
+  return earliest;
 }
 
 /**
