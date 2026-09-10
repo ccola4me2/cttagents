@@ -113,7 +113,6 @@ export async function handleSignup(request, env) {
   const firstName = clean(body.firstName, 80);
   const lastName = clean(body.lastName, 80);
   const phone = clean(body.phone, 40);
-  const agencyName = clean(body.agencyName, 120);
   // Which agency they are joining, from the link they followed. No slug means
   // the portal's own, which is what /signup has always meant.
   const joining = clean(body.agency, 64);
@@ -146,7 +145,12 @@ export async function handleSignup(request, env) {
     firstName,
     lastName,
     phone,
-    agencyName,
+    // The agency's own name, not something the advisor typed. Everybody
+    // signing up here joins Cruises Tours & Travel, and this string is printed
+    // on the statements and quotes their clients read, so letting each advisor
+    // spell it themselves is how one agency ends up on client paperwork as
+    // three different companies.
+    agencyName: agency ? agency.name : null,
     role: 'advisor',
     status: 'pending',
   });
