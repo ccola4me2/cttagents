@@ -26,15 +26,14 @@ not_found_handling = "none"
 # travel-specific booking records GoHighLevel cannot model cleanly.
 # Created in the Cloudflare dashboard (Storage & Databases > D1).
 #
-# SETUP: create the database first (Cloudflare dashboard > Storage & Databases
-# > D1, named `cttagents`) and paste its id below. The placeholder is
-# deliberate and deliberately invalid: a deploy against it fails loudly, which
-# is the point. Trip Vara's id must never appear here — this Worker would then
-# read and write another agency's live book.
+# CTT's own database, created 2026-09-10. Not Trip Vara's: pointing this at
+# f7a1657b... would have this Worker reading and writing another agency's live
+# book, which is why the placeholder that used to sit here was invalid rather
+# than merely wrong.
 [[d1_databases]]
 binding = "DB"
 database_name = "cttagents"
-database_id = "PUT-THE-CTTAGENTS-D1-ID-HERE"
+database_id = "c95cdf55-a781-45a4-88d0-76d63ba5ad56"
 
 # R2: the documents attached to a reservation. Vendor confirmations, insurance
 # policies, air tickets. The bucket is private and stays private: every

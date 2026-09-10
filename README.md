@@ -443,10 +443,9 @@ Resolve in favour of CTT's branding and take upstream's logic.
 
 Nothing here is wired to a live Cloudflare resource yet. In order:
 
-1. **D1.** Create a database named `cttagents` (dashboard > Storage & Databases
-   > D1) and paste its id into `database_id` in `wrangler.toml`. The committed
-   placeholder is invalid on purpose so a premature deploy fails loudly rather
-   than binding to the wrong book.
+1. ~~**D1.**~~ Done 2026-09-10. Database `cttagents`,
+   id `c95cdf55-a781-45a4-88d0-76d63ba5ad56`, already in `wrangler.toml`. It is
+   empty until step 3.
 2. **R2.** Create a bucket named `cttagents-docs`. A binding that points at a
    bucket which does not exist fails `wrangler deploy` outright.
 3. **Migrations.** Apply `migrations/0001` through `0053` in order. These are
