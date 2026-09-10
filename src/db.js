@@ -491,6 +491,27 @@ export async function getBooking(env, id, userId) {
   ).bind(id, userId).first();
 }
 
+/**
+ * A reservation without asking whose it is.
+ *
+ * Only for the admin path that has to reach an advisor's booking. The caller
+ * is responsible for the agency fence, which is why this is named for what it
+ * skips rather than sitting behind the ordinary getBooking.
+ */
+export async function getBookingUnscoped(env, id) {
+  return env.DB.prepare(
+    `SELECT ${BOOKING_COLUMNS} FROM bookings WHERE id = ?`
+  ).bind(id).first();
+}
+
+/** The two fields that decide how a commission divides. Admin path only. */
+export async function setBookingSplit(env, id, { advisorSplitPct, leadSource }) {
+  await env.DB.prepare(
+    'UPDATE bookings SET advisor_split_pct = ?, lead_source = ?, updated_at = ? WHERE id = ?'
+  ).bind(advisorSplitPct, leadSource, now(), id).run();
+  return getBookingUnscoped(env, id);
+}
+
 export async function createBooking(env, userId, f) {
   const ts = now();
   const id = uid();

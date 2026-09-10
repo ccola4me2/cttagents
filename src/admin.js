@@ -10,6 +10,7 @@ import { listSyncState, runSync, resetSync } from './sync.js';
 import { requireAdmin, requireUser, publicUser, realUserOf, SESSION_COOKIE } from './auth.js';
 import * as db from './db.js';
 import { getAgency } from './brand.js';
+import { COMPANY_LEAD } from './split.js';
 import { sendAdvisorApprovedEmail, sendAdvisorInviteEmail, checkResend, sendTestEmail } from './email.js';
 import { remindTasks } from './taskmail.js';
 import { remindDuePayments } from './payremind.js';
@@ -302,6 +303,62 @@ export async function handleSetAdvisorGhl(request, env, userId) {
  * could pay themselves. Blank clears the agreement, which is not the same as
  * setting it to zero, so the two are kept apart all the way down.
  */
+/**
+ * How one reservation's commission divides: a figure of its own, and which of
+ * the two standing agreements it falls under.
+ *
+ * Its own endpoint rather than a guard on the advisor's, because the advisor's
+ * is scoped to whoever is signed in. An admin cannot reach somebody else's
+ * booking through it at all, and an admin working inside an advisor's account
+ * is an advisor there and refused. Guarding it left these settable by nobody.
+ *
+ * Reached by user rather than by booking: the fence is which agency the
+ * advisor who owns it belongs to, which is the same question reachable()
+ * already answers everywhere else in this file.
+ */
+export async function handleSetBookingSplit(request, env, bookingId) {
+  const { user: admin, response } = await requireAdmin(request, env);
+  if (response) return response;
+
+  const booking = await db.getBookingUnscoped(env, bookingId);
+  if (!booking) return notFound('Reservation not found.');
+  const reach = await reachable(env, admin, booking.user_id);
+  if (reach.error) return notFound('Reservation not found.');
+
+  const body = await readJson(request);
+
+  // Blank is not nought. Clearing puts the trip back on the standing
+  // agreement; a deliberate 0 means the agency keeps everything, which is a
+  // real arrangement for a house account.
+  let pct = null;
+  if (Object.prototype.hasOwnProperty.call(body, 'advisorSplitPct')) {
+    const raw = body.advisorSplitPct;
+    if (raw !== null && raw !== undefined && String(raw).trim() !== '') {
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0 || n > 100) {
+        return badRequest('A share is a number between 0 and 100, or blank to follow the agreement.');
+      }
+      pct = Math.round(n * 10) / 10;
+    }
+  } else {
+    pct = booking.advisor_split_pct === null || booking.advisor_split_pct === undefined
+      ? null : Number(booking.advisor_split_pct);
+  }
+
+  const leadSource = Object.prototype.hasOwnProperty.call(body, 'leadSource')
+    ? (body.leadSource === COMPANY_LEAD ? COMPANY_LEAD : 'personal')
+    : (booking.lead_source === COMPANY_LEAD ? COMPANY_LEAD : 'personal');
+
+  const updated = await db.setBookingSplit(env, bookingId, {
+    advisorSplitPct: pct, leadSource,
+  });
+  await db.logActivity(env, admin.id, 'admin.booking.split',
+    `${booking.client_name}: ${pct === null ? 'follows the agreement' : `${pct}%`}`
+    + `, ${leadSource === COMPANY_LEAD ? 'company lead' : 'own booking'}`,
+    { bookingId, pct, leadSource });
+  return json({ ok: true, booking: updated });
+}
+
 export async function handleSetAdvisorSplit(request, env, userId) {
   const { user: admin, response } = await requireAdmin(request, env);
   if (response) return response;

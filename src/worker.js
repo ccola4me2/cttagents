@@ -146,6 +146,7 @@ import { handleDashboard, handleProduction, handleMonth } from './reports.js';
 import {
   handleListAdvisors, handleSetAdvisorStatus, handleSetAdvisorGhl, handleSetAdvisorSplit,
   handleCreateAdvisor, handleReissueInvite, handleStartActing, handleStopActing,
+  handleSetBookingSplit,
   handleRunLifecycle,
   handleHealth, handleTestEmail, handleRunTaskReminders, handleRunPaymentReminders,
   handleRunCallLists, handleMirrorCatalog, handleMirrorStatus,
@@ -352,6 +353,7 @@ async function routeApi(request, env, path, method) {
   const bookingStatusMatch = path.match(/^\/api\/bookings\/([^/]+)\/status$/);
   const advisorMatch = path.match(/^\/api\/admin\/advisors\/([^/]+)\/(status|ghl|split|invite)$/);
   const actMatch = path.match(/^\/api\/admin\/act\/([^/]+)$/);
+  const bookingSplitMatch = path.match(/^\/api\/admin\/bookings\/([^/]+)\/split$/);
   const myTaskMatch = path.match(/^\/api\/tasks\/([^/]+)$/);
   // Checklist steps hang off a task; the steps themselves are addressed by
   // their own id, so ticking one off does not need to name its task twice.
@@ -711,6 +713,9 @@ async function routeApi(request, env, path, method) {
   // requireAdmin: while acting, the session is an advisor, so an admin-only
   // route would be a door that locks from the inside.
   if (path === '/api/admin/act' && method === 'DELETE') return handleStopActing(request, env);
+  if (bookingSplitMatch && method === 'PUT') {
+    return handleSetBookingSplit(request, env, decodeURIComponent(bookingSplitMatch[1]));
+  }
   if (actMatch && method === 'POST') {
     return handleStartActing(request, env, decodeURIComponent(actMatch[1]));
   }

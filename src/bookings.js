@@ -6,7 +6,7 @@
 // opportunity it came from.
 
 import {
-  json, badRequest, notFound, forbidden, clean, cleanDate, toCents, oneOf, readJson, now,
+  json, badRequest, notFound, clean, cleanDate, toCents, oneOf, readJson, now,
 } from './util.js';
 import { requireUser, isAdmin } from './auth.js';
 import * as db from './db.js';
@@ -397,6 +397,11 @@ export async function handleCreateBooking(request, env) {
   const { fields, error } = parseBooking(await readJson(request));
   if (error) return badRequest(error);
 
+  // A new reservation follows the standing agreement, whatever was posted.
+  // Accepting a share here would let an advisor set their own by filing the
+  // booking with one attached, which is the same hole as editing it after.
+  fields.advisorSplitPct = null;
+
   // The client record is created as a side effect of booking, so nobody has
   // to maintain a separate list of people before they can take a reservation.
   fields.clientId = await db.resolveClient(env, user.id, fields.clientName,
@@ -455,30 +460,21 @@ const QUICK_FIELDS = {
   commissionStatus: ['commission_status', (v) => oneOf(v, COMMISSION_STATUSES)],
   invoiceNotes: ['invoice_notes', (v) => clean(v, 1000)],
   personal: ['personal', (v) => (v ? 1 : 0)],
-  // Blank clears the override and puts the trip back on the advisor's standing
-  // agreement, which is why this cannot go through toCents or oneOf: both turn
-  // "nothing set" into a value.
-  advisorSplitPct: ['advisor_split_pct', (v) => (v === '' || v === null || v === undefined
-    || !Number.isFinite(Number(v)) ? null : Math.max(0, Math.min(Number(v), 100)))],
-  // Which of the two standing agreements this trip falls under: what the
-  // advisor generated themselves, or a lead the agency handed them.
-  leadSource: ['lead_source', (v) => (v === COMPANY_LEAD ? COMPANY_LEAD : 'personal')],
 };
 
-/**
- * Fields on this list decide money, and the person filing the reservation is
- * the person they pay.
- *
- * Both of these were reachable by any advisor on their own booking, which
- * meant an advisor could set their own share to 100% one reservation at a
- * time. The standing agreement was already admin-only; the per-trip override
- * that outranks it was not, so the lock was on the wrong door.
- *
- * isAdmin reads the effective user, so an admin working inside an advisor's
- * account is an advisor here too and is refused. That is the intended
- * reading: change the agreement as yourself, not from inside their seat.
- */
-const ADMIN_ONLY_QUICK = new Set(['advisorSplitPct', 'leadSource']);
+// advisor_split_pct and lead_source used to live here and no longer do.
+//
+// They decide how a commission divides, and this endpoint is scoped to the
+// signed-in advisor, which made the person they pay the person who set them:
+// any advisor could POST advisorSplitPct 100 against their own reservation
+// and keep the lot, one booking at a time.
+//
+// Guarding them here was the first attempt and was worse than useless. An
+// admin cannot reach an advisor's booking through this endpoint at all -- it
+// is scoped by user_id -- and an admin working inside an advisor's account is
+// an advisor, so the guard refused them too. The fields ended up settable by
+// nobody. They live on handleSetBookingSplit in admin.js now, which is
+// reachable by the person actually allowed to decide it.
 
 export async function handleQuickUpdate(request, env, id) {
   const { user, response } = await requireUser(request, env);
@@ -490,11 +486,6 @@ export async function handleQuickUpdate(request, env, id) {
 
   for (const [key, [column, coerce]] of Object.entries(QUICK_FIELDS)) {
     if (!Object.prototype.hasOwnProperty.call(body, key)) continue;
-    // Refused rather than quietly dropped. Silently ignoring a change to how
-    // a commission is divided leaves somebody believing they changed it.
-    if (ADMIN_ONLY_QUICK.has(key) && !isAdmin(user)) {
-      return forbidden('Only an administrator can change how a commission is split.');
-    }
     sets.push(`${column} = ?`);
     binds.push(coerce(body[key]));
   }
@@ -535,6 +526,15 @@ export async function handleUpdateBooking(request, env, id) {
 
   const { fields, error } = parseBooking(await readJson(request));
   if (error) return badRequest(error);
+
+  // Whatever share the reservation already carries, it keeps. updateBooking
+  // writes this column from the parsed fields, so leaving it to the request
+  // would let an advisor clear an agreed override simply by saving the page,
+  // and let them set one by posting it.
+  const before = await db.getBooking(env, id, user.id);
+  if (!before) return notFound('Booking not found.');
+  fields.advisorSplitPct = before.advisor_split_pct === null
+    || before.advisor_split_pct === undefined ? null : Number(before.advisor_split_pct);
 
   fields.clientId = await db.resolveClient(env, user.id, fields.clientName,
     { ghlContactId: fields.ghlContactId });

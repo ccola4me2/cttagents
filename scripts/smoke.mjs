@@ -4949,16 +4949,34 @@ async function main() {
   // ...nor through the back door. The standing agreement was admin-only from
   // the start, but the per-trip override that outranks it was reachable by
   // any advisor on their own reservation, one booking at a time.
-  const selfOverride = await call(advisor, 'POST', `/api/bookings/${bookingId}/quick`,
-    { advisorSplitPct: 100 });
-  check(selfOverride.status === 403,
-    'nor write their own figure over one reservation', `status ${selfOverride.status}`);
+  // Every door, not just the obvious one. The quick endpoint no longer knows
+  // the field, creating a booking with a share attached is ignored, and
+  // saving the page cannot clear one an owner set.
+  await call(advisor, 'POST', `/api/bookings/${bookingId}/quick`, { advisorSplitPct: 100 });
+  const afterQuick = await call(advisor, 'GET', `/api/bookings/${bookingId}`);
+  check(afterQuick.data?.split?.overridden !== true,
+    'an advisor cannot write their own figure over a reservation',
+    JSON.stringify(afterQuick.data?.split));
+
+  const smuggled = await call(advisor, 'POST', '/api/bookings', {
+    clientName: `Smuggle ${stamp}`, supplier: 'Carnival', productType: 'cruise',
+    departDate: isoDay(210), gross: '1000', commission: '100', advisorSplitPct: 100,
+  });
+  const smuggledId = smuggled.data?.booking?.id;
+  check(smuggled.data?.booking?.advisor_split_pct === null,
+    'nor file a new one with a share already attached',
+    String(smuggled.data?.booking?.advisor_split_pct));
+  if (smuggledId) {
+    cleanup('the smuggled reservation',
+      () => call(advisor, 'DELETE', `/api/bookings/${smuggledId}`));
+  }
 
   const selfLead = await call(advisor, 'POST', `/api/bookings/${bookingId}/quick`,
-    { leadSource: 'personal' });
-  check(selfLead.status === 403,
-    'nor move a trip onto the agreement that pays them more',
-    `status ${selfLead.status}`);
+    { leadSource: 'company' });
+  const afterLead = await call(advisor, 'GET', `/api/bookings/${bookingId}`);
+  check(afterLead.data?.split?.leadSource === 'personal',
+    'nor move a trip onto the other agreement',
+    afterLead.data?.split?.leadSource);
 
   // Two agreements, which is what the advisor contract actually says: 90% of
   // what they generate, 80% of what the agency hands them.
@@ -4972,7 +4990,7 @@ async function main() {
   check(own.data?.split?.pct === 90,
     'a booking the advisor generated follows the higher rate', own.data?.split?.pct);
 
-  const moved = await call(admin, 'POST', `/api/bookings/${bookingId}/quick`,
+  const moved = await call(admin, 'PUT', `/api/admin/bookings/${bookingId}/split`,
     { leadSource: 'company' });
   check(moved.status === 200, 'the owner marks one as a company lead',
     `status ${moved.status}`);
@@ -4985,7 +5003,7 @@ async function main() {
     'which the reservation says out loud', asLead.data?.split?.leadSource);
 
   // Put it back, since the checks after this one assume the plain case.
-  await call(admin, 'POST', `/api/bookings/${bookingId}/quick`, { leadSource: 'personal' });
+  await call(admin, 'PUT', `/api/admin/bookings/${bookingId}/split`, { leadSource: 'personal' });
   await call(admin, 'PUT', `/api/admin/advisors/${advisorId}/split`,
     { defaultSplitPct: null, leadSplitPct: null });
 
@@ -5017,11 +5035,12 @@ async function main() {
   check(comm.data?.anySplit === true, 'and the page knows there is a split to show');
 
   // A trip can carry its own figure, and blank puts it back on the agreement.
-  await call(advisor, 'POST', `/api/bookings/${halfId}/quick`, { advisorSplitPct: 80 });
+  // Through the admin endpoint: the advisor cannot set what they are paid.
+  await call(admin, 'PUT', `/api/admin/bookings/${halfId}/split`, { advisorSplitPct: 80 });
   const over = await call(advisor, 'GET', `/api/bookings/${halfId}/record`);
   check(over.data?.split?.pct === 80 && over.data?.split?.overridden === true,
     'one trip can be given its own share', JSON.stringify(over.data?.split));
-  await call(advisor, 'POST', `/api/bookings/${halfId}/quick`, { advisorSplitPct: '' });
+  await call(admin, 'PUT', `/api/admin/bookings/${halfId}/split`, { advisorSplitPct: '' });
   const back = await call(advisor, 'GET', `/api/bookings/${halfId}/record`);
   check(back.data?.split?.pct === 50 && back.data?.split?.overridden === false,
     'and clearing it puts the trip back on the agreement, not on nothing',
