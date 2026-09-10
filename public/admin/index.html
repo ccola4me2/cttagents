@@ -14,6 +14,9 @@
   <div class="main">
     <header class="topbar">
       <div><h1>Advisors</h1><p class="sub">Add advisors, bind them to a CTT Tools account, and set what they keep.</p></div>
+      <select id="actas" aria-label="Work as an advisor" style="width:auto;">
+        <option value="">Work as an advisor...</option>
+      </select>
       <select id="filter" aria-label="Filter" style="width:auto;">
         <option value="">Everyone</option>
         <option value="pending">Pending approval</option>
@@ -261,6 +264,7 @@ async function load() {
     // of them. The server refuses it either way; this stops the other from
     // being offered something they cannot have.
     document.getElementById('role-field').hidden = !data.platformOwner;
+    fillActAs(data.users);
   } catch (err) { showError(panel, err); }
 }
 // --- CRM sync -------------------------------------------------------------
@@ -393,6 +397,37 @@ addForm.addEventListener('submit', async (e) => {
   } finally {
     btn.disabled = false;
     btn.textContent = 'Create account';
+  }
+});
+
+// -------------------------------------------------------------- work as
+// Pick an advisor and the portal becomes theirs: their clients, their
+// reservations, their CRM. For the booking somebody phoned in to the office,
+// or the record an advisor cannot fix themselves. A banner sits across every
+// page until you stop, and the switch is logged against you.
+const actas = document.getElementById('actas');
+
+function fillActAs(users) {
+  const able = (users || []).filter((u) => u.status === 'active' && u.role !== 'admin');
+  actas.innerHTML = '<option value="">Work as an advisor...</option>'
+    + able.map((u) => `<option value="${esc(u.id)}">${esc(u.name || u.email)}</option>`).join('');
+}
+
+actas.addEventListener('change', async () => {
+  const id = actas.value;
+  if (!id) return;
+  const who = actas.options[actas.selectedIndex].textContent;
+  if (!confirm(`Work inside ${who}'s account?\n\n`
+    + 'Everything you add will belong to them, and the admin screens are '
+    + 'closed until you stop.')) { actas.value = ''; return; }
+  actas.disabled = true;
+  try {
+    await api(`/api/admin/act/${encodeURIComponent(id)}`, { method: 'POST', body: {} });
+    window.location.href = '/app/';
+  } catch (err) {
+    alert(err.message || 'Could not switch.');
+    actas.value = '';
+    actas.disabled = false;
   }
 });
 

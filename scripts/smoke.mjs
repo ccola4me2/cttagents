@@ -216,6 +216,66 @@ async function main() {
     'and carries the agency name from the agency, not a form',
     me.data?.user?.agencyName);
 
+  // ------------------------------------------------ the admin works as them --
+  step('The agency works inside an advisor\'s account');
+  {
+    const started = await call(admin, 'POST', `/api/admin/act/${advisorId}`, {});
+    check(started.status === 200, 'an admin can work as an advisor', `status ${started.status}`);
+
+    const asThem = await call(admin, 'GET', '/api/auth/me');
+    check(asThem.data?.user?.email === ADVISOR_EMAIL,
+      'and the portal answers as that advisor', asThem.data?.user?.email);
+    check(asThem.data?.actingAs?.admin?.email === ADMIN_EMAIL,
+      'while still knowing who is really behind it',
+      asThem.data?.actingAs?.admin?.email);
+
+    // The reason for the whole feature: a booking entered by the office
+    // belongs to the advisor, not to whoever typed it.
+    const theirs = await call(admin, 'POST', '/api/bookings', {
+      clientName: `Phoned In ${stamp}`, supplier: 'Carnival', productType: 'cruise',
+      departDate: isoDay(200), gross: '1000', status: 'booked',
+    });
+    const theirBooking = theirs.data?.booking?.id;
+    check(theirs.status === 201 && theirBooking,
+      'a reservation entered this way is created', `status ${theirs.status}`);
+
+    // Admin screens are shut while acting, so nothing can be done under an
+    // identity that reads as somebody else.
+    const shut = await call(admin, 'GET', '/api/admin/advisors');
+    check(shut.status === 403, 'the admin screens are closed until you stop',
+      `status ${shut.status}`);
+
+    const stopped = await call(admin, 'DELETE', '/api/admin/act', {});
+    check(stopped.status === 200, 'and stopping puts them back', `status ${stopped.status}`);
+    const backAgain = await call(admin, 'GET', '/api/auth/me');
+    check(backAgain.data?.user?.email === ADMIN_EMAIL,
+      'as themselves', backAgain.data?.user?.email);
+    check(!backAgain.data?.actingAs, 'with nothing left switched on');
+    const openAgain = await call(admin, 'GET', '/api/admin/advisors');
+    check(openAgain.status === 200, 'and the admin screens work again',
+      `status ${openAgain.status}`);
+
+    // The advisor sees the booking the office made for them.
+    const list = await call(advisor, 'GET', '/api/bookings');
+    check((list.data?.bookings || []).some((b) => b.id === theirBooking),
+      'and the reservation belongs to the advisor, not the admin');
+    if (theirBooking) {
+      cleanup('the phoned-in reservation',
+        () => call(advisor, 'DELETE', `/api/bookings/${theirBooking}`));
+    }
+
+    // Only downward. Acting as another admin would be borrowing authority
+    // rather than doing somebody's filing.
+    const adminSelf = await call(admin, 'POST', `/api/admin/act/${adminId}`, {});
+    check(adminSelf.status >= 400, 'an admin cannot work as another admin',
+      `status ${adminSelf.status}`);
+
+    // And an advisor cannot use any of it.
+    const advisorTries = await call(advisor, 'POST', `/api/admin/act/${adminId}`, {});
+    check(advisorTries.status === 403, 'and an advisor cannot work as anybody',
+      `status ${advisorTries.status}`);
+  }
+
   // ------------------------------------------ reservation and its schedule --
   step('A reservation, and the schedule built from it');
   const res = await call(advisor, 'POST', '/api/bookings', {

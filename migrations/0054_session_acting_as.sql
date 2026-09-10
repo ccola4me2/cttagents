@@ -1,0 +1,14 @@
+-- An admin works inside an advisor's account.
+--
+-- The agency owner needs to enter a client, a reservation or a payment on
+-- behalf of an advisor, and to fix their CRM records. Doing that through the
+-- admin screens would mean rebuilding every advisor screen a second time with
+-- an "on behalf of" argument threaded through it. Instead the session carries
+-- who it is acting as, and every handler downstream stays exactly as it is,
+-- because it is genuinely that advisor's session for as long as it lasts.
+--
+-- On the session rather than the user, deliberately. It ends when the admin
+-- signs out or presses stop, it cannot be left switched on for somebody else
+-- to find, and an admin signed in on two machines is only acting on the one
+-- where they started.
+ALTER TABLE sessions ADD COLUMN acting_as TEXT;

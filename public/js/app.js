@@ -677,9 +677,39 @@ function watchMoneyFields() {
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
+function mountActingBanner({ user, admin }) {
+  if (document.getElementById('acting-bar')) return;
+  const bar = document.createElement('div');
+  bar.id = 'acting-bar';
+  bar.className = 'acting-bar';
+  bar.innerHTML = `<span>You are working in
+      <strong>${esc(user.name || user.email)}</strong>'s account.
+      Anything you add here is theirs.</span>
+    <button class="btn btn-sm" type="button" id="acting-stop">Stop</button>`;
+  document.body.prepend(bar);
+  document.body.classList.add('is-acting');
+  document.getElementById('acting-stop').addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    e.target.textContent = 'Stopping...';
+    try {
+      await api('/api/admin/act', { method: 'DELETE' });
+      window.location.href = '/admin/';
+    } catch (err) {
+      e.target.disabled = false;
+      e.target.textContent = 'Stop';
+      alert(err.message || 'Could not stop.');
+    }
+  });
+}
+
 export async function mountShell({ admin = false } = {}) {
-  const { user } = await api('/api/auth/me');
+  const { user, actingAs } = await api('/api/auth/me');
   if (!user) { window.location.href = '/login'; throw new Error('Signed out'); }
+
+  // Across every page, not tucked in a corner. The portal is behaving as
+  // somebody else for as long as this is up, and the one way that goes wrong
+  // is an admin forgetting and filing a booking under the wrong advisor.
+  if (actingAs) mountActingBanner(actingAs);
 
   const sidebar = document.getElementById('sidebar');
   if (!sidebar) return user;

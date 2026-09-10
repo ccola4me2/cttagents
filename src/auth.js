@@ -98,8 +98,34 @@ export async function requireUser(request, env) {
 export async function requireAdmin(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return { response };
+  // One identity at a time. While acting as an advisor the session IS that
+  // advisor, so isAdmin already says no; this says why, and stops the
+  // ambiguous case where a suspension or a commission change gets made by a
+  // session that reads as somebody else.
+  if (user.acting_as) {
+    return { response: forbidden('Stop working as an advisor before using the admin screens.') };
+  }
   if (!isAdmin(user)) return { response: forbidden('Admin access required.') };
   return { user };
+}
+
+/**
+ * The admin behind the session, whoever it is currently pretending to be.
+ *
+ * Used by the two handlers that have to work while acting: stopping, and
+ * saying so on the page. Everything else wants the effective user and gets it
+ * from requireUser without knowing any of this exists.
+ */
+export function realUserOf(user) {
+  if (!user) return null;
+  return {
+    id: user.real_user_id,
+    email: user.real_email,
+    name: `${user.real_first_name || ''} ${user.real_last_name || ''}`.trim(),
+    role: user.real_role,
+    platformOwner: Boolean(user.real_platform_owner),
+    agencyId: user.real_agency_id,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -143,7 +169,15 @@ export async function handleLogout(request, env) {
 export async function handleMe(request, env) {
   const user = await getCurrentUser(request, env);
   if (!user) return json({ user: null }, 200);
-  return json({ user: publicUser(user) });
+  // `actingAs` is what the shell reads to put a banner across every page. It
+  // has to be impossible to forget which account you are working in, because
+  // the whole feature is that the portal behaves as though you are them.
+  return json({
+    user: publicUser(user),
+    actingAs: user.acting_as
+      ? { user: publicUser(user), admin: realUserOf(user) }
+      : null,
+  });
 }
 
 export async function handleUpdateProfile(request, env) {

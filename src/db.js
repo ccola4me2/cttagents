@@ -179,14 +179,42 @@ export async function createSession(env, userId, tokenHash, ttlSeconds) {
   ).bind(tokenHash, userId, ts, ts + ttlSeconds).run();
 }
 
+/**
+ * Who this request is, and who is really behind it.
+ *
+ * `u` is the effective user: the advisor when an admin is acting as one, and
+ * otherwise the person who signed in. Every handler downstream reads that and
+ * needs no idea any of this is happening, which is the point -- ownership,
+ * the agency fence and the CRM lookups all keep working unchanged.
+ *
+ * The columns prefixed `real_` are the account that actually signed in. They
+ * exist so two things can still be decided correctly: whether the admin
+ * screens are allowed (they are not, while acting), and who to name in the
+ * log. When nobody is acting, the two are the same row.
+ */
 export async function getSessionUser(env, tokenHash) {
   if (!tokenHash) return null;
   return env.DB.prepare(
-    `SELECT ${USER_COLUMNS_U}
+    `SELECT ${USER_COLUMNS_U},
+            s.acting_as AS acting_as,
+            ru.id AS real_user_id,
+            ru.email AS real_email,
+            ru.first_name AS real_first_name,
+            ru.last_name AS real_last_name,
+            ru.role AS real_role,
+            ru.platform_owner AS real_platform_owner,
+            ru.agency_id AS real_agency_id
        FROM sessions s
-       JOIN users u ON u.id = s.user_id
+       JOIN users u ON u.id = COALESCE(s.acting_as, s.user_id)
+       JOIN users ru ON ru.id = s.user_id
       WHERE s.id = ? AND s.expires_at > ?`
   ).bind(tokenHash, now()).first();
+}
+
+/** Start or stop acting as somebody. Null puts the admin back in their own seat. */
+export async function setSessionActingAs(env, tokenHash, userId) {
+  await env.DB.prepare('UPDATE sessions SET acting_as = ? WHERE id = ?')
+    .bind(userId || null, tokenHash).run();
 }
 
 export async function deleteSession(env, tokenHash) {

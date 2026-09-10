@@ -1012,3 +1012,26 @@ input.derived {
    stacking context and trap its label underneath the today line, which is the
    one thing the label must stay above. */
 .promo-bar { position: relative; }
+
+/* ------------------------------------------------------- acting as -------- */
+/* An admin working inside an advisor's account. Loud on purpose: the portal
+   behaves exactly as that advisor for as long as this is up, and the failure
+   mode is somebody forgetting and filing a booking under the wrong name. */
+.acting-bar {
+  position: sticky; top: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center; gap: .9rem;
+  flex-wrap: wrap; text-align: center;
+  background: var(--amber-600); color: #fff;
+  padding: .55rem 1rem; font-size: .85rem; line-height: 1.4;
+  box-shadow: 0 2px 10px rgba(15, 28, 43, .18);
+}
+.acting-bar strong { font-weight: 700; }
+.acting-bar .btn {
+  background: rgba(255,255,255,.16); color: #fff; border-color: rgba(255,255,255,.5);
+  padding: .3rem .9rem;
+}
+.acting-bar .btn:hover { background: rgba(255,255,255,.28); color: #fff; }
+/* The sidebar sticks to the top of the viewport and is a full screen tall,
+   so it needs telling about the bar or it sits under it and overflows. */
+.is-acting .sidebar { top: 2.4rem; height: calc(100vh - 2.4rem); }
+@media (max-width: 860px) { .is-acting .sidebar { top: 0; } }

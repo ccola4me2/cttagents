@@ -2,12 +2,12 @@
 // and suspend access.
 
 import {
-  json, badRequest, notFound, clean, readJson,
+  json, badRequest, notFound, clean, readJson, forbidden, parseCookies,
   isValidEmail, normalizeEmail, randomToken, sha256Hex, hashPassword,
 } from './util.js';
 import * as ghl from './ghl.js';
 import { listSyncState, runSync, resetSync } from './sync.js';
-import { requireAdmin, publicUser } from './auth.js';
+import { requireAdmin, requireUser, publicUser, realUserOf, SESSION_COOKIE } from './auth.js';
 import * as db from './db.js';
 import { getAgency } from './brand.js';
 import { sendAdvisorApprovedEmail, sendAdvisorInviteEmail, checkResend, sendTestEmail } from './email.js';
@@ -179,6 +179,70 @@ export async function handleReissueInvite(request, env, userId) {
   await db.logActivity(env, admin.id, 'admin.advisor.invite',
     `Re-sent invite to ${reach.target.email}`, { userId });
   return json({ ok: true, invite });
+}
+
+/** The session this request arrived on, so acting can be turned on for it alone. */
+async function sessionHash(request) {
+  const token = parseCookies(request)[SESSION_COOKIE];
+  return token ? sha256Hex(token) : null;
+}
+
+/**
+ * Work inside an advisor's account: their clients, their reservations, their
+ * CRM. For the owner who has to enter a booking somebody phoned in, or fix a
+ * record an advisor cannot.
+ *
+ * The whole portal behaves as that advisor for the duration, because the
+ * session says so and every handler reads the session. Nothing else changes,
+ * which is why this is a dozen lines rather than a second set of screens.
+ */
+export async function handleStartActing(request, env, userId) {
+  // requireAdmin also refuses if this session is already acting, so switching
+  // straight from one advisor to another is not possible without stopping.
+  // That keeps "who am I" answerable at every moment.
+  const { user: admin, response } = await requireAdmin(request, env);
+  if (response) return response;
+
+  const reach = await reachable(env, admin, userId);
+  if (reach.error) return reach.error;
+  const target = reach.target;
+
+  if (target.id === admin.id) return badRequest('You are already yourself.');
+  // Only downward. Acting as another admin, or as the portal owner, would be
+  // a way to borrow authority rather than to do somebody's filing, and an
+  // agency owner could use it to reach an account they are not allowed to
+  // change directly.
+  if (target.role === 'admin' || target.platform_owner) {
+    return forbidden('You can only work as an advisor.');
+  }
+  if (target.status !== 'active') return badRequest('That account is not active.');
+
+  const hash = await sessionHash(request);
+  if (!hash) return forbidden('No session to switch.');
+  await db.setSessionActingAs(env, hash, target.id);
+
+  // Logged against the admin, so an advisor's history can always be read back
+  // as "this stretch was the office, not them".
+  await db.logActivity(env, admin.id, 'admin.act.start',
+    `Started working as ${target.email}`, { userId: target.id });
+  return json({ ok: true, actingAs: publicUser(target) });
+}
+
+/** Back to your own seat. Must work while acting, so it cannot use requireAdmin. */
+export async function handleStopActing(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const hash = await sessionHash(request);
+  if (!hash) return forbidden('No session to switch.');
+  await db.setSessionActingAs(env, hash, null);
+
+  if (user.acting_as) {
+    const admin = realUserOf(user);
+    await db.logActivity(env, admin.id, 'admin.act.stop',
+      `Stopped working as ${user.email}`, { userId: user.id });
+  }
+  return json({ ok: true });
 }
 
 export async function handleSetAdvisorStatus(request, env, userId) {

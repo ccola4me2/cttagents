@@ -145,7 +145,7 @@ import {
 import { handleDashboard, handleProduction, handleMonth } from './reports.js';
 import {
   handleListAdvisors, handleSetAdvisorStatus, handleSetAdvisorGhl, handleSetAdvisorSplit,
-  handleCreateAdvisor, handleReissueInvite,
+  handleCreateAdvisor, handleReissueInvite, handleStartActing, handleStopActing,
   handleRunLifecycle,
   handleHealth, handleTestEmail, handleRunTaskReminders, handleRunPaymentReminders,
   handleRunCallLists, handleMirrorCatalog, handleMirrorStatus,
@@ -351,6 +351,7 @@ async function routeApi(request, env, path, method) {
   const scheduleMatch = path.match(/^\/api\/bookings\/([^/]+)\/schedule$/);
   const bookingStatusMatch = path.match(/^\/api\/bookings\/([^/]+)\/status$/);
   const advisorMatch = path.match(/^\/api\/admin\/advisors\/([^/]+)\/(status|ghl|split|invite)$/);
+  const actMatch = path.match(/^\/api\/admin\/act\/([^/]+)$/);
   const myTaskMatch = path.match(/^\/api\/tasks\/([^/]+)$/);
   // Checklist steps hang off a task; the steps themselves are addressed by
   // their own id, so ticking one off does not need to name its task twice.
@@ -706,6 +707,14 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/admin/advisors' && method === 'GET') return handleListAdvisors(request, env);
   // The only way an account comes into being. Nobody signs themselves up.
   if (path === '/api/admin/advisors' && method === 'POST') return handleCreateAdvisor(request, env);
+  // Working inside an advisor's account. Stopping is deliberately not behind
+  // requireAdmin: while acting, the session is an advisor, so an admin-only
+  // route would be a door that locks from the inside.
+  if (path === '/api/admin/act' && method === 'DELETE') return handleStopActing(request, env);
+  if (actMatch && method === 'POST') {
+    return handleStartActing(request, env, decodeURIComponent(actMatch[1]));
+  }
+
   // A fresh set-password link. POST rather than PUT: each call mints a new
   // token rather than editing something that already exists.
   if (advisorMatch && advisorMatch[2] === 'invite' && method === 'POST') {
