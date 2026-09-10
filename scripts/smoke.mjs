@@ -426,6 +426,59 @@ async function main() {
       await call(advisor, 'DELETE', `/api/payments/${payId}`);
     }
 
+    // The reminder and the deadline are one obligation shown twice, so paying
+    // one has to move the other. On a trip of its own, because posting
+    // payments changes totals the shared reservation is checked against.
+    const twin = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Twin ${stamp}`, supplier: 'Carnival', productType: 'cruise',
+      departDate: isoDay(120), gross: '4000', deposit: '1000',
+      depositDue: isoDay(10), finalPaymentDue: isoDay(60), status: 'booked',
+    });
+    const twinId = twin.data?.booking?.id;
+    if (check(Boolean(twinId), 'a trip of its own for the reminder checks')) {
+      await call(advisor, 'POST', `/api/bookings/${twinId}/schedule`, {});
+      const sched = await call(advisor, 'GET', `/api/bookings/${twinId}/record`);
+      const finals = (sched.data?.payments || []).filter((x) => x.kind === 'final');
+      const soft = finals.find((x) => x.payment_class === 'soft');
+      const hard = finals.find((x) => x.payment_class === 'hard');
+      check(Boolean(soft && hard), 'a final balance is a deadline and a reminder');
+      check(soft?.amount_cents === hard?.amount_cents,
+        'both for the same money', `${soft?.amount_cents} vs ${hard?.amount_cents}`);
+
+      // Half of it, posted against the reminder, which is what somebody
+      // clicking the nearest row actually does.
+      const paid = await call(advisor, 'POST', `/api/payments/${soft.id}/paid`,
+        { amount: '1500', paidDate: isoDay(0) });
+      check(paid.status === 200, 'part of it is posted against the reminder',
+        `status ${paid.status}`);
+
+      const after = await call(advisor, 'GET', `/api/bookings/${twinId}/record`);
+      const now = (after.data?.payments || []).filter((x) => x.kind === 'final');
+      const hardLeft = now.filter((x) => x.payment_class === 'hard' && !x.paid_date)
+        .reduce((n, x) => n + x.amount_cents, 0);
+      const hardPaid = now.filter((x) => x.payment_class === 'hard' && x.paid_date)
+        .reduce((n, x) => n + x.amount_cents, 0);
+      // The money lands on the deadline, not the reminder, or no total sees it.
+      check(hardPaid === 150000, 'the money lands against the vendor deadline', hardPaid);
+      check(hardLeft === 150000, 'and the deadline asks for what is left', hardLeft);
+
+      const softLeft = now.filter((x) => x.payment_class === 'soft' && !x.paid_date)
+        .reduce((n, x) => n + x.amount_cents, 0);
+      check(softLeft === hardLeft,
+        'the reminder now chases the same figure, not the original one', softLeft);
+
+      // Paying the rest leaves nothing to be reminded about.
+      const restRow = now.find((x) => x.payment_class === 'hard' && !x.paid_date);
+      await call(advisor, 'POST', `/api/payments/${restRow.id}/paid`, {});
+      const done = await call(advisor, 'GET', `/api/bookings/${twinId}/record`);
+      const stillSoft = (done.data?.payments || [])
+        .filter((x) => x.kind === 'final' && x.payment_class === 'soft' && !x.paid_date);
+      check(stillSoft.length === 0,
+        'and once it is settled the reminder goes away', String(stillSoft.length));
+
+      await call(advisor, 'DELETE', `/api/bookings/${twinId}`);
+    }
+
     // A trip that never earns is not a trip owing money.
     const noComm = await call(advisor, 'POST', `/api/bookings/${bookingId}/quick`,
       { commissionStatus: 'none' });
