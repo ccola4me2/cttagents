@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agencies | CTT</title>
+<title>Agency | CTT Agent Portal</title>
 <meta name="robots" content="noindex, nofollow">
 <link rel="icon" href="/logo-mark.png" type="image/png">
 <link rel="stylesheet" href="/css/app.css">
@@ -13,8 +13,8 @@
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main">
     <header class="topbar">
-      <div><h1>Agencies</h1>
-        <p class="sub" id="sub">Who is on this portal, what they look like, and the link their advisors join on.</p></div>
+      <div><h1>Agency</h1>
+        <p class="sub" id="sub">Cruises Tours &amp; Travel: the name, address and registration your clients see.</p></div>
       <div class="toolbar" style="margin:0;" id="actions"></div>
     </header>
     <div class="content">
@@ -27,7 +27,7 @@
 
 <dialog id="dlg">
   <form id="agency-form" method="dialog">
-    <div class="card-head"><h2 id="dlg-title">Add an agency</h2>
+    <div class="card-head"><h2 id="dlg-title">Agency details</h2>
       <button class="btn btn-ghost btn-sm" type="button" id="close">Close</button></div>
     <div class="card-pad">
       <div class="notice notice-error" hidden></div>
@@ -92,22 +92,21 @@ let ghlReady = false;
 let snapshots = [];
 
 function draw() {
-  document.getElementById('actions').innerHTML = d.platformOwner
-    ? '<button class="btn btn-primary btn-sm" id="add">Add an agency</button>' : '';
-  const add = document.getElementById('add');
-  if (add) add.addEventListener('click', openCreate);
+  // No "Add an agency". This portal is Cruises Tours & Travel and nothing
+  // else, so the button offered a road nobody is going down. The endpoint
+  // behind it still exists and is still platform-owner only; it is simply not
+  // put in front of anybody.
+  document.getElementById('actions').innerHTML = '';
 
   const intro = document.getElementById('intro');
   intro.hidden = false;
-  intro.textContent = d.platformOwner
-    ? 'You run this portal, so you see every agency on it. Each agency owner sees only '
-      + 'their own, and can neither see nor touch another agency’s advisors.'
-    : 'Your agency, and how it looks to your clients. The name, logo and colour here '
-      + 'appear on every page and email your clients receive.';
+  intro.textContent = 'The name, address, registration and colours here are what your '
+    + 'clients see: on a trip page, a quote, a statement, and every email the portal sends '
+    + 'on your behalf.';
 
   if (!d.agencies.length) {
-    panel.innerHTML = '<div class="empty"><h3>No agencies yet</h3>'
-      + '<p>Add one and it gets a join link of its own.</p></div>';
+    panel.innerHTML = '<div class="empty"><h3>Nothing to show</h3>'
+      + '<p>The agency record is missing, which should not be possible.</p></div>';
     return;
   }
 
@@ -159,15 +158,6 @@ function draw() {
       setTimeout(() => { b.textContent = 'Copy link'; }, 1500);
     });
   });
-}
-
-function openCreate() {
-  editingId = null;
-  form.reset();
-  form.elements.joinOpen.checked = true;
-  document.getElementById('dlg-title').textContent = 'Add an agency';
-  form.querySelector('.notice-error').hidden = true;
-  dlg.showModal();
 }
 
 function openEdit(a) {
