@@ -5,7 +5,7 @@
  * says nothing about whether a sequence of requests does the right thing, and
  * three of this portal's paths had never been executed end to end at all:
  *
- *   signup -> pending -> admin approval -> first sign in
+ *   admin creates an advisor -> invite link -> password -> first sign in
  *   a hosted form submission arriving as a lead
  *   an automation firing from that submission and running to completion
  *
@@ -109,6 +109,25 @@ async function uploadDoc(cookieJar, bookingId, filename, content) {
   return res.json().catch(() => null);
 }
 
+/**
+ * Make an advisor the way the portal actually makes them: an admin creates the
+ * account, and the one-time link that comes back is what gives it a password.
+ *
+ * Returns the created user, or null if either half failed, so a caller that
+ * needs a working sign-in can say so rather than failing later on a 401 that
+ * looks like a permissions bug.
+ */
+async function makeAdvisor(admin, email, password, extra = {}) {
+  const made = await call(admin, 'POST', '/api/admin/advisors', {
+    email, firstName: 'Smoke', lastName: 'Made', ...extra,
+  });
+  const url = made.data?.invite?.url;
+  if (made.status !== 200 || !url) return null;
+  const token = new URL(url).searchParams.get('token');
+  const set = await call(null, 'POST', '/api/auth/reset', { token, password });
+  return set.status === 200 ? made.data.user : null;
+}
+
 const isoDay = (offset) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
 
 // Anything created gets registered here immediately. An earlier version tidied
@@ -142,41 +161,55 @@ async function main() {
     throw new Bail('Cannot continue without an admin session. Is the dev server seeded?');
   }
 
-  // ------------------------------------------------- signup and approval --
-  step('A new advisor signs up and waits for approval');
-  const signup = await call(null, 'POST', '/api/auth/signup', {
-    email: ADVISOR_EMAIL, password: ADVISOR_PASSWORD,
-    firstName: 'Smoke', lastName: 'Tester', agencyName: 'Smoke Travel',
+  // ------------------------------------------------ the admin adds an advisor --
+  step('The agency creates an advisor, who sets their own password');
+  // Nobody signs themselves up any more. The account exists because an admin
+  // typed the address, and the invite is the only thing that can give it a
+  // password.
+  const invited = await call(admin, 'POST', '/api/admin/advisors', {
+    email: ADVISOR_EMAIL, firstName: 'Smoke', lastName: 'Tester',
   });
-  check(signup.status === 200 && signup.data?.status === 'pending',
-    'signup returns pending', JSON.stringify(signup.data));
-
-  const advisor = jar();
-  const blocked = await call(advisor, 'POST', '/api/auth/login',
-    { email: ADVISOR_EMAIL, password: ADVISOR_PASSWORD });
-  check(blocked.status === 403 && blocked.data?.status === 'pending',
-    'a pending advisor cannot sign in', `status ${blocked.status}`);
-
-  const list = await call(admin, 'GET', '/api/admin/advisors');
-  const created = (list.data?.users || []).find((a) => a.email === ADVISOR_EMAIL);
-  if (!check(created, 'the signup shows up for the admin')) throw new Bail('No advisor to approve.');
+  if (!check(invited.status === 200 && invited.data?.invite?.url,
+    'the admin creates the account and gets a link back', JSON.stringify(invited.data))) {
+    throw new Bail('No advisor to work with.');
+  }
   // Deliberately not registered with the other cleanups: suspending the
   // advisor kills their session, and the checks after cleanup are made as the
   // advisor. Registered here it ran first and those checks then passed against
   // 401 bodies, which is worse than not running them.
-  advisorId = created.id;
+  advisorId = invited.data.user.id;
   const adminId = (await call(admin, 'GET', '/api/auth/me')).data?.user?.id;
-  check(created.status === 'pending', 'and shows up as pending', created.status);
 
-  const approve = await call(admin, 'PUT', `/api/admin/advisors/${created.id}/status`,
-    { status: 'active' });
-  check(approve.status === 200, 'admin approves them', `status ${approve.status}`);
+  const list = await call(admin, 'GET', '/api/admin/advisors');
+  const created = (list.data?.users || []).find((a) => a.email === ADVISOR_EMAIL);
+  check(Boolean(created), 'and they show up in the advisor list');
+  check(created?.status === 'active', 'active from the start, since nobody asked to join', created?.status);
+
+  const advisor = jar();
+  const noPassword = await call(advisor, 'POST', '/api/auth/login',
+    { email: ADVISOR_EMAIL, password: ADVISOR_PASSWORD });
+  check(noPassword.status === 401,
+    'but cannot be signed into until the invite is used', `status ${noPassword.status}`);
+
+  const inviteToken = new URL(invited.data.invite.url).searchParams.get('token');
+  check(Boolean(inviteToken), 'the link carries a token');
+
+  const chose = await call(null, 'POST', '/api/auth/reset',
+    { token: inviteToken, password: ADVISOR_PASSWORD });
+  check(chose.status === 200, 'the advisor chooses a password', `status ${chose.status}`);
+
+  const reused = await call(null, 'POST', '/api/auth/reset',
+    { token: inviteToken, password: `${ADVISOR_PASSWORD}-again` });
+  check(reused.status === 400, 'and the link cannot be used twice', `status ${reused.status}`);
 
   const signedIn = await call(advisor, 'POST', '/api/auth/login',
     { email: ADVISOR_EMAIL, password: ADVISOR_PASSWORD });
   check(signedIn.status === 200, 'the advisor can now sign in', `status ${signedIn.status}`);
   const me = await call(advisor, 'GET', '/api/auth/me');
   check(me.data?.user?.email === ADVISOR_EMAIL, 'and the session is theirs', me.data?.user?.email);
+  check(me.data?.user?.agencyName === 'Cruises Tours & Travel',
+    'and carries the agency name from the agency, not a form',
+    me.data?.user?.agencyName);
 
   // ------------------------------------------ reservation and its schedule --
   step('A reservation, and the schedule built from it');
@@ -1417,21 +1450,15 @@ async function main() {
       { name: `Bad2 ${stamp}`, logoUrl: 'http://insecure.test/logo.png' });
     check(badLogo.status === 400, 'as is a logo served over http', `status ${badLogo.status}`);
 
-    // Somebody joins the new agency through its own link.
-    const joinInfo = await call(null, 'GET', `/api/join/${rivalSlug}`);
-    check(joinInfo.status === 200 && joinInfo.data?.brand?.name === `Rival Travel ${stamp}`,
-      'the join link tells a stranger whose it is', JSON.stringify(joinInfo.data?.agency));
-    check(joinInfo.raw && !joinInfo.raw.includes('ghl_location_id')
-      && !joinInfo.raw.includes('address'),
-      'and nothing else about the agency');
-
+    // Somebody joins the new agency. There is no public door any more, so the
+    // portal owner makes the account and moves it across.
     const rivalEmail = `rival-${stamp}@test.dev`;
-    const joined = await call(null, 'POST', '/api/auth/signup', {
-      email: rivalEmail, password: 'rival-test-12345',
-      firstName: 'Rival', lastName: 'Owner', agency: rivalSlug,
+    const joined = await call(admin, 'POST', '/api/admin/advisors', {
+      email: rivalEmail, firstName: 'Rival', lastName: 'Owner',
     });
-    check(joined.status === 200 && joined.data?.status === 'pending',
-      'and an advisor can sign up through it');
+    check(joined.status === 200 && joined.data?.invite?.url,
+      'the portal owner creates an account for the other agency',
+      JSON.stringify(joined.data));
 
     // Approve them and make them the owner of that agency.
     const all = await call(admin, 'GET', '/api/admin/advisors');
@@ -1503,18 +1530,8 @@ async function main() {
     check(smokeStill?.status === 'active',
       'and the advisor they reached for is untouched', smokeStill?.status);
 
-    // A closed door stops taking names without changing the address.
-    await call(admin, 'PUT', `/api/agencies/${rivalId}`,
-      { name: `Rival Travel ${stamp}`, joinOpen: false });
-    const shut = await call(null, 'GET', `/api/join/${rivalSlug}`);
-    check(shut.status === 404, 'closing the join link shuts it', `status ${shut.status}`);
-    const lateJoin = await call(null, 'POST', '/api/auth/signup', {
-      email: `late-${stamp}@test.dev`, password: 'late-test-12345',
-      firstName: 'Late', lastName: 'Arrival', agency: rivalSlug,
-    });
-    check(lateJoin.status === 400,
-      'and says so rather than filing a signup nobody will ever approve',
-      `status ${lateJoin.status}`);
+    // There is no public join link left to close, so nothing to check here.
+    // Access is a decision the agency makes one account at a time.
 
     // Put the smoke advisor back where the rest of the suite expects them.
     await call(admin, 'PUT', `/api/admin/advisors/${advisorId}/agency`,
@@ -1930,13 +1947,9 @@ async function main() {
   {
     // A second advisor in the same agency as the smoke advisor.
     const mateEmail = `mate-${stamp}@test.dev`;
-    await call(null, 'POST', '/api/auth/signup', {
-      email: mateEmail, password: 'mate-test-12345',
-      firstName: 'Same', lastName: 'Agency',
-    });
-    const roster = await call(admin, 'GET', '/api/admin/advisors');
-    const mateUser = (roster.data?.users || []).find((u) => u.email === mateEmail);
-    await call(admin, 'PUT', `/api/admin/advisors/${mateUser.id}/status`, { status: 'active' });
+    const mateUser = await makeAdvisor(admin, mateEmail, 'mate-test-12345',
+      { firstName: 'Same', lastName: 'Agency' });
+    check(Boolean(mateUser), 'a colleague can be added to the same agency');
     await call(admin, 'PUT', `/api/admin/advisors/${mateUser.id}/agency`,
       { agencyId: 'agency-house', platformOwner: false, role: 'advisor' });
     cleanup('the colleague', () => call(admin, 'PUT',
@@ -2003,13 +2016,13 @@ async function main() {
     const rivalAgency = await call(admin, 'POST', '/api/agencies',
       { name: `Fence Test ${stamp}` });
     const fenceId = rivalAgency.data?.agency?.id;
-    await call(null, 'POST', '/api/auth/signup', {
-      email: rivalEmail2, password: 'fence-test-12345',
-      firstName: 'Other', lastName: 'Agency', agency: rivalAgency.data?.agency?.slug,
-    });
-    const roster2 = await call(admin, 'GET', '/api/admin/advisors');
-    const fenceUser = (roster2.data?.users || []).find((u) => u.email === rivalEmail2);
-    await call(admin, 'PUT', `/api/admin/advisors/${fenceUser.id}/status`, { status: 'active' });
+    const fenceUser = await makeAdvisor(admin, rivalEmail2, 'fence-test-12345',
+      { firstName: 'Other', lastName: 'Agency' });
+    check(Boolean(fenceUser), 'and an advisor for the other agency');
+    // Created in the admin's agency, then moved, because there is no public
+    // link to join a particular agency any more.
+    await call(admin, 'PUT', `/api/admin/advisors/${fenceUser.id}/agency`,
+      { agencyId: fenceId, platformOwner: false, role: 'advisor' });
     cleanup('the other agency advisor', () => call(admin, 'PUT',
       `/api/admin/advisors/${fenceUser.id}/status`, { status: 'suspended' }));
 
