@@ -4953,8 +4953,8 @@ async function main() {
   // the field, creating a booking with a share attached is ignored, and
   // saving the page cannot clear one an owner set.
   await call(advisor, 'POST', `/api/bookings/${bookingId}/quick`, { advisorSplitPct: 100 });
-  const afterQuick = await call(advisor, 'GET', `/api/bookings/${bookingId}`);
-  check(afterQuick.data?.split?.overridden !== true,
+  const afterQuick = await call(advisor, 'GET', `/api/bookings/${bookingId}/record`);
+  check(afterQuick.data?.split && afterQuick.data.split.overridden === false,
     'an advisor cannot write their own figure over a reservation',
     JSON.stringify(afterQuick.data?.split));
 
@@ -4973,10 +4973,10 @@ async function main() {
 
   const selfLead = await call(advisor, 'POST', `/api/bookings/${bookingId}/quick`,
     { leadSource: 'company' });
-  const afterLead = await call(advisor, 'GET', `/api/bookings/${bookingId}`);
+  const afterLead = await call(advisor, 'GET', `/api/bookings/${bookingId}/record`);
   check(afterLead.data?.split?.leadSource === 'personal',
     'nor move a trip onto the other agreement',
-    afterLead.data?.split?.leadSource);
+    JSON.stringify(afterLead.data?.split));
 
   // Two agreements, which is what the advisor contract actually says: 90% of
   // what they generate, 80% of what the agency hands them.
@@ -4986,7 +4986,7 @@ async function main() {
     && twoRates.data?.user?.leadSplitPct === 80,
     'an owner sets both rates', JSON.stringify(twoRates.data?.user));
 
-  const own = await call(advisor, 'GET', `/api/bookings/${bookingId}`);
+  const own = await call(advisor, 'GET', `/api/bookings/${bookingId}/record`);
   check(own.data?.split?.pct === 90,
     'a booking the advisor generated follows the higher rate', own.data?.split?.pct);
 
@@ -4995,7 +4995,7 @@ async function main() {
   check(moved.status === 200, 'the owner marks one as a company lead',
     `status ${moved.status}`);
 
-  const asLead = await call(advisor, 'GET', `/api/bookings/${bookingId}`);
+  const asLead = await call(advisor, 'GET', `/api/bookings/${bookingId}/record`);
   check(asLead.data?.split?.pct === 80,
     'and it follows the lower one without touching the reservation',
     asLead.data?.split?.pct);
