@@ -12,8 +12,8 @@ import { PermanentError } from './util.js';
 
 import { DEFAULT_BRAND, HEX_COLOR } from './brand.js';
 
-const BRAND_NAVY = '#1b3a5f';
-const BRAND_CORAL = '#f1705b';
+const BRAND_NAVY = '#12315e';
+const BRAND_TEAL = '#1a8fa3';
 
 export function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => (
@@ -22,7 +22,7 @@ export function escapeHtml(s) {
 }
 
 function appUrl(env) {
-  return (env.APP_URL || 'https://tripvaratravel.com').replace(/\/$/, '');
+  return (env.APP_URL || 'https://cttagents.com').replace(/\/$/, '');
 }
 
 /**
@@ -37,7 +37,7 @@ function appUrl(env) {
  * `brand` is optional and defaults to the portal's own, because most of these
  * are sent to advisors about the portal. The ones a client reads pass the
  * agency's, so a payment reminder from a white-labelled agency carries their
- * name and their colour rather than Trip Vara's.
+ * name and their colour rather than CTT's.
  */
 export function layout(env, { heading, body, cta, footer, brand }) {
   const url = appUrl(env);
@@ -49,18 +49,18 @@ export function layout(env, { heading, body, cta, footer, brand }) {
   const button = cta
     ? `<tr><td style="padding:8px 0 24px;">
          <a href="${escapeHtml(cta.href)}"
-            style="display:inline-block;background:${BRAND_CORAL};color:#fff;text-decoration:none;
+            style="display:inline-block;background:${BRAND_TEAL};color:#fff;text-decoration:none;
                    font-weight:600;font-size:15px;padding:13px 26px;border-radius:999px;">
            ${escapeHtml(cta.label)}
          </a></td></tr>`
     : '';
 
   return `<!doctype html>
-<html><body style="margin:0;padding:0;background:#fbf9f5;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fbf9f5;padding:32px 16px;">
+<html><body style="margin:0;padding:0;background:#f7fafb;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f7fafb;padding:32px 16px;">
   <tr><td align="center">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-           style="max-width:560px;background:#ffffff;border:1px solid #e4edf5;border-radius:14px;
+           style="max-width:560px;background:#ffffff;border:1px solid #e2ebf4;border-radius:14px;
                   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
       <tr><td style="background:${head};border-radius:14px 14px 0 0;padding:22px 32px;">
         ${b.logoUrl ? `<img src="${escapeHtml(b.logoUrl)}" alt="${escapeHtml(b.name)}"
@@ -79,7 +79,7 @@ export function layout(env, { heading, body, cta, footer, brand }) {
           ${button}
         </table>
       </td></tr>
-      <tr><td style="border-top:1px solid #e4edf5;padding:18px 32px;font-size:12px;color:#5c7286;">
+      <tr><td style="border-top:1px solid #e2ebf4;padding:18px 32px;font-size:12px;color:#5c7286;">
         ${footer || `${escapeHtml(b.name)} &middot; <a href="${url}" style="color:${head};">${
           escapeHtml(url.replace(/^https?:\/\//, ''))}</a>`}
       </td></tr>
@@ -133,7 +133,7 @@ async function send(env, { to, subject, html, replyTo }) {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: env.MAIL_FROM || 'Trip Vara <noreply@tripvaratravel.com>',
+        from: env.MAIL_FROM || 'CTT Agent Portal <noreply@cttagents.com>',
         to: recipients,
         // So hitting reply answers the person who got in touch, rather than a
         // noreply box nobody reads.
@@ -164,11 +164,11 @@ function fullName(user) {
 export function sendAdvisorPendingEmail(env, user) {
   return send(env, {
     to: user.email,
-    subject: 'Your Trip Vara portal request is in review',
+    subject: 'Your CTT Agent Portal request is in review',
     html: layout(env, {
       heading: 'Thanks, we have your request',
       body: `<p style="margin:0 0 12px;">Hi ${escapeHtml(user.first_name || 'there')},</p>
-             <p style="margin:0 0 12px;">Your request for access to the Trip Vara advisor portal has been
+             <p style="margin:0 0 12px;">Your request for access to the CTT Agent Portal has been
              received and is waiting on approval. You will get another email the moment it is active.</p>
              <p style="margin:0;">Nothing else is needed from you right now.</p>`,
     }),
@@ -178,7 +178,7 @@ export function sendAdvisorPendingEmail(env, user) {
 export function sendAdvisorApprovedEmail(env, user) {
   return send(env, {
     to: user.email,
-    subject: 'Your Trip Vara portal access is active',
+    subject: 'Your CTT Agent Portal access is active',
     html: layout(env, {
       heading: 'You are in',
       body: `<p style="margin:0 0 12px;">Hi ${escapeHtml(user.first_name || 'there')},</p>
@@ -385,7 +385,7 @@ export function sendPasswordResetEmail(env, user, token) {
   const minutes = Number(env.RESET_TTL_MINUTES || 60);
   return send(env, {
     to: user.email,
-    subject: 'Reset your Trip Vara portal password',
+    subject: 'Reset your CTT Agent Portal password',
     html: layout(env, {
       heading: 'Reset your password',
       body: `<p style="margin:0 0 12px;">Use the button below to set a new password. The link is good for
@@ -460,9 +460,9 @@ export async function sendTestEmail(env, to) {
   if (!env.RESEND_API_KEY) return { ok: false, reason: 'RESEND_API_KEY is not set.' };
 
   const payload = {
-    from: env.MAIL_FROM || 'Trip Vara <noreply@tripvaratravel.com>',
+    from: env.MAIL_FROM || 'CTT Agent Portal <noreply@cttagents.com>',
     to: [to],
-    subject: 'Trip Vara portal test email',
+    subject: 'CTT Agent Portal test email',
     html: layout(env, {
       heading: 'Email is working',
       body: '<p style="margin:0;">If you are reading this, the portal can send mail. Nothing else to do.</p>',
@@ -525,7 +525,7 @@ export async function sendAutomationEmail(env, to, subject, body) {
     method: 'POST',
     headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      from: env.MAIL_FROM || 'Trip Vara <noreply@tripvaratravel.com>',
+      from: env.MAIL_FROM || 'CTT Agent Portal <noreply@cttagents.com>',
       to: [to],
       subject,
       html,
@@ -575,7 +575,7 @@ export async function sendHtml(env, { to, replyTo, subject, html }) {
     method: 'POST',
     headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      from: env.MAIL_FROM || 'Trip Vara <noreply@tripvaratravel.com>',
+      from: env.MAIL_FROM || 'CTT Agent Portal <noreply@cttagents.com>',
       to: [to],
       ...(replyTo ? { reply_to: [replyTo] } : {}),
       subject,
@@ -635,7 +635,7 @@ export async function sendPaymentReminder(env, {
     method: 'POST',
     headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      from: env.MAIL_FROM || 'Trip Vara <noreply@tripvaratravel.com>',
+      from: env.MAIL_FROM || 'CTT Agent Portal <noreply@cttagents.com>',
       to: [to],
       ...(replyTo ? { reply_to: [replyTo] } : {}),
       subject,

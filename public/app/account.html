@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Account | Trip Vara Portal</title>
+<title>Account | CTT Agent Portal</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="icon" href="/logo-mark.png" type="image/png">
 <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -13,7 +13,7 @@
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main">
     <header class="topbar">
-      <div><h1>Account</h1><p class="sub">Your Trip Vara Tools account: users, fields, values and tags.</p></div>
+      <div><h1>Account</h1><p class="sub">Your CTT Tools account: users, fields, values and tags.</p></div>
       <div class="toolbar" style="margin:0;">
         <button class="btn btn-ghost btn-sm" id="refresh">Refresh</button>
         <button class="btn btn-primary btn-sm" id="add-item" hidden>Add</button>
@@ -115,7 +115,7 @@ function syncAddButton() {
 function renderPanel() {
   syncAddButton();
   if (data.unavailable && data.unavailable[active]) {
-    panel.innerHTML = '<div class="empty"><p>This area is not available with the current Trip Vara Tools permissions.</p></div>';
+    panel.innerHTML = '<div class="empty"><p>This area is not available with the current CTT Tools permissions.</p></div>';
     return;
   }
   const items = Array.isArray(data[active]) ? data[active] : [];

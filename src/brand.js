@@ -19,10 +19,10 @@ export const AGENCY_COLUMNS = `
 // colours, so an agency that fills in nothing still gets a finished page
 // rather than a broken one.
 export const DEFAULT_BRAND = {
-  name: 'Trip Vara',
-  tagline: 'From first inquiry to welcome home.',
+  name: 'Cruises Tours & Travel',
+  tagline: '',
   logoUrl: null,
-  color: '#1b3a5f',
+  color: '#12315e',
 };
 
 // Six hex digits after a hash, and nothing else. This value is interpolated

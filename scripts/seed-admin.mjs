@@ -10,7 +10,7 @@
 // through wrangler:
 //
 //   node scripts/seed-admin.mjs > seed.sql
-//   npx wrangler d1 execute trip-vara --local --file seed.sql
+//   npx wrangler d1 execute cttagents --local --file seed.sql
 //
 // Test credentials only. Nothing here is a secret and nothing here should ever
 // exist in a deployed database.
@@ -38,6 +38,6 @@ process.stdout.write(
   `INSERT OR REPLACE INTO users
      (id, email, password_hash, first_name, last_name, agency_name,
       role, status, agency_id, platform_owner, created_at, updated_at)
-   VALUES (${q(id)}, ${q(email)}, ${q(hash)}, 'Local', 'Admin', 'Trip Vara',
+   VALUES (${q(id)}, ${q(email)}, ${q(hash)}, 'Local', 'Admin', 'Cruises Tours & Travel',
            'admin', 'active', 'agency-house', 1, ${ts}, ${ts});\n`
 );

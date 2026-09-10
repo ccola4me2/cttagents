@@ -167,7 +167,7 @@ const NAV = [
     hub: 'Setup', icon: I.gear, items: [
       { href: '/app/account', label: 'Account' },
       { href: '/app/settings', label: 'Settings' },
-      { href: '/app/crm', label: 'Trip Vara Tools' },
+      { href: '/app/crm', label: 'CTT Tools' },
     ],
   },
 ];
@@ -697,8 +697,8 @@ export async function mountShell({ admin = false } = {}) {
 
   sidebar.innerHTML = `
     <a class="wordmark on-dark" href="${admin ? '/admin/' : '/app/'}">
-      <img src="/logo-mark.svg" alt="">
-      <span><b>TripVara</b><small>${admin ? 'Admin' : 'Advisor portal'}</small></span>
+      <img src="/logo-mark.png" alt="">
+      <span><b>CTT AGENTS</b><small>${admin ? 'Admin' : 'Advisor portal'}</small></span>
     </a>
     <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="sidebar-nav">
       <span class="sr-only">Menu</span>
@@ -847,7 +847,7 @@ export function showError(container, err) {
   if (err && err.code === 'not_configured') {
     container.innerHTML = `<div class="notice-setup">
       <p style="font-size:.72rem;font-weight:650;letter-spacing:.16em;text-transform:uppercase;color:var(--coral-500);margin:0 0 .6rem;">Setup needed</p>
-      <h3>Trip Vara Tools is not connected yet</h3>
+      <h3>CTT Tools is not connected yet</h3>
       <p style="margin-top:.6rem;">Set the <code>GHL_API_TOKEN</code> secret on the Worker so the portal can
       read contacts, opportunities and calendars from your account. Reservations and reports work without it.</p>
     </div>`;

@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Settings | Trip Vara Portal</title>
+<title>Settings | CTT Agent Portal</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="icon" href="/logo-mark.png" type="image/png">
 <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -119,7 +119,7 @@
         </div>
       </section>
       <section class="card">
-        <div class="card-head"><h2>Trip Vara Tools connection</h2></div>
+        <div class="card-head"><h2>CTT Tools connection</h2></div>
         <div class="card-pad">
           <p id="ghl-info" class="muted">Loading...</p>
         </div>
@@ -203,8 +203,8 @@ pf.elements.notifyEmail.value = user.notifyEmail || '';
 pf.elements.notifyEmail.placeholder = user.email || '';
 
 document.getElementById('ghl-info').innerHTML = user.ghlLocationId
-  ? `Bound to Trip Vara Tools account <code>${esc(user.ghlLocationId)}</code>.`
-  : 'Using the shared Trip Vara Tools account. An administrator can bind you to your own.';
+  ? `Bound to CTT Tools account <code>${esc(user.ghlLocationId)}</code>.`
+  : 'Using the shared CTT Tools account. An administrator can bind you to your own.';
 
 onSubmit(pf, async (values) => {
   // The reminder switch is not in this form. It saves on the tick, so sending

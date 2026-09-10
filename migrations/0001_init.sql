@@ -1,7 +1,7 @@
--- Trip Vara advisor portal, initial schema.
+-- CTT Agent Portal, initial schema.
 --
 -- Apply with either:
---   npx wrangler d1 migrations apply trip-vara --remote
+--   npx wrangler d1 migrations apply cttagents --remote
 -- or by pasting this file into the D1 "Console" tab in the Cloudflare dashboard.
 --
 -- Scope note: contacts, opportunities, conversations and calendars are NOT

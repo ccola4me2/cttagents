@@ -140,7 +140,7 @@ export async function handleReadTripMessage(request, env, msgId) {
 }
 
 function appUrl(env) {
-  return (env.APP_URL || 'https://tripvaratravel.com').replace(/\/$/, '');
+  return (env.APP_URL || 'https://cttagents.com').replace(/\/$/, '');
 }
 
 // ---------------------------------------------------------------------------
@@ -455,11 +455,11 @@ function page(title, body, brand) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>${esc(title)} | ${esc(b.name)}</title>
-<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="icon" href="/logo-mark.png" type="image/png">
 <style>
   :root {
-    --navy:${accent}; --navy-d:#12294a; --coral:#e55942; --ink:#2f4459;
-    --dim:#5c7286; --line:#e4edf5; --shell:#fbf9f5; --ok:#1f7a5a; --late:#b3382a;
+    --navy:${accent}; --navy-d:#0d2347; --teal:#14788a; --ink:#2f4459;
+    --dim:#5c7286; --line:#e2ebf4; --shell:#f7fafb; --ok:#1f7a5a; --late:#b3382a;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--shell);color:var(--ink);
@@ -469,10 +469,10 @@ function page(title, body, brand) {
   .brand{display:flex;align-items:center;gap:.6rem;margin-bottom:2rem}
   .brand img{width:36px;height:36px}
   .brand b{font-size:1rem;letter-spacing:.26em;text-transform:uppercase;color:var(--navy);font-weight:650}
-  .brand small{display:block;font-size:.62rem;letter-spacing:.06em;color:var(--coral)}
+  .brand small{display:block;font-size:.62rem;letter-spacing:.06em;color:var(--teal)}
   .hero{margin:0 0 1.6rem}
   .eyebrow{margin:0 0 .3rem;font-size:.72rem;font-weight:700;letter-spacing:.16em;
-    text-transform:uppercase;color:var(--coral)}
+    text-transform:uppercase;color:var(--teal)}
   h1{margin:0 0 .4rem;font-size:2rem;line-height:1.15;color:var(--navy);font-weight:650;
     text-wrap:balance}
   h2{margin:0 0 .9rem;font-size:1.05rem;color:var(--navy);font-weight:650}
@@ -505,7 +505,7 @@ function page(title, body, brand) {
     text-transform:uppercase;color:var(--dim)}
   .tvalue{margin:.2rem 0 0;font-size:1.55rem;font-weight:650;color:var(--navy);
     font-variant-numeric:tabular-nums}
-  .tvalue.owing{color:var(--coral)}
+  .tvalue.owing{color:var(--teal)}
   table.sched{width:100%;border-collapse:collapse;font-size:.92rem}
   .sched th{text-align:left;font-size:.68rem;font-weight:700;letter-spacing:.12em;
     text-transform:uppercase;color:var(--dim);padding:.4rem 0;border-bottom:1px solid var(--line)}
@@ -518,12 +518,12 @@ function page(title, body, brand) {
   .pill.late{background:#fdeeec;color:var(--late)}
   .docs a{color:var(--navy);font-weight:600}
   .contact{margin:.2rem 0 1.2rem}
-  .contact a{color:var(--coral);font-weight:600;text-decoration:none}
+  .contact a{color:var(--teal);font-weight:600;text-decoration:none}
   label{display:block;font-size:.85rem;font-weight:600;color:var(--navy);margin-bottom:.35rem}
-  textarea{width:100%;padding:.6rem .7rem;border:1px solid #c7d9e9;border-radius:8px;
+  textarea{width:100%;padding:.6rem .7rem;border:1px solid #c2d6e8;border-radius:8px;
     font:inherit;color:inherit;resize:vertical}
-  textarea:focus{outline:2px solid var(--coral);outline-offset:1px}
-  button{margin-top:.7rem;background:var(--coral);color:#fff;border:0;border-radius:8px;
+  textarea:focus{outline:2px solid var(--teal);outline-offset:1px}
+  button{margin-top:.7rem;background:var(--teal);color:#fff;border:0;border-radius:8px;
     padding:.6rem 1.2rem;font:inherit;font-weight:650;cursor:pointer}
   button:disabled{opacity:.6;cursor:default}
   .err{color:var(--late);font-size:.88rem;margin:.6rem 0 0}
@@ -537,7 +537,7 @@ function page(title, body, brand) {
 <body>
 <div class="wrap">
   <div class="brand">
-    <img src="${esc(b.logoUrl || '/logo-mark.svg')}" alt="">
+    <img src="${esc(b.logoUrl || '/logo-mark.png')}" alt="">
     <span><b>${esc(b.name)}</b><small>${esc(b.tagline || '')}</small></span>
   </div>
   ${body}

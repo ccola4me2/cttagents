@@ -1,4 +1,4 @@
-// The remaining Trip Vara Tools areas, grouped into a few coherent endpoints
+// The remaining CTT Tools areas, grouped into a few coherent endpoints
 // rather than one route per upstream resource.
 //
 // Every section is fetched independently and allowed to fail on its own. These

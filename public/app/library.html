@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Media | Trip Vara Portal</title>
+<title>Media | CTT Agent Portal</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="icon" href="/logo-mark.png" type="image/png">
 <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -13,7 +13,7 @@
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main">
     <header class="topbar">
-      <div><h1>Media</h1><p class="sub">Files in your Trip Vara Tools library.</p></div>
+      <div><h1>Media</h1><p class="sub">Files in your CTT Tools library.</p></div>
       <span class="toolbar" style="margin:0;padding:0;">
         <button class="btn btn-primary btn-sm" id="add">Add files</button>
         <button class="btn btn-ghost btn-sm" id="refresh">Refresh</button>
@@ -40,7 +40,7 @@ const progress = document.getElementById('progress');
 document.getElementById('add').addEventListener('click', () => picker.click());
 
 /**
- * Uploaded straight into the Trip Vara Tools library, not stored here.
+ * Uploaded straight into the CTT Tools library, not stored here.
  *
  * That is where a campaign or a social post looks for a file, so a copy kept
  * on this side would be a second library to keep in step with the first.
@@ -88,11 +88,11 @@ async function load() {
   try {
     const d = await api('/api/library');
     if (d.unavailable && d.unavailable.files) {
-      panel.innerHTML = '<div class="empty"><p>The media library is not available with the current Trip Vara Tools permissions.</p></div>';
+      panel.innerHTML = '<div class="empty"><p>The media library is not available with the current CTT Tools permissions.</p></div>';
       return;
     }
     if (!d.files.length) {
-      panel.innerHTML = '<div class="empty"><h3>No files</h3><p>Anything uploaded to Trip Vara Tools appears here.</p></div>';
+      panel.innerHTML = '<div class="empty"><h3>No files</h3><p>Anything uploaded to CTT Tools appears here.</p></div>';
       return;
     }
     panel.innerHTML = `<div class="media-grid">${d.files.map((f) => `

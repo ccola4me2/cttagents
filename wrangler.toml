@@ -1,10 +1,10 @@
-# Trip Vara advisor portal — Cloudflare Worker + static assets + D1.
+# CTT Agent Portal — Cloudflare Worker + static assets + D1.
 #
 # Deploy model: auto-deploys from GitHub `main` via Cloudflare Workers Builds,
 # the same pattern as cruiseshoppers and the phc site. Wrangler runs in
 # Cloudflare's build; nothing needs to be installed locally to ship.
 
-name = "trip-vara"
+name = "cttagents"
 main = "src/worker.js"
 compatibility_date = "2025-01-01"
 
@@ -25,10 +25,16 @@ not_found_handling = "none"
 # D1 (SQLite): advisor accounts, sessions, password resets, and the
 # travel-specific booking records GoHighLevel cannot model cleanly.
 # Created in the Cloudflare dashboard (Storage & Databases > D1).
+#
+# SETUP: create the database first (Cloudflare dashboard > Storage & Databases
+# > D1, named `cttagents`) and paste its id below. The placeholder is
+# deliberate and deliberately invalid: a deploy against it fails loudly, which
+# is the point. Trip Vara's id must never appear here — this Worker would then
+# read and write another agency's live book.
 [[d1_databases]]
 binding = "DB"
-database_name = "trip-vara"
-database_id = "f7a1657b-4129-484c-9841-200416f8da8a"
+database_name = "cttagents"
+database_id = "PUT-THE-CTTAGENTS-D1-ID-HERE"
 
 # R2: the documents attached to a reservation. Vendor confirmations, insurance
 # policies, air tickets. The bucket is private and stays private: every
@@ -41,13 +47,13 @@ database_id = "f7a1657b-4129-484c-9841-200416f8da8a"
 # until somebody noticed why.
 [[r2_buckets]]
 binding = "DOCS"
-bucket_name = "trip-vara-docs"
+bucket_name = "cttagents-docs"
 
 # Non-secret config. Secrets (GHL_API_TOKEN, RESEND_API_KEY) are set in the
 # dashboard under Settings > Variables and Secrets. Never committed.
 [vars]
-APP_URL = "https://tripvaratravel.com"
-MAIL_FROM = "Trip Vara <noreply@tripvaratravel.com>"
+APP_URL = "https://cttagents.com"
+MAIL_FROM = "CTT Agent Portal <noreply@cttagents.com>"
 # Where operator notifications go (new advisor signups awaiting approval).
 NOTIFY_EMAIL = "brentb@cruisestoursandtravel.com"
 SESSION_TTL_DAYS = "30"
@@ -55,7 +61,11 @@ RESET_TTL_MINUTES = "60"
 
 # GoHighLevel. The agency default sub-account every advisor falls back to when
 # they have no sub-account of their own recorded in D1.
-GHL_DEFAULT_LOCATION_ID = "4Hb35fhCOJSuOmKDA1bY"
+# SETUP: the CTT sub-account in app.concinnity.digital. Left empty on purpose
+# until that sub-account exists. Empty is the safe state: every CRM screen says
+# "CTT Tools is not connected yet" and nothing reaches into another agency's
+# CRM. Do not borrow Trip Vara's location id to make the screens light up.
+GHL_DEFAULT_LOCATION_ID = ""
 GHL_API_BASE = "https://services.leadconnectorhq.com"
 GHL_API_VERSION = "2021-07-28"
 # White-labelled GoHighLevel app, used to deep-link the areas that have no

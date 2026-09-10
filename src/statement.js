@@ -215,10 +215,10 @@ export function renderStatement(env, s) {
     : '');
 
   const totalRow = (label, cents, strong) => `<tr>
-    <td style="padding:8px 0;border-top:1px solid #e4edf5;${strong ? 'font-weight:600;' : ''}color:#1b3a5f;">
+    <td style="padding:8px 0;border-top:1px solid #e2ebf4;${strong ? 'font-weight:600;' : ''}color:#12315e;">
       ${escapeHtml(label)}</td>
-    <td style="padding:8px 0;border-top:1px solid #e4edf5;text-align:right;white-space:nowrap;${
-      strong ? 'font-weight:600;' : ''}color:#1b3a5f;">${money(cents)}</td></tr>`;
+    <td style="padding:8px 0;border-top:1px solid #e2ebf4;text-align:right;white-space:nowrap;${
+      strong ? 'font-weight:600;' : ''}color:#12315e;">${money(cents)}</td></tr>`;
 
   const quote = s.mode === 'quote';
 
@@ -259,7 +259,7 @@ export function renderStatement(env, s) {
       ? block('Your choices', s.options.map((o) => `<tr>
           <td style="padding:8px 0;color:#2f4459;">
             <strong>${escapeHtml(o.label)}</strong>${o.chosen
-              ? ' <span style="color:#1b3a5f;font-size:12px;">&mdash; the one you chose</span>' : ''}
+              ? ' <span style="color:#12315e;font-size:12px;">&mdash; the one you chose</span>' : ''}
             ${o.detail ? `<div style="color:#5c7286;font-size:13px;">${escapeHtml(o.detail)}</div>` : ''}</td>
           <td style="padding:8px 0;text-align:right;white-space:nowrap;color:#2f4459;">${
             money(o.amountCents)}</td></tr>`).join(''))
@@ -274,7 +274,7 @@ export function renderStatement(env, s) {
     // Where the money stands, worked out rather than ticked.
     !quote && s.standing
       ? `<p style="margin:20px 0 0;padding:12px 16px;background:#f2f7fb;border-radius:8px;
-           font-weight:600;color:#1b3a5f;">${escapeHtml(s.standing)}</p>`
+           font-weight:600;color:#12315e;">${escapeHtml(s.standing)}</p>`
       : '',
     s.notes
       ? `<p style="margin:18px 0 0;white-space:pre-wrap;">${escapeHtml(s.notes)}</p>` : '',
@@ -299,7 +299,7 @@ export function renderStatement(env, s) {
     s.agencyName ? escapeHtml(s.agencyName) : '',
     s.agencyAddress ? escapeHtml(s.agencyAddress) : '',
     s.advisorPhone ? escapeHtml(s.advisorPhone) : '',
-    `<a href="mailto:${escapeHtml(s.advisorEmail)}" style="color:#1b3a5f;">${
+    `<a href="mailto:${escapeHtml(s.advisorEmail)}" style="color:#12315e;">${
       escapeHtml(s.advisorEmail)}</a>`,
     s.sellerOfTravel ? escapeHtml(s.sellerOfTravel) : '',
   ].filter(Boolean).join(' &middot; ');

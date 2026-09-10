@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dashboard | Trip Vara Portal</title>
+<title>Dashboard | CTT Agent Portal</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="icon" href="/logo-mark.png" type="image/png">
 <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -165,7 +165,7 @@ function build() {
 
   if (d.ghlStatus === 'not_configured') showError(document.getElementById('ghl-state'), { code: 'not_configured' });
   else if (d.ghlStatus === 'error') document.getElementById('ghl-state').innerHTML =
-    '<div class="notice notice-error">Could not reach Trip Vara Tools just now. Reservation figures above are still accurate.</div>';
+    '<div class="notice notice-error">Could not reach CTT Tools just now. Reservation figures above are still accurate.</div>';
 
   drawPanels();
 }

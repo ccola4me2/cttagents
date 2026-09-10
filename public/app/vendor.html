@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vendor | Trip Vara Portal</title>
+<title>Vendor | CTT Agent Portal</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="icon" href="/logo-mark.png" type="image/png">
 <link rel="stylesheet" href="/css/app.css">
 <style>
   /* One supplier, read top to bottom. Deliberately not a grid of boxes: this
@@ -14,7 +14,7 @@
   .v-head { display: flex; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
   .v-mark {
     width: 52px; height: 52px; flex: none; border-radius: 10px;
-    background: var(--navy-600, #1b3a5f); color: #fff;
+    background: var(--navy-600, #12315e); color: #fff;
     display: grid; place-items: center; font-size: 1.25rem; font-weight: 600;
     letter-spacing: .02em;
   }
@@ -387,7 +387,7 @@ function readPhones() {
 function render() {
   const v = d.vendor;
   document.getElementById('crumb').textContent = v.name;
-  document.title = `${v.name} | Trip Vara Portal`;
+  document.title = `${v.name} | CTT Agent Portal`;
 
   document.getElementById('actions').innerHTML = d.canEdit && !editing
     ? '<button class="btn btn-secondary btn-sm" id="edit">Edit</button>'

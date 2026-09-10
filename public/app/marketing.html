@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Marketing | Trip Vara Portal</title>
+<title>Marketing | CTT Agent Portal</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="icon" href="/logo-mark.png" type="image/png">
 <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -13,7 +13,7 @@
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main">
     <header class="topbar">
-      <div><h1>Campaigns &amp; funnels</h1><p class="sub">Funnels, campaigns, email templates, links, social and blog, from Trip Vara Tools.</p></div>
+      <div><h1>Campaigns &amp; funnels</h1><p class="sub">Funnels, campaigns, email templates, links, social and blog, from CTT Tools.</p></div>
       <div class="toolbar" style="margin:0;">
         <button class="btn btn-ghost btn-sm" id="refresh">Refresh</button>
         <button class="btn btn-primary btn-sm" id="new-post">New social post</button>
@@ -92,11 +92,11 @@ function renderPanel() {
   const off = data.unavailable && data.unavailable[active];
   const items = Array.isArray(data[active]) ? data[active] : [];
   if (off) {
-    panel.innerHTML = '<div class="empty"><p>This area is not available with the current Trip Vara Tools permissions.</p></div>';
+    panel.innerHTML = '<div class="empty"><p>This area is not available with the current CTT Tools permissions.</p></div>';
     return;
   }
   if (!items.length) {
-    panel.innerHTML = '<div class="empty"><h3>Nothing here yet</h3><p>Anything created in Trip Vara Tools shows up on this tab.</p></div>';
+    panel.innerHTML = '<div class="empty"><h3>Nothing here yet</h3><p>Anything created in CTT Tools shows up on this tab.</p></div>';
     return;
   }
   panel.innerHTML = `<ul class="rows">${items.map((it) => {

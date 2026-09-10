@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agencies | Trip Vara</title>
+<title>Agencies | CTT</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="icon" href="/logo-mark.png" type="image/png">
 <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -36,13 +36,13 @@
         <p class="field-hint">Shown to their clients on every page and email they send.</p></div>
       <div class="field"><label for="tagline">Tagline</label>
         <input id="tagline" name="tagline" maxlength="160"
-          placeholder="From first inquiry to welcome home."></div>
+          placeholder="Shown under the agency name"></div>
       <div class="field-row">
         <div class="field"><label for="logoUrl">Logo address</label>
           <input id="logoUrl" name="logoUrl" maxlength="500" placeholder="https://...">
           <p class="field-hint">Wherever it already lives on their own site.</p></div>
         <div class="field"><label for="brandColor">Brand colour</label>
-          <input id="brandColor" name="brandColor" maxlength="7" placeholder="#1b3a5f">
+          <input id="brandColor" name="brandColor" maxlength="7" placeholder="#12315e">
           <p class="field-hint">Six hex digits after a hash.</p></div>
       </div>
       <div class="field-row">
@@ -208,7 +208,7 @@ async function openProvision(a) {
     ? snapshots.map((s, i) => `${i + 1}. ${s.name}`).join('\n')
     : '(none found on your account)';
   const pick = prompt(
-    `Make the Trip Vara Tools sub-account for ${a.name}.\n\n`
+    `Make the CTT Tools sub-account for ${a.name}.\n\n`
     + `Which snapshot should it start from?\n${names}\n\n`
     + 'Enter a number, or leave blank for an empty sub-account.',
     snapshots.length ? '1' : ''

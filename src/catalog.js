@@ -16,7 +16,7 @@
 //   (x-data-as-of) is fully imported. A cron can call it every five minutes
 //   for a year and spend one request a day.
 //
-// What Trip Vara wants from it is narrower than a shopper site: vendor and
+// What CTT wants from it is narrower than a shopper site: vendor and
 // ship names spelled one way, real departure and return dates, and enough to
 // build a reservation from a real sailing rather than from memory.
 

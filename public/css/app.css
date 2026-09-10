@@ -1,27 +1,41 @@
-/* Trip Vara advisor portal.
-   Brand: navy #1b3a5f with a coral #f1705b accent, taken from the logo.
-   Hand written, no build step, matching the no-toolchain deploy model. */
+/* CTT Agent Portal.
+   Brand: navy #12315e with a teal #1a8fa3 accent, taken from the Cruises Tours
+   & Travel logo. Hand written, no build step, matching the no-toolchain deploy
+   model.
+
+   The teal ramp keeps the --coral-* names as aliases. Upstream (cttagents) is
+   still the source of most of this file, and renaming a token used in sixty
+   places would turn every future cherry-pick into a conflict for no visible
+   gain. New rules should use --teal-*; the old names resolve to the same
+   colour. */
 
 :root {
-  --navy-950: #0a1a30;
-  --navy-900: #12294a;
-  --navy-800: #1b3a5f;
-  --navy-700: #24476e;
-  --navy-600: #2f5885;
-  --navy-400: #6b91ba;
-  --navy-300: #9db9d5;
-  --navy-200: #c7d9e9;
-  --navy-100: #e4edf5;
-  --navy-50: #f3f7fb;
+  --navy-950: #06152b;
+  --navy-900: #0d2347;
+  --navy-800: #12315e;
+  --navy-700: #1b406f;
+  --navy-600: #265186;
+  --navy-400: #5f8bb8;
+  --navy-300: #95b5d4;
+  --navy-200: #c2d6e8;
+  --navy-100: #e2ebf4;
+  --navy-50: #f2f7fb;
 
-  --coral-600: #c94430;
-  --coral-500: #e55942;
-  --coral-400: #f1705b;
-  --coral-200: #fbc0b5;
-  --coral-50: #fef2ef;
+  --teal-600: #0f6270;
+  --teal-500: #14788a;
+  --teal-400: #1a8fa3;
+  --teal-200: #a8dbe4;
+  --teal-50: #eef8fa;
 
-  --sand-100: #f7f0e4;
-  --shell: #fbf9f5;
+  /* Aliases. See the note at the top of this file. */
+  --coral-600: var(--teal-600);
+  --coral-500: var(--teal-500);
+  --coral-400: var(--teal-400);
+  --coral-200: var(--teal-200);
+  --coral-50: var(--teal-50);
+
+  --sand-100: #e9f2f5;
+  --shell: #f7fafb;
 
   --ink-900: #0f1c2b;
   --ink-700: #2f4459;
@@ -200,7 +214,7 @@ textarea { min-height: 90px; resize: vertical; }
  * makes room; the glyph never moves and cannot be typed over. */
 .money {
   padding-left: 1.15rem;
-  background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='16'%3E%3Ctext x='0' y='12' font-family='-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif' font-size='12' fill='%236b91ba'%3E%24%3C/text%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='16'%3E%3Ctext x='0' y='12' font-family='-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif' font-size='12' fill='%235f8bb8'%3E%24%3C/text%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: .45rem center;
 }

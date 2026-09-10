@@ -1,4 +1,4 @@
-// Trip Vara's own form builder.
+// CTT's own form builder.
 //
 // The upstream builder has no create or edit API, so forms made there can only
 // ever be read. These are the portal's own: defined here, hosted here at

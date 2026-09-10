@@ -43,7 +43,7 @@ export function docsReady(env) {
 }
 
 const notConfigured = () => badRequest(
-  'File storage is not set up yet. Create an R2 bucket named trip-vara-docs in the '
+  'File storage is not set up yet. Create an R2 bucket named cttagents-docs in the '
   + 'Cloudflare dashboard, then add its binding to wrangler.toml as DOCS.');
 
 export async function listDocuments(env, bookingId, scope) {

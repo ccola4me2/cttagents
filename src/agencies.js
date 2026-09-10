@@ -10,7 +10,7 @@
 //
 // And it is the name over the door. The agency name and address were copied
 // onto every advisor, so two people at one agency could disagree about what it
-// was called, and the public pages a client sees said Trip Vara whoever sent
+// was called, and the public pages a client sees said CTT whoever sent
 // them.
 //
 // Two kinds of owner. `role` is unchanged and still means the owner of one
@@ -47,7 +47,7 @@ function parse(body) {
 
   const color = clean(body.brandColor, 7);
   if (color && !HEX.test(color)) {
-    return { error: 'A brand colour is six hex digits after a hash, like #1b3a5f.' };
+    return { error: 'A brand colour is six hex digits after a hash, like #12315e.' };
   }
 
   const logoUrl = clean(body.logoUrl, 500);
@@ -102,7 +102,7 @@ export async function handleListAgencies(request, env) {
     agencies: results || [],
     platformOwner: Boolean(user.platform_owner),
     myAgencyId: user.agency_id || null,
-    appUrl: (env.APP_URL || 'https://tripvaratravel.com').replace(/\/$/, ''),
+    appUrl: (env.APP_URL || 'https://cttagents.com').replace(/\/$/, ''),
   });
 }
 
@@ -242,7 +242,7 @@ export async function handleProvisionAgency(request, env, id) {
   if (response) return response;
   if (!user.platform_owner) return json({ error: 'Only the portal owner can set agencies up.' }, 403);
   if (!ghl.agencyConfigured(env)) {
-    return json({ error: 'No agency access to Trip Vara Tools is set up yet.' }, 503);
+    return json({ error: 'No agency access to CTT Tools is set up yet.' }, 503);
   }
 
   const agency = await getAgency(env, id);

@@ -1,4 +1,4 @@
-// Trip Vara's own automation engine.
+// CTT's own automation engine.
 //
 // How it works, because the shape matters more than any individual function:
 //

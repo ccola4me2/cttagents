@@ -155,7 +155,7 @@ export async function handleListSpecials(request, env) {
     },
     productTypes: PRODUCT_TYPES,
     priceBasis: PRICE_BASIS,
-    appUrl: (env.APP_URL || 'https://tripvaratravel.com').replace(/\/$/, ''),
+    appUrl: (env.APP_URL || 'https://cttagents.com').replace(/\/$/, ''),
     scope: db.scopeLabel(scope, user),
     advisors: await db.advisorOptions(env, user),
   });
@@ -187,7 +187,7 @@ export async function handleGetSpecial(request, env, id) {
     editable: special.user_id === user.id,
     productTypes: PRODUCT_TYPES,
     priceBasis: PRICE_BASIS,
-    appUrl: (env.APP_URL || 'https://tripvaratravel.com').replace(/\/$/, ''),
+    appUrl: (env.APP_URL || 'https://cttagents.com').replace(/\/$/, ''),
   });
 }
 

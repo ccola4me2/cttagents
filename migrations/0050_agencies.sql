@@ -56,8 +56,8 @@ CREATE INDEX IF NOT EXISTS idx_users_agency ON users (agency_id);
 -- agencies screen; inventing a better name here would only be a guess written
 -- into a migration.
 INSERT OR IGNORE INTO agencies (id, name, slug, tagline, join_open, created_at, updated_at)
-VALUES ('agency-house', 'Trip Vara', 'trip-vara',
-        'From first inquiry to welcome home.', 1,
+VALUES ('agency-house', 'Cruises Tours & Travel', 'ctt',
+        NULL, 1,
         strftime('%s','now'), strftime('%s','now'));
 
 UPDATE users SET agency_id = 'agency-house' WHERE agency_id IS NULL;

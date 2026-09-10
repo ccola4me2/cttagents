@@ -43,14 +43,14 @@ jobs:
         run: npm run check:columns
 
       - name: Build the database from the migrations
-        run: npx wrangler d1 migrations apply trip-vara --local
+        run: npx wrangler d1 migrations apply cttagents --local
 
       # Seeded before the Worker starts, so nothing is holding the SQLite file
       # open while wrangler writes to it.
       - name: Seed the test admin
         run: |
           node scripts/seed-admin.mjs > /tmp/seed.sql
-          npx wrangler d1 execute trip-vara --local --file /tmp/seed.sql
+          npx wrangler d1 execute cttagents --local --file /tmp/seed.sql
 
       - name: Start the Worker
         run: |

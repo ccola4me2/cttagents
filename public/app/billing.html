@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Invoices | Trip Vara Portal</title>
+<title>Invoices | CTT Agent Portal</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="icon" href="/logo-mark.png" type="image/png">
 <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -13,7 +13,7 @@
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main">
     <header class="topbar">
-      <div><h1>Invoices</h1><p class="sub">Invoices and payments from Trip Vara Tools, against what your reservations expect.</p></div>
+      <div><h1>Invoices</h1><p class="sub">Invoices and payments from CTT Tools, against what your reservations expect.</p></div>
       <div class="toolbar" style="margin:0;">
         <button class="btn btn-ghost btn-sm" id="refresh">Refresh</button>
         <button class="btn btn-primary btn-sm" id="new-invoice">Raise invoice</button>
@@ -119,19 +119,19 @@ function render(d) {
     <div class="card-pad">
       <dl class="kv" style="grid-template-columns:220px 1fr;">
         <dt>Booked volume</dt><dd>${money(b.grossCents)} <span class="muted">from your reservations</span></dd>
-        <dt>Invoiced in Trip Vara Tools</dt><dd>${money(s.invoicedCents)}</dd>
+        <dt>Invoiced in CTT Tools</dt><dd>${money(s.invoicedCents)}</dd>
         <dt>Difference</dt><dd style="color:${gap === 0 ? 'var(--green-600)' : 'var(--amber-600)'};font-weight:650;">
           ${money(Math.abs(gap))} ${gap === 0 ? 'matched' : gap > 0 ? 'booked but not invoiced' : 'invoiced beyond reservations'}</dd>
         <dt>Commission expected</dt><dd>${money(b.commissionCents)}</dd>
         <dt>Commission received</dt><dd>${money(b.commissionPaidCents)}</dd>
       </dl>
       <p class="field-hint" style="margin-top:.9rem;">Booked volume is what you entered on the Reservations page.
-      Invoiced is what exists in Trip Vara Tools. A gap usually means an invoice has not been raised yet.</p>
+      Invoiced is what exists in CTT Tools. A gap usually means an invoice has not been raised yet.</p>
     </div>`;
 
   document.getElementById('inv-count').textContent = d.unavailable.invoices ? 'unavailable' : `${d.invoices.length} shown`;
   panelInv.innerHTML = d.unavailable.invoices
-    ? '<div class="empty"><p>Invoices are not available with the current Trip Vara Tools permissions.</p></div>'
+    ? '<div class="empty"><p>Invoices are not available with the current CTT Tools permissions.</p></div>'
     : d.invoices.length
     ? `<div class="table-wrap"><table>
         <thead><tr><th>Invoice</th><th>Client</th><th>Status</th><th>Due</th>
@@ -147,11 +147,11 @@ function render(d) {
           <td>${i.dueDate ? esc(timeAgo(i.dueDate)) : '<span class="muted">-</span>'}</td>
           <td class="num">${money(i.totalCents)}</td>
           <td class="num">${money(i.paidCents)}</td></tr>`).join('')}</tbody></table></div>`
-    : '<div class="empty"><h3>No invoices yet</h3><p>Invoices raised in Trip Vara Tools appear here.</p></div>';
+    : '<div class="empty"><h3>No invoices yet</h3><p>Invoices raised in CTT Tools appear here.</p></div>';
 
   document.getElementById('tx-count').textContent = d.unavailable.transactions ? 'unavailable' : `${d.transactions.length} shown`;
   panelTx.innerHTML = d.unavailable.transactions
-    ? '<div class="empty"><p>Transactions are not available with the current Trip Vara Tools permissions.</p></div>'
+    ? '<div class="empty"><p>Transactions are not available with the current CTT Tools permissions.</p></div>'
     : d.transactions.length
     ? `<div class="table-wrap"><table>
         <thead><tr><th>Client</th><th>Status</th><th>Source</th><th>When</th><th class="num">Amount</th></tr></thead>
@@ -163,7 +163,7 @@ function render(d) {
           <td><span class="muted">${esc(t.paymentProvider || t.entityType || '-')}</span></td>
           <td><span class="muted">${esc(t.createdAt ? timeAgo(t.createdAt) : '-')}</span></td>
           <td class="num">${money(t.amountCents)}</td></tr>`).join('')}</tbody></table></div>`
-    : '<div class="empty"><h3>No transactions yet</h3><p>Payments taken through Trip Vara Tools appear here.</p></div>';
+    : '<div class="empty"><h3>No transactions yet</h3><p>Payments taken through CTT Tools appear here.</p></div>';
 }
 
 function renderSubscriptions(d) {
@@ -171,7 +171,7 @@ function renderSubscriptions(d) {
   document.getElementById('sub-count').textContent =
     d.unavailable.subscriptions ? 'unavailable' : `${d.subscriptions.length} shown`;
   el.innerHTML = d.unavailable.subscriptions
-    ? '<div class="empty"><p>Subscriptions are not available with the current Trip Vara Tools permissions.</p></div>'
+    ? '<div class="empty"><p>Subscriptions are not available with the current CTT Tools permissions.</p></div>'
     : d.subscriptions.length
     ? `<ul class="rows">${d.subscriptions.map((sub) => `<li><div class="row-between">
         <div><div class="t">${esc(sub.contactName || 'Subscriber')}</div>

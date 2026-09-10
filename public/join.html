@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Join</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="icon" href="/logo-mark.png" type="image/png">
 <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
 <div class="auth-page">
   <span class="auth-brand" id="brand">
-    <img src="/logo-mark.svg" alt="">
+    <img src="/logo-mark.png" alt="">
     <span><b id="brand-name">&nbsp;</b><small id="brand-tagline">&nbsp;</small></span>
   </span>
   <div class="auth-card">
@@ -78,7 +78,7 @@ if (!slug) {
     document.getElementById('brand-tagline').textContent = d.brand.tagline || '';
     if (d.brand.logoUrl) document.querySelector('#brand img').src = d.brand.logoUrl;
     // One accent, applied the way the portal's own is, so a page that is not
-    // Trip Vara does not look like Trip Vara with a different name on it.
+    // CTT does not look like CTT with a different name on it.
     if (d.brand.color) {
       document.documentElement.style.setProperty('--navy-800', d.brand.color);
       document.documentElement.style.setProperty('--navy-600', d.brand.color);

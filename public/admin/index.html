@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Advisors | Trip Vara Portal</title>
+<title>Advisors | CTT Agent Portal</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="icon" href="/logo-mark.png" type="image/png">
 <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -13,7 +13,7 @@
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main">
     <header class="topbar">
-      <div><h1>Advisors</h1><p class="sub">Approve access and bind advisors to a Trip Vara Tools account.</p></div>
+      <div><h1>Advisors</h1><p class="sub">Approve access and bind advisors to a CTT Tools account.</p></div>
       <select id="filter" aria-label="Filter" style="width:auto;">
         <option value="">Everyone</option>
         <option value="pending">Pending approval</option>
@@ -187,9 +187,9 @@ function render(users, counts) {
   }));
 
   panel.querySelectorAll('[data-bind]').forEach((btn) => btn.addEventListener('click', async () => {
-    const ghlLocationId = prompt('Trip Vara Tools location id (blank uses the shared default):', btn.dataset.loc);
+    const ghlLocationId = prompt('CTT Tools location id (blank uses the shared default):', btn.dataset.loc);
     if (ghlLocationId === null) return;
-    const ghlUserId = prompt('Trip Vara Tools user id for this advisor (optional):', btn.dataset.usr);
+    const ghlUserId = prompt('CTT Tools user id for this advisor (optional):', btn.dataset.usr);
     if (ghlUserId === null) return;
     try {
       await api(`/api/admin/advisors/${encodeURIComponent(btn.dataset.bind)}/ghl`,

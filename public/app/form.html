@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lead form | Trip Vara Portal</title>
+<title>Lead form | CTT Agent Portal</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="icon" href="/logo-mark.png" type="image/png">
 <link rel="stylesheet" href="/css/app.css">
 <style>
   /* A page, not a dialog. Building a form means going back and forth between
@@ -185,7 +185,7 @@ function drawTemplatePicker() {
   sel.innerHTML = `<option value="">A blank form</option>`
     + (mine.length
       ? `<optgroup label="My templates">${mine.map(option).join('')}</optgroup>` : '')
-    + `<optgroup label="Trip Vara templates">${templates.map(option).join('')}</optgroup>`;
+    + `<optgroup label="CTT templates">${templates.map(option).join('')}</optgroup>`;
   // Removing one is on the picker rather than a screen of its own: it is the
   // only place they are ever looked at.
   const drop = document.getElementById('drop-template');
@@ -412,7 +412,7 @@ async function load() {
       const form = document.getElementById('builder');
       const f = d.form;
       document.getElementById('crumb').textContent = f.name;
-      document.title = `${f.name} | Trip Vara Portal`;
+      document.title = `${f.name} | CTT Agent Portal`;
       document.getElementById('template-field').hidden = true;
       const live = document.getElementById('view-live');
       live.href = `/f/${f.slug}`;

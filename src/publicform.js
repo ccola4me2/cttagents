@@ -235,7 +235,7 @@ export async function renderGroupPage(request, env, code) {
 }
 
 function appUrl(env) {
-  return (env.APP_URL || 'https://tripvaratravel.com').replace(/\/$/, '');
+  return (env.APP_URL || 'https://cttagents.com').replace(/\/$/, '');
 }
 
 /**
@@ -567,7 +567,7 @@ export async function handlePublicSubmit(request, env, slug) {
         lastName: parts.slice(1).join(' ') || undefined,
         email: email || undefined,
         phone: phone || undefined,
-        source: `Trip Vara form: ${form.name}`,
+        source: `CTT form: ${form.name}`,
       });
       if (contact && contact.id) {
         contactId = contact.id;
@@ -636,10 +636,10 @@ function page(title, body, brand) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} | ${esc(b.name)}</title>
-<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="icon" href="/logo-mark.png" type="image/png">
 <style>
-  :root { --navy:${accent}; --navy-d:#12294a; --coral:#f1705b; --ink:#2f4459;
-          --line:#e4edf5; --shell:#fbf9f5; }
+  :root { --navy:${accent}; --navy-d:#0d2347; --teal:#1a8fa3; --ink:#2f4459;
+          --line:#e2ebf4; --shell:#f7fafb; }
   *{box-sizing:border-box}
   body{margin:0;background:var(--shell);color:var(--ink);
        font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
@@ -648,23 +648,23 @@ function page(title, body, brand) {
   .brand{display:flex;align-items:center;gap:.6rem;margin-bottom:2rem}
   .brand img{width:36px;height:36px}
   .brand b{font-size:1rem;letter-spacing:.26em;text-transform:uppercase;color:var(--navy);font-weight:650}
-  .brand small{display:block;font-size:.62rem;letter-spacing:.06em;color:var(--coral)}
+  .brand small{display:block;font-size:.62rem;letter-spacing:.06em;color:var(--teal)}
   .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:2rem;
         box-shadow:0 1px 2px rgba(15,28,43,.05)}
   h1{margin:0 0 .5rem;font-size:1.6rem;line-height:1.25;color:var(--navy);font-weight:650}
   .lede{margin:0 0 1.6rem;color:#5c7286}
   .field{margin-bottom:1.1rem}
   label{display:block;font-size:.85rem;font-weight:600;color:var(--navy);margin-bottom:.35rem}
-  .req{color:var(--coral)}
-  input,select,textarea{width:100%;font:inherit;padding:.65rem .8rem;border:1px solid #c7d9e9;
+  .req{color:var(--teal)}
+  input,select,textarea{width:100%;font:inherit;padding:.65rem .8rem;border:1px solid #c2d6e8;
         border-radius:9px;background:#fff;color:#0f1c2b}
-  input:focus,select:focus,textarea:focus{outline:2px solid var(--coral);outline-offset:1px;border-color:transparent}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--teal);outline-offset:1px;border-color:transparent}
   textarea{min-height:110px;resize:vertical}
   .check{display:flex;gap:.6rem;align-items:flex-start;font-weight:400;margin-bottom:1.1rem}
   .check input{width:auto;margin-top:.25rem}
-  button{width:100%;background:var(--coral);color:#fff;border:0;border-radius:999px;
+  button{width:100%;background:var(--teal);color:#fff;border:0;border-radius:999px;
          padding:.85rem 1.4rem;font:inherit;font-weight:650;cursor:pointer}
-  button:hover{background:#e55942}
+  button:hover{background:#14788a}
   button:disabled{opacity:.6;cursor:not-allowed}
   .note{border-radius:10px;padding:.85rem 1rem;font-size:.9rem;margin-bottom:1.2rem}
   .note.error{background:#fdeeec;color:#b3382a}
@@ -674,7 +674,7 @@ function page(title, body, brand) {
   [hidden]{display:none!important}
 </style></head>
 <body><div class="wrap">
-  <div class="brand"><img src="${esc(b.logoUrl || '/logo-mark.svg')}" alt="">
+  <div class="brand"><img src="${esc(b.logoUrl || '/logo-mark.png')}" alt="">
     <span><b>${esc(b.name)}</b><small>${esc(b.tagline || '')}</small></span></div>
   <div class="card">${body}</div>
   <p class="foot">&copy; ${new Date().getFullYear()} ${esc(b.name)}</p>

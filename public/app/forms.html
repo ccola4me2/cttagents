@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Forms | Trip Vara Portal</title>
+<title>Forms | CTT Agent Portal</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="icon" href="/logo-mark.png" type="image/png">
 <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -13,7 +13,7 @@
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main">
     <header class="topbar">
-      <div><h1>Forms &amp; surveys</h1><p class="sub">Submissions from your Trip Vara Tools forms and surveys.</p></div>
+      <div><h1>Forms &amp; surveys</h1><p class="sub">Submissions from your CTT Tools forms and surveys.</p></div>
       <button class="btn btn-ghost btn-sm" id="refresh">Refresh</button>
     </header>
     <div class="content">
@@ -67,7 +67,7 @@ function render(d) {
   if (!d.submissions.length) {
     panel.innerHTML = d.forms.length
       ? '<div class="empty"><h3>No submissions</h3><p>Nothing has come through these forms yet.</p></div>'
-      : '<div class="empty"><h3>No forms</h3><p>Build a form in Trip Vara Tools and its submissions land here.</p></div>';
+      : '<div class="empty"><h3>No forms</h3><p>Build a form in CTT Tools and its submissions land here.</p></div>';
     return;
   }
 

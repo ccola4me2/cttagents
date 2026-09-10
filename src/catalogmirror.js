@@ -1,6 +1,6 @@
 // The sailing catalog, taken from the copy CruiseShoppers already holds.
 //
-// Trip Vara can import the CruiseFeed catalog directly, and that needs a feed
+// CTT can import the CruiseFeed catalog directly, and that needs a feed
 // key and walks seventy-five thousand sailings. CruiseShoppers has already
 // done that walk and serves the result on three public endpoints, so there is
 // no reason to do it twice or to hold a second key for the same data.

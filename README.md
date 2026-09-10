@@ -1,6 +1,7 @@
-# Trip Vara Advisor Portal
+# CTT Agent Portal
 
-An authenticated CRM portal for travel advisors, at **tripvaratravel.com**.
+An authenticated CRM portal for the travel advisors of Cruises Tours &
+Travel, at **cttagents.com**.
 
 GoHighLevel stays the system of record for contacts, opportunities, notes and
 calendars. The portal is a travel-shaped interface on top of it, plus the one
@@ -72,7 +73,7 @@ Requires Node 18+ only for Wrangler. Nothing is compiled.
 
 ```bash
 npm install
-npx wrangler d1 migrations apply trip-vara --local
+npx wrangler d1 migrations apply cttagents --local
 npx wrangler dev --local
 ```
 
@@ -84,7 +85,7 @@ Signup always creates a `pending` advisor, so the first admin has to be promoted
 by hand. Sign up through the UI, then:
 
 ```bash
-npx wrangler d1 execute trip-vara --local --command "UPDATE users SET role='admin', status='active' WHERE email='you@example.com';"
+npx wrangler d1 execute cttagents --local --command "UPDATE users SET role='admin', status='active' WHERE email='you@example.com';"
 ```
 
 Drop `--local` and use `--remote` to do the same against production. After that,
@@ -217,7 +218,7 @@ No Node or CLI required. Everything below is done in the Cloudflare dashboard,
 the same way the other Worker sites are run.
 
 1. **Create the database.** Storage & Databases > D1 > Create database, named
-   `trip-vara`. Its id is already in `wrangler.toml`.
+   `cttagents`. Its id is already in `wrangler.toml`.
 2. **Create the tables.** Open the database, go to the **Console** tab, paste
    the whole of `migrations/0001_init.sql`, and run it. Every later migration in
    that folder is applied the same way, in filename order.
@@ -238,7 +239,7 @@ the same way the other Worker sites are run.
 6. **Point the domain** at the Worker under Settings > Domains & Routes.
 
 If you do have Node locally, the same steps are available as
-`npx wrangler d1 create trip-vara`, `npx wrangler d1 migrations apply trip-vara --remote`,
+`npx wrangler d1 create cttagents`, `npx wrangler d1 migrations apply cttagents --remote`,
 and `npx wrangler secret put GHL_API_TOKEN`.
 
 ### A secret set in the dashboard needs a deploy
@@ -257,12 +258,12 @@ actually see, which is the quickest way to tell "not deployed yet" apart from
 
 | Secret | Required | Purpose |
 | --- | --- | --- |
-| `GHL_API_TOKEN` | For everything CRM | GoHighLevel Private Integration Token. Create it at Settings > Private Integrations on the Trip Vara sub-account, with contacts read/write, opportunities read/write and calendars read. Without it those two pages show a setup notice; everything else works. |
+| `GHL_API_TOKEN` | For everything CRM | GoHighLevel Private Integration Token. Create it at Settings > Private Integrations on the CTT sub-account, with contacts read/write, opportunities read/write and calendars read. Without it those two pages show a setup notice; everything else works. |
 | `RESEND_API_KEY` | For email | Approval, welcome and password-reset emails. Without it sends are skipped and logged, and nothing fails. |
 
 Non-secret config lives in `[vars]` in `wrangler.toml`, including
-`GHL_DEFAULT_LOCATION_ID`, currently the Trip Vara sub-account
-`4Hb35fhCOJSuOmKDA1bY`.
+`GHL_DEFAULT_LOCATION_ID`, which is **empty until the CTT sub-account exists**.
+See "First deploy" below.
 
 ---
 
@@ -273,7 +274,7 @@ set, otherwise `GHL_DEFAULT_LOCATION_ID`. That supports both models without a
 code change.
 
 - **One shared sub-account.** Leave `ghl_location_id` null on every advisor.
-  Everyone works in the Trip Vara sub-account. Set each advisor's `ghl_user_id`
+  Everyone works in the CTT sub-account. Set each advisor's `ghl_user_id`
   from `/admin/` so records can be attributed to them.
 - **A sub-account per advisor.** Bind each advisor to their own location id from
   `/admin/`. This needs an agency-level token that can reach all of them.
@@ -297,7 +298,7 @@ sends for real and returns Resend's actual response.
 
 Sending needs more than a verified domain. Yahoo and Gmail both require a DMARC
 record, and a domain with SPF and DKIM but no DMARC gets silently dropped rather
-than bounced, which looks identical to a broken app. `_dmarc.tripvaratravel.com`
+than bounced, which looks identical to a broken app. `_dmarc.cttagents.com`
 carries `v=DMARC1; p=none; rua=...`. If mail stops arriving, check that record
 before suspecting the portal.
 
@@ -375,12 +376,79 @@ migrations/     D1 schema
 
 ## Brand
 
-Navy `#1b3a5f` with a coral `#f1705b` accent, from the Trip Vara logo. Tokens
-are at the top of `public/css/app.css`. `public/logo-mark.svg` is a vector
-rebuild of the supplied mark; replace it with the original artwork if you have
-the source file.
+Navy `#12315e` with a teal `#1a8fa3` accent, both sampled from the Cruises Tours
+& Travel logo. Tokens are at the top of `public/css/app.css`.
 
-## History
+The teal ramp is `--teal-600` through `--teal-50`. The old `--coral-*` names are
+kept as aliases pointing at the same values, because upstream still owns most of
+that file and renaming a token used in sixty places would turn every future
+cherry-pick into a conflict. New rules should use `--teal-*`.
 
-The `marketing-site` branch holds an earlier public marketing site for the same
-brand (Next.js on Vercel). It is kept for reference and is not deployed.
+`public/logo-mark.png` is the circular emblem cropped from the agency's
+horizontal logo; `public/logo-horizontal.png` is the full lockup. Both are
+raster. If the original vector artwork turns up, replacing them is a drop-in.
+
+---
+
+## Relationship to Trip Vara
+
+This repository is a fork of `ccola4me2/trip-vara-website`, which runs the same
+portal for a different agency. The full history came across, and upstream is
+wired up as a remote:
+
+```
+git remote -v
+upstream  https://github.com/ccola4me2/trip-vara-website.git
+```
+
+The intent is to **track upstream and cherry-pick**, not to drift. A fix or a
+feature built on Trip Vara can come over as:
+
+```
+git fetch upstream
+git log --oneline main..upstream/main
+git cherry-pick <sha>
+```
+
+Because the two trees are identical apart from branding, most commits apply
+cleanly. Conflicts, when they happen, are almost always one of the known
+branding edits:
+
+| What differs | Where |
+| --- | --- |
+| Product name, "CTT Tools", titles, footers | `public/**`, `src/email.js`, `src/ghl.js` |
+| Palette hexes and the `--teal-*` ramp | `public/css/app.css`, `src/email.js`, `src/share.js`, `src/publicform.js`, `src/statement.js` |
+| Logo files and their references | `public/logo-*.png`, `<link rel="icon">` lines |
+| Worker name, D1 name, R2 bucket, vars | `wrangler.toml`, `package.json`, `.github/workflows/checks.yml` |
+| House agency row | `migrations/0050_agencies.sql`, `scripts/seed-admin.mjs` |
+
+Resolve in favour of CTT's branding and take upstream's logic.
+
+---
+
+## First deploy
+
+Nothing here is wired to a live Cloudflare resource yet. In order:
+
+1. **D1.** Create a database named `cttagents` (dashboard > Storage & Databases
+   > D1) and paste its id into `database_id` in `wrangler.toml`. The committed
+   placeholder is invalid on purpose so a premature deploy fails loudly rather
+   than binding to the wrong book.
+2. **R2.** Create a bucket named `cttagents-docs`. A binding that points at a
+   bucket which does not exist fails `wrangler deploy` outright.
+3. **Migrations.** Apply `migrations/0001` through `0053` in order. These are
+   applied by hand through the D1 console here, so "committed" and "applied" are
+   separate facts. `GET /api/admin/health` compares the live database against
+   `src/schema-expected.js` and names any file still outstanding.
+4. **Worker.** Connect the repo in Workers Builds so `main` deploys itself, then
+   attach `cttagents.com`.
+5. **GoHighLevel.** Create the CTT sub-account, put its id in
+   `GHL_DEFAULT_LOCATION_ID`, and set `GHL_API_TOKEN` as a secret. Until then
+   every CRM screen says "CTT Tools is not connected yet" and the rest of the
+   portal works.
+6. **Email.** Verify a sending domain in Resend, set `RESEND_API_KEY`, and
+   correct `MAIL_FROM`. Add a `_dmarc` record: Gmail and Yahoo drop mail
+   silently without one even when SPF and DKIM pass.
+
+Cloudflare secrets set in the dashboard do **not** reach a Workers-Builds Worker
+until the next deploy. Push a commit after adding one.

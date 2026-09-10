@@ -64,7 +64,7 @@ export async function handleCreateLead(request, env) {
     const locationId = ghl.locationFor(env, user);
     const contact = await ghl.createContact(env, locationId, {
       firstName, lastName, email, phone,
-      source: clean(body.source, 80) || 'Trip Vara portal',
+      source: clean(body.source, 80) || 'CTT Agent Portal',
     });
     // Mirror straight away rather than waiting for the next sync, so the new
     // contact is in the list the moment the dialog closes.

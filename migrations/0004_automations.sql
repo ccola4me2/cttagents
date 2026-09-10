@@ -1,4 +1,4 @@
--- Trip Vara's own automation engine.
+-- CTT's own automation engine.
 --
 -- The upstream workflow builder has no create or edit API, so automations
 -- there can only be listed and triggered. These are the portal's own: defined

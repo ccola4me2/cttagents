@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vendor products | Trip Vara Portal</title>
+<title>Vendor products | CTT Agent Portal</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
+<link rel="icon" href="/logo-mark.png" type="image/png">
 <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -64,11 +64,11 @@ async function load() {
   try {
     const d = await api('/api/catalog');
     if (d.unavailable && d.unavailable.products) {
-      panel.innerHTML = '<div class="empty"><p>Products are not available with the current Trip Vara Tools permissions.</p></div>';
+      panel.innerHTML = '<div class="empty"><p>Products are not available with the current CTT Tools permissions.</p></div>';
       return;
     }
     if (!d.products.length) {
-      panel.innerHTML = '<div class="empty"><h3>No products</h3><p>Products created in Trip Vara Tools appear here.</p></div>';
+      panel.innerHTML = '<div class="empty"><h3>No products</h3><p>Products created in CTT Tools appear here.</p></div>';
       return;
     }
     panel.innerHTML = `<div class="table-wrap"><table>

@@ -15,7 +15,7 @@
 // -------
 // Each advisor resolves to a location id: their own `ghl_location_id` when set
 // in D1, otherwise GHL_DEFAULT_LOCATION_ID from wrangler.toml. That covers
-// both models, one shared Trip Vara sub-account and one sub-account per
+// both models, one shared CTT sub-account and one sub-account per
 // advisor, without changing this file.
 
 export class GhlError extends Error {
@@ -76,9 +76,9 @@ async function request(env, path, { method = 'GET', query, body, agency = false 
   const token = agency ? env.GHL_AGENCY_TOKEN : env.GHL_API_TOKEN;
   if (!token) {
     throw agency
-      ? new GhlError('No agency access to Trip Vara Tools is set up.', 503,
+      ? new GhlError('No agency access to CTT Tools is set up.', 503,
         { code: 'no_agency_token' })
-      : new GhlError('Trip Vara Tools is not connected yet.', 503, { code: 'not_configured' });
+      : new GhlError('CTT Tools is not connected yet.', 503, { code: 'not_configured' });
   }
 
   const url = new URL(apiBase(env) + path);
@@ -102,7 +102,7 @@ async function request(env, path, { method = 'GET', query, body, agency = false 
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
     } catch (e) {
-      lastError = new GhlError('Could not reach Trip Vara Tools.', 502, String(e));
+      lastError = new GhlError('Could not reach CTT Tools.', 502, String(e));
       if (attempt < MAX_ATTEMPTS) { await sleep(attempt * 400); continue; }
       throw lastError;
     }
@@ -125,22 +125,22 @@ async function request(env, path, { method = 'GET', query, body, agency = false 
     throw new GhlError(messageFor(res.status, data), statusFor(res.status), data, res.status);
   }
 
-  throw lastError || new GhlError('Trip Vara Tools did not respond.', 502);
+  throw lastError || new GhlError('CTT Tools did not respond.', 502);
 }
 
 /** Plain language for the failures an advisor can actually act on. */
 function messageFor(status, data) {
   if (status === 401) {
-    return 'Trip Vara Tools rejected the API token. It may have been revoked or replaced.';
+    return 'CTT Tools rejected the API token. It may have been revoked or replaced.';
   }
   if (status === 403) {
-    return 'The API token is missing the permission for this. Check its scopes in Trip Vara Tools.';
+    return 'The API token is missing the permission for this. Check its scopes in CTT Tools.';
   }
   if (status === 429) {
-    return 'Trip Vara Tools is rate limiting us. Give it a moment and try again.';
+    return 'CTT Tools is rate limiting us. Give it a moment and try again.';
   }
-  if (status === 404) return 'Trip Vara Tools could not find that record.';
-  return (data && (data.message || data.error)) || `Trip Vara Tools returned ${status}.`;
+  if (status === 404) return 'CTT Tools could not find that record.';
+  return (data && (data.message || data.error)) || `CTT Tools returned ${status}.`;
 }
 
 function statusFor(status) {
@@ -251,7 +251,7 @@ export async function createContact(env, locationId, fields) {
       lastName: fields.lastName || undefined,
       email: fields.email || undefined,
       phone: fields.phone || undefined,
-      source: fields.source || 'Trip Vara portal',
+      source: fields.source || 'CTT Agent Portal',
       tags: fields.tags || undefined,
     },
   });
@@ -869,7 +869,7 @@ export async function listProductPrices(env, locationId, productId) {
  */
 export async function uploadMedia(env, locationId, file, name) {
   if (!ghlConfigured(env)) {
-    throw new GhlError('Trip Vara Tools is not connected yet.', 503, { code: 'not_configured' });
+    throw new GhlError('CTT Tools is not connected yet.', 503, { code: 'not_configured' });
   }
 
   const form = new FormData();
@@ -1028,7 +1028,7 @@ export async function createInvoice(env, locationId, f) {
       name: f.name,
       title: f.title || f.name,
       currency: f.currency || 'USD',
-      businessDetails: { name: f.businessName || 'Trip Vara' },
+      businessDetails: { name: f.businessName || 'Cruises Tours & Travel' },
       contactDetails: {
         id: f.contactId,
         name: f.contactName || '',
@@ -1254,7 +1254,7 @@ export function ghlErrorResponse(e) {
   const notConfigured = e instanceof GhlError && e.detail && e.detail.code === 'not_configured';
   const status = e instanceof GhlError ? e.status : 502;
   const body = {
-    error: e instanceof GhlError ? e.message : 'Unexpected error talking to Trip Vara Tools.',
+    error: e instanceof GhlError ? e.message : 'Unexpected error talking to CTT Tools.',
     ...(notConfigured ? { code: 'not_configured' } : {}),
   };
   if (!(e instanceof GhlError)) console.error('ghl unexpected', e);
@@ -1354,7 +1354,7 @@ export async function createLocation(env, {
   const data = await request(env, '/locations/', { method: 'POST', agency: true, body });
   const id = data?.id || data?._id || data?.location?.id || data?.location?._id;
   if (!id) {
-    throw new GhlError('Trip Vara Tools made the sub-account but did not say which.', 502, data);
+    throw new GhlError('CTT Tools made the sub-account but did not say which.', 502, data);
   }
   return { id, raw: data };
 }

@@ -1,4 +1,4 @@
-// Trip Vara advisor portal Worker.
+// CTT Agent Portal Worker.
 //
 // Routes the JSON API, gates the portal pages behind a session (and /admin
 // behind the admin role), and serves the static files in ./public.
