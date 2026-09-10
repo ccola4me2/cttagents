@@ -698,7 +698,7 @@ export async function mountShell({ admin = false } = {}) {
   sidebar.innerHTML = `
     <a class="wordmark on-dark" href="${admin ? '/admin/' : '/app/'}">
       <img src="/logo-mark.png" alt="">
-      <span><b>CTT AGENTS</b><small>${admin ? 'Admin' : 'Advisor portal'}</small></span>
+      <span><b>Cruises Tours &amp; Travel</b><small>${admin ? 'Admin' : 'Travel Advisor Portal'}</small></span>
     </a>
     <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="sidebar-nav">
       <span class="sr-only">Menu</span>

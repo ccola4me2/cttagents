@@ -84,18 +84,21 @@ a:hover { color: var(--coral-500); }
 /* ---------------------------------------------------------------- brand -- */
 .wordmark { display: flex; align-items: center; gap: .65rem; text-decoration: none; }
 .wordmark img { width: 32px; height: 32px; display: block; }
+/* Title case, not the upstream uppercase-and-letterspaced setting. The name
+   here is "Cruises Tours & Travel" -- 22 characters where Trip Vara's was 8 --
+   and uppercase at .26em is about 400px wide, which does not fit beside the
+   mark anywhere, least of all the 232px sidebar. Title case also reads closer
+   to the agency's actual logo, which is script and serif rather than caps. */
 .wordmark b {
-  font-weight: 650; font-size: .92rem; letter-spacing: .26em;
-  text-transform: uppercase; color: var(--navy-800);
+  font-weight: 650; font-size: .95rem; letter-spacing: .005em;
+  line-height: 1.2; color: var(--navy-800);
 }
 .wordmark small { display: block; font-size: .58rem; letter-spacing: .06em; color: var(--coral-400); }
 
 /* The mark is drawn in navy, so on the navy sidebar it needs a light plate
    behind it or it simply disappears. */
-/* "CTT AGENTS" is two words where the upstream wordmark was one, and at
-   .26em it wrapped inside the 232px sidebar. Tightened here only; the
-   auth pages have the width for the wider setting. */
-.wordmark.on-dark b { color: #fff; font-size: .95rem; letter-spacing: .16em; }
+/* Smaller again on the sidebar, where roughly 146px is left beside the mark. */
+.wordmark.on-dark b { color: #fff; font-size: .78rem; letter-spacing: 0; }
 .wordmark.on-dark small { color: var(--coral-200); font-size: .62rem; }
 .wordmark.on-dark img {
   width: 34px; height: 34px; padding: 5px; box-sizing: content-box;
@@ -362,9 +365,12 @@ dialog form { margin: 0; }
 }
 .auth-brand { display: flex; align-items: center; gap: .9rem; text-decoration: none; }
 .auth-brand img { width: 52px; height: 52px; }
+/* Title case here too. Uppercase at .24em put "CRUISES TOURS & TRAVEL" over
+   500px, which overflowed the 440px auth card on the way to overflowing the
+   phone. See the note by .wordmark b. */
 .auth-brand b {
-  display: block; font-size: 1.45rem; font-weight: 680; letter-spacing: .24em;
-  text-transform: uppercase; color: var(--navy-800); line-height: 1.1;
+  display: block; font-size: 1.45rem; font-weight: 680; letter-spacing: .005em;
+  color: var(--navy-800); line-height: 1.15;
 }
 .auth-brand small {
   display: block; font-size: .7rem; letter-spacing: .07em; color: var(--coral-500); margin-top: .25rem;
