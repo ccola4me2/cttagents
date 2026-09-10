@@ -35,7 +35,11 @@ import { listPricing, summarise, PRICE_KINDS } from './pricing.js';
 // reservation that nobody said was booked should not quietly land in
 // production totals and commission owed.
 const STATUSES = ['quoted', 'booked', 'travelled', 'cancelled'];
-const COMMISSION_STATUSES = ['pending', 'invoiced', 'paid'];
+// 'none' is not 'paid' and not 'pending': it is a trip that never earns, and
+// saying so stops it sitting in the chase list forever waiting for money
+// nobody is going to send. A courtesy booking, a friend at cost, an amenity
+// the vendor pays nothing on.
+const COMMISSION_STATUSES = ['pending', 'invoiced', 'paid', 'none'];
 const BOOKING_METHODS = ['direct', 'portal', 'phone', 'group', 'other'];
 // 'unknown' leads because oneOf falls back to the first entry, and not having
 // asked is the honest default. Recording a decline is a deliberate act.

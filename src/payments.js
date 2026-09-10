@@ -377,10 +377,29 @@ export async function handleMarkPaid(request, env, id) {
     || (await payerProblem(env, user.id, existing.booking_id, paidBy));
   if (problem) return badRequest(problem);
 
+  // How much actually arrived. Blank or absent means all of it, which is the
+  // ordinary case and the one the button posts.
+  //
+  // A part payment is recorded as two facts rather than one half-finished
+  // one: this row becomes what was received, and the remainder becomes its
+  // own scheduled line on the same date. Nothing else in the portal has to
+  // learn a new idea -- a paid row is paid and a scheduled row is due, which
+  // is what every report, reminder and client statement already reads. A
+  // "partly paid" column would have meant changing what outstanding means in
+  // forty-odd places, and the ledger would read less honestly for it.
+  const due = existing.amount_cents || 0;
+  // Dollars, like every other amount this module takes. Taking cents as well
+  // would mean guessing which one "1000" meant.
+  const received = body.amount === undefined || body.amount === null || body.amount === ''
+    ? due
+    : Math.max(0, Math.min(toCents(body.amount) || 0, due));
+  if (received <= 0) return badRequest('Enter how much was received.');
+  const remainder = due - received;
+
   const payment = await db.updatePayment(env, id, user.id, {
     kind: existing.kind,
     paymentClass: existing.payment_class,
-    amountCents: existing.amount_cents,
+    amountCents: received,
     dueDate: existing.due_date,
     paidDate: cleanDate(body.paidDate) || isoDay(0),
     method: body.method === undefined ? (existing.method || null) : oneOf(body.method, METHODS),
@@ -396,8 +415,34 @@ export async function handleMarkPaid(request, env, id) {
     notes: existing.notes,
   });
   await settleCredit(env, user.id, payment, existing.credit_id || null);
-  await db.logActivity(env, user.id, 'payment.paid', 'Marked a payment received', { id });
-  return json({ ok: true, payment });
+
+  // What is still owed, carried on its own line so the deadline it was due by
+  // is not quietly lost with the part that was paid.
+  let rest = null;
+  if (remainder > 0) {
+    rest = await db.createPayment(env, user.id, {
+      bookingId: existing.booking_id,
+      kind: existing.kind,
+      paymentClass: existing.payment_class,
+      amountCents: remainder,
+      dueDate: existing.due_date,
+      paidDate: null,
+      method: null,
+      reference: existing.reference,
+      notes: existing.notes,
+      paymentType: null,
+      paidBy: existing.paid_by || null,
+      creditId: null,
+      cardLast4: null,
+    });
+  }
+
+  await db.logActivity(env, user.id, 'payment.paid',
+    remainder > 0
+      ? `Recorded a part payment, ${remainder} cents still due`
+      : 'Marked a payment received',
+    { id, received, remainder });
+  return json({ ok: true, payment, remainder: rest });
 }
 
 export async function handleDeletePayment(request, env, id) {

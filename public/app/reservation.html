@@ -277,6 +277,9 @@
       <div class="notice notice-error" hidden></div>
       <p class="muted" id="post-what" style="margin:0 0 .9rem;"></p>
       <div class="field-row">
+        <div class="field"><label for="pp-amount">How much was received</label>
+          <input id="pp-amount" name="amount" inputmode="decimal">
+          <p class="field-hint" id="pp-amount-hint"></p></div>
         <div class="field"><label for="pp-date">Received on</label>
           <input id="pp-date" name="paidDate" type="date" required></div>
         <div class="field"><label for="pp-type">How it was paid</label>
@@ -626,6 +629,9 @@ const OPT_LABEL = {
   event_ticket: 'Event ticket', visa_passport: 'Visa or passport', car: 'Car hire',
   covered_elsewhere: 'Covered elsewhere', purchased_outside: 'Bought elsewhere',
   unknown: 'Not discussed yet',
+  // Otherwise this reads as the bare word "None", which beside Pending and
+  // Paid looks like a value nobody chose rather than one somebody did.
+  none: 'No commission on this trip',
 };
 const optionText = (v) => OPT_LABEL[v] || (v ? v[0].toUpperCase() + v.slice(1) : '');
 const selectOptions = (list, current) => (list || [])
@@ -1913,6 +1919,13 @@ function openPost(paymentId) {
     `${KIND[p.kind] || p.kind} of ${money(p.amount_cents)}${
       p.due_date ? `, due ${dateFmt(p.due_date)}` : ''}.`;
 
+  // Defaulted to the whole amount, so posting a payment in full is still one
+  // click on a filled-in form. Typing less records a part payment and leaves
+  // the rest on its own line, still due on the same date.
+  postForm.elements.amount.value = ((p.amount_cents || 0) / 100).toFixed(2);
+  document.getElementById('pp-amount-hint').textContent =
+    `Leave it as ${money(p.amount_cents)} for the full amount, or type less to record `
+    + 'a part payment. The balance stays due on the same date.';
   postForm.elements.paidDate.value = p.paid_date || d.today;
   document.getElementById('pp-type').innerHTML =
     '<option value="">Not recorded</option>' + orderedTypes(d.paymentTypes)

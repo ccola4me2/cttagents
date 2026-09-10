@@ -353,7 +353,10 @@ async function noticesFor(env, user, scope) {
   const staleCommission = await env.DB.prepare(
     `SELECT COUNT(*) AS n, COALESCE(SUM(b.commission_cents), 0) AS cents FROM bookings b
       WHERE ${db.scopeWhere(scope, 'b.user_id').sql}
-        AND b.status IN ('booked','travelled') AND b.commission_status != 'paid'
+        AND b.status IN ('booked','travelled')
+        -- Not paid and not exempt. 'none' is a trip that never earns, and
+        -- chasing it forever is what that status exists to stop.
+        AND b.commission_status NOT IN ('paid', 'none')
         AND b.commission_cents > 0
         AND COALESCE(b.return_date, b.depart_date) IS NOT NULL
         AND COALESCE(b.return_date, b.depart_date) < ?`
@@ -410,7 +413,7 @@ async function commissionSummary(env, scope, today) {
             COALESCE(b.return_date, b.depart_date) AS back
        FROM bookings b
       WHERE ${scoped.sql} AND b.status IN ('booked','travelled')
-        AND b.commission_status != 'paid' AND b.commission_cents > 0
+        AND b.commission_status NOT IN ('paid', 'none') AND b.commission_cents > 0
       LIMIT 1000`
   ).bind(...scoped.binds).all();
 
