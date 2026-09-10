@@ -1431,10 +1431,28 @@ function render() {
     } catch (e) { showError(err, e); buildBtn.disabled = false; }
   });
 
-  document.getElementById('payments').innerHTML = d.payments.length
+  // A final balance is two rows: the vendor's deadline, and a soft reminder a
+  // week earlier for the same money. That is right in the database -- the
+  // reminder is what drives the chase -- and wrong on a page, where two lines
+  // reading "Final balance $2,083.39" look like twice the money. Every total
+  // in the portal already counts the deadline and ignores the reminder; this
+  // makes the schedule agree with them.
+  //
+  // Shown on the deadline, which is the row that is actually owed, with the
+  // chase date noted on it. A reminder with no deadline still gets its own
+  // line: something is being chased and nothing else would say so.
+  const unpaidHard = (kind) => d.payments.some((x) => x.kind === kind
+    && x.payment_class === 'hard' && !x.paid_date);
+  const reminderFor = (kind) => d.payments
+    .filter((x) => x.kind === kind && x.payment_class === 'soft' && !x.paid_date)
+    .sort((a, b) => String(a.due_date || '').localeCompare(String(b.due_date || '')))[0];
+  const schedule = d.payments.filter((p) =>
+    !(p.payment_class === 'soft' && !p.paid_date && unpaidHard(p.kind)));
+
+  document.getElementById('payments').innerHTML = schedule.length
     ? `<div class="table-wrap"><table>
         <thead><tr><th>Due</th><th>What</th><th class="num">Amount</th><th></th></tr></thead>
-        <tbody>${d.payments.map((p) => {
+        <tbody>${schedule.map((p) => {
           const days = daysUntil(p.due_date);
           const hard = p.payment_class === 'hard';
           const tone = p.paid_date ? 'badge-green'
@@ -1450,6 +1468,16 @@ function render() {
             <td><span class="name">${esc(KIND[p.kind] || p.kind)}</span>
               <div class="muted">${hard ? 'vendor deadline' : 'your reminder'}${
                 p.reference ? ' · ' + esc(p.reference) : ''}</div>
+              ${(() => {
+                // The chase date, on the line it belongs to rather than on a
+                // line of its own pretending to be more money.
+                if (!hard || p.paid_date) return '';
+                const r = reminderFor(p.kind);
+                if (!r || !r.due_date) return '';
+                const rd = daysUntil(r.due_date);
+                return `<div class="muted">chase from ${esc(short(r.due_date))}${
+                  rd !== null && rd >= 0 ? `, in ${rd}d` : ', passed'}</div>`;
+              })()}
               ${p.paid_date ? `<div class="muted">${[
                 p.payment_type ? esc(PAY_TYPE[p.payment_type] || p.payment_type) : '',
                 p.card_last4 ? '····' + esc(p.card_last4) : '',
