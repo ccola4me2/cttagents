@@ -4946,6 +4946,49 @@ async function main() {
   check(selfServe.status === 403 || selfServe.status === 404,
     'an advisor cannot set their own share', `status ${selfServe.status}`);
 
+  // ...nor through the back door. The standing agreement was admin-only from
+  // the start, but the per-trip override that outranks it was reachable by
+  // any advisor on their own reservation, one booking at a time.
+  const selfOverride = await call(advisor, 'POST', `/api/bookings/${bookingId}/quick`,
+    { advisorSplitPct: 100 });
+  check(selfOverride.status === 403,
+    'nor write their own figure over one reservation', `status ${selfOverride.status}`);
+
+  const selfLead = await call(advisor, 'POST', `/api/bookings/${bookingId}/quick`,
+    { leadSource: 'personal' });
+  check(selfLead.status === 403,
+    'nor move a trip onto the agreement that pays them more',
+    `status ${selfLead.status}`);
+
+  // Two agreements, which is what the advisor contract actually says: 90% of
+  // what they generate, 80% of what the agency hands them.
+  const twoRates = await call(admin, 'PUT', `/api/admin/advisors/${advisorId}/split`,
+    { defaultSplitPct: 90, leadSplitPct: 80 });
+  check(twoRates.status === 200 && twoRates.data?.user?.defaultSplitPct === 90
+    && twoRates.data?.user?.leadSplitPct === 80,
+    'an owner sets both rates', JSON.stringify(twoRates.data?.user));
+
+  const own = await call(advisor, 'GET', `/api/bookings/${bookingId}`);
+  check(own.data?.split?.pct === 90,
+    'a booking the advisor generated follows the higher rate', own.data?.split?.pct);
+
+  const moved = await call(admin, 'POST', `/api/bookings/${bookingId}/quick`,
+    { leadSource: 'company' });
+  check(moved.status === 200, 'the owner marks one as a company lead',
+    `status ${moved.status}`);
+
+  const asLead = await call(advisor, 'GET', `/api/bookings/${bookingId}`);
+  check(asLead.data?.split?.pct === 80,
+    'and it follows the lower one without touching the reservation',
+    asLead.data?.split?.pct);
+  check(asLead.data?.split?.leadSource === 'company',
+    'which the reservation says out loud', asLead.data?.split?.leadSource);
+
+  // Put it back, since the checks after this one assume the plain case.
+  await call(admin, 'POST', `/api/bookings/${bookingId}/quick`, { leadSource: 'personal' });
+  await call(admin, 'PUT', `/api/admin/advisors/${advisorId}/split`,
+    { defaultSplitPct: null, leadSplitPct: null });
+
   const nonsense = await call(admin, 'PUT', `/api/admin/advisors/${advisorId}/split`,
     { defaultSplitPct: 140 });
   check(nonsense.status === 400, 'and a share over 100% is refused', `status ${nonsense.status}`);

@@ -11,7 +11,8 @@ import { SPLIT_PCT_SQL, ADVISOR_SHARE_SQL, UNSPLIT_SQL } from './split.js';
 const USER_COLUMNS = `
   id, email, first_name, last_name, phone, agency_name, role, status,
   ghl_location_id, ghl_user_id, created_at, updated_at, last_login_at,
-  approved_at, approved_by, default_split_pct, agency_address, seller_of_travel,
+  approved_at, approved_by, default_split_pct, lead_split_pct,
+  agency_address, seller_of_travel,
   notify_email, auto_remind_clients, weekly_call_list, call_list_sent_at,
   agency_id, platform_owner
 `;
@@ -151,10 +152,10 @@ export async function setUserGhl(env, id, { locationId, ghlUserId }) {
  * advisor rather than copied onto their reservations, so changing the
  * agreement changes every trip that has not been given its own figure.
  */
-export async function setUserSplit(env, id, pct) {
+export async function setUserSplit(env, id, pct, leadPct) {
   await env.DB.prepare(
-    'UPDATE users SET default_split_pct = ?, updated_at = ? WHERE id = ?'
-  ).bind(pct, now(), id).run();
+    'UPDATE users SET default_split_pct = ?, lead_split_pct = ?, updated_at = ? WHERE id = ?'
+  ).bind(pct, leadPct, now(), id).run();
   return getUserById(env, id);
 }
 
@@ -406,7 +407,7 @@ const BOOKING_COLUMNS = `
   cabin, cabin_category, itinerary, booking_method, insurance_status, advisor_split_pct,
   quote_sent_at, quote_sent_count, statement_sent_at, welcomed_at,
   invoice_no, invoice_issued_at, invoice_notes, personal,
-  created_at, updated_at, share_code, shared_at, statement_hash
+  created_at, updated_at, share_code, shared_at, statement_hash, lead_source
 `;
 
 // The same columns qualified, for the queries that join users to name the
@@ -555,7 +556,8 @@ export async function bookingStats(env, scope) {
   // the person reading the screen actually keeps, and for an associate on a
   // split those are not the same number.
   const share = ADVISOR_SHARE_SQL('b.commission_cents',
-    SPLIT_PCT_SQL('b.advisor_split_pct', 'u.default_split_pct'), UNSPLIT_SQL('b.id'));
+    SPLIT_PCT_SQL('b.advisor_split_pct', 'u.default_split_pct', 'b.lead_source', 'u.lead_split_pct'),
+    UNSPLIT_SQL('b.id'));
   const row = await env.DB.prepare(
     `SELECT
        COUNT(*) AS total,
@@ -651,9 +653,10 @@ export async function productionByAdvisor(env, scope, sinceDate, { includePerson
             -- they billed. An owner reading a combined report needs both: the
             -- agency is owed the whole commission and pays out only part of it.
             COALESCE(SUM(${ADVISOR_SHARE_SQL('b.commission_cents',
-              SPLIT_PCT_SQL('b.advisor_split_pct', 'u.default_split_pct'), UNSPLIT_SQL('b.id'))}), 0)
+              SPLIT_PCT_SQL('b.advisor_split_pct', 'u.default_split_pct', 'b.lead_source',
+                'u.lead_split_pct'), UNSPLIT_SQL('b.id'))}), 0)
               AS advisor_share_cents,
-            u.default_split_pct
+            u.default_split_pct, u.lead_split_pct
        FROM users u
        LEFT JOIN bookings b
          ON b.user_id = u.id
@@ -682,7 +685,7 @@ export async function productionByAdvisor(env, scope, sinceDate, { includePerson
 export async function getBookingInScope(env, id, scope) {
   const scoped = scopeWhere(scope, 'b.user_id');
   return env.DB.prepare(
-    `SELECT ${BOOKING_COLUMNS_B}, ${ADVISOR_NAME}, u.default_split_pct
+    `SELECT ${BOOKING_COLUMNS_B}, ${ADVISOR_NAME}, u.default_split_pct, u.lead_split_pct
        FROM bookings b LEFT JOIN users u ON u.id = b.user_id
       WHERE b.id = ? AND ${scoped.sql}`
   ).bind(id, ...scoped.binds).first();

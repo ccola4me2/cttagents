@@ -5,8 +5,10 @@
 // commission. It lives in D1, optionally linked back to the GHL contact and
 // opportunity it came from.
 
-import { json, badRequest, notFound, clean, cleanDate, toCents, oneOf, readJson, now } from './util.js';
-import { requireUser } from './auth.js';
+import {
+  json, badRequest, notFound, forbidden, clean, cleanDate, toCents, oneOf, readJson, now,
+} from './util.js';
+import { requireUser, isAdmin } from './auth.js';
 import * as db from './db.js';
 import * as ghl from './ghl.js';
 import { fireTrigger } from './automations.js';
@@ -16,7 +18,7 @@ import { buildStatement, statementFingerprint } from './statement.js';
 import { resolveVendor } from './vendors.js';
 import { listTravellers, listAmenities, passportProblem } from './travellers.js';
 import { PAYMENT_TYPES, releaseCredit } from './payments.js';
-import { splitPct, shareOf, UNSPLIT_COMMISSION_KINDS } from './split.js';
+import { COMPANY_LEAD, splitPct, shareOf, UNSPLIT_COMMISSION_KINDS } from './split.js';
 import { listOptions } from './options.js';
 import { listTiers, penaltyToday } from './penalties.js';
 import { listDocuments, docsReady, CATEGORIES as DOC_CATEGORIES } from './documents.js';
@@ -328,7 +330,8 @@ export async function handleBookingRecord(request, env, id) {
     // on the reservation because that is where the override is set, and a
     // percentage with no money beside it is easy to get backwards.
     split: (() => {
-      const pct = splitPct(booking.advisor_split_pct, booking.default_split_pct);
+      const pct = splitPct(booking.advisor_split_pct, booking.lead_source,
+        booking.default_split_pct, booking.lead_split_pct);
       // A TC credit or a bonus is the advisor's in full, so it comes out of
       // the sum before the percentage is applied and goes back on afterwards.
       const unsplit = priceLines
@@ -342,6 +345,15 @@ export async function handleBookingRecord(request, env, id) {
         overridden: booking.advisor_split_pct !== null && booking.advisor_split_pct !== undefined,
         defaultPct: booking.default_split_pct === null || booking.default_split_pct === undefined
           ? null : Number(booking.default_split_pct),
+        // Which of the two agreements this trip is under, and the rate each
+        // one carries. The page shows both, because a percentage on its own
+        // does not say why it is that number.
+        leadSource: booking.lead_source === COMPANY_LEAD ? COMPANY_LEAD : 'personal',
+        leadPct: booking.lead_split_pct === null || booking.lead_split_pct === undefined
+          ? null : Number(booking.lead_split_pct),
+        // Only an admin may move a trip between the two, or write a figure
+        // over the top of both.
+        canChange: isAdmin(user),
         ...shareOf(booking.commission_cents, pct, unsplit),
       };
     })(),
@@ -448,7 +460,25 @@ const QUICK_FIELDS = {
   // "nothing set" into a value.
   advisorSplitPct: ['advisor_split_pct', (v) => (v === '' || v === null || v === undefined
     || !Number.isFinite(Number(v)) ? null : Math.max(0, Math.min(Number(v), 100)))],
+  // Which of the two standing agreements this trip falls under: what the
+  // advisor generated themselves, or a lead the agency handed them.
+  leadSource: ['lead_source', (v) => (v === COMPANY_LEAD ? COMPANY_LEAD : 'personal')],
 };
+
+/**
+ * Fields on this list decide money, and the person filing the reservation is
+ * the person they pay.
+ *
+ * Both of these were reachable by any advisor on their own booking, which
+ * meant an advisor could set their own share to 100% one reservation at a
+ * time. The standing agreement was already admin-only; the per-trip override
+ * that outranks it was not, so the lock was on the wrong door.
+ *
+ * isAdmin reads the effective user, so an admin working inside an advisor's
+ * account is an advisor here too and is refused. That is the intended
+ * reading: change the agreement as yourself, not from inside their seat.
+ */
+const ADMIN_ONLY_QUICK = new Set(['advisorSplitPct', 'leadSource']);
 
 export async function handleQuickUpdate(request, env, id) {
   const { user, response } = await requireUser(request, env);
@@ -460,6 +490,11 @@ export async function handleQuickUpdate(request, env, id) {
 
   for (const [key, [column, coerce]] of Object.entries(QUICK_FIELDS)) {
     if (!Object.prototype.hasOwnProperty.call(body, key)) continue;
+    // Refused rather than quietly dropped. Silently ignoring a change to how
+    // a commission is divided leaves somebody believing they changed it.
+    if (ADMIN_ONLY_QUICK.has(key) && !isAdmin(user)) {
+      return forbidden('Only an administrator can change how a commission is split.');
+    }
     sets.push(`${column} = ?`);
     binds.push(coerce(body[key]));
   }

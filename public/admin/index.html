@@ -181,9 +181,13 @@ function render(users, counts) {
       <td><span class="badge ${TONE[u.status] || 'badge-navy'}">${esc(u.status)}</span></td>
       <td>${u.defaultSplitPct === null
           ? '<span class="muted">All of it</span>'
-          : `<strong>${esc(String(u.defaultSplitPct))}%</strong>`}
+          : `<strong>${esc(String(u.defaultSplitPct))}%</strong> <span class="muted">own</span>`}
+        <div class="muted" style="font-size:.75rem;">${u.leadSplitPct === null
+          ? (u.defaultSplitPct === null ? '' : 'same on company leads')
+          : `${esc(String(u.leadSplitPct))}% on company leads`}</div>
         <div><button class="btn btn-ghost btn-sm" data-split="${esc(u.id)}"
-          data-pct="${u.defaultSplitPct === null ? '' : esc(String(u.defaultSplitPct))}">Split</button></div></td>
+          data-pct="${u.defaultSplitPct === null ? '' : esc(String(u.defaultSplitPct))}"
+          data-lead="${u.leadSplitPct === null ? '' : esc(String(u.leadSplitPct))}">Split</button></div></td>
       <td>${u.ghlLocationId
           ? `<code style="font-size:.75rem;">${esc(u.ghlLocationId)}</code>`
           : '<span class="muted">Shared default</span>'}
@@ -228,14 +232,23 @@ function render(users, counts) {
 
   // Blank clears the agreement rather than setting it to nought: an advisor
   // with no agreement keeps what they bill, and one on 0% keeps none of it.
+  // Two questions, because the agreement has two answers: one rate for what
+  // the advisor brings in themselves and a lower one for leads the agency
+  // hands them. Blank on either means nothing agreed, which is not nought.
   panel.querySelectorAll('[data-split]').forEach((btn) => btn.addEventListener('click', async () => {
     const pct = prompt(
-      'Percentage of commission this advisor keeps. Blank means they keep all of it.',
+      'On bookings the advisor generates themselves, what percentage of the '
+      + 'commission do they keep?\n\nBlank means they keep all of it.',
       btn.dataset.pct);
     if (pct === null) return;
+    const leadPct = prompt(
+      'On bookings from leads the agency provides, what percentage do they keep?'
+      + '\n\nBlank uses the same rate as above.',
+      btn.dataset.lead);
+    if (leadPct === null) return;
     try {
       await api(`/api/admin/advisors/${encodeURIComponent(btn.dataset.split)}/split`,
-        { method: 'PUT', body: { defaultSplitPct: pct } });
+        { method: 'PUT', body: { defaultSplitPct: pct, leadSplitPct: leadPct } });
       await load();
     } catch (err) { alert(err.message); }
   }));

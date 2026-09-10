@@ -13,7 +13,7 @@ export const EXPECTED_SCHEMA = {
   automations: ['active', 'created_at', 'created_by', 'description', 'id', 'location_id', 'name', 'runs_done', 'runs_started', 'steps_json', 'trigger_config_json', 'trigger_type', 'updated_at'],
   booking_payments: ['amount_cents', 'auto_lead_sent', 'booking_id', 'card_last4', 'created_at', 'credit_id', 'due_date', 'id', 'kind', 'method', 'notes', 'paid_by', 'paid_date', 'payment_class', 'payment_type', 'reference', 'reminded_at', 'reminder_count', 'updated_at', 'user_id'],
   booking_pricing: ['amount_cents', 'booking_id', 'commission_cents', 'commission_kind', 'commission_pct', 'commissionable', 'component_id', 'created_at', 'id', 'kind', 'label', 'sort_order', 'traveller_id', 'updated_at', 'user_id'],
-  bookings: ['advisor_split_pct', 'booking_method', 'cabin', 'cabin_category', 'client_id', 'client_name', 'commission_cents', 'commission_status', 'confirmation_number', 'created_at', 'depart_date', 'deposit_cents', 'deposit_due', 'destination', 'final_payment_due', 'ghl_contact_id', 'ghl_opportunity_id', 'gross_cents', 'group_id', 'id', 'insurance_status', 'invoice_issued_at', 'invoice_no', 'invoice_notes', 'itinerary', 'notes', 'personal', 'product_name', 'product_type', 'quote_sent_at', 'quote_sent_count', 'return_date', 'share_code', 'shared_at', 'statement_hash', 'statement_sent_at', 'status', 'supplier', 'travellers', 'updated_at', 'user_id', 'vendor_id', 'welcomed_at'],
+  bookings: ['advisor_split_pct', 'booking_method', 'cabin', 'cabin_category', 'client_id', 'client_name', 'commission_cents', 'commission_status', 'confirmation_number', 'created_at', 'depart_date', 'deposit_cents', 'deposit_due', 'destination', 'final_payment_due', 'ghl_contact_id', 'ghl_opportunity_id', 'gross_cents', 'group_id', 'id', 'insurance_status', 'invoice_issued_at', 'invoice_no', 'invoice_notes', 'itinerary', 'lead_source', 'notes', 'personal', 'product_name', 'product_type', 'quote_sent_at', 'quote_sent_count', 'return_date', 'share_code', 'shared_at', 'statement_hash', 'statement_sent_at', 'status', 'supplier', 'travellers', 'updated_at', 'user_id', 'vendor_id', 'welcomed_at'],
   catalog_import_state: ['k', 'v'],
   client_credits: ['amount_cents', 'booking_id', 'client_id', 'client_name', 'contact_id', 'created_at', 'expires_on', 'id', 'issued_on', 'kind', 'notes', 'reference', 'updated_at', 'used_on', 'user_id', 'vendor'],
   clients: ['anniversary', 'birthday', 'created_at', 'email', 'ghl_contact_id', 'household_id', 'id', 'name', 'notes', 'phone', 'pinned_at', 'updated_at', 'user_id'],
@@ -46,7 +46,7 @@ export const EXPECTED_SCHEMA = {
   travellers: ['booking_id', 'created_at', 'dob', 'email', 'id', 'is_lead', 'name', 'notes', 'passport_country', 'passport_expiry', 'passport_number', 'phone', 'updated_at', 'user_id'],
   trip_messages: ['body', 'booking_id', 'created_at', 'id', 'ip_hash', 'read_at', 'user_id'],
   user_prefs: ['dashboard_json', 'updated_at', 'user_id'],
-  users: ['agency_address', 'agency_id', 'agency_name', 'approved_at', 'approved_by', 'auto_remind_clients', 'call_list_sent_at', 'created_at', 'default_split_pct', 'email', 'first_name', 'ghl_location_id', 'ghl_user_id', 'id', 'last_login_at', 'last_name', 'notify_email', 'password_hash', 'phone', 'platform_owner', 'role', 'seller_of_travel', 'status', 'updated_at', 'weekly_call_list'],
+  users: ['agency_address', 'agency_id', 'agency_name', 'approved_at', 'approved_by', 'auto_remind_clients', 'call_list_sent_at', 'created_at', 'default_split_pct', 'email', 'first_name', 'ghl_location_id', 'ghl_user_id', 'id', 'last_login_at', 'last_name', 'lead_split_pct', 'notify_email', 'password_hash', 'phone', 'platform_owner', 'role', 'seller_of_travel', 'status', 'updated_at', 'weekly_call_list'],
   vendors: ['account_number', 'bdm_email', 'bdm_info', 'bdm_name', 'bdm_phone', 'booking_instructions', 'budget_category', 'categories_json', 'category', 'commission_pct', 'commission_structure', 'created_at', 'deposit_days', 'email', 'favourite', 'final_days', 'id', 'name', 'notes', 'partner_status', 'phone', 'phones_json', 'portal_url', 'registration_instructions', 'signup_url', 'travel_types', 'updated_at', 'user_id', 'vendor_login', 'website'],
 };
 
@@ -177,6 +177,7 @@ export const COLUMN_ORIGIN = {
   'bookings.id': '0001_init.sql',
   'bookings.insurance_status': '0019_reservation_detail.sql',
   'bookings.invoice_issued_at': '0026_invoice.sql',
+  'bookings.lead_source': '0055_lead_source_split.sql',
   'bookings.invoice_no': '0026_invoice.sql',
   'bookings.invoice_notes': '0026_invoice.sql',
   'bookings.itinerary': '0019_reservation_detail.sql',
@@ -578,6 +579,7 @@ export const COLUMN_ORIGIN = {
   'users.ghl_location_id': '0001_init.sql',
   'users.ghl_user_id': '0001_init.sql',
   'users.id': '0001_init.sql',
+  'users.lead_split_pct': '0055_lead_source_split.sql',
   'users.last_login_at': '0001_init.sql',
   'users.last_name': '0001_init.sql',
   'users.notify_email': '0040_notify_address.sql',

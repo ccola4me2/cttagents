@@ -26,9 +26,25 @@
  */
 export const UNSPLIT_COMMISSION_KINDS = ['bonus'];
 
-/** The percentage the advisor keeps, given a reservation's value and their standing one. */
-export function splitPct(bookingPct, advisorDefaultPct) {
-  for (const v of [bookingPct, advisorDefaultPct]) {
+/** A reservation the agency handed the advisor, rather than one they found. */
+export const COMPANY_LEAD = 'company';
+
+/**
+ * The percentage the advisor keeps.
+ *
+ * Three answers in order: a figure written on this reservation, the standing
+ * agreement that applies to it, then all of it.
+ *
+ * Which standing agreement applies depends on where the booking came from,
+ * because the advisor agreement has two: one rate for what an advisor
+ * generates themselves and a lower one for leads the company provides. A
+ * company lead with no company rate recorded falls back to the advisor's
+ * personal rate rather than to 100, since the agency having agreed one number
+ * and not the other is a gap in the record, not an agreement to take nothing.
+ */
+export function splitPct(bookingPct, leadSource, personalPct, leadPct) {
+  const standing = leadSource === COMPANY_LEAD ? [leadPct, personalPct] : [personalPct];
+  for (const v of [bookingPct, ...standing]) {
     if (v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v))) {
       return Math.max(0, Math.min(Number(v), 100));
     }
@@ -64,8 +80,9 @@ export function shareOf(commissionCents, pct, unsplitCents = 0) {
 // every trip that has not been given its own figure, which is what changing an
 // agreement means; a stamped copy would need a backfill and would silently
 // disagree with the agreement it came from.
-export const SPLIT_PCT_SQL = (bookingPct, advisorPct) =>
-  `COALESCE(${bookingPct}, ${advisorPct}, 100)`;
+export const SPLIT_PCT_SQL = (bookingPct, personalPct, leadSource, leadPct) =>
+  `COALESCE(${bookingPct}, CASE WHEN ${leadSource} = '${COMPANY_LEAD}'
+     THEN COALESCE(${leadPct}, ${personalPct}) ELSE ${personalPct} END, 100)`;
 
 /**
  * The exempt commission on one reservation, summed from its pricing lines.

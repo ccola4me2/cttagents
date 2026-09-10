@@ -58,7 +58,8 @@ export async function handleListCommissions(request, env) {
   // The vendor pays the agency the whole commission; the advisor who booked it
   // keeps their agreed share. Both are selected because both are real: the
   // agency chases the first and pays out the second.
-  const pct = SPLIT_PCT_SQL('b.advisor_split_pct', 'u.default_split_pct');
+  const pct = SPLIT_PCT_SQL('b.advisor_split_pct', 'u.default_split_pct',
+    'b.lead_source', 'u.lead_split_pct');
   const { results } = await env.DB.prepare(
     `SELECT b.id, b.client_name, b.supplier, b.product_name, b.depart_date, b.return_date,
             b.gross_cents, b.commission_cents, b.commission_status, b.confirmation_number,

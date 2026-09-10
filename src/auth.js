@@ -47,6 +47,8 @@ function publicUser(u) {
     // nobody typed.
     defaultSplitPct: u.default_split_pct === null || u.default_split_pct === undefined
       ? null : Number(u.default_split_pct),
+    leadSplitPct: u.lead_split_pct === null || u.lead_split_pct === undefined
+      ? null : Number(u.lead_split_pct),
     agencyAddress: u.agency_address,
     sellerOfTravel: u.seller_of_travel,
     // Where leads are announced, which is not always where they sign in.

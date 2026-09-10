@@ -309,24 +309,32 @@ export async function handleSetAdvisorSplit(request, env, userId) {
   if (reach.error) return reach.error;
 
   const body = await readJson(request);
-  const raw = body.defaultSplitPct;
-  let pct = null;
-  if (raw !== null && raw !== undefined && String(raw).trim() !== '') {
+
+  // Two agreements, both optional and both meaning the same thing when blank:
+  // nothing has been agreed, so the advisor keeps all of it. Blank is not
+  // zero here any more than it is anywhere else in this module.
+  const readPct = (raw) => {
+    if (raw === null || raw === undefined || String(raw).trim() === '') return { pct: null };
     const n = Number(raw);
     if (!Number.isFinite(n) || n < 0 || n > 100) {
-      return badRequest('A share is a number between 0 and 100, or blank for no agreement.');
+      return { error: 'A share is a number between 0 and 100, or blank for no agreement.' };
     }
-    pct = Math.round(n * 10) / 10;
-  }
+    return { pct: Math.round(n * 10) / 10 };
+  };
 
-  const updated = await db.setUserSplit(env, userId, pct);
+  const own = readPct(body.defaultSplitPct);
+  if (own.error) return badRequest(own.error);
+  const lead = readPct(body.leadSplitPct);
+  if (lead.error) return badRequest(lead.error);
+
+  const updated = await db.setUserSplit(env, userId, own.pct, lead.pct);
   if (!updated) return notFound('Advisor not found.');
 
+  const say = (p) => (p === null ? 'all of it' : `${p}%`);
   await db.logActivity(env, admin.id, 'admin.split',
-    pct === null
-      ? `Cleared the commission split for ${updated.email}`
-      : `Set ${updated.email} to keep ${pct}% of what they bill`,
-    { userId, pct });
+    `Set ${updated.email} to keep ${say(own.pct)} of their own bookings and `
+    + `${say(lead.pct === null ? own.pct : lead.pct)} of company leads`,
+    { userId, pct: own.pct, leadPct: lead.pct });
   return json({ ok: true, user: publicUser(updated) });
 }
 
