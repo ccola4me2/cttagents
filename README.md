@@ -446,8 +446,9 @@ Nothing here is wired to a live Cloudflare resource yet. In order:
 1. ~~**D1.**~~ Done 2026-09-10. Database `cttagents`,
    id `c95cdf55-a781-45a4-88d0-76d63ba5ad56`, already in `wrangler.toml`. It is
    empty until step 3.
-2. **R2.** Create a bucket named `cttagents-docs`. A binding that points at a
-   bucket which does not exist fails `wrangler deploy` outright.
+2. ~~**R2.**~~ Done 2026-09-10. Bucket `cttagents-docs`, public access
+   disabled, which is not optional: every download goes through the Worker so
+   it can check the session and the advisor who owns the row first.
 3. **Migrations.** Apply `migrations/0001` through `0053` in order. These are
    applied by hand through the D1 console here, so "committed" and "applied" are
    separate facts. `GET /api/admin/health` compares the live database against
