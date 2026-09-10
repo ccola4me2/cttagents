@@ -81,9 +81,21 @@ NOTIFY_EMAIL = "brentb@cruisestoursandtravel.com"
 # this Worker.
 #
 # STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET are secrets, set in the
-# dashboard. STRIPE_PRICE_ID is the recurring price in that Stripe account and
-# is not a secret, so it lives here where it can be read.
-STRIPE_PRICE_ID = ""
+# dashboard. The price ids are not secrets, so they live here where they can be
+# read against the agreement.
+#
+# Two of them, because the fee is two charges on two clocks and every price on
+# one Stripe subscription must share an interval:
+#   monthly  $29.95, billed on the 1st
+#   annual   $250,   billed every 1 October
+#
+# The amount due on the day somebody joins is neither of these. It is a
+# part-month Stripe works out itself, plus the Annual Program Fee for the
+# months remaining, which src/fees.js computes and puts on the first invoice as
+# a one-off line. Stripe can prorate a price or not, but not prorate half of
+# one, and $70 of that $250 never prorates.
+STRIPE_PRICE_MONTHLY = ""
+STRIPE_PRICE_ANNUAL = ""
 # Days an advisor keeps working after Stripe first reports a payment problem,
 # so a card that fails on a Tuesday and is fixed on a Wednesday costs nobody a
 # day's work.

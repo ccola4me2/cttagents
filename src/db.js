@@ -165,7 +165,8 @@ export async function setUserSplit(env, id, pct, leadPct) {
 export async function getBilling(env, userId) {
   return env.DB.prepare(
     `SELECT user_id, stripe_customer_id, subscription_id, status,
-            current_period_end, grace_until, updated_at
+            current_period_end, grace_until, updated_at,
+            annual_subscription_id, annual_status, annual_period_end
        FROM advisor_billing WHERE user_id = ?`
   ).bind(userId).first();
 }
@@ -174,7 +175,8 @@ export async function getBilling(env, userId) {
 export async function getBillingByCustomer(env, customerId) {
   return env.DB.prepare(
     `SELECT user_id, stripe_customer_id, subscription_id, status,
-            current_period_end, grace_until, updated_at
+            current_period_end, grace_until, updated_at,
+            annual_subscription_id, annual_status, annual_period_end
        FROM advisor_billing WHERE stripe_customer_id = ?`
   ).bind(customerId).first();
 }
@@ -184,17 +186,24 @@ export async function saveBilling(env, userId, f) {
   await env.DB.prepare(
     `INSERT INTO advisor_billing
        (user_id, stripe_customer_id, subscription_id, status, current_period_end,
-        grace_until, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+        grace_until, updated_at, annual_subscription_id, annual_status, annual_period_end)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id) DO UPDATE SET
        stripe_customer_id = COALESCE(excluded.stripe_customer_id, advisor_billing.stripe_customer_id),
        subscription_id    = COALESCE(excluded.subscription_id, advisor_billing.subscription_id),
        status             = excluded.status,
        current_period_end = excluded.current_period_end,
        grace_until        = excluded.grace_until,
-       updated_at         = excluded.updated_at`
+       updated_at         = excluded.updated_at,
+       annual_subscription_id = COALESCE(excluded.annual_subscription_id,
+                                         advisor_billing.annual_subscription_id),
+       annual_status      = COALESCE(excluded.annual_status, advisor_billing.annual_status),
+       annual_period_end  = COALESCE(excluded.annual_period_end,
+                                     advisor_billing.annual_period_end)`
   ).bind(userId, f.stripeCustomerId || null, f.subscriptionId || null,
-    f.status || 'none', f.currentPeriodEnd || null, f.graceUntil || null, ts).run();
+    f.status || 'none', f.currentPeriodEnd || null, f.graceUntil || null, ts,
+    f.annualSubscriptionId || null, f.annualStatus || null,
+    f.annualPeriodEnd || null).run();
   return getBilling(env, userId);
 }
 

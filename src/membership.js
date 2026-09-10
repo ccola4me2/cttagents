@@ -14,6 +14,7 @@ import { requireUser } from './auth.js';
 import * as db from './db.js';
 import * as stripe from './stripe.js';
 import { TRYING, graceDays, required, writeState } from './billinggate.js';
+import { joiningToday, nextOctoberFirst } from './fees.js';
 
 /** The membership page: what they are on, and what to do about it. */
 export async function handleMembership(request, env) {
@@ -33,6 +34,13 @@ export async function handleMembership(request, env) {
     reason: state.reason,
     // Nothing to manage until there is a customer at Stripe to manage.
     hasCustomer: Boolean(billing?.stripe_customer_id),
+    annual: {
+      status: billing?.annual_status || null,
+      renewsAt: billing?.annual_period_end || null,
+    },
+    // What today would cost, so somebody can read the figure before agreeing
+    // to it rather than meeting it on a Stripe page.
+    quote: billing?.subscription_id ? null : joiningToday(new Date()),
   });
 }
 
@@ -62,11 +70,19 @@ export async function handleCheckout(request, env) {
     graceUntil: billing?.grace_until,
   });
 
+  const quote = joiningToday(new Date());
   const session = await stripe.checkoutSession(env, {
     customerId: customer.id,
     returnUrl: portalUrl(env, request),
+    monthlyAnchor: quote.nextMonthlyAt,
+    // Only on the way in. Somebody restarting a lapsed membership has already
+    // paid this year's programme fee, and charging it twice because they
+    // changed a card would be a bill nobody could explain.
+    annualDueCents: billing?.annual_subscription_id ? 0 : quote.annualDueCents,
+    annualLabel: `Annual Program Fee (${quote.monthsOfCover} months cover to 1 October)`,
   });
-  await db.logActivity(env, user.id, 'billing.checkout', 'Opened checkout');
+  await db.logActivity(env, user.id, 'billing.checkout',
+    `Opened checkout: $${(quote.annualDueCents / 100).toFixed(2)} annual due`);
   return json({ ok: true, url: session.url });
 }
 
@@ -160,6 +176,30 @@ export async function handleStripeWebhook(request, env) {
   }
 
   if (!fields) return json({ ok: true, ignored: event.type });
+
+  // The recurring $250 starts only once the first payment has actually
+  // cleared, and only once. Created here rather than at checkout because
+  // until Stripe confirms, there is no card to bill it to.
+  if (event.type === 'checkout.session.completed'
+      && !row.annual_subscription_id
+      && stripe.isConfigured(env)) {
+    try {
+      const sub = await stripe.annualSubscription(env, {
+        customerId,
+        anchor: nextOctoberFirst(new Date()),
+      });
+      fields.annualSubscriptionId = sub.id;
+      fields.annualStatus = sub.status;
+      fields.annualPeriodEnd = sub.current_period_end || null;
+    } catch (e) {
+      // Their monthly is live and their programme fee is paid; the renewal
+      // schedule can be fixed by hand. Losing the whole webhook over it would
+      // leave the account looking unpaid instead.
+      await db.logActivity(env, row.user_id, 'billing.annual.failed',
+        `Could not start the annual: ${e.message}`);
+    }
+  }
+
   await db.saveBilling(env, row.user_id, { ...fields, stripeCustomerId: customerId });
   await db.logActivity(env, row.user_id, 'billing.status',
     `Stripe says ${fields.status}`, { event: event.type });

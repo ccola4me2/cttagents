@@ -71,6 +71,31 @@ function render(d) {
       + 'until the membership is current. Nothing has been deleted.</div>'
     : '';
 
+  // What today costs, itemised, before they meet it on a Stripe page. An
+  // advisor should be able to check the figure against their agreement.
+  let quote = '';
+  const q = d.quote;
+  if (q && (d.status === 'none' || d.status === 'incomplete')) {
+    const usd = (c) => `$${(c / 100).toFixed(2)}`;
+    quote = `<div class="notice notice-info" style="margin:1rem 0 0;">
+      <p style="margin:0 0 .5rem;"><strong>What you pay today</strong></p>
+      <p style="margin:0 0 .3rem;">Annual Program Fee &mdash; ${esc(usd(q.programCents))}
+        programme plus ${esc(usd(q.eoCents))} errors &amp; omissions cover for
+        ${q.monthsOfCover} month${q.monthsOfCover === 1 ? '' : 's'} to 1 October:
+        <strong>${esc(usd(q.annualDueCents))}</strong></p>
+      <p style="margin:0 0 .5rem;">CRM &amp; platform &mdash; the rest of this month,
+        worked out by the day, then ${esc(usd(q.monthlyCents))} on the 1st.</p>
+      <p class="muted" style="margin:0;font-size:.82rem;">
+        After that: ${esc(usd(q.monthlyCents))} on the 1st of each month, and
+        $250.00 every 1 October.</p>
+    </div>`;
+  }
+
+  const annual = d.annual?.renewsAt
+    ? `<p style="margin:0 0 .4rem;"><span class="muted">Annual Program Fee renews:</span>
+       <strong>${esc(day(d.annual.renewsAt))}</strong></p>`
+    : '';
+
   const buttons = [];
   if (d.status === 'none' || d.status === 'canceled' || d.status === 'incomplete') {
     buttons.push('<button class="btn btn-primary" id="pay">Set up membership</button>');
@@ -83,6 +108,8 @@ function render(d) {
     <h2 style="margin:0 0 .3rem;">${esc(title)}</h2>
     <p class="muted" style="margin:0 0 1rem;">${esc(line)}</p>
     ${bits.join('')}
+    ${annual}
+    ${quote}
     ${readOnly}
     <div class="toolbar" style="margin:1.2rem 0 0;">${buttons.join('')}</div>
     ${d.required ? '' : '<p class="muted" style="margin:1rem 0 0;font-size:.82rem;">'

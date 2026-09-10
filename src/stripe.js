@@ -27,7 +27,7 @@ function key(env) {
 }
 
 export function isConfigured(env) {
-  return Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_PRICE_ID);
+  return Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_PRICE_MONTHLY && env.STRIPE_PRICE_ANNUAL);
 }
 
 /**
@@ -79,18 +79,62 @@ export async function ensureCustomer(env, user, existingId) {
   });
 }
 
-/** Where the advisor goes to pay. Stripe hosts the page and takes the card. */
-export function checkoutSession(env, { customerId, returnUrl }) {
-  return call(env, 'POST', '/checkout/sessions', {
+/**
+ * Where the advisor goes to pay, and the only charge they see today.
+ *
+ * The session sets up the monthly subscription and puts the Annual Program Fee
+ * on the same first invoice as a one-off line. One card entry, one payment.
+ *
+ * The annual is a one-off here rather than a second subscription because the
+ * amount due today is not a whole year: $70 in full plus insurance for the
+ * months remaining. Stripe can prorate a price or not prorate it, but not
+ * prorate half of it, so the arithmetic is ours and the result is charged as a
+ * fixed line. The recurring $250 is created afterwards, anchored to October.
+ */
+export function checkoutSession(env, {
+  customerId, returnUrl, monthlyAnchor, annualDueCents, annualLabel,
+}) {
+  const body = {
     mode: 'subscription',
     customer: customerId,
-    line_items: [{ price: env.STRIPE_PRICE_ID, quantity: 1 }],
+    line_items: [{ price: env.STRIPE_PRICE_MONTHLY, quantity: 1 }],
     success_url: `${returnUrl}?paid=1`,
     cancel_url: returnUrl,
-    // Stripe will not create a second live subscription for a customer who
-    // already has one on this price, but saying so is clearer than relying on
-    // it.
-    subscription_data: { metadata: { portal: 'cttagents' } },
+    subscription_data: {
+      metadata: { portal: 'cttagents' },
+      // Bills on the 1st from here on. Stripe works out the part-month
+      // between today and then, by day, and charges it now.
+      billing_cycle_anchor: monthlyAnchor,
+      proration_behavior: 'create_prorations',
+    },
+  };
+  if (annualDueCents > 0) {
+    body.subscription_data.add_invoice_items = [{
+      price_data: {
+        currency: 'usd',
+        product_data: { name: annualLabel || 'Annual Program Fee' },
+        unit_amount: annualDueCents,
+      },
+      quantity: 1,
+    }];
+  }
+  return call(env, 'POST', '/checkout/sessions', body);
+}
+
+/**
+ * The recurring $250, set going after the first payment has landed.
+ *
+ * Anchored to the next 1 October with no proration, so nothing is charged now
+ * -- today's share was already on the invoice above -- and the first real
+ * charge is a full year on the renewal date.
+ */
+export function annualSubscription(env, { customerId, anchor }) {
+  return call(env, 'POST', '/subscriptions', {
+    customer: customerId,
+    items: [{ price: env.STRIPE_PRICE_ANNUAL, quantity: 1 }],
+    billing_cycle_anchor: anchor,
+    proration_behavior: 'none',
+    metadata: { portal: 'cttagents', kind: 'annual-program-fee' },
   });
 }
 

@@ -216,6 +216,56 @@ async function main() {
     'and carries the agency name from the agency, not a form',
     me.data?.user?.agencyName);
 
+  // ------------------------------------------------------ what it costs to join --
+  step('The fee an advisor pays the agency');
+  {
+    const m = await call(advisor, 'GET', '/api/billing/membership');
+    check(m.status === 200, 'an advisor can read their membership', `status ${m.status}`);
+    check(m.data?.status === 'none', 'which starts at nothing', m.data?.status);
+    // Stripe is not configured in CI and must not be needed to answer this.
+    check(m.data?.configured === false, 'and says so when Stripe is not connected');
+    check(m.data?.mayWrite === true,
+      'nobody is restricted while the fee is not being enforced', String(m.data?.mayWrite));
+
+    const q = m.data?.quote;
+    if (check(Boolean(q), 'and quotes what joining today would cost')) {
+      // The agreement, checked rather than assumed: $70 that never prorates,
+      // plus insurance for the whole months left before 1 October.
+      check(q.programCents === 7000, 'the programme half is $70 flat', q.programCents);
+      check(q.monthsOfCover >= 1 && q.monthsOfCover <= 12,
+        'cover runs between one month and a full year', q.monthsOfCover);
+      check(q.eoCents === Math.round((18000 * q.monthsOfCover) / 12),
+        'the insurance half is prorated by whole months', q.eoCents);
+      check(q.annualDueCents === q.programCents + q.eoCents,
+        'and the two add up to what is charged', q.annualDueCents);
+      check(q.monthsOfCover === 12 ? q.annualDueCents === 25000 : q.annualDueCents < 25000,
+        'a full year is the whole $250 and anything less is less');
+      check(q.monthlyCents === 2995, 'the monthly fee is $29.95', q.monthlyCents);
+
+      // The clocks. Both must land on midnight UTC on the first of a month.
+      const nm = new Date(q.nextMonthlyAt * 1000);
+      check(nm.getUTCDate() === 1 && nm.getUTCHours() === 0,
+        'the monthly bills on the 1st', nm.toISOString());
+      check(nm.getTime() > Date.now(), 'and that 1st is still ahead');
+      const na = new Date(q.nextAnnualAt * 1000);
+      check(na.getUTCDate() === 1 && na.getUTCMonth() === 9,
+        'the annual renews on 1 October', na.toISOString());
+      check(na.getTime() > Date.now(), 'and that October is still ahead');
+    }
+
+    // Paying is refused rather than half-done when Stripe is not connected.
+    const pay = await call(advisor, 'POST', '/api/billing/checkout', {});
+    check(pay.status >= 400, 'checkout refuses while Stripe is not connected',
+      `status ${pay.status}`);
+
+    // The webhook is the one unauthenticated endpoint here, so it must not
+    // believe anybody who simply posts to it.
+    const forged = await call(null, 'POST', '/api/stripe/webhook',
+      { type: 'customer.subscription.updated', data: { object: { customer: 'cus_forged' } } });
+    check(forged.status >= 400, 'and an unsigned webhook is refused',
+      `status ${forged.status}`);
+  }
+
   // ------------------------------------------------ the admin works as them --
   step('The agency works inside an advisor\'s account');
   {
