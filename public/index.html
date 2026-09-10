@@ -121,12 +121,20 @@
   .lp-foot a { color: var(--ink-500); }
 
   @media (max-width: 640px) {
-    .lp-bar { padding: 1.3rem 0 1.1rem; }
-    /* Enough to still read as the masthead, small enough that the name and the
-       two buttons do not fight over one line. */
+    /* Stacked, because "Cruises Tours & Travel" beside three pills on a 375px
+       phone leaves the name about 120px, which breaks it over three lines. The
+       brand gets the full width and the buttons sit under it. */
+    .lp-bar {
+      padding: 1.3rem 0 1.1rem;
+      flex-direction: column; align-items: flex-start; gap: 1rem;
+    }
     .lp-brand img { width: 40px; height: 40px; }
-    .lp-brand b { font-size: 1.08rem; letter-spacing: .18em; }
+    /* Was .18em, left over from when this was set in caps. */
+    .lp-brand b { font-size: 1.08rem; letter-spacing: .005em; }
     .lp-brand small { font-size: .68rem; }
+    /* A pill should break beside its neighbour, never through its own label. */
+    .lp-bar nav { flex-wrap: wrap; }
+    .lp-bar nav .btn { white-space: nowrap; }
     .lp-hero { padding: 2.4rem 0 2.8rem; }
     .lp-band { padding: 2.6rem 0; }
   }
@@ -141,9 +149,8 @@
       <span><b>Cruises Tours &amp; Travel</b><small>Travel Advisor Portal</small></span>
     </a>
     <nav>
-      <a class="btn btn-ghost btn-sm" href="https://cruisestoursandtravel.com/" target="_blank" rel="noopener">Main site</a>
-      <a class="btn btn-ghost btn-sm" href="/login">Sign in</a>
-      <a class="btn btn-primary btn-sm" href="/signup">Request access</a>
+      <a class="btn btn-ghost btn-sm" href="https://cruisestoursandtravel.com/" target="_blank" rel="noopener">Main website</a>
+      <a class="btn btn-primary btn-sm" href="/login">Sign in</a>
     </nav>
   </header>
 
@@ -155,10 +162,9 @@
       slips because it only ever lived in your inbox.</p>
     <div class="lp-cta">
       <a class="btn btn-primary" href="/login">Sign in</a>
-      <a class="btn btn-secondary" href="/signup">Request access</a>
     </div>
-    <p class="lp-note">Already an advisor here? Sign in. New to the agency, request access and
-      somebody at Cruises Tours &amp; Travel approves your account by hand.</p>
+    <p class="lp-note">Your account is created for you by Cruises Tours &amp; Travel. There is
+      nothing to sign up for here.</p>
   </section>
 </div>
 
@@ -262,11 +268,10 @@
     <h2>Sign in and pick up where your book left off.</h2>
     <p>Not an advisor with Cruises Tours &amp; Travel yet? Start on the
       <a href="https://cruisestoursandtravel.com/advisor-signup" target="_blank" rel="noopener">advisor signup page</a>
-      and somebody will be in touch. Already been approved, request access here and your account
-      is checked by a person before it goes live.</p>
+      and somebody will be in touch. Once you have joined, the agency sets your account up and
+      sends you a link to choose a password.</p>
     <div class="lp-cta">
       <a class="btn btn-primary" href="/login">Sign in</a>
-      <a class="btn btn-secondary" href="/signup">Request access</a>
     </div>
   </section>
 
@@ -274,7 +279,7 @@
     <span>&copy; 2026 Cruises Tours &amp; Travel. All rights reserved.</span>
     <span>
       <a href="https://cruisestoursandtravel.com/" target="_blank" rel="noopener">cruisestoursandtravel.com</a>
-      &middot; <a href="/login">Sign in</a> &middot; <a href="/signup">Request access</a>
+      &middot; <a href="/login">Sign in</a>
     </span>
     <!-- Seller of travel registration numbers go here once issued. Nothing is
          placed in this slot until the real numbers exist: a plausible looking
