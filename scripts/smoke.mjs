@@ -216,51 +216,6 @@ async function main() {
     'and carries the agency name from the agency, not a form',
     me.data?.user?.agencyName);
 
-  // ------------------------------------------------------- part payments --
-  step('A payment that arrives in two pieces');
-  {
-    const made = await call(advisor, 'POST', '/api/payments', {
-      bookingId, kind: 'installment', amount: '1000', dueDate: isoDay(30),
-    });
-    const payId = made.data?.payment?.id;
-    if (check(made.status === 201 && payId, 'a payment is scheduled', `status ${made.status}`)) {
-      const part = await call(advisor, 'POST', `/api/payments/${payId}/paid`,
-        { amount: '400', paidDate: isoDay(0) });
-      check(part.status === 200, 'part of it is received', `status ${part.status}`);
-      check(part.data?.payment?.amount_cents === 40000,
-        'the line becomes what actually arrived', part.data?.payment?.amount_cents);
-      check(part.data?.remainder?.amount_cents === 60000,
-        'and the balance becomes its own line', part.data?.remainder?.amount_cents);
-      check(part.data?.remainder?.due_date === made.data.payment.due_date,
-        'still due on the same date', part.data?.remainder?.due_date);
-      check(!part.data?.remainder?.paid_date, 'and still owed');
-
-      // The two halves are the whole, which is the point of splitting rather
-      // than overwriting.
-      check((part.data.payment.amount_cents + part.data.remainder.amount_cents) === 100000,
-        'the pieces add back up to what was due');
-
-      const restId = part.data?.remainder?.id;
-      const rest = await call(advisor, 'POST', `/api/payments/${restId}/paid`, {});
-      check(rest.status === 200 && !rest.data?.remainder,
-        'posting the balance with no amount clears it in full',
-        JSON.stringify(rest.data?.remainder));
-      cleanup('the part payment', () => call(advisor, 'DELETE', `/api/payments/${payId}`));
-      cleanup('the balance', () => call(advisor, 'DELETE', `/api/payments/${restId}`));
-    }
-
-    // A trip that never earns is not a trip owing money.
-    const noComm = await call(advisor, 'POST', `/api/bookings/${bookingId}/quick`,
-      { commissionStatus: 'none' });
-    check(noComm.status === 200, 'a reservation can be marked as earning no commission',
-      `status ${noComm.status}`);
-    const back = await call(advisor, 'GET', `/api/bookings/${bookingId}/record`);
-    check(back.data?.booking?.commission_status === 'none',
-      'and it stays that way', back.data?.booking?.commission_status);
-    await call(advisor, 'POST', `/api/bookings/${bookingId}/quick`,
-      { commissionStatus: 'pending' });
-  }
-
   // ------------------------------------------------------ what it costs to join --
   step('The fee an advisor pays the agency');
   {
@@ -431,6 +386,51 @@ async function main() {
   check(thisTrip && (thisTrip.paid_cents + thisTrip.scheduled_cents) <= thisTrip.gross_cents,
     'a schedule never totals more than the trip it is for',
     thisTrip && `${thisTrip.paid_cents} + ${thisTrip.scheduled_cents} vs ${thisTrip.gross_cents}`);
+
+  // ------------------------------------------------------- part payments --
+  step('A payment that arrives in two pieces');
+  {
+    const made = await call(advisor, 'POST', '/api/payments', {
+      bookingId, kind: 'installment', amount: '1000', dueDate: isoDay(30),
+    });
+    const payId = made.data?.payment?.id;
+    if (check(made.status === 201 && payId, 'a payment is scheduled', `status ${made.status}`)) {
+      const part = await call(advisor, 'POST', `/api/payments/${payId}/paid`,
+        { amount: '400', paidDate: isoDay(0) });
+      check(part.status === 200, 'part of it is received', `status ${part.status}`);
+      check(part.data?.payment?.amount_cents === 40000,
+        'the line becomes what actually arrived', part.data?.payment?.amount_cents);
+      check(part.data?.remainder?.amount_cents === 60000,
+        'and the balance becomes its own line', part.data?.remainder?.amount_cents);
+      check(part.data?.remainder?.due_date === made.data.payment.due_date,
+        'still due on the same date', part.data?.remainder?.due_date);
+      check(!part.data?.remainder?.paid_date, 'and still owed');
+
+      // The two halves are the whole, which is the point of splitting rather
+      // than overwriting.
+      check((part.data.payment.amount_cents + part.data.remainder.amount_cents) === 100000,
+        'the pieces add back up to what was due');
+
+      const restId = part.data?.remainder?.id;
+      const rest = await call(advisor, 'POST', `/api/payments/${restId}/paid`, {});
+      check(rest.status === 200 && !rest.data?.remainder,
+        'posting the balance with no amount clears it in full',
+        JSON.stringify(rest.data?.remainder));
+      cleanup('the part payment', () => call(advisor, 'DELETE', `/api/payments/${payId}`));
+      cleanup('the balance', () => call(advisor, 'DELETE', `/api/payments/${restId}`));
+    }
+
+    // A trip that never earns is not a trip owing money.
+    const noComm = await call(advisor, 'POST', `/api/bookings/${bookingId}/quick`,
+      { commissionStatus: 'none' });
+    check(noComm.status === 200, 'a reservation can be marked as earning no commission',
+      `status ${noComm.status}`);
+    const back = await call(advisor, 'GET', `/api/bookings/${bookingId}/record`);
+    check(back.data?.booking?.commission_status === 'none',
+      'and it stays that way', back.data?.booking?.commission_status);
+    await call(advisor, 'POST', `/api/bookings/${bookingId}/quick`,
+      { commissionStatus: 'pending' });
+  }
 
   // ------------------------------------------------ who can see what ------
   step('An associate sees their own records; an owner sees the agency');
