@@ -92,7 +92,10 @@ a:hover { color: var(--coral-500); }
 
 /* The mark is drawn in navy, so on the navy sidebar it needs a light plate
    behind it or it simply disappears. */
-.wordmark.on-dark b { color: #fff; font-size: 1rem; }
+/* "CTT AGENTS" is two words where the upstream wordmark was one, and at
+   .26em it wrapped inside the 232px sidebar. Tightened here only; the
+   auth pages have the width for the wider setting. */
+.wordmark.on-dark b { color: #fff; font-size: .95rem; letter-spacing: .16em; }
 .wordmark.on-dark small { color: var(--coral-200); font-size: .62rem; }
 .wordmark.on-dark img {
   width: 34px; height: 34px; padding: 5px; box-sizing: content-box;

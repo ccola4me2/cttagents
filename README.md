@@ -384,9 +384,22 @@ kept as aliases pointing at the same values, because upstream still owns most of
 that file and renaming a token used in sixty places would turn every future
 cherry-pick into a conflict. New rules should use `--teal-*`.
 
-`public/logo-mark.png` is the circular emblem cropped from the agency's
-horizontal logo; `public/logo-horizontal.png` is the full lockup. Both are
-raster. If the original vector artwork turns up, replacing them is a drop-in.
+`public/logo-mark.png` is the circular ship-and-globe emblem, cropped from the
+agency's horizontal logo and padded square. It is the only logo file here, and
+it is raster; if the original vector artwork turns up, replacing it is a
+drop-in.
+
+The full horizontal lockup is deliberately **not** committed, because there is
+nowhere it currently fits. Both slots that would take it want something else:
+
+- `agencies.logo_url` renders into a 36x36 square on the client-facing share
+  and form pages, which would squash a wide lockup.
+- The email header at `src/email.js` does allow a wide logo, but it sits on a
+  panel filled with the agency's brand colour, and the lockup is navy on
+  transparent, so it would disappear into it.
+
+Either needs a knockout (white) variant of the lockup. Add one and the email
+header will use it as-is.
 
 ---
 
