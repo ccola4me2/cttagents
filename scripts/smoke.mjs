@@ -1458,20 +1458,20 @@ async function main() {
     // Somebody joins the new agency. There is no public door any more, so the
     // portal owner makes the account and moves it across.
     const rivalEmail = `rival-${stamp}@test.dev`;
-    const joined = await call(admin, 'POST', '/api/admin/advisors', {
-      email: rivalEmail, firstName: 'Rival', lastName: 'Owner',
-    });
-    check(joined.status === 200 && joined.data?.invite?.url,
-      'the portal owner creates an account for the other agency',
-      JSON.stringify(joined.data));
+    // Created and given a password the only way there is: the invite. Creating
+    // the row alone leaves an account nobody can sign into, which is the point
+    // of the flow and was briefly the reason ten checks below it failed.
+    const joined = await makeAdvisor(admin, rivalEmail, 'rival-test-12345',
+      { firstName: 'Rival', lastName: 'Owner' });
+    check(Boolean(joined),
+      'the portal owner creates an account for the other agency');
 
-    // Approve them and make them the owner of that agency.
+    // Make them the owner of that agency.
     const all = await call(admin, 'GET', '/api/admin/advisors');
     const rivalUser = (all.data?.users || []).find((u) => u.email === rivalEmail);
     check(Boolean(rivalUser), 'the portal owner sees advisors from every agency');
     check(all.data?.platformOwner === true, 'and knows they run the portal');
 
-    await call(admin, 'PUT', `/api/admin/advisors/${rivalUser.id}/status`, { status: 'active' });
     // The owner of their agency, and not of the portal. This is the account
     // the fence is actually about: an associate is stopped by requireAdmin
     // long before any of it, so testing with one would prove nothing.
@@ -1486,7 +1486,7 @@ async function main() {
     check(rivalIn.status === 200, 'the new advisor signs in', `status ${rivalIn.status}`);
     const rivalMe = await call(rival, 'GET', '/api/auth/me');
     check(rivalMe.data?.user?.agencyId === rivalId,
-      'into the agency whose link they followed, not whichever came first',
+      'into the agency they were moved to, not whichever came first',
       rivalMe.data?.user?.agencyId);
     check(rivalMe.data?.user?.platformOwner === false,
       'and without the keys to the portal');
