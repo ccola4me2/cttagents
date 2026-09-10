@@ -79,6 +79,54 @@
     </div>
   </div>
 </div>
+
+<!-- Both rates in one place. This was two prompt() calls in a row, which
+     browsers are entitled to suppress after the first: Chrome offers "prevent
+     this page from creating additional dialogs" and the second question then
+     never appears, leaving somebody who answered one believing they answered
+     both. A commission agreement is not a thing to set through a dialog the
+     browser may decide to skip. -->
+<dialog id="split-dlg">
+  <form id="split-form" method="dialog">
+    <div class="card-head"><h2>Commission split</h2>
+      <button class="btn btn-ghost btn-sm" type="button" data-close-split>Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" hidden></div>
+      <p class="muted" id="split-who" style="margin:0 0 .9rem;"></p>
+      <div class="field"><label for="sp-own">Their own bookings (%)</label>
+        <input id="sp-own" name="defaultSplitPct" inputmode="decimal" placeholder="90">
+        <p class="field-hint">What they keep on bookings they generate themselves.
+          Blank means they keep all of it.</p></div>
+      <div class="field"><label for="sp-lead">Company-provided leads (%)</label>
+        <input id="sp-lead" name="leadSplitPct" inputmode="decimal" placeholder="80">
+        <p class="field-hint">What they keep on bookings from leads the agency
+          provides. Blank uses the same rate as above.</p></div>
+    </div>
+    <div class="card-foot">
+      <button class="btn btn-primary" type="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="bind-dlg">
+  <form id="bind-form" method="dialog">
+    <div class="card-head"><h2>CTT Tools account</h2>
+      <button class="btn btn-ghost btn-sm" type="button" data-close-bind>Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" hidden></div>
+      <div class="field"><label for="bd-loc">Location id</label>
+        <input id="bd-loc" name="ghlLocationId">
+        <p class="field-hint">Blank uses the agency's shared sub-account.</p></div>
+      <div class="field"><label for="bd-usr">User id</label>
+        <input id="bd-usr" name="ghlUserId">
+        <p class="field-hint">Optional. Attributes records in the CRM to them.</p></div>
+    </div>
+    <div class="card-foot">
+      <button class="btn btn-primary" type="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+
 <script type="module">
 import { api, mountShell, esc, timeAgo, showError } from '/js/app.js';
 await mountShell({ admin: true });
@@ -187,7 +235,8 @@ function render(users, counts) {
           : `${esc(String(u.leadSplitPct))}% on company leads`}</div>
         <div><button class="btn btn-ghost btn-sm" data-split="${esc(u.id)}"
           data-pct="${u.defaultSplitPct === null ? '' : esc(String(u.defaultSplitPct))}"
-          data-lead="${u.leadSplitPct === null ? '' : esc(String(u.leadSplitPct))}">Split</button></div></td>
+          data-lead="${u.leadSplitPct === null ? '' : esc(String(u.leadSplitPct))}"
+          data-who="${esc(u.name || u.email)}">Split</button></div></td>
       <td>${u.ghlLocationId
           ? `<code style="font-size:.75rem;">${esc(u.ghlLocationId)}</code>`
           : '<span class="muted">Shared default</span>'}
@@ -232,37 +281,26 @@ function render(users, counts) {
 
   // Blank clears the agreement rather than setting it to nought: an advisor
   // with no agreement keeps what they bill, and one on 0% keeps none of it.
-  // Two questions, because the agreement has two answers: one rate for what
-  // the advisor brings in themselves and a lower one for leads the agency
-  // hands them. Blank on either means nothing agreed, which is not nought.
-  panel.querySelectorAll('[data-split]').forEach((btn) => btn.addEventListener('click', async () => {
-    const pct = prompt(
-      'On bookings the advisor generates themselves, what percentage of the '
-      + 'commission do they keep?\n\nBlank means they keep all of it.',
-      btn.dataset.pct);
-    if (pct === null) return;
-    const leadPct = prompt(
-      'On bookings from leads the agency provides, what percentage do they keep?'
-      + '\n\nBlank uses the same rate as above.',
-      btn.dataset.lead);
-    if (leadPct === null) return;
-    try {
-      await api(`/api/admin/advisors/${encodeURIComponent(btn.dataset.split)}/split`,
-        { method: 'PUT', body: { defaultSplitPct: pct, leadSplitPct: leadPct } });
-      await load();
-    } catch (err) { alert(err.message); }
+  // One dialog, both rates. See the note by #split-dlg for why this is not
+  // two prompts in a row.
+  panel.querySelectorAll('[data-split]').forEach((btn) => btn.addEventListener('click', () => {
+    splitFor = btn.dataset.split;
+    splitForm.elements.defaultSplitPct.value = btn.dataset.pct || '';
+    splitForm.elements.leadSplitPct.value = btn.dataset.lead || '';
+    splitForm.querySelector('.notice-error').hidden = true;
+    document.getElementById('split-who').textContent =
+      `What ${btn.dataset.who || 'this advisor'} keeps of the commission they bill.`;
+    splitDlg.showModal();
   }));
 
-  panel.querySelectorAll('[data-bind]').forEach((btn) => btn.addEventListener('click', async () => {
-    const ghlLocationId = prompt('CTT Tools location id (blank uses the shared default):', btn.dataset.loc);
-    if (ghlLocationId === null) return;
-    const ghlUserId = prompt('CTT Tools user id for this advisor (optional):', btn.dataset.usr);
-    if (ghlUserId === null) return;
-    try {
-      await api(`/api/admin/advisors/${encodeURIComponent(btn.dataset.bind)}/ghl`,
-        { method: 'PUT', body: { ghlLocationId, ghlUserId } });
-      await load();
-    } catch (err) { alert(err.message); }
+  // One dialog, for the same reason as the split above: the second of two
+  // chained prompts is one the browser may never show.
+  panel.querySelectorAll('[data-bind]').forEach((btn) => btn.addEventListener('click', () => {
+    bindFor = btn.dataset.bind;
+    bindForm.elements.ghlLocationId.value = btn.dataset.loc || '';
+    bindForm.elements.ghlUserId.value = btn.dataset.usr || '';
+    bindForm.querySelector('.notice-error').hidden = true;
+    bindDlg.showModal();
   }));
 }
 
@@ -418,6 +456,56 @@ addForm.addEventListener('submit', async (e) => {
 // reservations, their CRM. For the booking somebody phoned in to the office,
 // or the record an advisor cannot fix themselves. A banner sits across every
 // page until you stop, and the switch is logged against you.
+const bindDlg = document.getElementById('bind-dlg');
+const bindForm = document.getElementById('bind-form');
+let bindFor = null;
+
+document.querySelector('[data-close-bind]').addEventListener('click', () => bindDlg.close());
+bindForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = bindForm.querySelector('.notice-error');
+  err.hidden = true;
+  try {
+    await api(`/api/admin/advisors/${encodeURIComponent(bindFor)}/ghl`, {
+      method: 'PUT',
+      body: {
+        ghlLocationId: bindForm.elements.ghlLocationId.value,
+        ghlUserId: bindForm.elements.ghlUserId.value,
+      },
+    });
+    bindDlg.close();
+    await load();
+  } catch (e2) {
+    err.textContent = e2.message || 'Could not save that.';
+    err.hidden = false;
+  }
+});
+
+const splitDlg = document.getElementById('split-dlg');
+const splitForm = document.getElementById('split-form');
+let splitFor = null;
+
+document.querySelector('[data-close-split]').addEventListener('click', () => splitDlg.close());
+splitForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = splitForm.querySelector('.notice-error');
+  err.hidden = true;
+  try {
+    await api(`/api/admin/advisors/${encodeURIComponent(splitFor)}/split`, {
+      method: 'PUT',
+      body: {
+        defaultSplitPct: splitForm.elements.defaultSplitPct.value,
+        leadSplitPct: splitForm.elements.leadSplitPct.value,
+      },
+    });
+    splitDlg.close();
+    await load();
+  } catch (e2) {
+    err.textContent = e2.message || 'Could not save that.';
+    err.hidden = false;
+  }
+});
+
 const actas = document.getElementById('actas');
 
 function fillActAs(users) {
