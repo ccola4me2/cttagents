@@ -55,9 +55,15 @@ CREATE INDEX IF NOT EXISTS idx_users_agency ON users (agency_id);
 -- The agency everybody is already in. Named plainly and renamed on the
 -- agencies screen; inventing a better name here would only be a guess written
 -- into a migration.
-INSERT OR IGNORE INTO agencies (id, name, slug, tagline, join_open, created_at, updated_at)
+-- The CRM sub-account is set here, not left to the environment. A new advisor
+-- inherits `agencies.ghl_location_id` at signup (see auth.js), so with it null
+-- every one of them is written with no location and leans on
+-- GHL_DEFAULT_LOCATION_ID for the rest of their life. That works until a
+-- second agency arrives and the default stops being theirs.
+INSERT OR IGNORE INTO agencies (id, name, slug, ghl_location_id, tagline,
+                                join_open, created_at, updated_at)
 VALUES ('agency-house', 'Cruises Tours & Travel', 'ctt',
-        NULL, 1,
+        'JxDfISzvUbtcobLNDHl3', NULL, 1,
         strftime('%s','now'), strftime('%s','now'));
 
 UPDATE users SET agency_id = 'agency-house' WHERE agency_id IS NULL;

@@ -262,8 +262,8 @@ actually see, which is the quickest way to tell "not deployed yet" apart from
 | `RESEND_API_KEY` | For email | Approval, welcome and password-reset emails. Without it sends are skipped and logged, and nothing fails. |
 
 Non-secret config lives in `[vars]` in `wrangler.toml`, including
-`GHL_DEFAULT_LOCATION_ID`, which is **empty until the CTT sub-account exists**.
-See "First deploy" below.
+`GHL_DEFAULT_LOCATION_ID`, the CTT sub-account `JxDfISzvUbtcobLNDHl3`. The
+token that reaches it is a secret and is set separately; see "First deploy".
 
 ---
 
@@ -455,10 +455,12 @@ Nothing here is wired to a live Cloudflare resource yet. In order:
    `src/schema-expected.js` and names any file still outstanding.
 4. **Worker.** Connect the repo in Workers Builds so `main` deploys itself, then
    attach `cttagents.com`.
-5. **GoHighLevel.** Create the CTT sub-account, put its id in
-   `GHL_DEFAULT_LOCATION_ID`, and set `GHL_API_TOKEN` as a secret. Until then
-   every CRM screen says "CTT Tools is not connected yet" and the rest of the
-   portal works.
+5. **GoHighLevel.** The sub-account id is already in `GHL_DEFAULT_LOCATION_ID`.
+   What is left is `GHL_API_TOKEN`: create a Private Integration Token on that
+   sub-account (Settings > Private Integrations) with contacts read/write,
+   opportunities read/write and calendars read, and set it as a secret. Until
+   then every CRM screen says "CTT Tools is not connected yet" and the rest of
+   the portal works.
 6. **Email.** Verify a sending domain in Resend, set `RESEND_API_KEY`, and
    correct `MAIL_FROM`. Add a `_dmarc` record: Gmail and Yahoo drop mail
    silently without one even when SPF and DKIM pass.

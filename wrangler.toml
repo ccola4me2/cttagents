@@ -61,11 +61,15 @@ RESET_TTL_MINUTES = "60"
 
 # GoHighLevel. The agency default sub-account every advisor falls back to when
 # they have no sub-account of their own recorded in D1.
-# SETUP: the CTT sub-account in app.concinnity.digital. Left empty on purpose
-# until that sub-account exists. Empty is the safe state: every CRM screen says
-# "CTT Tools is not connected yet" and nothing reaches into another agency's
-# CRM. Do not borrow Trip Vara's location id to make the screens light up.
-GHL_DEFAULT_LOCATION_ID = ""
+# The CTT sub-account in app.concinnity.digital. Its own, not Trip Vara's:
+# pointing this at another agency's location would put their contacts and
+# opportunities on these screens.
+#
+# This is only half of it. GHL_API_TOKEN is a secret and is set in the
+# dashboard; until that token exists and can reach this location, every CRM
+# screen says "CTT Tools is not connected yet" and the rest of the portal
+# works, which is the intended half-configured state rather than a fault.
+GHL_DEFAULT_LOCATION_ID = "JxDfISzvUbtcobLNDHl3"
 GHL_API_BASE = "https://services.leadconnectorhq.com"
 GHL_API_VERSION = "2021-07-28"
 # White-labelled GoHighLevel app, used to deep-link the areas that have no
