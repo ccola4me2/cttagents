@@ -33,8 +33,13 @@ let checks = 0;
 const skips = [];
 
 function ok(label) { checks++; console.log(`  ok    ${label}`); }
+// Kept so the run can end by saying what broke. "10 of 735 checks failed" is
+// true and useless: finding the ten meant scrolling nine hundred lines, and in
+// CI it meant scrolling them in a viewer that only holds a slice at a time.
+const failed = [];
 function fail(label, detail) {
   checks++; failures++;
+  failed.push(detail === undefined ? label : `${label}  (${detail})`);
   console.log(`  FAIL  ${label}`);
   if (detail !== undefined) console.log(`        ${detail}`);
 }
@@ -5058,6 +5063,9 @@ main()
     if (advisorId) {
       await call(admin, 'PUT', `/api/admin/advisors/${advisorId}/status`, { status: 'suspended' })
         .catch(() => {});
+    }
+    if (failed.length) {
+      console.log(`\nWhat failed:\n${failed.map((f) => `  - ${f}`).join('\n')}`);
     }
     console.log(
       `\n${failures ? `${failures} of ${checks} checks failed.` : `All ${checks} checks passed.`}` +
