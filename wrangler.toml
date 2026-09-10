@@ -60,7 +60,20 @@ bucket_name = "cttagents-docs"
 # looks unpolished. workers.dev keeps answering after the domain is attached,
 # so links sent in the meantime do not break when this flips.
 APP_URL = "https://cttagents.brentbeasley2003.workers.dev"
-MAIL_FROM = "CTT Agent Portal <noreply@cttagents.com>"
+# Sent from the agency's own domain, which is already verified in Resend:
+# DKIM on resend._domainkey.cruisestoursandtravel.com, and SPF and MX on the
+# send. subdomain that carries the return path. Nothing had to be added.
+#
+# Deliberately not @cttagents.com. That domain has no Resend records, its DNS
+# lives in a Cloudflare account this Worker cannot reach, and clients know the
+# agency by this name anyway.
+#
+# Note what is NOT touched: the apex SPF still belongs to Microsoft 365 and
+# Proofpoint. Resend authenticates on the send. subdomain's return path and a
+# DKIM key on the apex, and DMARC accepts both under relaxed alignment. Adding
+# amazonses to the apex SPF would be the obvious move and the wrong one -- a
+# domain gets one SPF record, and the agency's live mail is on it.
+MAIL_FROM = "CTT Agent Portal <noreply@cruisestoursandtravel.com>"
 # Where operator notifications go (new advisor signups awaiting approval).
 NOTIFY_EMAIL = "brentb@cruisestoursandtravel.com"
 SESSION_TTL_DAYS = "30"
