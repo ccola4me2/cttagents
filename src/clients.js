@@ -158,6 +158,60 @@ export async function handleClientRecord(request, env) {
   });
 }
 
+/**
+ * A client the agency has met but not yet booked.
+ *
+ * Until now the only way a client record came into being was as a side effect
+ * of taking a reservation, which is right for the common case and wrong for
+ * the one that comes first: somebody rings, you take their details, and the
+ * trip is a fortnight of conversation away. There was nowhere to put them.
+ *
+ * resolveClient does the insert, so a name that already exists comes back as
+ * the person who has it rather than as a second copy of them.
+ */
+export async function handleCreateClient(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const body = await readJson(request);
+  const name = clean(body.name, 120);
+  if (!name) return badRequest('A client needs a name.');
+
+  // Asked before creating, rather than worked out afterwards from how recent
+  // the row looks. resolveClient is happy either way; the caller wants to be
+  // told which happened.
+  const before = await db.getClient(env, db.selfScope(user), { name });
+  const existed = Boolean(before);
+
+  const existingId = await db.resolveClient(env, user.id, name);
+  if (!existingId) return badRequest('A client needs a name.');
+
+  // Everything else is optional and written over the top, so adding somebody
+  // who turns out to be already known fills in what was missing rather than
+  // refusing, and never blanks what was already there.
+  const keep = (incoming, current) => (incoming === undefined || incoming === null
+    || String(incoming).trim() === '' ? (current || null) : incoming);
+
+  await env.DB.prepare(
+    `UPDATE clients SET email = ?, phone = ?, notes = ?, birthday = ?, anniversary = ?,
+       updated_at = ? WHERE id = ? AND user_id = ?`
+  ).bind(
+    keep(clean(body.email, 160), before?.email),
+    keep(clean(body.phone, 40), before?.phone),
+    keep(clean(body.notes, 4000), before?.notes),
+    keep(cleanDate(body.birthday), before?.birthday),
+    keep(cleanDate(body.anniversary), before?.anniversary),
+    now(), existingId, user.id
+  ).run();
+
+  await db.logActivity(env, user.id, 'client.create', `Added ${name}`, { id: existingId });
+  return json({
+    ok: true,
+    existing: existed,
+    client: await db.getClient(env, db.selfScope(user), { id: existingId }),
+  }, 201);
+}
+
 export async function handleUpdateClient(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;

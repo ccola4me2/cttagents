@@ -114,7 +114,9 @@ import {
   handleListStatements, handleCreateStatement, handleUpdateStatement,
   handleDeleteStatement, handleStatementCandidates,
 } from './reconcile.js';
-import { handleClientRecord, handleListClients, handleUpdateClient } from './clients.js';
+import {
+  handleClientRecord, handleListClients, handleUpdateClient, handleCreateClient,
+} from './clients.js';
 import { handlePreviewImport, handleRunImport } from './importer.js';
 import {
   handleCatalogLines, handleCatalogSearch, handleCatalogSailing, handleCatalogShips, handleCatalogDates, handleCatalogStatus,
@@ -649,6 +651,7 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/goals' && method === 'PUT') return handleSaveGoals(request, env);
   if (path === '/api/client' && method === 'GET') return handleClientRecord(request, env);
   if (path === '/api/clients' && method === 'GET') return handleListClients(request, env);
+  if (path === '/api/clients' && method === 'POST') return handleCreateClient(request, env);
   if (path === '/api/import/preview' && method === 'POST') return handlePreviewImport(request, env);
   if (path === '/api/import/reservations' && method === 'POST') return handleRunImport(request, env);
 

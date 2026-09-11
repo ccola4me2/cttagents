@@ -387,6 +387,49 @@ async function main() {
     'a schedule never totals more than the trip it is for',
     thisTrip && `${thisTrip.paid_cents} + ${thisTrip.scheduled_cents} vs ${thisTrip.gross_cents}`);
 
+  // ----------------------------------------------------- a client, first --
+  step('A client the agency has met but not booked');
+  {
+    const nm = `Walk In ${stamp}`;
+    const made = await call(advisor, 'POST', '/api/clients',
+      { name: nm, email: `walkin-${stamp}@test.dev`, phone: '555-0100' });
+    check(made.status === 201 && made.data?.client?.id,
+      'a client can be added before there is a reservation', `status ${made.status}`);
+    check(made.data?.existing === false, 'and is new');
+    const cid = made.data?.client?.id;
+
+    const listed = await call(advisor, 'GET', `/api/clients?q=${encodeURIComponent(nm)}`);
+    check((listed.data?.clients || []).some((c) => c.id === cid),
+      'and shows up on the client list');
+
+    // The same name again is the same person, not a second copy of them, and
+    // it fills in what was blank rather than blanking what was there.
+    const again = await call(advisor, 'POST', '/api/clients',
+      { name: nm, notes: 'Met at the Tampa show' });
+    check(again.data?.client?.id === cid, 'adding the same name finds them again');
+    check(again.data?.existing === true, 'and says so');
+    check(again.data?.client?.email === `walkin-${stamp}@test.dev`,
+      'without wiping what was already known', again.data?.client?.email);
+    check(again.data?.client?.notes === 'Met at the Tampa show',
+      'while filling in what was not');
+
+    const noName = await call(advisor, 'POST', '/api/clients', { email: 'x@y.dev' });
+    check(noName.status === 400, 'a client without a name is refused',
+      `status ${noName.status}`);
+
+    // A reservation in that name must find them rather than making another.
+    const trip = await call(advisor, 'POST', '/api/bookings', {
+      clientName: nm, supplier: 'Carnival', productType: 'cruise',
+      departDate: isoDay(150), gross: '2000', status: 'booked',
+    });
+    check(trip.data?.booking?.client_id === cid,
+      'and a reservation in their name joins the record that exists',
+      trip.data?.booking?.client_id);
+    if (trip.data?.booking?.id) {
+      await call(advisor, 'DELETE', `/api/bookings/${trip.data.booking.id}`);
+    }
+  }
+
   // ------------------------------------------------------- part payments --
   step('A payment that arrives in two pieces');
   {

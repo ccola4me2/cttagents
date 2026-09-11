@@ -14,7 +14,10 @@
   <div class="main">
     <header class="topbar">
       <div><h1>Clients</h1><p class="sub">Everyone who has booked or holds a credit, built from your own records.</p></div>
-      <span id="scope"></span>
+      <span style="display:flex;align-items:center;gap:.6rem;">
+        <span id="scope"></span>
+        <button class="btn btn-primary btn-sm" id="add-client">Add a client</button>
+      </span>
     </header>
     <div class="content">
       <div id="err"></div>
@@ -29,6 +32,37 @@
     </div>
   </div>
 </div>
+
+<dialog id="client-dlg">
+  <form id="client-form" method="dialog">
+    <div class="card-head"><h2>Add a client</h2>
+      <button class="btn btn-ghost btn-sm" type="button" data-close-client>Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" hidden></div>
+      <p class="muted" style="margin:0 0 .9rem;">Somebody you have met but not booked yet.
+        A reservation in their name will find them rather than making a second copy.</p>
+      <div class="field"><label for="c-name">Name</label>
+        <input id="c-name" name="name" required></div>
+      <div class="field-row">
+        <div class="field"><label for="c-email">Email</label>
+          <input id="c-email" name="email" type="email"></div>
+        <div class="field"><label for="c-phone">Phone</label>
+          <input id="c-phone" name="phone"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="c-birthday">Birthday</label>
+          <input id="c-birthday" name="birthday" type="date"></div>
+        <div class="field"><label for="c-anniversary">Anniversary</label>
+          <input id="c-anniversary" name="anniversary" type="date"></div>
+      </div>
+      <div class="field"><label for="c-notes">Notes</label>
+        <textarea id="c-notes" name="notes" rows="3"></textarea></div>
+    </div>
+    <div class="card-foot">
+      <button class="btn btn-primary" type="submit">Add client</button>
+    </div>
+  </form>
+</dialog>
 
 <script type="module">
 import { api, mountShell, esc, money, dateFmt, showError, mountScopePicker, advisorParam } from '/js/app.js';
@@ -173,6 +207,44 @@ async function load() {
     render(d);
   } catch (e) { showError(panel, e); }
 }
+
+// ------------------------------------------------------------ add a client
+// Until now a client existed only once a reservation had been taken, which is
+// right for the usual order of things and wrong for the one that comes first:
+// somebody rings, you take their details, and the trip is a fortnight of
+// conversation away.
+const clientDlg = document.getElementById('client-dlg');
+const clientForm = document.getElementById('client-form');
+
+document.getElementById('add-client').addEventListener('click', () => {
+  clientForm.reset();
+  clientForm.querySelector('.notice-error').hidden = true;
+  clientDlg.showModal();
+});
+document.querySelector('[data-close-client]').addEventListener('click', () => clientDlg.close());
+
+clientForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errBox = clientForm.querySelector('.notice-error');
+  errBox.hidden = true;
+  const btn = clientForm.querySelector('button[type=submit]');
+  btn.disabled = true;
+  try {
+    const values = Object.fromEntries(new FormData(clientForm).entries());
+    const r = await api('/api/clients', { method: 'POST', body: values });
+    clientDlg.close();
+    // Said plainly rather than silently: adding somebody who is already on the
+    // list fills in what was blank, and somebody who typed a name twice
+    // deserves to know which of those happened.
+    if (r.existing) alert(`${values.name} was already on your list. Anything blank has been filled in.`);
+    await load();
+  } catch (e2) {
+    errBox.textContent = e2.message || 'Could not add that client.';
+    errBox.hidden = false;
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 q.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(load, 200); });
 pinnedOnly.addEventListener('change', load);
