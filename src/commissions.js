@@ -13,10 +13,19 @@
 import { json, badRequest, oneOf, uid, now, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
-import { SPLIT_PCT_SQL, ADVISOR_SHARE_SQL, UNSPLIT_SQL, NO_COMMISSION } from './split.js';
+import { SPLIT_PCT_SQL, ADVISOR_SHARE_SQL, UNSPLIT_SQL, EARNED_SQL, NO_COMMISSION } from './split.js';
 import { settlement, SETTLEMENT_STATES, COMMISSION_KINDS } from './reconcile.js';
 
+// What a batch may be moved to. "No commission" is not on it on purpose:
+// waiving a commission is a decision about one reservation, made where the
+// figures are, not a thing to apply to two hundred rows with one button.
 const STATUSES = ['pending', 'invoiced', 'paid'];
+
+// What the list may be filtered by, which is wider. A reservation marked as
+// earning nothing is off this page by default, since the page exists to chase
+// money and there is none to chase, but one marked that way in error has to be
+// findable or it is simply gone.
+const FILTER_STATUSES = [...STATUSES, NO_COMMISSION];
 
 function isoDay(offsetDays = 0) {
   return new Date(Date.now() + offsetDays * 86400000).toISOString().slice(0, 10);
@@ -45,7 +54,7 @@ export async function handleListCommissions(request, env) {
   if (response) return response;
 
   const url = new URL(request.url);
-  const status = STATUSES.includes(url.searchParams.get('status'))
+  const status = FILTER_STATUSES.includes(url.searchParams.get('status'))
     ? url.searchParams.get('status') : null;
   const scope = db.scopeFor(env, user, request);
   const scoped = db.scopeWhere(scope, 'b.user_id');
@@ -92,7 +101,8 @@ export async function handleListCommissions(request, env) {
               AS expected_bonus_cents,
             (SELECT MAX(r.received_on) FROM commission_receipts r
               WHERE r.booking_id = b.id) AS last_received_on,
-            ${ADVISOR_SHARE_SQL('b.commission_cents', pct, UNSPLIT_SQL('b.id'))} AS advisor_cents,
+            ${ADVISOR_SHARE_SQL(EARNED_SQL('b.commission_cents', 'b.commission_status'),
+              pct, UNSPLIT_SQL('b.id'))} AS advisor_cents,
             ${UNSPLIT_SQL('b.id')} AS unsplit_cents,
             COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''), u.email)
               AS advisor_name
@@ -124,7 +134,11 @@ export async function handleListCommissions(request, env) {
     return {
       ...r, back, daysSince, bucket: bucketFor(daysSince),
       outstanding_by_kind: outstandingByKind,
-      agency_cents: (r.commission_cents || 0) - (r.advisor_cents || 0),
+      // Read through the same rule as the advisor's half, so a waived
+      // commission leaves the agency nothing either rather than leaving it
+      // the whole of a figure nobody is paying.
+      agency_cents: (r.commission_status === 'none' ? 0 : (r.commission_cents || 0))
+        - (r.advisor_cents || 0),
       settlement: state,
       variance_cents: variance,
       outstanding_cents: Math.max((r.commission_cents || 0) - (r.received_cents || 0), 0),

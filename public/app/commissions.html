@@ -33,6 +33,7 @@
                 <option value="unpaid">Nothing received</option>
                 <option value="settled">Settled</option>
                 <option value="all">Everything</option>
+                <option value="none">No commission</option>
               </select></div>
             <div class="toolbar" style="padding:0 1.25rem;" id="bulk" hidden>
               <span id="selected-count" class="muted"></span>
@@ -85,6 +86,9 @@ const ME = (await mountShell()).id;
 
 const err = document.getElementById('err');
 const statusFilter = document.getElementById('status-filter');
+// Which view the data currently in hand was fetched for, so the page knows
+// when a change needs the server rather than a re-render.
+let loadedStatus = '';
 const bulk = document.getElementById('bulk');
 let d = null;
 let statements = [];
@@ -160,7 +164,7 @@ function render() {
   // Filtered on settlement rather than status, because the question this page
   // answers is whether the money is in, not whether somebody ticked a box.
   const pick = statusFilter.value;
-  const rows = d.rows.filter((r) => (pick === 'all' ? true
+  const rows = d.rows.filter((r) => (pick === 'all' || pick === 'none' ? true
     : pick ? r.settlement === pick
     : r.outstanding_cents > 0));
 
@@ -316,7 +320,15 @@ document.querySelectorAll('[data-mark]').forEach((btn) => {
   });
 });
 
-statusFilter.addEventListener('change', () => { chosen.clear(); render(); });
+statusFilter.addEventListener('change', () => {
+  chosen.clear();
+  // The no-commission view is the server's answer, not a slice of this one.
+  // Reloading on every change would be a request per keystroke of the mouse;
+  // reloading when crossing into or out of that view is two.
+  const serverSide = statusFilter.value === 'none' || loadedStatus === 'none';
+  loadedStatus = statusFilter.value;
+  if (serverSide) load(); else render();
+});
 
 const statementForm = document.getElementById('statement-form');
 document.getElementById('add-statement').addEventListener('click', () => {
@@ -350,7 +362,11 @@ statementForm.addEventListener('submit', async (e) => {
 
 async function load() {
   try {
-    const q = advisorParam() ? '?' + advisorParam() : '';
+    // Reservations marked as earning nothing are off this page by default, so
+    // asking for them is a round trip rather than a filter over what is here.
+    const params = [advisorParam(), statusFilter.value === 'none' ? 'status=none' : '']
+      .filter(Boolean);
+    const q = params.length ? `?${params.join('&')}` : '';
     // Both together: the statements list feeds the picker on every receipt
     // line, so a row cannot offer a statement the page has not loaded.
     const [commissions, stmts] = await Promise.all([
