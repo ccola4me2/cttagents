@@ -29,6 +29,7 @@
           <p class="field-hint" style="margin:0 0 .9rem;">
             Choose a CSV file, or select the rows in Excel or Google Sheets and paste them below.
             Both work: a spreadsheet copies as tab separated text, which this reads the same way.
+            A Cruise Planners client export imports as it comes, headings and all.
             Nothing is saved until you have checked the preview.
           </p>
 
@@ -100,7 +101,9 @@ const file = document.getElementById('file');
 let mapping = null;
 
 const LABEL = {
-  name: 'Name', email: 'Email', phone: 'Phone', birthday: 'Birthday',
+  name: 'Name', nickname: 'Goes by', email: 'Email', phone: 'Mobile',
+  homePhone: 'Home phone', gender: 'Gender', source: 'Where they came from',
+  birthday: 'Birthday',
   anniversary: 'Anniversary', address1: 'Address', address2: 'Address line 2',
   city: 'City', state: 'State', postcode: 'Postcode', country: 'Country',
   legalFirst: 'Legal first name', legalMiddle: 'Middle name', legalLast: 'Legal last name',
@@ -156,18 +159,21 @@ function drawPreview(d) {
 
   document.getElementById('rows').innerHTML = `<div class="table-wrap"><table>
     <thead><tr><th></th><th>Name</th><th>Email</th><th>Phone</th><th>Where</th>
-      <th>Birthday</th></tr></thead>
+      <th>Birthday</th><th>Source</th></tr></thead>
     <tbody>${d.rows.map((r) => {
       const tone = r.problems.length ? 'badge-red' : r.duplicate ? 'badge-amber' : 'badge-green';
       const label = r.problems.length ? r.problems.join(', ')
         : r.duplicate ? 'already here, will fill in' : 'new';
       return `<tr>
         <td><span class="badge ${tone}">${esc(label)}</span></td>
-        <td><span class="name">${esc(r.name || '-')}</span></td>
+        <td><span class="name">${esc(r.name || '-')}</span>${
+          r.nickname ? `<div class="muted" style="font-size:.76rem;">goes by ${
+            esc(r.nickname)}</div>` : ''}</td>
         <td>${esc(r.email || '-')}</td>
         <td>${esc(r.phone || '-')}</td>
         <td>${esc([r.city, r.state].filter(Boolean).join(', ') || '-')}</td>
         <td>${esc(r.birthday || '-')}</td>
+        <td>${esc(r.source || '-')}</td>
       </tr>`;
     }).join('')}</tbody></table></div>`;
 

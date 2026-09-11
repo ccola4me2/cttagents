@@ -39,6 +39,19 @@ const HEADINGS = [
   [/^(destination|region|area)/i, 'destination'],
 ];
 
+/**
+ * The byte order mark Excel puts at the front of a CSV.
+ *
+ * It is invisible everywhere except a string comparison, where it rides on the
+ * first heading and stops it matching anything. A file whose first column is
+ * Nickname arrives with a first column called "\uFEFFNickname", which is the
+ * quiet way an import loses a column and, if enough of them go, stops
+ * recognising the header row at all.
+ */
+function stripBom(text) {
+  return String(text || '').replace(/^\uFEFF/, '');
+}
+
 /** Splits a line on tabs, or on commas when there are no tabs. */
 function splitLine(line) {
   if (line.includes('\t')) return line.split('\t').map((c) => c.trim());
@@ -119,7 +132,7 @@ export function anyDate(raw) {
 
 /** Turns pasted text into rows, with the problems named rather than dropped. */
 export function parsePaste(text, mapping) {
-  const lines = String(text || '').split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim());
+  const lines = stripBom(text).split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim());
   if (!lines.length) return { columns: [], rows: [], skippedHeader: false };
 
   let columns = Array.isArray(mapping) && mapping.length ? mapping.slice(0, 20) : null;
@@ -292,39 +305,60 @@ export async function handleRunImport(request, env) {
 // an imported client and a typed one are the same record cleaned the same way.
 
 export const CLIENT_FIELDS = [
-  'name', 'email', 'phone', 'birthday', 'anniversary',
+  'name', 'nickname', 'email', 'phone', 'homePhone', 'birthday', 'anniversary',
   'address1', 'address2', 'city', 'state', 'postcode', 'country',
-  'legalFirst', 'legalMiddle', 'legalLast', 'citizenship',
-  'passportNumber', 'passportCountry', 'passportExpiry', 'knownTraveler', 'notes',
+  'legalFirst', 'legalMiddle', 'legalLast', 'gender', 'citizenship',
+  'passportNumber', 'passportCountry', 'passportExpiry', 'knownTraveler',
+  'source', 'notes',
 ];
 
+// Checked in order, so the specific patterns come before the general ones.
+//
+// Two shapes have to work. A sheet somebody typed has bare headings: Name,
+// Email, City. A back office export qualifies everything: the Cruise Planners
+// one writes Home Address City and Home Phone, which none of the bare patterns
+// matched, so more than half its columns went unrecognised and the header row
+// was not even detected as a header. Hence the optional prefixes and the
+// anchors: "Home Address City" is a city and "Home Address 1" is a street, and
+// telling those apart is the whole job.
 const CLIENT_HEADINGS = [
+  // Whose book this is, not who the client is. Dropped before anything else,
+  // or "Agent First Name" is read as the client's first name.
+  [/^agent\b/i, ''],
+
+  [/^(nick|preferred)/i, 'nickname'],
   // Before the plain name patterns, or "first name" is read as the whole name.
   [/^(legal.*first|first.*(name|legal)|given)/i, 'legalFirst'],
   [/^(middle)/i, 'legalMiddle'],
   [/^(legal.*last|last.*(name|legal)|surname|family)/i, 'legalLast'],
   [/^(e.?mail)/i, 'email'],
-  [/^(phone|mobile|cell|tel)/i, 'phone'],
+  // Mobile wins the phone field; a home number is kept as a fallback for the
+  // sheets that carry only one and call it something else.
+  [/^(mobile|cell)/i, 'phone'],
+  [/^(home\s*phone|phone|tel)/i, 'homePhone'],
   [/^(birth|dob|d\.o\.b)/i, 'birthday'],
   [/^(anniv)/i, 'anniversary'],
-  [/^(address ?2|street ?2|apt|suite|unit)/i, 'address2'],
-  [/^(address|street|addr)/i, 'address1'],
-  [/^(city|town)/i, 'city'],
-  [/^(state|province|county|region)/i, 'state'],
-  [/^(zip|post.?code|postal)/i, 'postcode'],
-  [/^(country)/i, 'country'],
+  [/^(gender|sex)$/i, 'gender'],
+  // The qualified address parts first, so none of them is read as the street.
+  [/^(home\s*)?(address\s*)?(city|town)$/i, 'city'],
+  [/^(home\s*)?(address\s*)?(state|province|county|region)$/i, 'state'],
+  [/^(home\s*)?(address\s*)?(zip|post.?code|postal.*)$/i, 'postcode'],
+  [/^(home\s*)?(address\s*)?country$/i, 'country'],
+  [/^(home\s*)?(address|street)\s*(2|line\s*2)$|^(apt|suite|unit)/i, 'address2'],
+  [/^(home\s*)?(address|street)(\s*(1|line\s*1))?$|^addr/i, 'address1'],
   [/^(citizen|nationality)/i, 'citizenship'],
   [/^(passport.*(country|issu.*(country|place)))/i, 'passportCountry'],
   [/^(passport.*exp|exp.*passport)/i, 'passportExpiry'],
   [/^(passport)/i, 'passportNumber'],
   [/^(known.?travell?er|ktn|redress|trusted)/i, 'knownTraveler'],
+  [/^(source|referr|lead source|how.*hear)/i, 'source'],
   [/^(note|comment|remark)/i, 'notes'],
-  [/^(client|passenger|guest|name|contact)/i, 'name'],
+  [/^(client|passenger|guest|full.?name|name|contact)/i, 'name'],
 ];
 
 /** The client half of parsePaste. Same splitting, different columns. */
 export function parseClientPaste(text, mapping) {
-  const lines = String(text || '').split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim());
+  const lines = stripBom(text).split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim());
   if (!lines.length) return { columns: [], rows: [], skippedHeader: false };
 
   let columns = Array.isArray(mapping) && mapping.length ? mapping.slice(0, 24) : null;
@@ -360,8 +394,11 @@ export function parseClientPaste(text, mapping) {
     const row = {
       line: i + 1,
       name,
+      nickname: clean(raw.nickname, 80),
       email: clean(raw.email, 160),
-      phone: clean(raw.phone, 40),
+      // A mobile if there is one, otherwise whatever other number the sheet
+      // carries. Both columns are common and only one field holds a number.
+      phone: clean(raw.phone, 40) || clean(raw.homePhone, 40),
       birthday: anyDate(raw.birthday),
       anniversary: anyDate(raw.anniversary),
       address1: clean(raw.address1, 160),
@@ -378,6 +415,8 @@ export function parseClientPaste(text, mapping) {
       passportCountry: clean(raw.passportCountry, 80),
       passportExpiry: anyDate(raw.passportExpiry),
       knownTraveler: clean(raw.knownTraveler, 40),
+      gender: clean(raw.gender, 40),
+      source: clean(raw.source, 80),
       notes: clean(raw.notes, 4000),
       problems: [],
     };

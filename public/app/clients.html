@@ -42,8 +42,13 @@
       <div class="notice notice-error" hidden></div>
       <p class="muted" style="margin:0 0 .9rem;">Somebody you have met but not booked yet.
         A reservation in their name will find them rather than making a second copy.</p>
-      <div class="field"><label for="c-name">Name</label>
-        <input id="c-name" name="name" required></div>
+      <div class="field-row">
+        <div class="field"><label for="c-name">Name</label>
+          <input id="c-name" name="name" required></div>
+        <div class="field"><label for="c-nick">Goes by</label>
+          <input id="c-nick" name="nickname" maxlength="80" placeholder="Barb">
+          <p class="field-hint">What to call them, if it is not their first name.</p></div>
+      </div>
       <div class="field-row">
         <div class="field"><label for="c-email">Email</label>
           <input id="c-email" name="email" type="email"></div>
@@ -56,6 +61,10 @@
         <div class="field"><label for="c-anniversary">Anniversary</label>
           <input id="c-anniversary" name="anniversary" type="date"></div>
       </div>
+      <div class="field"><label for="c-source">Where they came from</label>
+        <input id="c-source" name="source" maxlength="80" placeholder="Referral">
+        <p class="field-hint">Referral, Facebook, a repeat client. The only field that
+          answers which of your marketing is working.</p></div>
       <div class="field"><label for="c-notes">Notes</label>
         <textarea id="c-notes" name="notes" rows="3"></textarea></div>
 

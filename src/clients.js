@@ -195,6 +195,11 @@ function travelFields(body) {
     loyalty = rows.length ? JSON.stringify(rows) : null;
   }
   return {
+    // What they are actually called, as opposed to what is on the passport.
+    nickname: clean(body.nickname, 80) || null,
+    // Where they came from. Free text on purpose: every back office spells
+    // these differently and an allowlist would drop the ones it had not met.
+    source: clean(body.source, 80) || null,
     legalFirst: clean(body.legalFirst, 80) || null,
     legalMiddle: clean(body.legalMiddle, 80) || null,
     legalLast: clean(body.legalLast, 80) || null,
@@ -280,6 +285,7 @@ export async function upsertClient(env, user, body) {
        passport_number = ?, passport_country = ?, passport_issued = ?, passport_expiry = ?,
        address1 = ?, address2 = ?, city = ?, state = ?, postcode = ?, country = ?,
        loyalty_json = ?, known_traveler = ?, redress = ?, ghl_contact_id = ?,
+       nickname = ?, source = ?,
        updated_at = ? WHERE id = ? AND user_id = ?`
   ).bind(
     keep(clean(body.email, 160), before?.email),
@@ -309,6 +315,8 @@ export async function upsertClient(env, user, body) {
     // being two people. keep() means an existing link is never cut by a
     // create that did not mention one.
     keep(clean(body.contactId, 60), before?.ghl_contact_id),
+    keep(t.nickname, before?.nickname),
+    keep(t.source, before?.source),
     now(), existingId, user.id
   ).run();
 

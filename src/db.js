@@ -1412,7 +1412,7 @@ const CLIENT_COLUMNS = `
   c.legal_first, c.legal_middle, c.legal_last, c.gender, c.citizenship,
   c.passport_number, c.passport_country, c.passport_issued, c.passport_expiry,
   c.address1, c.address2, c.city, c.state, c.postcode, c.country,
-  c.loyalty_json, c.known_traveler, c.redress
+  c.loyalty_json, c.known_traveler, c.redress, c.nickname, c.source
 `;
 
 /** The client record for a name, made if it is new. Null for a blank name. */
