@@ -467,9 +467,11 @@ const PANELS = {
           if (!a.count) return '';
           const tone = b.key === 'older' ? 'color:var(--red-600);'
             : b.key === 'd90' ? 'color:var(--amber-600);' : '';
+          // The count says what it is counting. A bare number next to a figure
+          // of money reads as part of the figure, or as nothing at all.
           return `<div class="stage-row"><span style="min-width:9rem;">${esc(b.label)}</span>
             <span class="n" style="${tone}">${esc(money(a.cents))}
-              <span class="muted">${a.count}</span></span></div>`;
+              <span class="muted">${a.count} trip${a.count === 1 ? '' : 's'}</span></span></div>`;
         }).join('')}</div>`;
     } },
     { key: 'vendor', label: 'By vendor', render: () => {
