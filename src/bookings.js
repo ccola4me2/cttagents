@@ -18,7 +18,7 @@ import { buildStatement, statementFingerprint } from './statement.js';
 import { resolveVendor } from './vendors.js';
 import { listTravellers, listAmenities, passportProblem } from './travellers.js';
 import { PAYMENT_TYPES, releaseCredit } from './payments.js';
-import { COMPANY_LEAD, splitPct, shareOf, UNSPLIT_COMMISSION_KINDS } from './split.js';
+import { COMPANY_LEAD, NO_COMMISSION, splitPct, shareOf, UNSPLIT_COMMISSION_KINDS } from './split.js';
 import { listOptions } from './options.js';
 import { listTiers, penaltyToday } from './penalties.js';
 import { listDocuments, docsReady, CATEGORIES as DOC_CATEGORIES } from './documents.js';
@@ -39,7 +39,7 @@ const STATUSES = ['quoted', 'booked', 'travelled', 'cancelled'];
 // saying so stops it sitting in the chase list forever waiting for money
 // nobody is going to send. A courtesy booking, a friend at cost, an amenity
 // the vendor pays nothing on.
-const COMMISSION_STATUSES = ['pending', 'invoiced', 'paid', 'none'];
+const COMMISSION_STATUSES = ['pending', 'invoiced', 'paid', NO_COMMISSION];
 const BOOKING_METHODS = ['direct', 'portal', 'phone', 'group', 'other'];
 // 'unknown' leads because oneOf falls back to the first entry, and not having
 // asked is the honest default. Recording a decline is a deliberate act.
@@ -358,7 +358,13 @@ export async function handleBookingRecord(request, env, id) {
         // Only an admin may move a trip between the two, or write a figure
         // over the top of both.
         canChange: isAdmin(user),
-        ...shareOf(booking.commission_cents, pct, unsplit),
+        // "No commission" means this trip pays nobody, so both halves are
+        // zero rather than the advisor's share of a figure the agency is
+        // never going to see. The percentage still shows, because it is the
+        // agreement and it has not changed; only the money is nil.
+        earns: booking.commission_status !== NO_COMMISSION,
+        ...shareOf(booking.commission_status === NO_COMMISSION
+          ? 0 : booking.commission_cents, pct, unsplit),
       };
     })(),
     // Whether this reader may change any of it, so the page does not offer

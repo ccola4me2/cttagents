@@ -141,7 +141,10 @@ const NAV = [
       { href: '/app/hotlists', label: 'Who to call' },
       { href: '/app/clients', label: 'Clients' },
       { href: '/app/households', label: 'Households' },
-      { href: '/app/leads', label: 'CRM contacts' },
+      // No separate CRM contacts entry. Clients now lists everyone the CRM
+      // knows alongside everyone who has booked, and two menu items for one
+      // set of people was how the same person ended up on the list twice.
+      // /app/leads still works for anyone holding a link to it.
       { href: '/app/credits', label: 'Client credits' },
       { href: '/app/pipeline', label: 'Sales opportunities' },
       { href: '/app/inbox', label: 'Messages' },
@@ -852,11 +855,19 @@ export function mountScopePicker(host, data, reload) {
 
   const advisors = (data.advisors || []);
   const current = scope.all ? 'all' : (scope.advisorId || 'all');
+  // Picking an advisor here only changes what you are *looking* at. Every write
+  // files under whoever is signed in, so nothing you add while browsing an
+  // advisor's records can land in their book by accident. Adding something on
+  // their behalf is a deliberate second step, which is the button below.
+  const picked = advisors.find((a) => a.id === current && a.id !== scope.viewerId);
   host.innerHTML = `<select aria-label="Whose records to show" style="width:auto;">
     <option value="all"${current === 'all' ? ' selected' : ''}>All advisors</option>
     ${advisors.map((a) => `<option value="${esc(a.id)}"${a.id === current ? ' selected' : ''}>
       ${esc(a.name)}${a.role === 'admin' ? ' (owner)' : ''}</option>`).join('')}
-  </select>`;
+  </select>
+  ${picked ? `<button class="btn btn-sm btn-ghost" type="button" data-act-as="${esc(picked.id)}"
+    title="Sign into ${esc(picked.name)}'s account so anything you add is filed as theirs"
+    >Work as ${esc(picked.name.split(' ')[0])}</button>` : ''}`;
 
   host.querySelector('select').addEventListener('change', (e) => {
     const url = new URL(location.href);
@@ -865,6 +876,24 @@ export function mountScopePicker(host, data, reload) {
     history.replaceState(null, '', url);
     reload();
   });
+
+  const actBtn = host.querySelector('[data-act-as]');
+  if (actBtn) {
+    actBtn.addEventListener('click', async () => {
+      if (!confirm(`Work as ${picked.name}?\n\nEverything you add or change until you `
+        + `stop will belong to them, not to you.`)) return;
+      actBtn.disabled = true;
+      try {
+        await api(`/api/admin/act/${encodeURIComponent(picked.id)}`, { method: 'POST' });
+        // Straight to their dashboard rather than reloading this screen, so it
+        // is unmistakable whose seat you are now in.
+        window.location.href = '/app/';
+      } catch (err) {
+        actBtn.disabled = false;
+        alert(err.message || 'Could not switch.');
+      }
+    });
+  }
 }
 
 /** The advisor query string for the current URL, to pass through to the API. */

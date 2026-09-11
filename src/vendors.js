@@ -7,6 +7,9 @@
 // final payment date from a guess into an answer.
 
 import { json, badRequest, notFound, clean, cleanText, uid, now, readJson } from './util.js';
+// A reservation marked "no commission" earns nobody anything, so it adds
+// nothing to a vendor's total either.
+import { EARNED_SQL } from './split.js';
 import { requireUser, requireAdmin } from './auth.js';
 import * as db from './db.js';
 
@@ -121,7 +124,8 @@ export async function handleListVendors(request, env) {
               AND b.status IN ('booked','travelled')) AS trips,
             (SELECT COALESCE(SUM(b.gross_cents), 0) FROM bookings b WHERE b.vendor_id = v.id
               AND b.status IN ('booked','travelled')) AS gross_cents,
-            (SELECT COALESCE(SUM(b.commission_cents), 0) FROM bookings b WHERE b.vendor_id = v.id
+            (SELECT COALESCE(SUM(${EARNED_SQL('b.commission_cents', 'b.commission_status')}), 0)
+               FROM bookings b WHERE b.vendor_id = v.id
               AND b.status IN ('booked','travelled')) AS commission_cents,
             (SELECT COUNT(*) FROM bookings b WHERE b.vendor_id = v.id
               AND b.status IN ('quoted','booked') AND b.final_payment_due IS NULL) AS undated

@@ -1041,3 +1041,11 @@ input.derived {
    so it needs telling about the bar or it sits under it and overflows. */
 .is-acting .sidebar { top: 2.4rem; height: calc(100vh - 2.4rem); }
 @media (max-width: 860px) { .is-acting .sidebar { top: 0; } }
+
+/*
+  A person the CRM knows but who has never booked. On the same list as the
+  clients, because they are the same people, but visibly not yet a client
+  record so nobody wonders why the trip count is blank.
+*/
+.crm-row td { background: var(--teal-50); }
+.crm-row .name { font-weight: 600; }

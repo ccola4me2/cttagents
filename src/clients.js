@@ -24,10 +24,11 @@ export async function handleListClients(request, env) {
   const url = new URL(request.url);
   const scope = db.scopeFor(env, user, request);
   const query = clean(url.searchParams.get('q'), 80);
+  const pinnedOnly = url.searchParams.get('pinned') === '1';
   const clients = await db.listClients(env, scope, {
     limit: url.searchParams.get('limit'),
     query,
-    pinnedOnly: url.searchParams.get('pinned') === '1',
+    pinnedOnly,
   });
   // One row past the cap, so the page can say it was cut. Filtering a list
   // that is already short is how a search for somebody who exists comes back
@@ -44,18 +45,33 @@ export async function handleListClients(request, env) {
   //
   // Read from the synced copy rather than GoHighLevel itself: a typeahead
   // fires on every keystroke, and that is not a thing to do to an API.
+  //
+  // Shown whether or not somebody is searching. They used to appear only once
+  // a query was typed, which meant the Clients page and the CRM were two
+  // lists of the same people and you had to know somebody's name before the
+  // portal would admit it knew them. One list, with the people who have never
+  // booked marked as such.
+  // Not while pinned-only is on. That filter means "the handful I have
+  // starred", and filling the rest of the screen with contacts nobody starred
+  // is the opposite of what was asked for.
   let fromCrm = [];
-  if (query && query.length >= 2) {
-    const known = new Set(clients.map((c) => c.name.trim().toLowerCase()));
+  if (!pinnedOnly) {
+    const known = await db.clientKeys(env, scope);
     const { contacts } = await db.localContacts(env, ghl.locationFor(env, user), {
-      query, limit: 8,
-    });
+      query: query || undefined,
+      // Enough to be useful without turning the page into the CRM. Searching
+      // narrows it, which is the way somebody finds one in particular.
+      limit: query ? 25 : 100,
+    }).catch(() => ({ contacts: [] }));
+
     fromCrm = (contacts || [])
-      .filter((c) => c.name && !known.has(c.name.trim().toLowerCase()))
-      .slice(0, 8)
+      .filter((c) => c.name
+        && !known.has(c.id)
+        && !known.has(c.name.trim().toLowerCase())
+        && !(c.email && known.has(c.email.trim().toLowerCase())))
       .map((c) => ({
         id: null, contactId: c.id, name: c.name, email: c.email || '',
-        phone: c.phone || '', source: 'crm', trips: 0,
+        phone: c.phone || '', source: 'crm', trips: 0, lifetime_cents: 0,
       }));
   }
 
@@ -66,6 +82,10 @@ export async function handleListClients(request, env) {
     fromCrm,
     stats: {
       total: shown.length,
+      // Counted apart, because "people you have booked" and "people the CRM
+      // knows" are different numbers and adding them together would flatter
+      // the first.
+      crmOnly: fromCrm.length,
       pinned: shown.filter((c) => c.pinned_at).length,
       // Somebody who has travelled and has nothing ahead of them. The same
       // question the dashboard asks, answerable from this list too.
@@ -251,7 +271,7 @@ export async function handleCreateClient(request, env) {
        legal_first = ?, legal_middle = ?, legal_last = ?, gender = ?, citizenship = ?,
        passport_number = ?, passport_country = ?, passport_issued = ?, passport_expiry = ?,
        address1 = ?, address2 = ?, city = ?, state = ?, postcode = ?, country = ?,
-       loyalty_json = ?, known_traveler = ?, redress = ?,
+       loyalty_json = ?, known_traveler = ?, redress = ?, ghl_contact_id = ?,
        updated_at = ? WHERE id = ? AND user_id = ?`
   ).bind(
     keep(clean(body.email, 160), before?.email),
@@ -277,6 +297,10 @@ export async function handleCreateClient(request, env) {
     keep(t.loyaltyJson, before?.loyalty_json),
     keep(t.knownTraveler, before?.known_traveler),
     keep(t.redress, before?.redress),
+    // Set when a CRM contact is being turned into a client, so the two stop
+    // being two people. keep() means an existing link is never cut by a
+    // create that did not mention one.
+    keep(clean(body.contactId, 60), before?.ghl_contact_id),
     now(), existingId, user.id
   ).run();
 

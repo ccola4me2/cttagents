@@ -758,7 +758,10 @@ function drawDetail() {
        ${b.quote_sent_at ? `<dt>Quote sent</dt><dd>${esc(timeAgo(b.quote_sent_at))}${
          b.quote_sent_count > 1 ? ` &middot; ${b.quote_sent_count} times` : ''}</dd>` : ''}
        ${b.welcomed_at ? `<dt>Rang them after</dt><dd>${esc(timeAgo(b.welcomed_at))}</dd>` : ''}
-       ${d.split && d.split.pct !== 100 ? `<dt>You keep</dt><dd>${money(d.split.advisorCents)}
+       ${d.split && d.split.earns === false ? `<dt>Commission</dt>
+         <dd>None. <span class="muted">This trip is marked no commission, so nobody is
+           paid on it: not you and not the agency.</span></dd>` : ''}
+       ${d.split && d.split.earns !== false && d.split.pct !== 100 ? `<dt>You keep</dt><dd>${money(d.split.advisorCents)}
          <span class="muted">${esc(String(d.split.pct))}% ${d.split.overridden
            ? 'set on this trip' : 'by your standing agreement'}; the agency keeps ${
            money(d.split.agencyCents)}${d.split.unsplitCents

@@ -13,7 +13,7 @@
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main">
     <header class="topbar">
-      <div><h1>Clients</h1><p class="sub">Everyone who has booked or holds a credit, built from your own records.</p></div>
+      <div><h1>Clients</h1><p class="sub">Everyone you have booked, plus everyone CTT Tools knows about. One list.</p></div>
       <span style="display:flex;align-items:center;gap:.6rem;">
         <span id="scope"></span>
         <button class="btn btn-primary btn-sm" id="add-client">Add a client</button>
@@ -122,6 +122,54 @@
   </form>
 </dialog>
 
+<!--
+  Which of the two you are adding. A household is not a client with extra
+  fields; it is several clients who share an address, and asking up front is
+  shorter than adding three people one at a time and then tying them together.
+-->
+<dialog id="pick-dlg">
+  <form method="dialog">
+    <div class="card-pad" style="text-align:center;">
+      <h2 style="margin:0 0 .2rem;">Add</h2>
+      <p class="muted" style="margin:0 0 1rem;">One person, or everyone at one address.</p>
+      <div style="display:flex;gap:.6rem;justify-content:center;">
+        <button class="btn btn-primary" type="button" data-pick-kind="client">A client</button>
+        <button class="btn" type="button" data-pick-kind="household">A household</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="house-dlg">
+  <form id="house-form" method="dialog">
+    <div class="card-head"><h2>Add a household</h2>
+      <button class="btn btn-ghost btn-sm" type="button" data-close-house>Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" hidden></div>
+      <p class="muted" style="margin:0 0 .9rem;">Everyone who lives at one address. The address,
+        phone and notes go on the household, so a move is one change rather than four.</p>
+      <div class="field"><label for="h-name">Household name</label>
+        <input id="h-name" name="name" placeholder="The Beasleys">
+        <p class="field-hint">Leave it blank and it is named after the people in it.</p></div>
+      <div class="field"><label for="h-address">Address</label>
+        <textarea id="h-address" name="address" rows="2"></textarea></div>
+      <div class="field"><label for="h-phone">Home phone</label>
+        <input id="h-phone" name="phone"></div>
+      <div class="field"><label for="h-notes">Notes</label>
+        <textarea id="h-notes" name="notes" rows="2"></textarea></div>
+
+      <h3 style="margin:1.2rem 0 .4rem;font-size:.95rem;">Who lives there</h3>
+      <p class="muted" style="margin:0 0 .7rem;">At least two. Add the rest of each person&rsquo;s
+        details on their own record afterwards.</p>
+      <div id="house-people"></div>
+      <button class="btn btn-ghost btn-sm" type="button" id="add-person">Add another person</button>
+    </div>
+    <div class="card-foot">
+      <button class="btn btn-primary" type="submit">Create household</button>
+    </div>
+  </form>
+</dialog>
+
 <script type="module">
 import { api, mountShell, esc, money, dateFmt, showError, mountScopePicker, advisorParam } from '/js/app.js';
 const ME = (await mountShell()).id;
@@ -189,12 +237,15 @@ function render(d) {
       <p class="value" style="${s.lapsed ? 'color:var(--amber-600);' : ''}">${s.lapsed}</p>
       <p class="meta">Travelled with you, nothing ahead</p></div>
     <div class="stat"><p class="label">Lifetime value</p><p class="value">${money(s.lifetimeCents)}</p>
-      <p class="meta">Across everyone listed</p></div>`;
+      <p class="meta">Across everyone listed</p></div>
+    ${s.crmOnly ? `<div class="stat"><p class="label">In CTT Tools only</p>
+      <p class="value">${s.crmOnly}</p>
+      <p class="meta">Known to the CRM, never booked</p></div>` : ''}`;
 
-  if (!d.clients.length) {
+  if (!d.clients.length && !(d.fromCrm || []).length) {
     panel.innerHTML = `
     <div class="empty"><h3>No clients yet</h3>
-      <p>A client record appears the first time you take a reservation for them.</p></div>`;
+      <p>Add one above, or take a reservation and the client record appears with it.</p></div>`;
     return;
   }
 
@@ -227,7 +278,40 @@ function render(d) {
       <td>${c.next_date ? esc(short(c.next_date)) : '<span class="muted">nothing booked</span>'}</td>
       <td class="num">${c.trips}</td>
       <td class="num">${money(c.lifetime_cents)}</td>
+    </tr>`).join('')}
+    ${(d.fromCrm || []).map((c) => `<tr class="crm-row">
+      <td></td><td></td>
+      <td><span class="name">${esc(c.name)}</span>
+        <div class="muted" style="font-size:.76rem;">In CTT Tools, never booked</div></td>
+      <td>${[c.phone ? `<a href="tel:${esc(c.phone)}">${esc(c.phone)}</a>` : '',
+             c.email ? `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>` : '']
+            .filter(Boolean).join('<br>') || '<span class="muted">none on file</span>'}</td>
+      <td colspan="3"><span class="muted">Not a client yet</span></td>
+      <td class="num"><button class="btn btn-ghost btn-sm" data-adopt="${esc(c.contactId)}"
+        data-name="${esc(c.name)}" data-email="${esc(c.email || '')}"
+        data-phone="${esc(c.phone || '')}">Make a client</button></td>
     </tr>`).join('')}</tbody></table></div>`;
+
+  // One click turns a CRM contact into a client record. It carries the name,
+  // email and phone across; everything else is filled in on their own page.
+  // The row disappears on reload because the name is then known.
+  panel.querySelectorAll('[data-adopt]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = 'Adding...';
+      try {
+        await api('/api/clients', { method: 'POST', body: {
+          name: btn.dataset.name, email: btn.dataset.email, phone: btn.dataset.phone,
+          contactId: btn.dataset.adopt,
+        } });
+        await load();
+      } catch (e) {
+        showError(err, e);
+        btn.disabled = false;
+        btn.textContent = 'Make a client';
+      }
+    });
+  });
 
   panel.querySelectorAll('[data-pick]').forEach((box) => {
     box.addEventListener('change', () => {
@@ -274,10 +358,22 @@ async function load() {
 const clientDlg = document.getElementById('client-dlg');
 const clientForm = document.getElementById('client-form');
 
-document.getElementById('add-client').addEventListener('click', () => {
+const pickDlg = document.getElementById('pick-dlg');
+
+function openClientForm() {
   clientForm.reset();
   clientForm.querySelector('.notice-error').hidden = true;
   clientDlg.showModal();
+}
+
+document.getElementById('add-client').addEventListener('click', () => pickDlg.showModal());
+
+pickDlg.querySelectorAll('[data-pick-kind]').forEach((b) => {
+  b.addEventListener('click', () => {
+    pickDlg.close();
+    if (b.dataset.pickKind === 'client') openClientForm();
+    else openHouseForm();
+  });
 });
 document.querySelector('[data-close-client]').addEventListener('click', () => clientDlg.close());
 
@@ -309,6 +405,85 @@ clientForm.addEventListener('submit', async (e) => {
     await load();
   } catch (e2) {
     errBox.textContent = e2.message || 'Could not add that client.';
+    errBox.hidden = false;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ---------------------------------------------------------- add a household
+// Built out of the endpoints that already exist: each person is created as a
+// client, then the household is made from them. Doing it in that order means a
+// half-finished household is just a couple of clients, which is recoverable,
+// rather than a household with nobody in it, which is not.
+const houseDlg = document.getElementById('house-dlg');
+const houseForm = document.getElementById('house-form');
+const housePeople = document.getElementById('house-people');
+
+function personRow(n) {
+  const row = document.createElement('div');
+  row.className = 'field-row';
+  row.style.alignItems = 'end';
+  row.innerHTML = `
+    <div class="field"><label>Name${n < 2 ? ' *' : ''}</label>
+      <input data-p="name" ${n < 2 ? 'required' : ''} autocomplete="off"></div>
+    <div class="field"><label>Email</label><input data-p="email" type="email"></div>
+    <div class="field"><label>Phone</label><input data-p="phone"></div>`;
+  return row;
+}
+
+function openHouseForm() {
+  houseForm.reset();
+  houseForm.querySelector('.notice-error').hidden = true;
+  housePeople.innerHTML = '';
+  housePeople.append(personRow(0), personRow(1));
+  houseDlg.showModal();
+}
+
+document.getElementById('add-person').addEventListener('click', () => {
+  housePeople.append(personRow(housePeople.children.length));
+});
+document.querySelector('[data-close-house]').addEventListener('click', () => houseDlg.close());
+
+houseForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errBox = houseForm.querySelector('.notice-error');
+  errBox.hidden = true;
+  const btn = houseForm.querySelector('button[type=submit]');
+
+  const people = [...housePeople.children].map((row) => {
+    const get = (k) => row.querySelector(`[data-p="${k}"]`).value.trim();
+    return { name: get('name'), email: get('email'), phone: get('phone') };
+  }).filter((p) => p.name);
+
+  if (people.length < 2) {
+    errBox.textContent = 'A household needs at least two people. Add one client instead.';
+    errBox.hidden = false;
+    return;
+  }
+
+  btn.disabled = true;
+  try {
+    const ids = [];
+    for (const p of people) {
+      const r = await api('/api/clients', { method: 'POST', body: p });
+      ids.push(r.client.id);
+    }
+    const v = Object.fromEntries(new FormData(houseForm).entries());
+    const out = await api('/api/households', {
+      method: 'POST',
+      body: { clientIds: ids, name: v.name, address: v.address, phone: v.phone, notes: v.notes },
+    });
+    houseDlg.close();
+    err.innerHTML = `<div class="notice notice-ok">${esc(out.name)} &middot; ${
+      out.members} people now live together.
+      <a href="/app/households">Open households</a></div>`;
+    await load();
+  } catch (e2) {
+    // Any client already created is on the list and keeps its details, so the
+    // way out of a failure here is to tick the people and use Make a household.
+    errBox.textContent = `${e2.message || 'Could not create that household.'
+      } Anyone already added is on your client list.`;
     errBox.hidden = false;
   } finally {
     btn.disabled = false;

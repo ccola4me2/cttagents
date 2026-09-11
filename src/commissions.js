@@ -13,7 +13,7 @@
 import { json, badRequest, oneOf, uid, now, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
-import { SPLIT_PCT_SQL, ADVISOR_SHARE_SQL, UNSPLIT_SQL } from './split.js';
+import { SPLIT_PCT_SQL, ADVISOR_SHARE_SQL, UNSPLIT_SQL, NO_COMMISSION } from './split.js';
 import { settlement, SETTLEMENT_STATES, COMMISSION_KINDS } from './reconcile.js';
 
 const STATUSES = ['pending', 'invoiced', 'paid'];
@@ -53,7 +53,17 @@ export async function handleListCommissions(request, env) {
 
   const where = [scoped.sql, "b.status IN ('booked','travelled')", 'b.commission_cents > 0'];
   const binds = [...scoped.binds];
-  if (status) { where.push('b.commission_status = ?'); binds.push(status); }
+  if (status) {
+    where.push('b.commission_status = ?');
+    binds.push(status);
+  } else {
+    // A reservation marked "no commission" pays nobody: not the advisor and
+    // not the agency. It has no place on the page whose whole purpose is
+    // chasing money, and leaving it there put a figure in the owed column
+    // that nobody was ever going to collect. Still reachable by filtering the
+    // status deliberately, so a trip marked that way by mistake can be found.
+    where.push(`b.commission_status != '${NO_COMMISSION}'`);
+  }
 
   // The vendor pays the agency the whole commission; the advisor who booked it
   // keeps their agreed share. Both are selected because both are real: the
