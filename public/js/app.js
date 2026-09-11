@@ -878,8 +878,10 @@ export function mountScopePicker(host, data, reload) {
 
   host.querySelector('select').addEventListener('change', (e) => {
     const url = new URL(location.href);
-    if (e.target.value === 'all') url.searchParams.delete('advisor');
-    else url.searchParams.set('advisor', e.target.value);
+    // Written out rather than erased. Absence and "everyone" used to be the
+    // same URL, which left a screen no way to open on you by default and
+    // still let you ask for the whole agency.
+    url.searchParams.set('advisor', e.target.value);
     history.replaceState(null, '', url);
     reload();
   });

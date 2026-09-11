@@ -15,6 +15,7 @@
     <header class="topbar">
       <div><h1>Sales opportunities</h1><p class="sub">Where every live reservation stands, by stage.</p></div>
       <div class="toolbar" style="margin:0;">
+        <span id="scope"></span>
         <select id="pipeline-select" aria-label="Pipeline" hidden></select>
         <select id="view" aria-label="How to show them" style="width:auto;">
           <option value="board">Board</option>
@@ -67,8 +68,22 @@
 </dialog>
 
 <script type="module">
-import { api, mountShell, esc, money, showError, onSubmit } from '/js/app.js';
-await mountShell();
+import { api, mountShell, esc, money, showError, onSubmit,
+  mountScopePicker, advisorParam } from '/js/app.js';
+const ME = (await mountShell()).id;
+
+// This board opens on your own work.
+//
+// It is a working screen rather than a report: the question it answers is
+// "where do my deals stand", and an owner landing on the whole agency's is
+// both noise and a way to act on somebody else's trip by mistake. Choosing
+// All advisors is one click away and is remembered in the address bar, so the
+// wider view is asked for rather than arrived at.
+if (!new URLSearchParams(location.search).has('advisor')) {
+  const url = new URL(location.href);
+  url.searchParams.set('advisor', ME);
+  history.replaceState(null, '', url);
+}
 
 const panel = document.getElementById('panel');
 const summary = document.getElementById('summary');
@@ -87,6 +102,15 @@ viewSelect.addEventListener('change', () => {
   // Redrawn from what is already loaded: the two views are the same data.
   if (lastData) render(lastData);
 });
+
+// Said once, on the pipelines where the advisor picker cannot apply.
+function sharedNote(data) {
+  return data.shared
+    ? `<div class="notice notice-info">These opportunities come from CTT Tools, which the whole
+        agency shares, so they cannot be narrowed to one advisor.
+        <a href="?">Back to reservations</a></div>`
+    : '';
+}
 
 function render(data) {
   lastData = data;
@@ -114,7 +138,7 @@ function render(data) {
 
   if (view === 'list') { drawList(data); return; }
 
-  panel.innerHTML = `<div class="board">${data.stages.map((s) => `
+  panel.innerHTML = `${sharedNote(data)}<div class="board">${data.stages.map((s) => `
     <div class="board-col"${s.id ? ` data-stage="${esc(s.id)}"` : ''}>
       <h3>${esc(s.name)}</h3>
       <p class="col-meta">${s.count} &middot; ${money(s.valueTotal * 100)}</p>
@@ -166,7 +190,7 @@ function drawList(data) {
     return;
   }
 
-  panel.innerHTML = `<div class="card"><div class="table-wrap"><table>
+  panel.innerHTML = `${sharedNote(data)}<div class="card"><div class="table-wrap"><table>
     <thead><tr><th>Opportunity</th><th>Client</th><th>Stage</th>
       <th class="num">Value</th></tr></thead>
     <tbody>${rows.map((o) => `
@@ -241,7 +265,12 @@ async function moveOpportunity(id, stageId) {
 async function load(pipelineId) {
   panel.innerHTML = '<p class="spinner">Loading pipeline...</p>';
   try {
-    render(await api(`/api/opportunities${pipelineId ? `?pipelineId=${encodeURIComponent(pipelineId)}` : ''}`));
+    const params = [];
+    if (pipelineId) params.push(`pipelineId=${encodeURIComponent(pipelineId)}`);
+    if (advisorParam()) params.push(advisorParam());
+    const data = await api(`/api/opportunities${params.length ? `?${params.join('&')}` : ''}`);
+    mountScopePicker(document.getElementById('scope'), data, () => load(pipelineId));
+    render(data);
   } catch (err) {
     summary.hidden = true;
     showError(panel, err);

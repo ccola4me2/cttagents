@@ -52,6 +52,9 @@ export async function handleListOpportunities(request, env) {
   const choices = [RESERVATIONS, ...crm.map(({ id, name }) => ({ id, name }))];
 
   if (!wanted || wanted === RESERVATIONS.id) {
+    // Scoped like every other reading screen: an advisor sees their own, an
+    // owner sees whoever the picker says. Writes are elsewhere and are always
+    // the caller's own, so widening this cannot widen what anybody can change.
     const scope = db.scopeFor(env, user, request);
     const today = new Date().toISOString().slice(0, 10);
     const query = clean(url.searchParams.get('q'), 80);
@@ -82,7 +85,7 @@ export async function handleListOpportunities(request, env) {
       // offering a control that silently does nothing.
       derived: true,
       crmError,
-      scope: db.scopeLabel(db.scopeFor(env, user, request), user),
+      scope: db.scopeLabel(scope, user),
       advisors: await db.advisorOptions(env, user),
     });
   }
@@ -136,6 +139,11 @@ export async function handleListOpportunities(request, env) {
       stages,
       total,
       derived: false,
+      // No advisor picker on a CRM pipeline, and this says why rather than
+      // showing one that changes nothing. The whole agency works one CTT
+      // Tools sub-account, so its opportunities belong to the sub-account
+      // rather than to an advisor, and there is nothing to narrow them by.
+      shared: true,
     });
   } catch (e) {
     return ghl.ghlErrorResponse(e);
