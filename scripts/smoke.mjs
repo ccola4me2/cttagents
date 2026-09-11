@@ -5306,7 +5306,9 @@ async function main() {
   const agencyWas = beforeRow?.agency_cents;
   check(agencyWas > 0, 'a normal trip leaves the agency a share', agencyWas);
 
-  const nilled = await call(advisor, 'PUT', `/api/bookings/${halfId}`,
+  // Through /quick, which touches only the field it was given. A full PUT
+  // would send the reservation back with everything else missing.
+  const nilled = await call(advisor, 'POST', `/api/bookings/${halfId}/quick`,
     { commissionStatus: 'none' });
   check(nilled.status === 200, 'a trip is marked no commission', `status ${nilled.status}`);
 
@@ -5330,7 +5332,7 @@ async function main() {
     'but is still findable by asking for that status, so a mistake can be undone');
 
   // Put it back, because the checks after this one assume it earns.
-  await call(advisor, 'PUT', `/api/bookings/${halfId}`, { commissionStatus: 'pending' });
+  await call(advisor, 'POST', `/api/bookings/${halfId}/quick`, { commissionStatus: 'pending' });
   const restored = await call(advisor, 'GET', `/api/bookings/${halfId}/record`);
   check(restored.data?.split?.advisorCents === sp.advisorCents,
     'and unmarking it restores the share exactly', restored.data?.split?.advisorCents);
