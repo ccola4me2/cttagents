@@ -43,7 +43,6 @@ const PAGES = [
   // The client page also offers to put somebody in a household, which reads
   // the household list and searches the client list from the same screen.
   ['public/app/client.html', ['detail-client:/api/bookings', '/api/households', '/api/clients']],
-  ['public/app/households.html', ['/api/households', '/api/households/suggestions']],
   ['public/app/clients.html', ['/api/clients']],
   ['public/app/vendors.html', ['/api/vendors', '/api/vendors/suggest-dates',
     'detail:/api/penalties?vendor={id}']],
