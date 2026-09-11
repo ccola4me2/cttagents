@@ -159,6 +159,56 @@ export async function handleClientRecord(request, env) {
 }
 
 /**
+ * The fields a vendor asks for, read off a request.
+ *
+ * Shared by create and update so the two cannot drift: a field added to one
+ * and forgotten on the other is a field that saves on a new client and
+ * silently refuses to change afterwards.
+ */
+function travelFields(body) {
+  let loyalty = null;
+  if (Array.isArray(body.loyalty)) {
+    const rows = body.loyalty
+      .map((l) => ({ line: clean(l && l.line, 60), number: clean(l && l.number, 60) }))
+      .filter((l) => l.line || l.number)
+      .slice(0, 20);
+    loyalty = rows.length ? JSON.stringify(rows) : null;
+  }
+  return {
+    legalFirst: clean(body.legalFirst, 80) || null,
+    legalMiddle: clean(body.legalMiddle, 80) || null,
+    legalLast: clean(body.legalLast, 80) || null,
+    gender: clean(body.gender, 40) || null,
+    citizenship: clean(body.citizenship, 80) || null,
+    passportNumber: clean(body.passportNumber, 40) || null,
+    passportCountry: clean(body.passportCountry, 80) || null,
+    passportIssued: cleanDate(body.passportIssued),
+    passportExpiry: cleanDate(body.passportExpiry),
+    address1: clean(body.address1, 160) || null,
+    address2: clean(body.address2, 160) || null,
+    city: clean(body.city, 80) || null,
+    state: clean(body.state, 80) || null,
+    postcode: clean(body.postcode, 24) || null,
+    country: clean(body.country, 80) || null,
+    loyaltyJson: loyalty,
+    knownTraveler: clean(body.knownTraveler, 40) || null,
+    redress: clean(body.redress, 40) || null,
+  };
+}
+
+const TRAVEL_SET = `legal_first = ?, legal_middle = ?, legal_last = ?, gender = ?,
+  citizenship = ?, passport_number = ?, passport_country = ?, passport_issued = ?,
+  passport_expiry = ?, address1 = ?, address2 = ?, city = ?, state = ?,
+  postcode = ?, country = ?, loyalty_json = ?, known_traveler = ?, redress = ?`;
+
+const travelBinds = (f) => [
+  f.legalFirst, f.legalMiddle, f.legalLast, f.gender, f.citizenship,
+  f.passportNumber, f.passportCountry, f.passportIssued, f.passportExpiry,
+  f.address1, f.address2, f.city, f.state, f.postcode, f.country,
+  f.loyaltyJson, f.knownTraveler, f.redress,
+];
+
+/**
  * A client the agency has met but not yet booked.
  *
  * Until now the only way a client record came into being was as a side effect
@@ -234,9 +284,10 @@ export async function handleUpdateClient(request, env, id) {
   // The name is the key reservations were matched on before this table
   // existed, so renaming has to carry them along or the trips would be
   // orphaned from the person who took them.
+  const travel = travelFields(body);
   const res = await env.DB.prepare(
     `UPDATE clients SET name = ?, email = ?, phone = ?, notes = ?,
-       birthday = ?, anniversary = ?, updated_at = ?
+       birthday = ?, anniversary = ?, ${TRAVEL_SET}, updated_at = ?
       WHERE id = ? AND user_id = ?`
   ).bind(name, clean(body.email, 160) || null, clean(body.phone, 40) || null,
          clean(body.notes, 4000) || null,
@@ -244,6 +295,7 @@ export async function handleUpdateClient(request, env, id) {
          // birthday, but the field is a date input and half of these arrive
          // from a passport, so there is no reason to throw the year away.
          cleanDate(body.birthday), cleanDate(body.anniversary),
+         ...travelBinds(travel),
          now(), id, user.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Client not found.');
 

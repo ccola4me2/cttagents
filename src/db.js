@@ -1298,7 +1298,11 @@ export async function salesMix(env, scope, { from, to, includePersonal = false }
 
 const CLIENT_COLUMNS = `
   c.id, c.user_id, c.name, c.email, c.phone, c.notes, c.ghl_contact_id,
-  c.birthday, c.anniversary, c.household_id, c.pinned_at, c.created_at, c.updated_at
+  c.birthday, c.anniversary, c.household_id, c.pinned_at, c.created_at, c.updated_at,
+  c.legal_first, c.legal_middle, c.legal_last, c.gender, c.citizenship,
+  c.passport_number, c.passport_country, c.passport_issued, c.passport_expiry,
+  c.address1, c.address2, c.city, c.state, c.postcode, c.country,
+  c.loyalty_json, c.known_traveler, c.redress
 `;
 
 /** The client record for a name, made if it is new. Null for a blank name. */

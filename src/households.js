@@ -44,6 +44,8 @@ export async function membersOf(env, householdId, scope) {
   const scoped = db.scopeWhere(scope, 'c.user_id');
   const { results } = await env.DB.prepare(
     `SELECT c.id, c.name, c.email, c.phone, c.birthday, c.anniversary,
+            c.legal_first, c.legal_middle, c.legal_last, c.gender, c.citizenship,
+            c.passport_number, c.passport_country, c.passport_expiry,
             (SELECT COUNT(*) FROM bookings b WHERE b.client_id = c.id
               AND b.status IN ('booked','travelled')) AS trips,
             (SELECT COALESCE(SUM(b.gross_cents), 0) FROM bookings b WHERE b.client_id = c.id
@@ -280,8 +282,22 @@ export async function handleHouseholdTravellers(request, env) {
     // Everybody except the person already on the booking.
     travellers: house.members
       .filter((m) => m.id !== client.id)
+      // Everything the traveller rows on a reservation ask for, so booking a
+      // household is a matter of ticking people rather than fetching four
+      // passports off a shelf.
       .map((m) => ({
-        clientId: m.id, name: m.name, email: m.email, phone: m.phone, dob: m.birthday,
+        clientId: m.id,
+        name: m.name,
+        email: m.email,
+        phone: m.phone,
+        dob: m.birthday,
+        legalName: [m.legal_first, m.legal_middle, m.legal_last]
+          .filter(Boolean).join(' ') || null,
+        gender: m.gender || null,
+        citizenship: m.citizenship || null,
+        passportNumber: m.passport_number || null,
+        passportCountry: m.passport_country || null,
+        passportExpiry: m.passport_expiry || null,
       })),
   });
 }
