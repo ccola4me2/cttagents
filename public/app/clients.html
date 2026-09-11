@@ -27,6 +27,7 @@
         <input id="q" type="search" placeholder="Name, email or phone" style="min-width:240px;">
         <label style="display:flex;align-items:center;gap:.4rem;font-weight:400;">
           <input type="checkbox" id="pinned-only" style="width:auto;"> Pinned only</label>
+        <button class="btn btn-ghost btn-sm" id="clear-sort" hidden>Back to last name</button>
       </div>
       <div id="picked"></div>
       <section class="card" id="panel"><p class="spinner">Loading clients...</p></section>
@@ -241,18 +242,30 @@ function drawPicked() {
 /**
  * Which column the list is ordered by.
  *
- * Blank means the order the server sent: pinned first, then by lifetime value.
- * That is the right default and a bad permanent answer, because "who has not
- * travelled in two years" and "who is worth the most" are different questions
- * and the second was the only one the page could answer.
+ * By surname unless you say otherwise. A client list is looked through the way
+ * a phone book is, and the server's own order, pinned first then by lifetime
+ * value, answered "who is worth the most", which is a report rather than a
+ * list. Every other column is one click away and clicking a third time comes
+ * back here.
  *
  * Remembered per browser, since whichever column somebody works from is not a
  * thing they want to re-pick every morning.
  */
+const DEFAULT_SORT = { key: 'name', dir: 'asc' };
+
 let sort = (() => {
-  try { return JSON.parse(localStorage.getItem('ctt.clients.sort') || 'null') || { key: '', dir: 'desc' }; }
-  catch { return { key: '', dir: 'desc' }; }
+  try {
+    const kept = JSON.parse(localStorage.getItem('ctt.clients.sort') || 'null');
+    return kept && kept.key ? kept : { ...DEFAULT_SORT };
+  } catch { return { ...DEFAULT_SORT }; }
 })();
+
+const isDefaultSort = () => sort.key === DEFAULT_SORT.key && sort.dir === DEFAULT_SORT.dir;
+
+function remember() {
+  try { localStorage.setItem('ctt.clients.sort', JSON.stringify(sort)); }
+  catch { /* private window */ }
+}
 
 function surnameKey(c) {
   const whole = String(c.name || '').trim();
@@ -388,16 +401,32 @@ function render(d) {
     });
   });
 
+  // Offered only when you are somewhere other than the default, since "back to
+  // last name" is not a thing to offer somebody already sorted by last name.
+  const clearSort = document.getElementById('clear-sort');
+  clearSort.hidden = isDefaultSort();
+  if (!clearSort.dataset.wired) {
+    clearSort.dataset.wired = '1';
+    clearSort.addEventListener('click', () => {
+      sort = { ...DEFAULT_SORT };
+      remember();
+      load();
+    });
+  }
+
   panel.querySelectorAll('[data-sort]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const key = btn.dataset.sort;
       // Same column flips direction. A new column starts where that column is
       // most useful: biggest first for money and counts, soonest first for a
       // date, A to Z for a name.
-      sort = sort.key === key
-        ? { key, dir: sort.dir === 'asc' ? 'desc' : 'asc' }
-        : { key, dir: (key === 'name' || key === 'contact' || key === 'next_date') ? 'asc' : 'desc' };
-      try { localStorage.setItem('ctt.clients.sort', JSON.stringify(sort)); } catch { /* private window */ }
+      // Round the houses: natural direction, then reversed, then off. A column
+      // you can turn on and not off is a column you are stuck in.
+      const natural = (key === 'name' || key === 'contact' || key === 'next_date') ? 'asc' : 'desc';
+      if (sort.key !== key) sort = { key, dir: natural };
+      else if (sort.dir === natural) sort = { key, dir: natural === 'asc' ? 'desc' : 'asc' };
+      else sort = { ...DEFAULT_SORT };
+      remember();
       render(d);
     });
   });
