@@ -254,12 +254,28 @@ let sort = (() => {
   catch { return { key: '', dir: 'desc' }; }
 })();
 
+function surnameKey(c) {
+  const whole = String(c.name || '').trim();
+  const last = String(c.legal_last || '').trim() || whole.split(/\s+/).pop() || '';
+  return `${last} ${whole}`.toLowerCase();
+}
+
 function sortRows(list) {
   if (!sort.key) return list;
   const dir = sort.dir === 'asc' ? 1 : -1;
   const of = (c) => {
     if (sort.key === 'contact') return (c.email || c.phone || '').toLowerCase();
-    if (sort.key === 'name') return (c.name || '').toLowerCase();
+    // By surname, which is how anybody looks for a client.
+    //
+    // Names are stored the way they are said, "Catherine Tunney", so ordering
+    // on the stored string is ordering by first name and puts every Catherine
+    // together. The legal last name is used where there is one, which after an
+    // import there usually is; otherwise the last word of the name, which is
+    // right often enough and wrong quietly rather than loudly.
+    //
+    // First name breaks the tie, so a household reads in a sensible order
+    // instead of whichever of them the database reached first.
+    if (sort.key === 'name') return surnameKey(c);
     return c[sort.key];
   };
   // A blank date or a missing total always sorts last, whichever way the
@@ -307,11 +323,12 @@ function render(d) {
       Search to narrow it down; filtering what is on screen will not reach the rest.</div>` : ''}
     <div class="table-wrap"><table>
     <thead><tr><th style="width:2rem;"></th><th style="width:2rem;"></th>
-      ${[['name', 'Client', ''], ['contact', 'Contact', ''], ['last_date', 'Last trip', ''],
+      ${[['name', 'Client', '', 'Sort by last name'], ['contact', 'Contact', ''], ['last_date', 'Last trip', ''],
          ['next_date', 'Next trip', ''], ['trips', 'Trips', 'num'], ['lifetime_cents', 'Lifetime', 'num']]
-        .map(([key, label, cls]) => `<th${cls ? ` class="${cls}"` : ''}
+        .map(([key, label, cls, hint]) => `<th${cls ? ` class="${cls}"` : ''}
           aria-sort="${sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}">
-          <button type="button" class="th-sort" data-sort="${key}">${esc(label)}<span class="caret"
+          <button type="button" class="th-sort" data-sort="${key}"${
+            hint ? ` title="${esc(hint)}"` : ''}>${esc(label)}<span class="caret"
             aria-hidden="true">${sort.key === key ? (sort.dir === 'asc' ? '▲' : '▼') : ''}</span>
           </button></th>`).join('')}</tr></thead>
     <tbody>${rows.map((c) => `<tr>
