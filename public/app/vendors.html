@@ -47,6 +47,17 @@
   .v-row .who a { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .v-row .who .sub { font-size: .72rem; color: var(--navy-400, #7b8798); }
   .v-row .cat { font-size: .72rem; color: var(--navy-400, #7b8798); white-space: nowrap; }
+  /* The booking site, on the row. This directory is opened to get to a
+     supplier's site more often than for any other reason, and making that a
+     click into the record and back out again was two clicks too many. */
+  .v-row .site {
+    font-size: .74rem; white-space: nowrap; text-decoration: none;
+    color: var(--navy-600, #2f5885); border: 1px solid var(--navy-100, #dbe3ec);
+    border-radius: 999px; padding: .18rem .6rem; flex: none;
+    max-width: 13rem; overflow: hidden; text-overflow: ellipsis;
+  }
+  .v-row .site:hover { border-color: var(--navy-600, #2f5885); background: #fff; }
+  @media (max-width: 720px) { .v-row .site { display: none; } }
 
   .star {
     background: none; border: 0; cursor: pointer; font-size: 1.05rem; line-height: 1;
@@ -229,6 +240,23 @@ function starButton(v) {
     >${v.favourite ? '★' : '☆'}</button>`;
 }
 
+/**
+ * The supplier's booking site, as a link straight out of the list.
+ *
+ * The advisor site rather than the client one: this list is open because
+ * somebody is about to book something. Its host is the label, so the row says
+ * where it goes, and it is left out entirely rather than shown as an empty
+ * space when there is no address on file.
+ */
+function siteCell(v) {
+  const raw = v.portal_url || v.website || '';
+  if (!/^https?:\/\//i.test(raw)) return '';
+  let host = raw;
+  try { host = new URL(raw).hostname.replace(/^www\./, ''); } catch { host = raw; }
+  return `<a class="site" href="${esc(raw)}" target="_blank" rel="noopener noreferrer"
+    title="${esc(raw)}">${esc(host)}</a>`;
+}
+
 function subLine(v) {
   const bits = [];
   if (v.bdm_name) bits.push(esc(v.bdm_name));
@@ -262,6 +290,7 @@ function drawList() {
       </span>
       ${filter === 'all' || filter === 'favourites'
         ? `<span class="cat">${esc(categoriesOf(v).join(', ').replace('Other', ''))}</span>` : ''}
+      ${siteCell(v)}
       ${starButton(v)}
     </li>`).join('')}</ul>`;
 
@@ -471,6 +500,11 @@ function rowsFromSheet(sheet) {
       bdm: get(r, 'bdm info'),
       login: get(r, 'vendor login info'),
       notes: get(r, 'general notes'),
+      // Newer exports carry both addresses. "Website" is the one an advisor
+      // books on and "Consumer Site" is the one a client is shown, which is
+      // the same split the vendor record already keeps.
+      website: get(r, 'website'),
+      consumerSite: get(r, 'consumer site'),
     }));
 }
 

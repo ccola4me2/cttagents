@@ -369,6 +369,25 @@ function decodeEntities(value) {
  * agency's standing with the supplier, their login details, and the sales
  * desk numbers with the name of each desk against them.
  */
+/**
+ * A web address as the directory writes it, which is not as a browser wants it.
+ *
+ * Every address in the partner export is a bare host: loyaltoyoualways.com,
+ * princess.com. Stored as they arrive they fail the http(s) check on the way
+ * in and land as null, so a file with a hundred and ninety websites in it
+ * imports none of them. A bare host with a dot in it and no spaces is a
+ * hostname, and https is the only scheme worth guessing in 2026.
+ */
+export function normaliseSiteUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return clean(raw, 300);
+  // Anything with a space or no dot is a note somebody typed in the field,
+  // not an address. "Call the desk for the portal" is not a link.
+  if (/\s/.test(raw) || !/^[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(raw)) return null;
+  return clean(`https://${raw.replace(/^\/+/, '')}`, 300);
+}
+
 export function parseVendorRow(raw) {
   const name = clean(decodeEntities(raw.name), 120);
   if (!name) return null;
@@ -429,6 +448,11 @@ export function parseVendorRow(raw) {
     bdmEmail: email ? clean(email[0], 160) : null,
     vendorLogin: text(raw.login, 1000),
     notes: text(raw.notes, 2000),
+    // The export's "Website" is the advisor's booking site and its "Consumer
+    // Site" is the client's, which is the split the record already keeps under
+    // portal_url and website.
+    portalUrl: normaliseSiteUrl(decodeEntities(raw.website)),
+    website: normaliseSiteUrl(decodeEntities(raw.consumerSite)),
     phonesJson: phones.length ? JSON.stringify(phones) : null,
   };
 }
@@ -503,15 +527,15 @@ export async function handleImportVendors(request, env) {
            (id, user_id, name, category, categories_json, favourite, partner_status,
             travel_types, budget_category, commission_structure, booking_instructions,
             registration_instructions, bdm_info, bdm_name, bdm_phone, bdm_email,
-            vendor_login, notes, phones_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            vendor_login, notes, phones_json, portal_url, website, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(uid(), user.id, v.name, v.category,
              v.categories?.length ? JSON.stringify(v.categories) : null,
              v.favourite ? 1 : 0,
              v.partnerStatus, v.travelTypes, v.budgetCategory, v.commissionStructure,
              v.bookingInstructions, v.registrationInstructions, v.bdmInfo,
              v.bdmName, v.bdmPhone, v.bdmEmail, v.vendorLogin, v.notes,
-             v.phonesJson, ts, ts)
+             v.phonesJson, v.portalUrl, v.website, ts, ts)
       : env.DB.prepare(
         `INSERT INTO vendors
            (id, user_id, name, category, categories_json, favourite, created_at, updated_at)
@@ -529,13 +553,18 @@ export async function handleImportVendors(request, env) {
            partner_status = ?, travel_types = ?,
            budget_category = ?, commission_structure = ?, booking_instructions = ?,
            registration_instructions = ?, bdm_info = ?, bdm_name = ?, bdm_phone = ?,
-           bdm_email = ?, vendor_login = ?, notes = ?, phones_json = ?, updated_at = ?
+           bdm_email = ?, vendor_login = ?, notes = ?, phones_json = ?,
+           -- Filled where blank, never overwritten. An advisor who corrected a
+           -- supplier's booking address should not lose it to the next import
+           -- of a file that still has the old one.
+           portal_url = COALESCE(portal_url, ?), website = COALESCE(website, ?),
+           updated_at = ?
          WHERE id = ? AND user_id = ?`
       ).bind(v.category, v.categories?.length ? JSON.stringify(v.categories) : null,
              v.partnerStatus, v.travelTypes, v.budgetCategory,
              v.commissionStructure, v.bookingInstructions, v.registrationInstructions,
              v.bdmInfo, v.bdmName, v.bdmPhone, v.bdmEmail, v.vendorLogin, v.notes,
-             v.phonesJson, ts, cur.id, user.id)
+             v.phonesJson, v.portalUrl, v.website, ts, cur.id, user.id)
       : env.DB.prepare(
         `UPDATE vendors SET category = ?, categories_json = COALESCE(?, categories_json),
            favourite = ?, updated_at = ? WHERE id = ? AND user_id = ?`
