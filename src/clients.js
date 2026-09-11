@@ -239,13 +239,21 @@ const travelBinds = (f) => [
  * resolveClient does the insert, so a name that already exists comes back as
  * the person who has it rather than as a second copy of them.
  */
-export async function handleCreateClient(request, env) {
-  const { user, response } = await requireUser(request, env);
-  if (response) return response;
-
-  const body = await readJson(request);
+/**
+ * Create a client, or fill in the blanks on one already there.
+ *
+ * Lifted out of the request handler so the bulk import writes clients exactly
+ * the way the Add a client dialog does. Two write paths for one record is how
+ * an import quietly stores half a client: a field the form cleans and the
+ * importer does not, a name normalised in one place and not the other.
+ *
+ * Returns the id and whether it already existed, or an { error } for the
+ * caller to report however suits it. Throwing would make a five hundred row
+ * import fall over on row twelve.
+ */
+export async function upsertClient(env, user, body) {
   const name = clean(body.name, 120);
-  if (!name) return badRequest('A client needs a name.');
+  if (!name) return { error: 'A client needs a name.' };
 
   // Asked before creating, rather than worked out afterwards from how recent
   // the row looks. resolveClient is happy either way; the caller wants to be
@@ -254,7 +262,7 @@ export async function handleCreateClient(request, env) {
   const existed = Boolean(before);
 
   const existingId = await db.resolveClient(env, user.id, name);
-  if (!existingId) return badRequest('A client needs a name.');
+  if (!existingId) return { error: 'A client needs a name.' };
 
   // Everything else is optional and written over the top, so adding somebody
   // who turns out to be already known fills in what was missing rather than
@@ -305,10 +313,21 @@ export async function handleCreateClient(request, env) {
   ).run();
 
   await db.logActivity(env, user.id, 'client.create', `Added ${name}`, { id: existingId });
+  return { id: existingId, existed };
+}
+
+export async function handleCreateClient(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const body = await readJson(request);
+  const out = await upsertClient(env, user, body);
+  if (out.error) return badRequest(out.error);
+
   return json({
     ok: true,
-    existing: existed,
-    client: await db.getClient(env, db.selfScope(user), { id: existingId }),
+    existing: out.existed,
+    client: await db.getClient(env, db.selfScope(user), { id: out.id }),
   }, 201);
 }
 

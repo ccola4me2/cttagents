@@ -13,6 +13,7 @@ import { json, badRequest, clean, cleanDate, toCents, oneOf, readJson } from './
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 import { resolveVendor } from './vendors.js';
+import { upsertClient } from './clients.js';
 
 const MAX_ROWS = 500;
 
@@ -274,4 +275,207 @@ export async function handleRunImport(request, env) {
     `Imported ${created} reservation${created === 1 ? '' : 's'}`, { created, skipped });
 
   return json({ ok: true, created, skipped, failures });
+}
+
+// ---------------------------------------------------------------------------
+// Clients
+// ---------------------------------------------------------------------------
+//
+// The same machinery pointed at people rather than reservations.
+//
+// An advisor arriving with a book of business has two lists, not one: the
+// trips, and everyone they have ever sold to. The second is the longer of the
+// two and the one that a reservation import cannot produce, because a client
+// who has not travelled with you yet appears on no reservation anywhere.
+//
+// Writes through upsertClient, the same call the Add a client dialog uses, so
+// an imported client and a typed one are the same record cleaned the same way.
+
+export const CLIENT_FIELDS = [
+  'name', 'email', 'phone', 'birthday', 'anniversary',
+  'address1', 'address2', 'city', 'state', 'postcode', 'country',
+  'legalFirst', 'legalMiddle', 'legalLast', 'citizenship',
+  'passportNumber', 'passportCountry', 'passportExpiry', 'knownTraveler', 'notes',
+];
+
+const CLIENT_HEADINGS = [
+  // Before the plain name patterns, or "first name" is read as the whole name.
+  [/^(legal.*first|first.*(name|legal)|given)/i, 'legalFirst'],
+  [/^(middle)/i, 'legalMiddle'],
+  [/^(legal.*last|last.*(name|legal)|surname|family)/i, 'legalLast'],
+  [/^(e.?mail)/i, 'email'],
+  [/^(phone|mobile|cell|tel)/i, 'phone'],
+  [/^(birth|dob|d\.o\.b)/i, 'birthday'],
+  [/^(anniv)/i, 'anniversary'],
+  [/^(address ?2|street ?2|apt|suite|unit)/i, 'address2'],
+  [/^(address|street|addr)/i, 'address1'],
+  [/^(city|town)/i, 'city'],
+  [/^(state|province|county|region)/i, 'state'],
+  [/^(zip|post.?code|postal)/i, 'postcode'],
+  [/^(country)/i, 'country'],
+  [/^(citizen|nationality)/i, 'citizenship'],
+  [/^(passport.*(country|issu.*(country|place)))/i, 'passportCountry'],
+  [/^(passport.*exp|exp.*passport)/i, 'passportExpiry'],
+  [/^(passport)/i, 'passportNumber'],
+  [/^(known.?travell?er|ktn|redress|trusted)/i, 'knownTraveler'],
+  [/^(note|comment|remark)/i, 'notes'],
+  [/^(client|passenger|guest|name|contact)/i, 'name'],
+];
+
+/** The client half of parsePaste. Same splitting, different columns. */
+export function parseClientPaste(text, mapping) {
+  const lines = String(text || '').split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim());
+  if (!lines.length) return { columns: [], rows: [], skippedHeader: false };
+
+  let columns = Array.isArray(mapping) && mapping.length ? mapping.slice(0, 24) : null;
+  let start = 0;
+
+  if (!columns) {
+    const first = splitLine(lines[0]);
+    const guessed = first.map((cell) => {
+      const hit = CLIENT_HEADINGS.find(([re]) => re.test(cell.trim()));
+      return hit ? hit[1] : '';
+    });
+    if (guessed.filter(Boolean).length >= Math.max(2, Math.ceil(first.length / 2))) {
+      columns = guessed;
+      start = 1;
+    } else {
+      columns = CLIENT_FIELDS.slice(0, first.length);
+    }
+  }
+
+  const rows = [];
+  for (let i = start; i < lines.length && rows.length < MAX_ROWS; i++) {
+    const cells = splitLine(lines[i]);
+    const raw = {};
+    columns.forEach((field, n) => { if (field) raw[field] = cells[n] ?? ''; });
+
+    // A sheet with first and last in separate columns and no full name column
+    // still describes a person. Built rather than refused.
+    const legalFirst = clean(raw.legalFirst, 80);
+    const legalLast = clean(raw.legalLast, 80);
+    const name = personName(raw.name)
+      || [legalFirst, legalLast].filter(Boolean).join(' ').slice(0, 120);
+
+    const row = {
+      line: i + 1,
+      name,
+      email: clean(raw.email, 160),
+      phone: clean(raw.phone, 40),
+      birthday: anyDate(raw.birthday),
+      anniversary: anyDate(raw.anniversary),
+      address1: clean(raw.address1, 160),
+      address2: clean(raw.address2, 160),
+      city: clean(raw.city, 80),
+      state: clean(raw.state, 80),
+      postcode: clean(raw.postcode, 24),
+      country: clean(raw.country, 80),
+      legalFirst,
+      legalMiddle: clean(raw.legalMiddle, 80),
+      legalLast,
+      citizenship: clean(raw.citizenship, 80),
+      passportNumber: clean(raw.passportNumber, 40),
+      passportCountry: clean(raw.passportCountry, 80),
+      passportExpiry: anyDate(raw.passportExpiry),
+      knownTraveler: clean(raw.knownTraveler, 40),
+      notes: clean(raw.notes, 4000),
+      problems: [],
+    };
+
+    if (!row.name) row.problems.push('no name');
+    // Said rather than silently dropped, because a column mapped to the wrong
+    // field is the usual cause and it is invisible otherwise.
+    if (raw.email && !row.email.includes('@')) {
+      row.problems.push(`"${String(raw.email).slice(0, 40)}" is not an email address`);
+    }
+    if (raw.birthday && !row.birthday) {
+      row.problems.push(`could not read the birthday "${String(raw.birthday).slice(0, 20)}"`);
+    }
+    if (raw.passportExpiry && !row.passportExpiry) {
+      row.problems.push(`could not read the passport expiry "${String(raw.passportExpiry).slice(0, 20)}"`);
+    }
+    rows.push(row);
+  }
+
+  return { columns, rows, skippedHeader: start === 1 };
+}
+
+/** The names already on this advisor's list, for the duplicate count. */
+async function knownClientNames(env, userId, names) {
+  const wanted = names.filter(Boolean);
+  if (!wanted.length) return new Set();
+  const marks = wanted.map(() => '?').join(',');
+  const { results } = await env.DB.prepare(
+    `SELECT name FROM clients WHERE user_id = ? AND name IN (${marks})`
+  ).bind(userId, ...wanted).all().catch(() => ({ results: [] }));
+  return new Set((results || []).map((r) => r.name));
+}
+
+export async function handlePreviewClientImport(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const body = await readJson(request);
+  const parsed = parseClientPaste(body.text, body.mapping);
+  const known = await knownClientNames(env, user.id, parsed.rows.map((r) => r.name));
+
+  // A duplicate is not a refusal here, the way it is for a reservation.
+  // Importing somebody already on the list fills in what was blank and leaves
+  // what was there, so the count says "updated" rather than "skipped".
+  const rows = parsed.rows.map((r) => ({ ...r, duplicate: Boolean(r.name && known.has(r.name)) }));
+
+  return json({
+    columns: parsed.columns,
+    fields: CLIENT_FIELDS,
+    skippedHeader: parsed.skippedHeader,
+    rows,
+    summary: {
+      total: rows.length,
+      ready: rows.filter((r) => !r.problems.length && !r.duplicate).length,
+      duplicates: rows.filter((r) => r.duplicate && !r.problems.length).length,
+      problems: rows.filter((r) => r.problems.length).length,
+    },
+  });
+}
+
+export async function handleRunClientImport(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const body = await readJson(request);
+  const parsed = parseClientPaste(body.text, body.mapping);
+  if (!parsed.rows.length) return badRequest('There was nothing to import.');
+
+  const known = await knownClientNames(env, user.id, parsed.rows.map((r) => r.name));
+
+  let created = 0;
+  let updated = 0;
+  let skipped = 0;
+  const failures = [];
+
+  for (const row of parsed.rows) {
+    if (row.problems.length) { skipped += 1; continue; }
+    try {
+      const out = await upsertClient(env, user, row);
+      if (out.error) {
+        failures.push({ line: row.line, client: row.name, error: out.error });
+        continue;
+      }
+      if (out.existed || known.has(row.name)) updated += 1; else created += 1;
+      // Within the paste as well as against the database, so the same person
+      // twice in one sheet counts once as new and once as filled in.
+      known.add(row.name);
+    } catch (e) {
+      failures.push({
+        line: row.line,
+        client: row.name,
+        error: String((e && e.message) || e).slice(0, 200),
+      });
+    }
+  }
+
+  await db.logActivity(env, user.id, 'client.import',
+    `Imported ${created} client${created === 1 ? '' : 's'}`, { created, updated, skipped });
+
+  return json({ ok: true, created, updated, skipped, failures });
 }

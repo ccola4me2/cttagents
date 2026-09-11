@@ -122,7 +122,7 @@ const NAV = [
       { href: '/app/reservations', label: 'Reservations' },
       { href: '/app/groups', label: 'Group space' },
       { href: '/app/complete', label: 'Fill in the gaps' },
-      { href: '/app/import', label: 'Import' },
+      { href: '/app/import', label: 'Import reservations' },
       { href: '/app/payments', label: 'Payments Due' },
       { href: '/app/commissions', label: 'Commission owed' },
       { href: '/app/billing', label: 'Invoices' },
@@ -144,6 +144,7 @@ const NAV = [
     // that is the order somebody thinks in. The daily lists follow.
     hub: 'Client', icon: I.people, items: [
       { href: '/app/clients', label: 'Clients' },
+      { href: '/app/import-clients', label: 'Import clients' },
       { href: '/app/households', label: 'Households' },
       { href: '/app/pipeline', label: 'Sales opportunities' },
       // No separate CRM contacts entry. Clients now lists everyone the CRM

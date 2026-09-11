@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Import clients | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Import clients</h1>
+        <p class="sub">A whole client list at once, from a spreadsheet or a CSV file.</p></div>
+      <span style="display:flex;gap:.5rem;">
+        <a class="btn btn-ghost btn-sm" href="/app/import">Import reservations</a>
+        <a class="btn btn-ghost btn-sm" href="/app/clients">All clients</a>
+      </span>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+
+      <section class="card" style="margin-bottom:1.5rem;">
+        <div class="card-head"><h2>Your list</h2></div>
+        <div class="card-pad">
+          <p class="field-hint" style="margin:0 0 .9rem;">
+            Choose a CSV file, or select the rows in Excel or Google Sheets and paste them below.
+            Both work: a spreadsheet copies as tab separated text, which this reads the same way.
+            Nothing is saved until you have checked the preview.
+          </p>
+
+          <div class="field">
+            <label for="file">A CSV file</label>
+            <input id="file" type="file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values">
+            <p class="field-hint" id="file-note">
+              Saved from Excel as <strong>CSV</strong>, or exported from your old CRM.
+              An <code>.xlsx</code> workbook will not open here, so save it as CSV first or paste
+              the rows instead.
+            </p>
+          </div>
+
+          <div class="field">
+            <label for="paste">Or paste the rows</label>
+            <textarea id="paste" rows="9" spellcheck="false"
+              placeholder="Name&#9;Email&#9;Phone&#9;City&#9;State&#10;Manuel Montoro&#9;manuel@example.com&#9;555 0134&#9;Tampa&#9;FL"></textarea>
+            <p class="field-hint">Up to 500 rows at a time. A heading row is recognised and skipped.</p>
+          </div>
+
+          <div class="toolbar" style="padding:0;">
+            <button class="btn btn-primary btn-sm" id="preview">Check it</button>
+            <button class="btn btn-ghost btn-sm" id="clear">Clear</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="mapping-card" hidden style="margin-bottom:1.5rem;">
+        <div class="card-head"><h2>Which column is which</h2></div>
+        <div class="card-pad">
+          <p class="field-hint" style="margin:0 0 .9rem;">
+            Worked out from the headings where there are any. Change anything read wrongly and the
+            preview updates.
+          </p>
+          <div id="mapping" class="field-row" style="flex-wrap:wrap;gap:.8rem;"></div>
+        </div>
+      </section>
+
+      <section class="card" id="preview-card" hidden style="margin-bottom:1.5rem;">
+        <div class="card-head"><h2>What will happen</h2>
+          <span class="muted" id="summary"></span></div>
+        <div class="card-pad" style="padding-top:0;">
+          <p class="field-hint" style="margin:.9rem 0;">
+            Somebody already on your list is filled in rather than duplicated: blank fields take
+            what the sheet has, and anything already recorded is left alone.
+          </p>
+          <div id="rows"></div>
+          <div class="toolbar" style="padding:.9rem 0 0;">
+            <button class="btn btn-primary btn-sm" id="run">Import them</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="result-card" hidden>
+        <div class="card-head"><h2>Done</h2></div>
+        <div class="card-pad" id="result"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api, mountShell, esc, showError } from '/js/app.js';
+await mountShell();
+
+const err = document.getElementById('err');
+const paste = document.getElementById('paste');
+const file = document.getElementById('file');
+let mapping = null;
+
+const LABEL = {
+  name: 'Name', email: 'Email', phone: 'Phone', birthday: 'Birthday',
+  anniversary: 'Anniversary', address1: 'Address', address2: 'Address line 2',
+  city: 'City', state: 'State', postcode: 'Postcode', country: 'Country',
+  legalFirst: 'Legal first name', legalMiddle: 'Middle name', legalLast: 'Legal last name',
+  citizenship: 'Citizenship', passportNumber: 'Passport number',
+  passportCountry: 'Passport country', passportExpiry: 'Passport expires',
+  knownTraveler: 'Known traveler', notes: 'Notes',
+};
+
+// A chosen file becomes the same text a paste would have been, so there is one
+// parser behind both and the preview cannot disagree with the import.
+file.addEventListener('change', async () => {
+  const chosen = file.files && file.files[0];
+  if (!chosen) return;
+  if (/\.xlsx?$/i.test(chosen.name)) {
+    showError(err, new Error(
+      `${chosen.name} is an Excel workbook. Open it and save as CSV, or copy the rows and paste them.`));
+    file.value = '';
+    return;
+  }
+  try {
+    err.innerHTML = '';
+    paste.value = await chosen.text();
+    mapping = null;
+    await preview();
+  } catch (e) { showError(err, e); }
+});
+
+function drawMapping(d) {
+  document.getElementById('mapping-card').hidden = false;
+  document.getElementById('mapping').innerHTML = d.columns.map((col, i) => `
+    <div class="field" style="margin:0;min-width:11rem;">
+      <label for="col-${i}">Column ${i + 1}</label>
+      <select id="col-${i}" data-col="${i}">
+        <option value="">Ignore</option>
+        ${d.fields.map((f) => `<option value="${esc(f)}"${f === col ? ' selected' : ''}>${
+          esc(LABEL[f] || f)}</option>`).join('')}
+      </select>
+    </div>`).join('');
+
+  document.querySelectorAll('[data-col]').forEach((sel) => {
+    sel.addEventListener('change', () => {
+      mapping = [...document.querySelectorAll('[data-col]')].map((s) => s.value);
+      preview();
+    });
+  });
+}
+
+function drawPreview(d) {
+  document.getElementById('preview-card').hidden = false;
+  const s = d.summary;
+  document.getElementById('summary').textContent =
+    `${s.ready} new · ${s.duplicates} to fill in · ${s.problems} with a problem`;
+
+  document.getElementById('rows').innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th></th><th>Name</th><th>Email</th><th>Phone</th><th>Where</th>
+      <th>Birthday</th></tr></thead>
+    <tbody>${d.rows.map((r) => {
+      const tone = r.problems.length ? 'badge-red' : r.duplicate ? 'badge-amber' : 'badge-green';
+      const label = r.problems.length ? r.problems.join(', ')
+        : r.duplicate ? 'already here, will fill in' : 'new';
+      return `<tr>
+        <td><span class="badge ${tone}">${esc(label)}</span></td>
+        <td><span class="name">${esc(r.name || '-')}</span></td>
+        <td>${esc(r.email || '-')}</td>
+        <td>${esc(r.phone || '-')}</td>
+        <td>${esc([r.city, r.state].filter(Boolean).join(', ') || '-')}</td>
+        <td>${esc(r.birthday || '-')}</td>
+      </tr>`;
+    }).join('')}</tbody></table></div>`;
+
+  // Filling somebody in is a real outcome, so a sheet of people you already
+  // have is still worth importing and the button stays live for it.
+  document.getElementById('run').disabled = (s.ready + s.duplicates) === 0;
+}
+
+async function preview() {
+  if (!paste.value.trim()) {
+    err.innerHTML = '<div class="notice notice-info">Choose a file or paste some rows first.</div>';
+    return;
+  }
+  try {
+    err.innerHTML = '';
+    const d = await api('/api/import/clients/preview',
+      { method: 'POST', body: { text: paste.value, mapping } });
+    drawMapping(d);
+    drawPreview(d);
+  } catch (e) { showError(err, e); }
+}
+
+document.getElementById('preview').addEventListener('click', preview);
+
+document.getElementById('clear').addEventListener('click', () => {
+  paste.value = '';
+  file.value = '';
+  mapping = null;
+  err.innerHTML = '';
+  document.getElementById('mapping-card').hidden = true;
+  document.getElementById('preview-card').hidden = true;
+  document.getElementById('result-card').hidden = true;
+});
+
+document.getElementById('run').addEventListener('click', async () => {
+  const btn = document.getElementById('run');
+  btn.disabled = true;
+  btn.textContent = 'Importing...';
+  try {
+    const d = await api('/api/import/clients',
+      { method: 'POST', body: { text: paste.value, mapping } });
+    document.getElementById('result-card').hidden = false;
+    document.getElementById('result').innerHTML = `
+      <p><strong>${d.created}</strong> client${d.created === 1 ? '' : 's'} added${
+        d.updated ? `, <strong>${d.updated}</strong> filled in` : ''}.
+        ${d.skipped ? `${d.skipped} skipped for having a problem.` : ''}</p>
+      ${d.failures.length ? `<ul class="rows">${d.failures.map((f) => `<li>
+        <span class="t">Line ${f.line}: ${esc(f.client || 'unnamed')}</span>
+        <span class="m">${esc(f.error)}</span></li>`).join('')}</ul>` : ''}
+      <a class="btn btn-primary btn-sm" href="/app/clients" style="margin-top:.9rem;">See them</a>`;
+    document.getElementById('preview-card').hidden = true;
+  } catch (e) {
+    showError(err, e);
+    btn.disabled = false;
+    btn.textContent = 'Import them';
+  }
+});
+</script>
+</body></html>
