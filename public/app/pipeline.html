@@ -13,7 +13,7 @@
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main">
     <header class="topbar">
-      <div><h1>Sales opportunities</h1><p class="sub">Open opportunities by stage.</p></div>
+      <div><h1>Sales opportunities</h1><p class="sub">Where every live reservation stands, by stage.</p></div>
       <div class="toolbar" style="margin:0;">
         <select id="pipeline-select" aria-label="Pipeline" hidden></select>
         <select id="view" aria-label="How to show them" style="width:auto;">
@@ -119,21 +119,27 @@ function render(data) {
       <h3>${esc(s.name)}</h3>
       <p class="col-meta">${s.count} &middot; ${money(s.valueTotal * 100)}</p>
       ${s.opportunities.map((o) => `
-        <article class="opp" draggable="true" data-opp="${esc(o.id)}">
-          <p class="t">${esc(o.name)}</p>
+        <article class="opp${data.derived ? ' opp-link' : ''}"${
+          data.derived ? '' : ' draggable="true"'} data-opp="${esc(o.id)}">
+          ${o.href ? `<a class="t" href="${esc(o.href)}">${esc(o.name)}</a>`
+            : `<p class="t">${esc(o.name)}</p>`}
           ${o.contactName ? `<p class="c">${esc(o.contactName)}</p>` : ''}
           ${o.monetaryValue ? `<p class="v">${money(o.monetaryValue * 100)}</p>` : ''}
-          <div class="move">
+          ${o.departDate ? `<p class="c">Departs ${esc(o.departDate)}</p>` : ''}
+          ${data.derived ? '' : `<div class="move">
             <label class="sr-only" for="mv-${esc(o.id)}">Move stage</label>
             <select id="mv-${esc(o.id)}" data-move="${esc(o.id)}">
               ${data.stages.filter((st) => st.id).map((st) =>
                 `<option value="${esc(st.id)}"${st.id === o.stageId ? ' selected' : ''}>${esc(st.name)}</option>`).join('')}
             </select>
-          </div>
+          </div>`}
         </article>`).join('') || '<p class="muted" style="font-size:.8rem;">Nothing here.</p>'}
     </div>`).join('')}</div>`;
 
-  wireBoard();
+  // Dragging moves a CRM card. A reservation's stage is worked out from the
+  // reservation, so there is nothing to drag it to: the way to move one along
+  // is to send the quote or post the payment, and the card follows.
+  if (!data.derived) wireBoard();
 }
 
 /**
@@ -153,8 +159,10 @@ function drawList(data) {
     .sort((a, b) => (b.monetaryValue || 0) - (a.monetaryValue || 0));
 
   if (!rows.length) {
-    panel.innerHTML = '<div class="card"><div class="empty"><h3>Nothing in this pipeline</h3>'
-      + '<p>Opportunities you add show up here and on the board.</p></div></div>';
+    panel.innerHTML = `<div class="card"><div class="empty"><h3>Nothing in this pipeline</h3>
+      <p>${data.derived
+        ? 'Reservations appear here as soon as you take one, at whatever stage they have reached.'
+        : 'Opportunities you add show up here and on the board.'}</p></div></div>`;
     return;
   }
 
@@ -163,19 +171,21 @@ function drawList(data) {
       <th class="num">Value</th></tr></thead>
     <tbody>${rows.map((o) => `
       <tr>
-        <td><span class="name">${esc(o.name)}</span></td>
+        <td>${o.href ? `<a class="name" href="${esc(o.href)}">${esc(o.name)}</a>`
+          : `<span class="name">${esc(o.name)}</span>`}</td>
         <td>${o.contactName ? esc(o.contactName) : '<span class="muted">-</span>'}</td>
-        <td><label class="sr-only" for="lv-${esc(o.id)}">Move stage</label>
+        <td>${data.derived ? esc(o.stageName)
+          : `<label class="sr-only" for="lv-${esc(o.id)}">Move stage</label>
           <select id="lv-${esc(o.id)}" data-move="${esc(o.id)}" style="width:auto;">
             ${data.stages.filter((st) => st.id).map((st) =>
               `<option value="${esc(st.id)}"${st.id === o.stageId ? ' selected' : ''}>${
                 esc(st.name)}</option>`).join('')}
-          </select></td>
+          </select>`}</td>
         <td class="num">${o.monetaryValue ? money(o.monetaryValue * 100) : '-'}</td>
       </tr>`).join('')}</tbody></table></div></div>`;
 
   // The same select the cards carry, so moving a deal works the same either way.
-  wireMoves();
+  if (!data.derived) wireMoves();
 }
 
 /** Drag to move, with a per-card select so touch and keyboard also work. */

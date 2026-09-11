@@ -1115,6 +1115,81 @@ export async function openTasksBetween(env, scope, { from, to }) {
   return results || [];
 }
 
+/**
+ * Where every live reservation stands, as pipeline stages.
+ *
+ * The Sales opportunities board reads the CRM, and a reservation taken in
+ * this portal is not in the CRM, so the board sat empty while the book of
+ * business filled up. The stages it showed, inquiry, quote sent, deposit
+ * paid, final payment due, were already facts on the reservation: the status,
+ * whether a quote was sent, whether the deposit is posted, whether the
+ * balance is due or paid.
+ *
+ * So this derives rather than syncs. A copy pushed into the CRM at creation
+ * would be right on the day it was made and drift from then on, and would
+ * need somebody to remember to drag a card every time money arrived. A
+ * derived stage cannot disagree with the reservation it came from, because it
+ * is read from it.
+ */
+export const RESERVATION_STAGES = [
+  { id: 'inquiry', name: 'Inquiry' },
+  { id: 'quote_sent', name: 'Quote sent' },
+  { id: 'deposit_due', name: 'Booked, deposit due' },
+  { id: 'deposit_paid', name: 'Deposit paid' },
+  { id: 'final_due', name: 'Final payment due' },
+  { id: 'final_paid', name: 'Paid in full' },
+  { id: 'travelling', name: 'Away now' },
+  { id: 'travelled', name: 'Home' },
+];
+
+export async function reservationPipeline(env, scope, today) {
+  const b = scopeWhere(scope, 'b.user_id');
+  const { results } = await env.DB.prepare(
+    `SELECT b.id, b.client_name, b.supplier, b.product_name, b.status, b.gross_cents,
+            b.depart_date, b.return_date, b.final_payment_due, b.quote_sent_at,
+            b.ghl_contact_id,
+            COALESCE((SELECT SUM(p.amount_cents) FROM booking_payments p
+                       WHERE p.booking_id = b.id AND p.kind = 'deposit'
+                         AND p.paid_date IS NOT NULL), 0) AS deposit_paid_cents,
+            COALESCE((SELECT SUM(p.amount_cents) FROM booking_payments p
+                       WHERE p.booking_id = b.id AND p.paid_date IS NOT NULL), 0) AS paid_cents
+       FROM bookings b
+      WHERE ${b.sql} AND b.status IN ('quoted', 'booked', 'travelled')
+      ORDER BY COALESCE(b.depart_date, '9999-12-31') ASC
+      LIMIT 500`
+  ).bind(...b.binds).all();
+
+  return (results || []).map((r) => ({
+    id: r.id,
+    // The same shape the CRM cards use, so the board renders both without
+    // knowing which it is looking at.
+    name: [r.client_name, r.product_name || r.supplier].filter(Boolean).join(' · '),
+    status: 'open',
+    stageId: stageOf(r, today),
+    pipelineId: 'reservations',
+    monetaryValue: Math.round((r.gross_cents || 0) / 100),
+    contactId: r.ghl_contact_id || null,
+    contactName: r.client_name || '',
+    href: `/app/reservation?id=${r.id}`,
+    departDate: r.depart_date || null,
+  }));
+}
+
+function stageOf(r, today) {
+  if (r.status === 'travelled') return 'travelled';
+  if (r.status === 'quoted') return r.quote_sent_at ? 'quote_sent' : 'inquiry';
+
+  // Booked. Away now beats every money stage: where the client physically is
+  // outranks what the ledger says about them.
+  if (r.depart_date && r.depart_date <= today
+      && (!r.return_date || r.return_date >= today)) return 'travelling';
+
+  if (!r.deposit_paid_cents) return 'deposit_due';
+  if (r.gross_cents && r.paid_cents >= r.gross_cents) return 'final_paid';
+  if (r.final_payment_due && r.final_payment_due <= today) return 'final_due';
+  return 'deposit_paid';
+}
+
 export async function calendarMonth(env, scope, { from, to }) {
   const b = scopeWhere(scope, 'b.user_id');
   const p = scopeWhere(scope, 'p.user_id');

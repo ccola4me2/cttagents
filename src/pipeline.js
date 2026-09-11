@@ -29,12 +29,70 @@ export async function handleListOpportunities(request, env) {
 
   const url = new URL(request.url);
   const locationId = ghl.locationFor(env, user);
+  const wanted = url.searchParams.get('pipelineId');
+
+  // This portal's own reservations, as a pipeline.
+  //
+  // Listed first and used by default, because a reservation taken here is the
+  // thing an advisor most wants to see the state of, and the CRM board could
+  // not show it: opportunities live there and reservations live here. Derived
+  // on read rather than copied across at creation, so a card cannot disagree
+  // with the reservation under it.
+  const RESERVATIONS = { id: 'reservations', name: 'Reservations' };
+
+  let crm = [];
+  let crmError = false;
+  try {
+    crm = await db.localPipelines(env, locationId);
+  } catch {
+    // A CRM that cannot be reached costs its own pipelines, not this screen.
+    crmError = true;
+  }
+
+  const choices = [RESERVATIONS, ...crm.map(({ id, name }) => ({ id, name }))];
+
+  if (!wanted || wanted === RESERVATIONS.id) {
+    const scope = db.scopeFor(env, user, request);
+    const today = new Date().toISOString().slice(0, 10);
+    const query = clean(url.searchParams.get('q'), 80);
+    let cards = await db.reservationPipeline(env, scope, today);
+    if (query) {
+      const needle = query.toLowerCase();
+      cards = cards.filter((c) => c.name.toLowerCase().includes(needle));
+    }
+
+    const stages = db.RESERVATION_STAGES.map((st, i) => {
+      const items = cards.filter((c) => c.stageId === st.id);
+      return {
+        ...st,
+        position: i,
+        count: items.length,
+        valueTotal: items.reduce((sum, c) => sum + c.monetaryValue, 0),
+        opportunities: items,
+      };
+    });
+
+    return json({
+      pipelines: choices,
+      pipeline: RESERVATIONS,
+      stages,
+      total: cards.length,
+      // The stage is worked out from the reservation, so dragging a card would
+      // be a change the next load undoes. The board says so rather than
+      // offering a control that silently does nothing.
+      derived: true,
+      crmError,
+      scope: db.scopeLabel(db.scopeFor(env, user, request), user),
+      advisors: await db.advisorOptions(env, user),
+    });
+  }
 
   try {
-    const pipelines = await db.localPipelines(env, locationId);
-    if (!pipelines.length) return json({ pipelines: [], pipeline: null, stages: [], opportunities: [] });
+    const pipelines = crm;
+    if (!pipelines.length) {
+      return json({ pipelines: choices, pipeline: null, stages: [], opportunities: [] });
+    }
 
-    const wanted = url.searchParams.get('pipelineId');
     const pipeline = pipelines.find((p) => p.id === wanted) || pipelines[0];
 
     const opportunities = await db.localOpportunities(env, locationId, {
@@ -73,10 +131,11 @@ export async function handleListOpportunities(request, env) {
     }
 
     return json({
-      pipelines: pipelines.map(({ id, name }) => ({ id, name })),
+      pipelines: choices,
       pipeline: { id: pipeline.id, name: pipeline.name },
       stages,
       total,
+      derived: false,
     });
   } catch (e) {
     return ghl.ghlErrorResponse(e);

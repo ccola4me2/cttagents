@@ -1081,3 +1081,14 @@ input.derived {
   outline: 2px solid var(--teal-400);
   outline-offset: -2px;
 }
+
+/*
+  A card on the reservations board opens its reservation.
+
+  The CRM cards are dragged between stages; these are not, because the stage
+  is read off the reservation rather than set on the card. So the whole card
+  is a way in rather than a thing to move.
+*/
+.opp-link .t { display: block; text-decoration: none; color: inherit; font-weight: 650; }
+.opp-link:hover { border-color: var(--teal-400); }
+.opp-link .t:hover { color: var(--teal-600); }
