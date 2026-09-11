@@ -200,10 +200,66 @@ export async function handleMonth(request, env) {
   const to = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
 
   const scope = db.scopeFor(env, user, request);
+  const events = await db.calendarMonth(env, scope, { from, to });
+
+  // Appointments live in the CRM rather than in this database, so they are
+  // fetched rather than joined, and fetched last. Everything above is the
+  // portal's own and is worth showing on its own: a CRM that is slow or down
+  // costs this panel its appointments, not its month.
+  const appointments = await monthAppointments(env, user, from, to).catch(() => []);
+  if (appointments.length) {
+    events.push(...appointments);
+    events.sort((x, y) => {
+      if (x.date !== y.date) return x.date < y.date ? -1 : 1;
+      if (x.at && y.at) return x.at < y.at ? -1 : x.at > y.at ? 1 : 0;
+      if (x.at) return -1;
+      if (y.at) return 1;
+      return 0;
+    });
+  }
+
   return json({
     month, from, to, today: isoDay(0),
-    events: await db.calendarMonth(env, scope, { from, to }),
+    events,
     scope: db.scopeLabel(scope, user),
+  });
+}
+
+/**
+ * The month's appointments, as calendar events.
+ *
+ * Returns nothing rather than throwing when the CRM is unset or unwell. The
+ * caller has already built a usable month out of departures, deadlines and
+ * tasks, and losing the appointments off the end of it is a smaller failure
+ * than losing the panel.
+ */
+async function monthAppointments(env, user, from, to) {
+  if (!ghl.ghlConfigured(env)) return [];
+  const locationId = ghl.locationFor(env, user);
+  const calendars = await ghl.listCalendars(env, locationId);
+  const active = (calendars || []).filter((c) => c.isActive);
+  if (!active.length) return [];
+
+  const startTime = Date.parse(`${from}T00:00:00Z`);
+  const endTime = Date.parse(`${to}T23:59:59Z`);
+
+  const perCalendar = await Promise.all(active.map((c) =>
+    ghl.listAppointments(env, locationId, { calendarId: c.id, startTime, endTime })
+      .then((list) => (list || []).map((e) => ({ ...e, calendarName: c.name })))
+      .catch(() => [])));
+
+  return perCalendar.flat().flatMap((e) => {
+    const ms = Date.parse(e.startTime || '');
+    if (!Number.isFinite(ms)) return [];
+    const when = new Date(ms);
+    return [{
+      date: when.toISOString().slice(0, 10),
+      at: when.toISOString().slice(11, 16),
+      kind: 'appointment',
+      title: e.title || e.contactName || 'Appointment',
+      detail: e.calendarName || 'appointment',
+      href: '/app/calendar',
+    }];
   });
 }
 

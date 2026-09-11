@@ -865,6 +865,23 @@ table.grid input:focus { border-color: var(--navy-400); background: #fff; }
 .dot.soft { background: var(--amber-600); }
 .dot.task { background: var(--green-600); }
 .dot.option { background: var(--red-600); }
+/* Appointments come from the CRM rather than a reservation, so they read as
+   their own kind rather than borrowing a departure's colour. */
+.dot.appointment { background: var(--purple-600, #6b4fa8); }
+
+/* The day a calendar detail panel is showing, named rather than implied. */
+.cal-day-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .6rem;
+  padding: .1rem 0 .5rem;
+  border-bottom: 1px solid var(--navy-100);
+  margin-bottom: .5rem;
+}
+.cal-day-head strong { font-size: .92rem; }
+.cal-day-head .muted { font-size: .76rem; }
+.cal-at { font-variant-numeric: tabular-nums; color: var(--teal-600); }
 .cal-day.today .dot { outline: 1px solid rgba(255,255,255,.6); }
 .cal-detail { border-top: 1px solid var(--navy-100); margin-top: .7rem; }
 .cal-none { font-size: .8rem; color: var(--ink-400); padding: .8rem .2rem; margin: 0; }
@@ -1049,3 +1066,18 @@ input.derived {
 */
 .crm-row td { background: var(--teal-50); }
 .crm-row .name { font-weight: 600; }
+
+/*
+  A dashboard row that opens what it is about.
+
+  Every figure on that screen concerns one reservation, and reading it used to
+  mean going and finding that reservation through a menu. The whole row is the
+  target, because a table where only the name is clickable is a table where
+  most of each row does nothing.
+*/
+.row-link { cursor: pointer; }
+.row-link:hover { background: var(--navy-50, #f4f7fa); }
+.row-link:focus-visible {
+  outline: 2px solid var(--teal-400);
+  outline-offset: -2px;
+}

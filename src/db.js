@@ -1096,6 +1096,25 @@ export async function rebookCandidates(env, scope, { today, before, limit = 25 }
  *
  * Read only and cheap: each is an indexed range scan over one month.
  */
+/**
+ * Open tasks falling in a window, for the calendar's run of days.
+ *
+ * calendarMonth answers the same question for a whole month across five kinds
+ * of thing at once. This is the narrow version, because the calendar screen
+ * already has its departures and its money from elsewhere and only needs the
+ * tasks.
+ */
+export async function openTasksBetween(env, scope, { from, to }) {
+  const t = scopeWhere(scope, 't.user_id');
+  const { results } = await env.DB.prepare(
+    `SELECT t.id, t.title, t.notes, t.due_date, t.due_time, t.priority, t.kind
+       FROM tasks t
+      WHERE ${t.sql} AND t.done_at IS NULL AND t.due_date BETWEEN ? AND ?
+      ORDER BY t.due_date ASC, COALESCE(t.due_time, '99:99') ASC`
+  ).bind(...t.binds, from, to).all();
+  return results || [];
+}
+
 export async function calendarMonth(env, scope, { from, to }) {
   const b = scopeWhere(scope, 'b.user_id');
   const p = scopeWhere(scope, 'p.user_id');
@@ -1123,7 +1142,7 @@ export async function calendarMonth(env, scope, { from, to }) {
     ).bind(...p.binds, from, to).all().catch(() => ({ results: [] })),
 
     env.DB.prepare(
-      `SELECT t.id, t.due_date AS on_date, t.title, t.priority
+      `SELECT t.id, t.due_date AS on_date, t.due_time, t.title, t.priority
          FROM tasks t WHERE ${t.sql} AND t.done_at IS NULL AND t.due_date BETWEEN ? AND ?`
     ).bind(...t.binds, from, to).all().catch(() => ({ results: [] })),
 
@@ -1152,7 +1171,7 @@ export async function calendarMonth(env, scope, { from, to }) {
                href: '/app/payments' });
   }
   for (const r of tasks.results || []) {
-    out.push({ date: r.on_date, kind: 'task', title: r.title,
+    out.push({ date: r.on_date, at: r.due_time || null, kind: 'task', title: r.title,
                detail: r.priority === 'high' ? 'high priority' : 'task', href: '/app/tasks' });
   }
   for (const r of options.results || []) {
@@ -1161,7 +1180,16 @@ export async function calendarMonth(env, scope, { from, to }) {
                detail: `${left} unsold cabin${left === 1 ? '' : 's'} released`, href: '/app/groups' });
   }
 
-  out.sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
+  // Within a day, the things with a clock on them come first and in order.
+  // A departure or a vendor deadline has no time of day, so it sits after the
+  // appointments and tasks rather than being given a fictional 00:00.
+  out.sort((x, y) => {
+    if (x.date !== y.date) return x.date < y.date ? -1 : 1;
+    if (x.at && y.at) return x.at < y.at ? -1 : x.at > y.at ? 1 : 0;
+    if (x.at) return -1;
+    if (y.at) return 1;
+    return 0;
+  });
   return out;
 }
 

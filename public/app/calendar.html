@@ -13,13 +13,14 @@
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main">
     <header class="topbar">
-      <div><h1>Calendar</h1><p class="sub">Departures, money due and appointments, on one run of days.</p></div>
+      <div><h1>Calendar</h1><p class="sub">Departures, money due, tasks and appointments, on one run of days.</p></div>
       <div class="toolbar" style="margin:0;">
         <select id="range" aria-label="Range">
           <option value="7">Next 7 days</option>
           <option value="30" selected>Next 30 days</option>
           <option value="90">Next 90 days</option>
         </select>
+        <button class="btn btn-sm" id="add-task">Add a task</button>
         <button class="btn btn-primary btn-sm" id="book">Book appointment</button>
       </div>
     </header>
@@ -59,6 +60,55 @@
     <div class="dialog-foot">
       <button class="btn btn-ghost" type="button" data-close>Cancel</button>
       <button class="btn btn-primary" type="submit">Book it</button>
+    </div>
+  </form>
+</dialog>
+
+<!--
+  A task, put on the calendar from the calendar.
+  
+  An appointment needs a CRM calendar and a contact, which makes it the wrong
+  tool for "ring the vendor on Thursday". A task needs a title and a day, and
+  it lands on the same run of days as everything else.
+-->
+<dialog id="task-dialog">
+  <form id="task-form" method="dialog">
+    <div class="card-head"><h2>Add a task</h2>
+      <button class="icon-btn" type="button" data-close-task aria-label="Close">&times;</button></div>
+    <div class="dialog-body">
+      <div class="notice notice-error" hidden></div>
+      <div class="field"><label for="t-title">What needs doing</label>
+        <input id="t-title" name="title" required placeholder="Ring Royal about the group rate"></div>
+      <div class="field-row">
+        <div class="field"><label for="t-date">Day</label>
+          <input id="t-date" name="dueDate" type="date" required></div>
+        <div class="field"><label for="t-time">Time</label>
+          <input id="t-time" name="dueTime" type="time">
+          <p class="field-hint">Optional. Leave it blank for any time that day.</p></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="t-kind">Kind</label>
+          <select id="t-kind" name="kind">
+            <option value="call">Call</option>
+            <option value="email">Email</option>
+            <option value="meeting">Meeting</option>
+            <option value="document">Document</option>
+            <option value="payment">Payment</option>
+            <option value="other" selected>Other</option>
+          </select></div>
+        <div class="field"><label for="t-priority">Priority</label>
+          <select id="t-priority" name="priority">
+            <option value="normal" selected>Normal</option>
+            <option value="high">High</option>
+            <option value="low">Low</option>
+          </select></div>
+      </div>
+      <div class="field"><label for="t-notes">Notes</label>
+        <textarea id="t-notes" name="notes" rows="3"></textarea></div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn btn-ghost" type="button" data-close-task>Cancel</button>
+      <button class="btn btn-primary" type="submit">Add it</button>
     </div>
   </form>
 </dialog>
@@ -115,6 +165,15 @@ function merge(d) {
   for (const t of d.travel || []) {
     items.push({ day: t.date, at: -1, travel: t });
   }
+  // A task with a time sorts among the appointments. One without sits with the
+  // all-day facts, since "sometime Thursday" is what it actually says.
+  for (const t of d.tasks || []) {
+    const [h, m] = String(t.due_time || '').split(':').map(Number);
+    const at = Number.isFinite(h)
+      ? fromDay(t.due_date).setHours(h, m || 0, 0, 0)
+      : -1;
+    items.push({ day: t.due_date, at, task: t });
+  }
   return items.sort((a, b) => (a.day === b.day ? a.at - b.at : a.day.localeCompare(b.day)));
 }
 
@@ -141,7 +200,7 @@ function render(d) {
 
   if (!items.length) {
     panel.innerHTML = '<div class="empty"><h3>Nothing scheduled</h3>'
-      + '<p>No departures, payments or appointments in this window.</p></div>';
+      + '<p>No departures, payments, tasks or appointments in this window.</p></div>';
     return;
   }
 
@@ -155,7 +214,18 @@ function render(d) {
       html += `<div class="day-head">${esc(dayLabel(item.day))}</div>`;
       lastDay = item.day;
     }
-    if (item.travel) {
+    if (item.task) {
+      const t = item.task;
+      html += `<div class="event">
+        <div class="time"${t.due_time ? '' : ' style="color:var(--green-600);font-weight:600;"'}>${
+          t.due_time ? esc(timeLabel(`${t.due_date}T${t.due_time}`)) : 'To do'}</div>
+        <div class="what">
+          <div class="title"><a class="name" href="/app/tasks">${esc(t.title)}</a>${
+            t.priority === 'high' ? ' <span class="badge badge-amber">high</span>' : ''}</div>
+          <div class="muted">${esc(t.kind && t.kind !== 'other' ? t.kind : 'task')}${
+            t.notes ? ' · ' + esc(t.notes.slice(0, 80)) : ''}</div>
+        </div></div>`;
+    } else if (item.travel) {
       const t = item.travel;
       const tone = TRAVEL_TONE[t.kind] || TRAVEL_TONE.departure;
       html += `<div class="event">
@@ -230,6 +300,27 @@ onSubmit(document.getElementById('appt-form'), async (values) => {
   if (!values.contactId) throw new Error('Pick a contact for this appointment.');
   await api('/api/calendar/appointments', { method: 'POST', body: values });
   dlg.close();
+  await load();
+});
+
+// ------------------------------------------------------------ add a task ---
+const taskDlg = document.getElementById('task-dialog');
+const taskForm = document.getElementById('task-form');
+
+document.getElementById('add-task').addEventListener('click', () => {
+  taskForm.reset();
+  taskForm.querySelector('.notice-error').hidden = true;
+  // Defaulted to today, since that is the answer most of the time and the
+  // rest of the time it is one click away.
+  taskForm.querySelector('[name="dueDate"]').value = localDay(new Date());
+  taskDlg.showModal();
+});
+document.querySelectorAll('[data-close-task]').forEach((b) =>
+  b.addEventListener('click', () => taskDlg.close()));
+
+onSubmit(taskForm, async (values) => {
+  await api('/api/tasks', { method: 'POST', body: values });
+  taskDlg.close();
   await load();
 });
 

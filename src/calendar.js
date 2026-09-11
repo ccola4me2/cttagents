@@ -32,11 +32,19 @@ export async function handleListCalendar(request, env) {
   const travel = await db.travelDates(env, scope, { from: iso(start), to: iso(end) })
     .catch(() => []);
 
+  // The advisor's own tasks, on the same run of days.
+  //
+  // Added here because you can now put a task on the calendar from this
+  // screen, and a thing you add somewhere has to appear where you added it.
+  // Read from this database, so they survive a CRM that is unreachable.
+  const tasks = await db.openTasksBetween(env, scope, { from: iso(start), to: iso(end) })
+    .catch(() => []);
+
   try {
     const calendars = await ghl.listCalendars(env, locationId);
     const active = calendars.filter((c) => c.isActive);
 
-    if (!active.length) return json({ calendars, events: [], travel, days });
+    if (!active.length) return json({ calendars, events: [], travel, tasks, days });
 
     // One request per calendar, and a calendar that errors is dropped rather
     // than failing the whole view.
@@ -56,11 +64,13 @@ export async function handleListCalendar(request, env) {
       (a, b) => Date.parse(a.startTime || 0) - Date.parse(b.startTime || 0)
     );
 
-    return json({ calendars, events, travel, days });
+    return json({ calendars, events, travel, tasks, days });
   } catch (e) {
     // A CRM that is down should not hide the departures. The travel comes off
     // this portal's own database and is still worth showing on its own.
-    if (travel.length) return json({ calendars: [], events: [], travel, days, crmError: true });
+    if (travel.length || tasks.length) {
+      return json({ calendars: [], events: [], travel, tasks, days, crmError: true });
+    }
     return ghl.ghlErrorResponse(e);
   }
 }
