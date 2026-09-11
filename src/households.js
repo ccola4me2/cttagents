@@ -176,6 +176,32 @@ export async function handleUpdateHousehold(request, env, id) {
   return json({ ok: true });
 }
 
+/**
+ * One household and everybody in it.
+ *
+ * The list gives a count, which is enough to pick one out and not enough to do
+ * anything with it. This is what the household screen reads.
+ */
+export async function handleHouseholdRecord(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const scope = db.scopeFor(env, user, request);
+  const scoped = db.scopeWhere(scope, 'h.user_id');
+  const house = await env.DB.prepare(
+    `SELECT ${COLUMNS} FROM households h WHERE h.id = ? AND ${scoped.sql}`
+  ).bind(id, ...scoped.binds).first();
+  if (!house) return notFound('Household not found.');
+
+  const members = await membersOf(env, house.id, scope);
+  return json({
+    household: house,
+    members,
+    lifetimeCents: members.reduce((n, m) => n + (m.lifetime_cents || 0), 0),
+    editable: house.user_id === user.id,
+  });
+}
+
 /** Move somebody in. */
 export async function handleAddMember(request, env, id) {
   const { user, response } = await requireUser(request, env);

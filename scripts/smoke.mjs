@@ -439,6 +439,37 @@ async function main() {
     check(loy.length === 2 && loy[0].number === '123456789',
       'past-guest numbers are a list, not one column', JSON.stringify(loy));
 
+    // A household, and the reason it exists: booking one member offers the
+    // others with their documents already on them.
+    const mate = await call(advisor, 'POST', '/api/clients',
+      { name: `Walk In Two ${stamp}`, email: `walkin2-${stamp}@test.dev` });
+    const mateId = mate.data?.client?.id;
+    const house = await call(advisor, 'POST', '/api/households',
+      { clientIds: [cid, mateId], name: `The Walk Ins ${stamp}`, address: '14 Bayshore Blvd' });
+    check(house.status === 201 && house.data?.id, 'two clients make a household',
+      `status ${house.status}`);
+    const hid = house.data?.id;
+
+    const one = await call(advisor, 'GET', `/api/households/${hid}`);
+    check(one.status === 200 && (one.data?.members || []).length === 2,
+      'and the household reads back with both of them',
+      (one.data?.members || []).length);
+
+    const offer = await call(advisor, 'GET', `/api/households/travellers?client=${cid}`);
+    const other = (offer.data?.travellers || [])[0];
+    check(Boolean(other) && other.clientId === mateId,
+      'booking one offers the other as a traveller', other && other.clientId);
+    // The one from earlier has a passport; this is the whole point of holding
+    // it on the person.
+    const backAtYou = await call(advisor, 'GET', `/api/households/travellers?client=${mateId}`);
+    const first = (backAtYou.data?.travellers || [])[0];
+    check(first?.passportNumber === 'X1234567',
+      'with their passport already on them, not typed again', first?.passportNumber);
+    check(first?.legalName === 'Robert James Whitfield',
+      'and the name the document spells', first?.legalName);
+
+    await call(advisor, 'DELETE', `/api/households/${hid}`);
+
     const noName = await call(advisor, 'POST', '/api/clients', { email: 'x@y.dev' });
     check(noName.status === 400, 'a client without a name is refused',
       `status ${noName.status}`);

@@ -106,6 +106,7 @@ import {
 import {
   handleListHouseholds, handleCreateHousehold, handleUpdateHousehold,
   handleAddMember, handleRemoveMember, handleDeleteHousehold, handleHouseholdTravellers,
+  handleHouseholdRecord,
 } from './households.js';
 import { handleGetGoals, handleSaveGoals } from './goals.js';
 import { handleListCommissions, handleSetCommissionStatus } from './commissions.js';
@@ -199,6 +200,7 @@ const PAGE_FILES = {
   '/app/groups': '/app/groups.html',
   '/app/credits': '/app/credits.html',
   '/app/hotlists': '/app/hotlists.html',
+  '/app/households': '/app/households.html',
   '/app/membership': '/app/membership.html',
   '/admin/agencies': '/admin/agencies.html',
   '/app/specials': '/app/specials.html',
@@ -629,6 +631,7 @@ async function routeApi(request, env, path, method) {
   if (houseDropMatch && method === 'DELETE') {
     return handleRemoveMember(request, env, houseDropMatch[1], houseDropMatch[2]);
   }
+  if (houseMatch && method === 'GET') return handleHouseholdRecord(request, env, houseMatch[1]);
   if (houseMatch && method === 'PUT') return handleUpdateHousehold(request, env, houseMatch[1]);
   if (houseMatch && method === 'DELETE') return handleDeleteHousehold(request, env, houseMatch[1]);
 

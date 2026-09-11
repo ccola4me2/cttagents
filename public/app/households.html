@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Households | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Households</h1>
+        <p class="sub">People who live together, so a family books as a family.</p></div>
+      <span id="scope"></span>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <section class="card" id="panel"><p class="spinner">Loading households...</p></section>
+    </div>
+  </div>
+</div>
+
+<dialog id="house-dlg">
+  <form id="house-form" method="dialog">
+    <div class="card-head"><h2 id="house-title">Household</h2>
+      <button class="btn btn-ghost btn-sm" type="button" data-close-house>Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" hidden></div>
+      <div class="field"><label for="h-name">Name</label>
+        <input id="h-name" name="name" maxlength="120" placeholder="The Whitfields"></div>
+      <div class="field"><label for="h-address">Address</label>
+        <textarea id="h-address" name="address" rows="3" maxlength="300"></textarea>
+        <p class="field-hint">Where documents go. A household has one; the people in it
+          do not each need their own.</p></div>
+      <div class="field-row">
+        <div class="field"><label for="h-phone">Phone</label>
+          <input id="h-phone" name="phone" maxlength="40"></div>
+      </div>
+      <div class="field"><label for="h-notes">Notes</label>
+        <textarea id="h-notes" name="notes" rows="2" maxlength="2000"></textarea></div>
+    </div>
+    <div class="card-foot">
+      <button class="btn btn-primary" type="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="add-dlg">
+  <form id="add-form" method="dialog">
+    <div class="card-head"><h2>Move somebody in</h2>
+      <button class="btn btn-ghost btn-sm" type="button" data-close-add>Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" hidden></div>
+      <div class="field"><label for="a-q">Find a client</label>
+        <input id="a-q" type="search" placeholder="Start typing a name" autocomplete="off"></div>
+      <div id="a-results"></div>
+      <p class="muted" style="margin:.6rem 0 0;font-size:.82rem;">Somebody already in another
+        household moves into this one. A person lives in one place.</p>
+    </div>
+  </form>
+</dialog>
+
+<script type="module">
+import { api, mountShell, esc, money, showError, mountScopePicker, advisorParam } from '/js/app.js';
+await mountShell();
+
+const panel = document.getElementById('panel');
+const err = document.getElementById('err');
+const houseDlg = document.getElementById('house-dlg');
+const houseForm = document.getElementById('house-form');
+const addDlg = document.getElementById('add-dlg');
+let editingId = null;   // null while creating
+let addingTo = null;
+let open = new Set();   // which households are expanded
+
+function render(d) {
+  const list = d.households || [];
+  if (!list.length) {
+    panel.innerHTML = `<div class="card-pad"><div class="empty">
+      <h3>No households yet</h3>
+      <p>A household is the people who live at one address. Booking one of them
+        offers the others as travellers, with their passports already filled in.</p>
+      <p class="muted">Make one from the Clients list by ticking two names, or
+        <a href="#" id="empty-new">start one here</a>.</p>
+    </div></div>`;
+    const en = document.getElementById('empty-new');
+    if (en) en.addEventListener('click', (e) => { e.preventDefault(); openCreate(); });
+    return;
+  }
+
+  panel.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Household</th><th>Address</th><th class="num">People</th>
+      <th class="num">Booked with you</th><th></th></tr></thead>
+    <tbody>${list.map((h) => `
+      <tr>
+        <td><a href="#" class="name" data-open="${esc(h.id)}">${esc(h.name)}</a>
+          ${h.phone ? `<div class="muted">${esc(h.phone)}</div>` : ''}</td>
+        <td class="muted">${esc((h.address || '').replace(/\n/g, ', ')) || '-'}</td>
+        <td class="num">${h.members}</td>
+        <td class="num">${money(h.lifetime_cents || 0)}</td>
+        <td class="num"><button class="btn btn-ghost btn-sm" data-edit="${esc(h.id)}">Edit</button></td>
+      </tr>
+      <tr id="m-${esc(h.id)}" ${open.has(h.id) ? '' : 'hidden'}>
+        <td colspan="5" style="background:var(--navy-50);"><div id="mb-${esc(h.id)}"
+          class="spinner">Loading...</div></td>
+      </tr>`).join('')}</tbody></table></div>`;
+
+  panel.querySelectorAll('[data-open]').forEach((a) => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    const id = a.dataset.open;
+    if (open.has(id)) { open.delete(id); document.getElementById(`m-${id}`).hidden = true; return; }
+    open.add(id);
+    document.getElementById(`m-${id}`).hidden = false;
+    drawMembers(id);
+  }));
+  panel.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => {
+    const h = list.find((x) => x.id === b.dataset.edit);
+    openEdit(h);
+  }));
+  for (const id of open) drawMembers(id);
+}
+
+async function drawMembers(id) {
+  const box = document.getElementById(`mb-${id}`);
+  if (!box) return;
+  try {
+    const a = advisorParam();
+    const d = await api(`/api/households/${encodeURIComponent(id)}${a ? `?${a}` : ''}`);
+    const rows = (d.members || []).map((m) => {
+      // The reason the household exists: these are the details a reservation
+      // asks for, and this says at a glance who is ready to be booked.
+      const ready = m.passport_number && m.passport_expiry;
+      return `<li style="display:flex;justify-content:space-between;gap:1rem;padding:.35rem 0;">
+        <span><a href="/app/client?id=${encodeURIComponent(m.id)}">${esc(m.name)}</a>
+          <span class="muted">${m.trips ? `${m.trips} trip${m.trips === 1 ? '' : 's'}` : 'no trips yet'}</span>
+          ${ready ? '<span class="badge badge-green">passport on file</span>'
+            : '<span class="badge badge-amber">no passport</span>'}</span>
+        ${d.editable ? `<button class="btn btn-ghost btn-sm"
+          data-drop="${esc(m.id)}" data-house="${esc(id)}">Move out</button>` : ''}
+      </li>`;
+    }).join('');
+    box.innerHTML = `<ul style="list-style:none;margin:0;padding:.4rem 0;">${rows}</ul>
+      ${d.editable ? `<button class="btn btn-ghost btn-sm" data-add="${esc(id)}">Move somebody in</button>
+        <button class="btn btn-danger btn-sm" data-dissolve="${esc(id)}">Dissolve</button>` : ''}`;
+
+    box.querySelectorAll('[data-drop]').forEach((b) => b.addEventListener('click', async () => {
+      b.disabled = true;
+      try {
+        await api(`/api/households/${encodeURIComponent(b.dataset.house)}/members/${
+          encodeURIComponent(b.dataset.drop)}`, { method: 'DELETE' });
+        await load();
+      } catch (e) { alert(e.message); b.disabled = false; }
+    }));
+    const addBtn = box.querySelector('[data-add]');
+    if (addBtn) addBtn.addEventListener('click', () => openAdd(id));
+    const dis = box.querySelector('[data-dissolve]');
+    if (dis) dis.addEventListener('click', async () => {
+      if (!confirm('Dissolve this household? Everyone keeps their own trips and credits.')) return;
+      try {
+        await api(`/api/households/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        open.delete(id);
+        await load();
+      } catch (e) { alert(e.message); }
+    });
+  } catch (e) { showError(box, e); }
+}
+
+// ------------------------------------------------------------- edit / create
+function openEdit(h) {
+  editingId = h.id;
+  document.getElementById('house-title').textContent = h.name || 'Household';
+  houseForm.elements.name.value = h.name || '';
+  houseForm.elements.address.value = h.address || '';
+  houseForm.elements.phone.value = h.phone || '';
+  houseForm.elements.notes.value = h.notes || '';
+  houseForm.querySelector('.notice-error').hidden = true;
+  houseDlg.showModal();
+}
+
+// A household of nobody is not a thing anybody wants, which is why the API
+// takes the people up front. Creating one starts from the clients list.
+function openCreate() {
+  alert('Pick two clients on the Clients page and choose "Make a household". '
+    + 'A household is the people in it, so it starts with them.');
+}
+
+document.querySelector('[data-close-house]').addEventListener('click', () => houseDlg.close());
+houseForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const box = houseForm.querySelector('.notice-error');
+  box.hidden = true;
+  try {
+    await api(`/api/households/${encodeURIComponent(editingId)}`, {
+      method: 'PUT',
+      body: {
+        name: houseForm.elements.name.value,
+        address: houseForm.elements.address.value,
+        phone: houseForm.elements.phone.value,
+        notes: houseForm.elements.notes.value,
+      },
+    });
+    houseDlg.close();
+    await load();
+  } catch (e2) {
+    box.textContent = e2.message || 'Could not save that.';
+    box.hidden = false;
+  }
+});
+
+// ------------------------------------------------------------- move somebody in
+const aq = document.getElementById('a-q');
+const aResults = document.getElementById('a-results');
+let aTimer = null;
+
+function openAdd(id) {
+  addingTo = id;
+  aq.value = '';
+  aResults.innerHTML = '';
+  addDlg.querySelector('.notice-error').hidden = true;
+  addDlg.showModal();
+  aq.focus();
+}
+document.querySelector('[data-close-add]').addEventListener('click', () => addDlg.close());
+
+aq.addEventListener('input', () => {
+  clearTimeout(aTimer);
+  aTimer = setTimeout(async () => {
+    const q = aq.value.trim();
+    if (q.length < 2) { aResults.innerHTML = ''; return; }
+    try {
+      const d = await api(`/api/clients?q=${encodeURIComponent(q)}`);
+      const rows = (d.clients || []).slice(0, 12);
+      aResults.innerHTML = rows.length
+        ? `<ul style="list-style:none;margin:.6rem 0 0;padding:0;">${rows.map((c) => `
+            <li style="padding:.3rem 0;"><button class="btn btn-ghost btn-sm"
+              data-pick="${esc(c.id)}">${esc(c.name)}</button>
+              <span class="muted">${esc(c.email || c.phone || '')}</span></li>`).join('')}</ul>`
+        : '<p class="muted" style="margin:.6rem 0 0;">Nobody by that name.</p>';
+      aResults.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', async () => {
+        b.disabled = true;
+        try {
+          await api(`/api/households/${encodeURIComponent(addingTo)}/members`,
+            { method: 'POST', body: { clientId: b.dataset.pick } });
+          addDlg.close();
+          await load();
+        } catch (e) {
+          const box = addDlg.querySelector('.notice-error');
+          box.textContent = e.message || 'Could not move them in.';
+          box.hidden = false;
+          b.disabled = false;
+        }
+      }));
+    } catch (e) { showError(aResults, e); }
+  }, 200);
+});
+
+async function load() {
+  try {
+    const a = advisorParam();
+    const d = await api(`/api/households${a ? `?${a}` : ''}`);
+    mountScopePicker(document.getElementById('scope'), d, load);
+    render(d);
+    err.innerHTML = '';
+  } catch (e) { showError(panel, e); }
+}
+
+await load();
+</script>
+</body></html>
