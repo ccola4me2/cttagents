@@ -194,7 +194,19 @@ function readView() {
       <div class="card-pad"><p class="prose">${esc(v.notes)}</p></div>
     </section>` : ''}
 
-    <section class="card" style="margin-top:1.25rem;">
+    ${d.canEdit ? `<p id="terms-open-wrap" hidden style="margin:1.25rem 0 0;">
+      <button class="btn btn-ghost btn-sm" type="button" id="terms-open">Add cancellation terms</button>
+    </p>` : ''}
+
+    <!--
+      Hidden until this supplier actually has a schedule.
+
+      Most do not. The partner directory carries two hundred suppliers and a
+      cancellation schedule for none of them, so an always-visible card put
+      "No schedule recorded" on two hundred pages, which is a lot of screen
+      spent saying nothing. An owner who wants to record one opens it above.
+    -->
+    <section class="card" id="terms-card" hidden style="margin-top:1.25rem;">
       <div class="card-head"><h2>Cancellation terms</h2></div>
       <div class="card-pad">
         <p class="field-hint" style="margin-top:0;">Their standard schedule, copied onto a
@@ -444,7 +456,29 @@ async function drawTiers() {
   try {
     const r = await api(`/api/penalties?vendor=${encodeURIComponent(id)}`);
     rows = r.tiers || [];
-  } catch (e) { box.innerHTML = `<p class="wempty">${esc(e.message)}</p>`; return; }
+  } catch (e) {
+    // Shown rather than swallowed: a schedule that failed to load looks
+    // exactly like a supplier with no schedule, and they are not the same.
+    const card = document.getElementById('terms-card');
+    if (card) card.hidden = false;
+    box.innerHTML = `<p class="wempty">${esc(e.message)}</p>`;
+    return;
+  }
+
+  // A supplier with a schedule shows it. One without shows nothing at all,
+  // unless you are the owner, who gets a single line offering to add one.
+  const card = document.getElementById('terms-card');
+  const openWrap = document.getElementById('terms-open-wrap');
+  if (card) card.hidden = !rows.length;
+  if (openWrap) openWrap.hidden = Boolean(rows.length);
+
+  const open = document.getElementById('terms-open');
+  if (open) open.addEventListener('click', () => {
+    if (card) card.hidden = false;
+    if (openWrap) openWrap.hidden = true;
+    const first = document.getElementById('t-days');
+    if (first) first.focus();
+  });
 
   box.innerHTML = rows.length
     ? `<div class="table-wrap"><table>
@@ -455,7 +489,7 @@ async function drawTiers() {
           <td class="num">${d.canEdit
             ? `<button class="btn btn-ghost btn-sm" data-drop="${esc(t.id)}">Remove</button>` : ''}</td>
         </tr>`).join('')}</tbody></table></div>`
-    : '<p class="wempty" style="text-align:left;padding:.4rem 0;">No schedule recorded.</p>';
+    : '';
 
   const tierErr = document.getElementById('tier-error');
   box.querySelectorAll('[data-drop]').forEach((b) => b.addEventListener('click', async () => {
