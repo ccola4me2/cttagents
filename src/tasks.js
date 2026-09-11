@@ -66,7 +66,11 @@ function parse(body) {
       contactId: clean(body.contactId, 64) || null,
       clientId: clean(body.clientId, 64) || null,
       groupId: clean(body.groupId, 64) || null,
-      assignTo: clean(body.assignTo, 64) || null,
+      // One id, a list of them, or the word "all". Cleaned per entry rather
+      // than as a whole, since a list is not a string of at most 64 bytes.
+      assignTo: Array.isArray(body.assignTo)
+        ? body.assignTo.slice(0, 200).map((v) => clean(v, 64)).filter(Boolean)
+        : clean(body.assignTo, 64) || null,
     },
   };
 }
@@ -173,6 +177,43 @@ function weekFrom(today) {
  * That is the only write in the system that does, so it checks the target is
  * an active advisor rather than any id at all, and stamps who did it.
  */
+/**
+ * Whose lists a new task goes on.
+ *
+ * One advisor, several, or everybody. A task put on the whole team, "confirm
+ * your October departures", was previously eight visits to this dialog, which
+ * is the sort of chore that ends with it not being done at all.
+ *
+ * Each target gets its own row rather than one row pointing at many people. A
+ * task is ticked off by one person on one day; sharing a row would mean the
+ * first to finish clears it for everybody.
+ */
+async function assigneesFor(env, user, raw) {
+  const wanted = (Array.isArray(raw) ? raw : [raw])
+    .map((v) => clean(v, 64))
+    .filter(Boolean);
+
+  // Nothing chosen is the caller's own list, which is what it has always been.
+  if (!wanted.length) return { ids: [user.id] };
+
+  if (wanted.includes('all')) {
+    if (user.role !== 'admin') {
+      return { error: 'Only an owner can put a task on somebody else.' };
+    }
+    // The agency, never the platform. scopeWhere narrows to the reader alone
+    // when there is no agency behind them, which fails shut.
+    const reach = db.scopeWhere(
+      { all: true, agencyId: user.agency_id || null, userId: user.id }, 'id');
+    const { results } = await env.DB.prepare(
+      `SELECT id FROM users WHERE status = 'active' AND ${reach.sql}`
+    ).bind(...reach.binds).all();
+    const ids = (results || []).map((r) => r.id);
+    return { ids: ids.length ? ids : [user.id] };
+  }
+
+  return { ids: [...new Set(wanted)] };
+}
+
 async function resolveLinks(env, user, fields) {
   if (fields.bookingId && !(await db.getBooking(env, fields.bookingId, user.id))) {
     return { error: 'That reservation is not yours.' };
@@ -330,25 +371,44 @@ export async function handleCreateTask(request, env) {
   const { fields, error } = parse(await readJson(request));
   if (error) return badRequest(error);
 
-  const links = await resolveLinks(env, user, fields);
-  if (links.error) return badRequest(links.error);
+  const targets = await assigneesFor(env, user, fields.assignTo);
+  if (targets.error) return badRequest(targets.error);
 
-  const id = uid();
+  // Every target is checked before anything is written. Half a team getting a
+  // task is worse than none of them, because nobody can tell which half.
+  const plan = [];
+  for (const assignTo of targets.ids) {
+    const links = await resolveLinks(env, user, { ...fields, assignTo });
+    if (links.error) return badRequest(links.error);
+    plan.push({ id: uid(), ...links });
+  }
+
   const ts = now();
-  await env.DB.prepare(
-    `INSERT INTO tasks (id, user_id, title, notes, due_date, due_time, priority, kind,
-       booking_id, contact_id, client_id, group_id, assigned_by, repeat_rule, repeat_until,
-       created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, links.owner, fields.title, fields.notes || null, fields.dueDate, fields.dueTime,
-         fields.priority, fields.kind, fields.bookingId, fields.contactId,
-         fields.clientId, fields.groupId, links.assignedBy,
-         fields.repeatRule, fields.repeatUntil, ts, ts).run();
+  for (const row of plan) {
+    await env.DB.prepare(
+      `INSERT INTO tasks (id, user_id, title, notes, due_date, due_time, priority, kind,
+         booking_id, contact_id, client_id, group_id, assigned_by, repeat_rule, repeat_until,
+         created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(row.id, row.owner, fields.title, fields.notes || null, fields.dueDate, fields.dueTime,
+           fields.priority, fields.kind, fields.bookingId, fields.contactId,
+           fields.clientId, fields.groupId, row.assignedBy,
+           fields.repeatRule, fields.repeatUntil, ts, ts).run();
+  }
 
+  const others = plan.filter((r) => r.assignedBy).length;
   await db.logActivity(env, user.id, 'task.create',
-    links.assignedBy ? `Put a task on another advisor: ${fields.title}`
-      : `Added task: ${fields.title}`, { id });
-  return json({ ok: true, task: await getTask(env, id, links.owner) }, 201);
+    others
+      ? `Put a task on ${others} advisor${others === 1 ? '' : 's'}: ${fields.title}`
+      : `Added task: ${fields.title}`, { ids: plan.map((r) => r.id) });
+
+  // The first one keeps the old shape, so a caller that wants to hang steps
+  // off the task it just made still can. created says how many there are.
+  return json({
+    ok: true,
+    created: plan.length,
+    task: await getTask(env, plan[0].id, plan[0].owner),
+  }, 201);
 }
 
 async function getTask(env, id, userId) {

@@ -1118,3 +1118,19 @@ input.derived {
 .th-sort:focus-visible { outline: 2px solid var(--teal-400); outline-offset: 2px; border-radius: 2px; }
 .th-sort .caret { font-size: .6em; color: var(--teal-500); }
 th.num .th-sort { justify-content: flex-end; }
+
+/*
+  A short list of people to tick.
+
+  Used where the answer used to be one of several and is now any of them: a
+  multiple select is a control almost nobody operates without a mouse and a
+  held modifier key, so it is checkboxes in a bordered box instead.
+*/
+.pick-list {
+  border: 1px solid var(--navy-200); border-radius: 9px;
+  padding: .5rem .7rem; max-height: 11rem; overflow-y: auto;
+  display: flex; flex-direction: column; gap: .1rem; background: #fff;
+}
+.pick { display: flex; align-items: center; gap: .5rem; font-weight: 400; padding: .2rem 0; }
+.pick input { width: auto; margin: 0; }
+.pick:has(input:disabled) { opacity: .5; }

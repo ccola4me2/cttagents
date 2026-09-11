@@ -109,10 +109,11 @@
       </div>
 
       <div class="field" id="assign-field" hidden>
-        <label for="assignTo">Put it on</label>
-        <select id="assignTo" name="assignTo"></select>
-        <p class="field-hint">Whose list it goes on. A task for somebody else cannot be tied
-          to your own client, reservation or group: they could not open it.</p></div>
+        <span class="label" style="display:block;margin-bottom:.35rem;">Put it on</span>
+        <div id="assignTo" class="pick-list"></div>
+        <p class="field-hint">Whose lists it goes on. Tick as many as you like. A task for
+          somebody else cannot be tied to your own client, reservation or group: they could
+          not open it.</p></div>
 
       <div class="field"><label for="notes">Notes</label>
         <textarea id="notes" name="notes" maxlength="2000"></textarea></div>
@@ -309,18 +310,59 @@ function fillAdvisors(selected) {
   const field = document.getElementById('assign-field');
   if (!advisors.length) { field.hidden = true; return; }
   field.hidden = false;
-  document.getElementById('assignTo').innerHTML =
-    '<option value="">My own list</option>' +
-    advisors.filter((a) => a.id !== ME)
-      .map((a) => `<option value="${esc(a.id)}"${a.id === selected ? ' selected' : ''}>
-        ${esc(a.name)}</option>`).join('');
+
+  // Checkboxes rather than a select, because the answer is now "these three"
+  // as often as it is "this one", and a multiple select is a control almost
+  // nobody knows how to use without a mouse and a held modifier key.
+  const others = advisors.filter((a) => a.id !== ME);
+  document.getElementById('assignTo').innerHTML = `
+    <label class="pick"><input type="checkbox" value="" data-mine
+      ${selected ? '' : ' checked'}> My own list</label>
+    <label class="pick"><input type="checkbox" data-all> Everybody</label>
+    <hr style="border:0;border-top:1px solid var(--navy-100);margin:.4rem 0;">
+    ${others.map((a) => `<label class="pick"><input type="checkbox" value="${esc(a.id)}"${
+      a.id === selected ? ' checked' : ''}> ${esc(a.name)}</label>`).join('')}`;
+
+  const box = document.getElementById('assignTo');
+  const all = box.querySelector('[data-all]');
+  const mine = box.querySelector('[data-mine]');
+
+  all.addEventListener('change', () => {
+    // Everybody is a statement about the whole team, so it replaces the
+    // individual ticks rather than sitting alongside them and disagreeing.
+    box.querySelectorAll('input:not([data-all])').forEach((c) => {
+      c.checked = false;
+      c.disabled = all.checked;
+    });
+  });
+
+  box.addEventListener('change', (e) => {
+    if (e.target === all) return;
+    if (e.target.checked && all.checked) { all.checked = false; }
+    // Something has to be ticked. Unticking the last one puts it back on your
+    // own list rather than leaving the task with nowhere to go.
+    if (![...box.querySelectorAll('input')].some((c) => c.checked)) mine.checked = true;
+    syncAssign();
+  });
+}
+
+/** The ids the form will send: [] for your own list, ['all'], or specific ids. */
+function chosenAssignees() {
+  const box = document.getElementById('assignTo');
+  if (!box || document.getElementById('assign-field').hidden) return [];
+  if (box.querySelector('[data-all]')?.checked) return ['all'];
+  const ids = [...box.querySelectorAll('input[value]:checked')]
+    .map((c) => c.value)
+    .filter(Boolean);
+  return ids;
 }
 
 // Linking a task to your own records and putting it on somebody else's list
 // are mutually exclusive, and the API refuses the combination. Said here, as
 // the choice is made, rather than as an error after saving.
 function syncAssign() {
-  const other = Boolean(document.getElementById('assignTo').value);
+  const picked = chosenAssignees();
+  const other = picked.length > 0;
   const hint = document.getElementById('client-hint');
   for (const id of ['clientName', 'bookingId', 'groupId']) {
     const el = document.getElementById(id);
@@ -405,7 +447,7 @@ document.getElementById('clientName').addEventListener('input', () => {
   // Typed over, so whoever was chosen is no longer who this is about.
   document.getElementById('clientId').value = '';
 });
-document.getElementById('assignTo').addEventListener('change', syncAssign);
+
 document.getElementById('repeatRule').addEventListener('change', syncRepeat);
 document.getElementById('step-add').addEventListener('click', addStep);
 document.getElementById('step-new').addEventListener('keydown', (e) => {
@@ -436,7 +478,11 @@ deleteBtn.addEventListener('click', async () => {
 
 onSubmit(form, async (values) => {
   const path = editingId ? `/api/tasks/${encodeURIComponent(editingId)}` : '/api/tasks';
-  const saved = await api(path, { method: editingId ? 'PUT' : 'POST', body: values });
+  // The ticks are not a form field, so they are attached here. Editing an
+  // existing task never moves it between lists, so they are only sent on the
+  // way in.
+  const body = editingId ? values : { ...values, assignTo: chosenAssignees() };
+  const saved = await api(path, { method: editingId ? 'PUT' : 'POST', body });
 
   // Steps typed before the task existed. Created now, in order, and one that
   // fails does not lose the task: it is already saved.
@@ -448,6 +494,12 @@ onSubmit(form, async (values) => {
   }
   dlg.close();
   await load();
+  if (saved.created > 1) {
+    // Said out loud, because "on eight lists" and "on one" look identical
+    // afterwards from this screen, which only shows the ones that are yours.
+    panel.insertAdjacentHTML('afterbegin', `<div class="notice notice-ok">On ${
+      saved.created} lists. Each advisor has their own copy to tick off.</div>`);
+  }
 });
 
 // The reservation picker needs the advisor's own reservations, which is a
