@@ -391,8 +391,16 @@ async function main() {
   step('A client the agency has met but not booked');
   {
     const nm = `Walk In ${stamp}`;
-    const made = await call(advisor, 'POST', '/api/clients',
-      { name: nm, email: `walkin-${stamp}@test.dev`, phone: '555-0100' });
+    // Everything in one go, because somebody adding a client with the passport
+    // in front of them should not have to save and reopen to type the rest.
+    const made = await call(advisor, 'POST', '/api/clients', {
+      name: nm, email: `walkin-${stamp}@test.dev`, phone: '555-0100',
+      passportNumber: 'P9998887', passportExpiry: '2031-01-01', city: 'Tampa',
+      loyalty: [{ line: 'Carnival', number: 'VIFP42' }],
+    });
+    check(made.data?.client?.passport_number === 'P9998887',
+      'and carries the passport typed with them', made.data?.client?.passport_number);
+    check(made.data?.client?.city === 'Tampa', 'and the address');
     check(made.status === 201 && made.data?.client?.id,
       'a client can be added before there is a reservation', `status ${made.status}`);
     check(made.data?.existing === false, 'and is new');

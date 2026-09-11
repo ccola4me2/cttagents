@@ -242,8 +242,16 @@ export async function handleCreateClient(request, env) {
   const keep = (incoming, current) => (incoming === undefined || incoming === null
     || String(incoming).trim() === '' ? (current || null) : incoming);
 
+  // Everything the record holds, not a subset. Somebody adding a client with
+  // the passport in front of them should not have to save, reopen and type the
+  // rest into a second form.
+  const t = travelFields(body);
   await env.DB.prepare(
     `UPDATE clients SET email = ?, phone = ?, notes = ?, birthday = ?, anniversary = ?,
+       legal_first = ?, legal_middle = ?, legal_last = ?, gender = ?, citizenship = ?,
+       passport_number = ?, passport_country = ?, passport_issued = ?, passport_expiry = ?,
+       address1 = ?, address2 = ?, city = ?, state = ?, postcode = ?, country = ?,
+       loyalty_json = ?, known_traveler = ?, redress = ?,
        updated_at = ? WHERE id = ? AND user_id = ?`
   ).bind(
     keep(clean(body.email, 160), before?.email),
@@ -251,6 +259,24 @@ export async function handleCreateClient(request, env) {
     keep(clean(body.notes, 4000), before?.notes),
     keep(cleanDate(body.birthday), before?.birthday),
     keep(cleanDate(body.anniversary), before?.anniversary),
+    keep(t.legalFirst, before?.legal_first),
+    keep(t.legalMiddle, before?.legal_middle),
+    keep(t.legalLast, before?.legal_last),
+    keep(t.gender, before?.gender),
+    keep(t.citizenship, before?.citizenship),
+    keep(t.passportNumber, before?.passport_number),
+    keep(t.passportCountry, before?.passport_country),
+    keep(t.passportIssued, before?.passport_issued),
+    keep(t.passportExpiry, before?.passport_expiry),
+    keep(t.address1, before?.address1),
+    keep(t.address2, before?.address2),
+    keep(t.city, before?.city),
+    keep(t.state, before?.state),
+    keep(t.postcode, before?.postcode),
+    keep(t.country, before?.country),
+    keep(t.loyaltyJson, before?.loyalty_json),
+    keep(t.knownTraveler, before?.known_traveler),
+    keep(t.redress, before?.redress),
     now(), existingId, user.id
   ).run();
 

@@ -57,6 +57,67 @@
       </div>
       <div class="field"><label for="c-notes">Notes</label>
         <textarea id="c-notes" name="notes" rows="3"></textarea></div>
+
+      <!-- Open on demand. Most clients are added from a phone call with a name
+           and a number; the ones added with a passport on the desk should not
+           have to save and reopen to type the rest. -->
+      <details id="c-more" style="margin-top:.4rem;">
+        <summary style="cursor:pointer;font-weight:650;font-size:.9rem;padding:.4rem 0;">
+          What a vendor will ask for</summary>
+        <p class="muted" style="margin:.2rem 0 .9rem;font-size:.82rem;">All optional, and
+          all editable later on their record.</p>
+        <div class="field-row">
+          <div class="field"><label for="c-lf">First name on passport</label>
+            <input id="c-lf" name="legalFirst" maxlength="80"></div>
+          <div class="field"><label for="c-lm">Middle</label>
+            <input id="c-lm" name="legalMiddle" maxlength="80"></div>
+          <div class="field"><label for="c-ll">Last</label>
+            <input id="c-ll" name="legalLast" maxlength="80"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label for="c-gen">Gender</label>
+            <input id="c-gen" name="gender" maxlength="40" placeholder="As the document says"></div>
+          <div class="field"><label for="c-cit">Citizenship</label>
+            <input id="c-cit" name="citizenship" maxlength="80"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label for="c-pn">Passport number</label>
+            <input id="c-pn" name="passportNumber" maxlength="40"></div>
+          <div class="field"><label for="c-pc">Issuing country</label>
+            <input id="c-pc" name="passportCountry" maxlength="80"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label for="c-pi">Issued</label>
+            <input id="c-pi" name="passportIssued" type="date"></div>
+          <div class="field"><label for="c-pe">Expires</label>
+            <input id="c-pe" name="passportExpiry" type="date">
+            <p class="field-hint">Most lines want six months beyond the sailing.</p></div>
+        </div>
+        <div class="field"><label for="c-a1">Address</label>
+          <input id="c-a1" name="address1" maxlength="160"></div>
+        <div class="field"><label for="c-a2" class="sr-only">Address line two</label>
+          <input id="c-a2" name="address2" maxlength="160" placeholder="Apartment, suite"></div>
+        <div class="field-row">
+          <div class="field"><label for="c-city">City</label>
+            <input id="c-city" name="city" maxlength="80"></div>
+          <div class="field"><label for="c-state">State</label>
+            <input id="c-state" name="state" maxlength="80"></div>
+          <div class="field"><label for="c-zip">Postcode</label>
+            <input id="c-zip" name="postcode" maxlength="24"></div>
+          <div class="field"><label for="c-country">Country</label>
+            <input id="c-country" name="country" maxlength="80"></div>
+        </div>
+        <div class="field"><label for="c-loy">Past-guest numbers</label>
+          <textarea id="c-loy" name="loyaltyText" rows="2"
+            placeholder="Royal Caribbean 123456789"></textarea>
+          <p class="field-hint">One a line, cruise line then number.</p></div>
+        <div class="field-row">
+          <div class="field"><label for="c-kt">Known traveler</label>
+            <input id="c-kt" name="knownTraveler" maxlength="40"></div>
+          <div class="field"><label for="c-rd">Redress</label>
+            <input id="c-rd" name="redress" maxlength="40"></div>
+        </div>
+      </details>
     </div>
     <div class="card-foot">
       <button class="btn btn-primary" type="submit">Add client</button>
@@ -231,7 +292,18 @@ clientForm.addEventListener('submit', async (e) => {
   btn.disabled = true;
   try {
     const values = Object.fromEntries(new FormData(clientForm).entries());
-    const r = await api('/api/clients', { method: 'POST', body: values });
+    // Typed a line at a time, stored as a list, same as on the client record.
+    const body = {
+      ...values,
+      loyalty: String(values.loyaltyText || '').split('\n')
+        .map((l) => l.trim()).filter(Boolean)
+        .map((l) => {
+          const m = l.match(/^(.*?)[\s:]+([A-Za-z0-9-]+)$/);
+          return m ? { line: m[1].trim(), number: m[2] } : { line: l, number: '' };
+        }).slice(0, 20),
+    };
+    delete body.loyaltyText;
+    const r = await api('/api/clients', { method: 'POST', body });
     clientDlg.close();
     // Said plainly rather than silently: adding somebody who is already on the
     // list fills in what was blank, and somebody who typed a name twice
