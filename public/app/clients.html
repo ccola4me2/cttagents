@@ -16,6 +16,7 @@
       <div><h1>Clients</h1><p class="sub">Everyone you have booked, plus everyone CTT Tools knows about. One list.</p></div>
       <span style="display:flex;align-items:center;gap:.6rem;">
         <span id="scope"></span>
+        <a class="btn btn-sm" href="/app/import-clients">Import a list</a>
         <button class="btn btn-primary btn-sm" id="add-client">Add a client</button>
       </span>
     </header>
@@ -245,7 +246,8 @@ function render(d) {
   if (!d.clients.length && !(d.fromCrm || []).length) {
     panel.innerHTML = `
     <div class="empty"><h3>No clients yet</h3>
-      <p>Add one above, or take a reservation and the client record appears with it.</p></div>`;
+      <p>Add one above, <a href="/app/import-clients">import a list</a>, or take a
+        reservation and the client record appears with it.</p></div>`;
     return;
   }
 
