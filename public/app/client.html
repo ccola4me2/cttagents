@@ -92,32 +92,32 @@
   tool when you are filing several at once and the wrong one when you are
   looking at one person and can see they live with somebody you already know.
 -->
-<dialog id="house-dlg">
-  <form id="house-form" method="dialog">
-    <div class="card-head"><h2 id="house-dlg-title">Add to a household</h2>
-      <button class="btn btn-ghost btn-sm" type="button" data-close-house>Close</button></div>
+<dialog id="join-house-dlg">
+  <form id="join-house-form" method="dialog">
+    <div class="card-head"><h2 id="join-house-title">Add to a household</h2>
+      <button class="btn btn-ghost btn-sm" type="button" data-close-join>Close</button></div>
     <div class="card-pad">
       <div class="notice notice-error" hidden></div>
 
-      <div id="house-existing" hidden>
-        <div class="field"><label for="house-pick">An existing household</label>
-          <select id="house-pick"></select>
+      <div id="join-existing" hidden>
+        <div class="field"><label for="join-pick">An existing household</label>
+          <select id="join-pick"></select>
           <p class="field-hint">They move in, keeping their own trips and credits.</p></div>
-        <button class="btn btn-primary btn-sm" type="button" id="house-join">Move them in</button>
+        <button class="btn btn-primary btn-sm" type="button" id="join-move-in">Move them in</button>
         <hr style="margin:1.4rem 0;border:0;border-top:1px solid var(--navy-100);">
       </div>
 
       <p class="label" style="margin:0 0 .5rem;">Or start a new one</p>
-      <div class="field"><label for="house-name">Household name</label>
-        <input id="house-name" maxlength="120" placeholder="The Beasleys">
+      <div class="field"><label for="join-name">Household name</label>
+        <input id="join-name" maxlength="120" placeholder="The Beasleys">
         <p class="field-hint">Leave it blank and it is named after the people in it.</p></div>
 
-      <div class="field"><label for="house-search">Who else lives there</label>
-        <input id="house-search" autocomplete="off" placeholder="Search your clients by name">
-        <div class="picker-results" id="house-results" hidden></div>
+      <div class="field"><label for="join-search">Who else lives there</label>
+        <input id="join-search" autocomplete="off" placeholder="Search your clients by name">
+        <div class="picker-results" id="join-results" hidden></div>
         <p class="field-hint">At least one other person. A household of one is just a client.</p></div>
 
-      <div id="house-picked"></div>
+      <div id="join-picked"></div>
     </div>
     <div class="card-foot">
       <button class="btn btn-primary" type="submit">Create household</button>
@@ -161,7 +161,7 @@ function drawHousehold(d) {
           <button class="btn btn-secondary btn-sm" id="house-add">Add to a household</button>
         </div>` : '';
     const addBtn = document.getElementById('house-add');
-    if (addBtn) addBtn.addEventListener('click', openHouseDialog);
+    if (addBtn) addBtn.addEventListener('click', openJoinDialog);
     return;
   }
 
@@ -535,111 +535,111 @@ async function load() {
 // Two ways in, because there are two situations. Either the household already
 // exists, usually because you filed their spouse last week, or it does not and
 // you are making it now from the person in front of you.
-const houseDlg = document.getElementById('house-dlg');
-const houseForm = document.getElementById('house-form');
-const houseSearch = document.getElementById('house-search');
-const houseResults = document.getElementById('house-results');
-const housePickedBox = document.getElementById('house-picked');
-const housePicked = new Map();
-let houseTimer = null;
+const joinDlg = document.getElementById('join-house-dlg');
+const joinForm = document.getElementById('join-house-form');
+const joinSearch = document.getElementById('join-search');
+const joinResults = document.getElementById('join-results');
+const joinPickedBox = document.getElementById('join-picked');
+const joinPicked = new Map();
+let joinTimer = null;
 
-function drawHousePicked() {
-  housePickedBox.innerHTML = housePicked.size
+function drawJoinPicked() {
+  joinPickedBox.innerHTML = joinPicked.size
     ? `<div class="notice notice-info call-undo" style="margin:0;">
         <span>With <strong>${esc(current.name)}</strong>: ${
-          [...housePicked.values()].map(esc).join(', ')}</span>
-        <button class="btn btn-ghost btn-sm" type="button" id="house-clear">Clear</button></div>`
+          [...joinPicked.values()].map(esc).join(', ')}</span>
+        <button class="btn btn-ghost btn-sm" type="button" id="join-clear">Clear</button></div>`
     : '';
-  const clear = document.getElementById('house-clear');
-  if (clear) clear.addEventListener('click', () => { housePicked.clear(); drawHousePicked(); });
+  const clear = document.getElementById('join-clear');
+  if (clear) clear.addEventListener('click', () => { joinPicked.clear(); drawJoinPicked(); });
 }
 
-async function openHouseDialog() {
-  houseForm.reset();
-  houseForm.querySelector('.notice-error').hidden = true;
-  housePicked.clear();
-  drawHousePicked();
-  houseResults.hidden = true;
+async function openJoinDialog() {
+  joinForm.reset();
+  joinForm.querySelector('.notice-error').hidden = true;
+  joinPicked.clear();
+  drawJoinPicked();
+  joinResults.hidden = true;
 
   // Only offered when there is one to join, so the dialog does not show an
   // empty select to the first person who ever uses it.
-  const existing = document.getElementById('house-existing');
+  const existing = document.getElementById('join-existing');
   try {
     const { households = [] } = await api('/api/households');
-    const pick = document.getElementById('house-pick');
+    const pick = document.getElementById('join-pick');
     pick.innerHTML = households.map((x) =>
       `<option value="${esc(x.id)}">${esc(x.name)}${x.members ? ` · ${x.members} people` : ''}</option>`).join('');
     existing.hidden = !households.length;
   } catch { existing.hidden = true; }
 
-  houseDlg.showModal();
+  joinDlg.showModal();
 }
 
-document.querySelectorAll('[data-close-house]').forEach((b) =>
-  b.addEventListener('click', () => houseDlg.close()));
+document.querySelectorAll('[data-close-join]').forEach((b) =>
+  b.addEventListener('click', () => joinDlg.close()));
 
-const houseJoin = document.getElementById('house-join');
-houseJoin.addEventListener('click', async () => {
-  const pick = document.getElementById('house-pick');
+const joinMoveIn = document.getElementById('join-move-in');
+joinMoveIn.addEventListener('click', async () => {
+  const pick = document.getElementById('join-pick');
   if (!pick.value) return;
-  houseJoin.disabled = true;
+  joinMoveIn.disabled = true;
   try {
     await api(`/api/households/${encodeURIComponent(pick.value)}/members`,
       { method: 'POST', body: { clientId: current.id } });
-    houseDlg.close();
+    joinDlg.close();
     await load();
   } catch (e) {
-    const box = houseForm.querySelector('.notice-error');
+    const box = joinForm.querySelector('.notice-error');
     box.textContent = e.message || 'Could not move them in.';
     box.hidden = false;
-  } finally { houseJoin.disabled = false; }
+  } finally { joinMoveIn.disabled = false; }
 });
 
-houseSearch.addEventListener('input', () => {
-  clearTimeout(houseTimer);
-  const q = houseSearch.value.trim();
-  if (q.length < 2) { houseResults.hidden = true; return; }
-  houseTimer = setTimeout(async () => {
+joinSearch.addEventListener('input', () => {
+  clearTimeout(joinTimer);
+  const q = joinSearch.value.trim();
+  if (q.length < 2) { joinResults.hidden = true; return; }
+  joinTimer = setTimeout(async () => {
     try {
       const { clients = [] } = await api(`/api/clients?q=${encodeURIComponent(q)}&limit=8`);
       // Never the person whose page this is: they are in it by definition, and
       // offering them is how you end up with a household of one.
-      const hits = clients.filter((c) => c.id && c.id !== current.id && !housePicked.has(c.id));
-      houseResults.innerHTML = hits.length
+      const hits = clients.filter((c) => c.id && c.id !== current.id && !joinPicked.has(c.id));
+      joinResults.innerHTML = hits.length
         ? hits.map((c) => `<button type="button" data-add="${esc(c.id)}" data-name="${esc(c.name)}">
             ${esc(c.name)}${c.email ? ` <span class="muted">${esc(c.email)}</span>` : ''}</button>`).join('')
         : '<button type="button" disabled>Nobody else by that name.</button>';
-      houseResults.hidden = false;
-      houseResults.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => {
-        housePicked.set(b.dataset.add, b.dataset.name);
-        houseSearch.value = '';
-        houseResults.hidden = true;
-        drawHousePicked();
+      joinResults.hidden = false;
+      joinResults.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => {
+        joinPicked.set(b.dataset.add, b.dataset.name);
+        joinSearch.value = '';
+        joinResults.hidden = true;
+        drawJoinPicked();
       }));
-    } catch { houseResults.hidden = true; }
+    } catch { joinResults.hidden = true; }
   }, 250);
 });
 
-houseForm.addEventListener('submit', async (e) => {
+joinForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const box = houseForm.querySelector('.notice-error');
+  const box = joinForm.querySelector('.notice-error');
   box.hidden = true;
-  if (!housePicked.size) {
+  if (!joinPicked.size) {
     box.textContent = 'Pick at least one other person. A household of one is just a client.';
     box.hidden = false;
     return;
   }
-  const btn = houseForm.querySelector('button[type=submit]');
+  const btn = joinForm.querySelector('button[type=submit]');
   btn.disabled = true;
   try {
     await api('/api/households', {
       method: 'POST',
       body: {
-        clientIds: [current.id, ...housePicked.keys()],
-        name: document.getElementById('house-name').value,
+        clientIds: [current.id, ...joinPicked.keys()],
+        name: document.getElementById('join-name').value,
       },
     });
-    houseDlg.close();
+    joinDlg.close();
     await load();
   } catch (e2) {
     box.textContent = e2.message || 'Could not create that household.';
