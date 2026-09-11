@@ -29,24 +29,6 @@
   .star[aria-pressed="true"] { color: var(--amber-600, #b7791f); }
   .star:focus-visible { outline: 2px solid var(--navy-600); outline-offset: 1px; }
 
-  /* The websites, at the top where they are reached for.
-     They were two rows in the middle of a facts list, reading "Open", which
-     made the thing this record is most often opened for the hardest thing on
-     it to find. Their address is on the button because knowing where a link
-     goes before clicking it is worth a line of text. */
-  .v-links { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .7rem; }
-  .v-links a {
-    display: inline-flex; align-items: baseline; gap: .45rem;
-    border: 1px solid var(--navy-200); border-radius: 999px;
-    padding: .42rem .95rem; text-decoration: none; background: #fff;
-    font-size: .82rem; font-weight: 600; color: var(--navy-800);
-  }
-  .v-links a:hover { border-color: var(--navy-600); background: var(--navy-50); }
-  .v-links a .host {
-    font-weight: 400; font-size: .76rem; color: var(--ink-400);
-    max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-
   .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 1.5rem; }
   .fact { padding: .55rem 0; border-bottom: 1px solid var(--navy-50, #eef1f5); }
   .fact dt {
@@ -109,21 +91,24 @@ const mail = (a) => `<a href="mailto:${esc(a)}">${esc(a)}</a>`;
 const web = (u, t) => `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(t)}</a>`;
 
 /**
- * A link out, with where it goes written on it.
+ * A supplier's address as a fact: the host, linked.
  *
  * Only ever http or https. Everything saved through the form is checked on the
  * way in, so this is belt and braces: a value that lost its scheme would make
- * an href the browser reads as a path, and the button would quietly walk the
+ * an href the browser reads as a path, and the link would quietly walk the
  * advisor into the portal instead of out to the supplier.
+ *
+ * The full address is noise in a row of short values, and the host is what
+ * somebody recognises.
  */
-function siteLink(url, label) {
+function siteOf(url) {
   const raw = String(url || '');
   if (!/^https?:\/\//i.test(raw)) return '';
   let host = raw;
   try { host = new URL(raw).hostname.replace(/^www\./, ''); } catch { host = raw; }
-  return `<a href="${esc(raw)}" target="_blank" rel="noopener noreferrer">
-    <span>${esc(label)}</span><span class="host">${esc(host)}</span></a>`;
+  return `<a href="${esc(raw)}" target="_blank" rel="noopener noreferrer">${esc(host)}</a>`;
 }
+
 
 function fact(label, value) {
   return value
@@ -136,11 +121,20 @@ function readView() {
   const phones = parsePhones(v);
   const t = d.totals;
 
+  // Advisor site first: it is the one opened to make a booking, where the
+  // client site is opened to show somebody a picture of the ship. Both sit
+  // with the phone numbers rather than above them, because "how do I reach
+  // this supplier" is one question and it was being answered in two places.
+  const advisorSite = siteOf(v.portal_url);
+  const clientSite = siteOf(v.website);
+
   return `
     <section class="card">
       <div class="card-pad">
         <dl class="facts" style="margin:0;">
           ${phones.map((p) => fact(p.label || 'Phone', tel(p.number))).join('')}
+          ${fact('Advisor website', advisorSite)}
+          ${fact('Client website', clientSite)}
           ${fact('Agent phone', v.phone ? tel(v.phone) : '')}
           ${fact('Agent email', v.email ? mail(v.email) : '')}
           ${fact('Agency account number', v.account_number ? esc(v.account_number) : '')}
@@ -151,6 +145,7 @@ function readView() {
           ${fact('Usual commission', v.commission_pct ? `${v.commission_pct}%` : '')}
         </dl>
         ${phones.length || v.phone || v.email || v.account_number || v.commission_pct
+          || advisorSite || clientSite
           ? '' : '<p class="muted" style="margin:0;">Nothing recorded yet. Use Edit to fill this in.</p>'}
       </div>
     </section>
@@ -395,13 +390,6 @@ function render() {
   const edit = document.getElementById('edit');
   if (edit) edit.addEventListener('click', () => { editing = true; render(); });
 
-  // Advisor site first: it is the one opened to make a booking, where the
-  // client site is opened to show somebody a picture of the ship.
-  const sites = [
-    siteLink(v.portal_url, 'Advisor website'),
-    siteLink(v.website, 'Client website'),
-  ].filter(Boolean).join('');
-
   panel.innerHTML = `
     <div class="v-head" style="margin-bottom:1.25rem;">
       <span class="v-mark">${esc(initials(v.name))}</span>
@@ -418,7 +406,6 @@ function render() {
             aria-label="${v.favourite ? 'Remove from' : 'Add to'} favourites"
             >${v.favourite ? '★' : '☆'}</button>` : ''}
         </span>
-        ${sites ? `<span class="v-links">${sites}</span>` : ''}
       </span>
     </div>
     ${editing ? editView() : readView()}`;
