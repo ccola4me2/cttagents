@@ -282,6 +282,33 @@ function render(d) {
  * previously tell you a client was overdue a call without holding a number to
  * ring them on, which is a report rather than a tool.
  */
+/**
+ * Past-guest numbers, typed the way somebody would write them down.
+ *
+ * A line per cruise line, the line's name then the number. Stored as a list
+ * because somebody who sails often has one from Royal Caribbean and another
+ * from Princess, and a column would have held whichever was typed last.
+ */
+function loyaltyText(c) {
+  let rows = [];
+  try { rows = JSON.parse(c.loyalty_json || '[]'); } catch { rows = []; }
+  return rows.map((l) => `${l.line || ''} ${l.number || ''}`.trim()).join('\n');
+}
+
+function loyaltyFromText(text) {
+  return String(text || '').split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      // The number is the last run of digits-and-dashes; everything before it
+      // is the line's name. "Royal Caribbean 123456789" rather than making
+      // somebody fill two boxes twice over.
+      const m = line.match(/^(.*?)[\s:]+([A-Za-z0-9-]+)$/);
+      return m ? { line: m[1].trim(), number: m[2] } : { line, number: '' };
+    })
+    .slice(0, 20);
+}
+
 function drawContact(d) {
   const c = d.client;
   const box = document.getElementById('contact');
@@ -290,12 +317,46 @@ function drawContact(d) {
   if (!editing) {
     actions.innerHTML = d.editable
       ? '<button class="btn btn-ghost btn-sm" id="edit-contact">Edit</button>' : '';
-    box.innerHTML = (c.phone || c.email || c.notes || c.birthday || c.anniversary)
+    const legal = [c.legal_first, c.legal_middle, c.legal_last].filter(Boolean).join(' ');
+    const addr = [c.address1, c.address2, c.city, c.state, c.postcode, c.country]
+      .filter(Boolean).join(', ');
+    let loyalty = [];
+    try { loyalty = JSON.parse(c.loyalty_json || '[]'); } catch { loyalty = []; }
+
+    // A passport is only useful if somebody notices it is about to stop being
+    // one. Six months is the usual requirement, so that is the line.
+    let passportNote = '';
+    if (c.passport_expiry) {
+      const days = Math.round(
+        (Date.parse(`${c.passport_expiry}T00:00:00`) - Date.now()) / 86400000);
+      passportNote = days < 0
+        ? ' <span class="badge badge-red">expired</span>'
+        : days < 183 ? ` <span class="badge badge-amber">${days}d left</span>` : '';
+    }
+
+    const has = c.phone || c.email || c.notes || c.birthday || c.anniversary
+      || legal || c.passport_number || addr || loyalty.length
+      || c.known_traveler || c.redress || c.gender || c.citizenship;
+
+    box.innerHTML = has
       ? `<dl class="pairs">
           ${c.phone ? `<dt>Phone</dt><dd><a href="tel:${esc(c.phone)}">${esc(c.phone)}</a></dd>` : ''}
           ${c.email ? `<dt>Email</dt><dd><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></dd>` : ''}
           ${c.birthday ? `<dt>Birthday</dt><dd>${esc(dateFmt(c.birthday))}</dd>` : ''}
           ${c.anniversary ? `<dt>Anniversary</dt><dd>${esc(dateFmt(c.anniversary))}</dd>` : ''}
+          ${legal ? `<dt>Name on passport</dt><dd>${esc(legal)}</dd>` : ''}
+          ${c.gender ? `<dt>Gender</dt><dd>${esc(c.gender)}</dd>` : ''}
+          ${c.citizenship ? `<dt>Citizenship</dt><dd>${esc(c.citizenship)}</dd>` : ''}
+          ${c.passport_number ? `<dt>Passport</dt><dd>${esc(c.passport_number)}${
+            c.passport_country ? ` &middot; ${esc(c.passport_country)}` : ''}</dd>` : ''}
+          ${c.passport_expiry ? `<dt>Passport expires</dt><dd>${
+            esc(dateFmt(c.passport_expiry))}${passportNote}</dd>` : ''}
+          ${addr ? `<dt>Address</dt><dd>${esc(addr)}</dd>` : ''}
+          ${loyalty.length ? `<dt>Past guest</dt><dd>${loyalty
+            .map((l) => `${esc(l.line || '')} ${esc(l.number || '')}`.trim())
+            .join('<br>')}</dd>` : ''}
+          ${c.known_traveler ? `<dt>Known traveler</dt><dd>${esc(c.known_traveler)}</dd>` : ''}
+          ${c.redress ? `<dt>Redress</dt><dd>${esc(c.redress)}</dd>` : ''}
           ${c.notes ? `<dt>Notes</dt><dd>${esc(c.notes)}</dd>` : ''}
         </dl>`
       : '<p class="muted" style="margin:0;font-size:.86rem;">No phone or email on file yet.</p>';
@@ -323,6 +384,64 @@ function drawContact(d) {
       <div class="field"><label for="canniversary">Anniversary</label>
         <input id="canniversary" name="anniversary" type="date" value="${esc(c.anniversary || '')}"></div>
     </div>
+    <h3 style="margin:1.4rem 0 .6rem;font-size:.95rem;">What a vendor asks for</h3>
+    <p class="muted" style="margin:0 0 .8rem;font-size:.82rem;">Held here so a reservation
+      is built from the record rather than typed again from the documents.</p>
+    <div class="field-row">
+      <div class="field"><label for="clf">First name on passport</label>
+        <input id="clf" name="legalFirst" maxlength="80" value="${esc(c.legal_first || '')}"></div>
+      <div class="field"><label for="clm">Middle</label>
+        <input id="clm" name="legalMiddle" maxlength="80" value="${esc(c.legal_middle || '')}"></div>
+      <div class="field"><label for="cll">Last</label>
+        <input id="cll" name="legalLast" maxlength="80" value="${esc(c.legal_last || '')}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label for="cgen">Gender</label>
+        <input id="cgen" name="gender" maxlength="40" value="${esc(c.gender || '')}"
+          placeholder="As the document says">
+        <p class="field-hint">Whatever the passport shows. Vendors want a letter; this is free text.</p></div>
+      <div class="field"><label for="ccit">Citizenship</label>
+        <input id="ccit" name="citizenship" maxlength="80" value="${esc(c.citizenship || '')}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label for="cpn">Passport number</label>
+        <input id="cpn" name="passportNumber" maxlength="40" value="${esc(c.passport_number || '')}"></div>
+      <div class="field"><label for="cpc">Issuing country</label>
+        <input id="cpc" name="passportCountry" maxlength="80" value="${esc(c.passport_country || '')}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label for="cpi">Issued</label>
+        <input id="cpi" name="passportIssued" type="date" value="${esc(c.passport_issued || '')}"></div>
+      <div class="field"><label for="cpe">Expires</label>
+        <input id="cpe" name="passportExpiry" type="date" value="${esc(c.passport_expiry || '')}">
+        <p class="field-hint">Most lines want six months beyond the sailing.</p></div>
+    </div>
+    <div class="field"><label for="ca1">Address</label>
+      <input id="ca1" name="address1" maxlength="160" value="${esc(c.address1 || '')}"></div>
+    <div class="field"><label for="ca2" class="sr-only">Address line two</label>
+      <input id="ca2" name="address2" maxlength="160" value="${esc(c.address2 || '')}"
+        placeholder="Apartment, suite"></div>
+    <div class="field-row">
+      <div class="field"><label for="ccity">City</label>
+        <input id="ccity" name="city" maxlength="80" value="${esc(c.city || '')}"></div>
+      <div class="field"><label for="cstate">State</label>
+        <input id="cstate" name="state" maxlength="80" value="${esc(c.state || '')}"></div>
+      <div class="field"><label for="czip">Postcode</label>
+        <input id="czip" name="postcode" maxlength="24" value="${esc(c.postcode || '')}"></div>
+      <div class="field"><label for="ccountry">Country</label>
+        <input id="ccountry" name="country" maxlength="80" value="${esc(c.country || '')}"></div>
+    </div>
+    <div class="field"><label for="cloy">Past-guest numbers</label>
+      <textarea id="cloy" name="loyaltyText" rows="3"
+        placeholder="Royal Caribbean 123456789">${esc(loyaltyText(c))}</textarea>
+      <p class="field-hint">One a line, cruise line then number. Worth real money in perks,
+        and always the thing nobody can find.</p></div>
+    <div class="field-row">
+      <div class="field"><label for="ckt">Known traveler</label>
+        <input id="ckt" name="knownTraveler" maxlength="40" value="${esc(c.known_traveler || '')}"></div>
+      <div class="field"><label for="crd">Redress</label>
+        <input id="crd" name="redress" maxlength="40" value="${esc(c.redress || '')}"></div>
+    </div>
     <div class="field"><label for="cnotes">Notes</label>
       <textarea id="cnotes" name="notes" maxlength="4000">${esc(c.notes || '')}</textarea></div>
     <div class="toolbar" style="margin:0;">
@@ -335,7 +454,9 @@ function drawContact(d) {
     editing = false; drawContact(d);
   });
   onSubmit(document.getElementById('contact-form'), async (values) => {
-    await api(`/api/clients/${encodeURIComponent(c.id)}`, { method: 'PUT', body: values });
+    const body = { ...values, loyalty: loyaltyFromText(values.loyaltyText) };
+    delete body.loyaltyText;
+    await api(`/api/clients/${encodeURIComponent(c.id)}`, { method: 'PUT', body });
     editing = false;
     await load();
   });

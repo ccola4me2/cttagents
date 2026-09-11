@@ -413,6 +413,32 @@ async function main() {
     check(again.data?.client?.notes === 'Met at the Tampa show',
       'while filling in what was not');
 
+    // What a vendor asks for, kept on the person so a reservation is built
+    // from the record rather than typed again off the documents.
+    const detail = await call(advisor, 'PUT', `/api/clients/${cid}`, {
+      name: nm,
+      legalFirst: 'Robert', legalMiddle: 'James', legalLast: 'Whitfield',
+      gender: 'M', citizenship: 'United States',
+      passportNumber: 'X1234567', passportCountry: 'United States',
+      passportIssued: '2020-05-01', passportExpiry: '2030-05-01',
+      address1: '14 Bayshore Blvd', city: 'Tampa', state: 'FL',
+      postcode: '33606', country: 'United States',
+      knownTraveler: 'TT1234567',
+      loyalty: [{ line: 'Royal Caribbean', number: '123456789' },
+                { line: 'Princess', number: '987654321' }],
+    });
+    check(detail.status === 200, 'a client carries what a vendor asks for',
+      `status ${detail.status}`);
+    const got = detail.data?.client || {};
+    check(got.passport_number === 'X1234567', 'the passport is on the person', got.passport_number);
+    check(got.passport_expiry === '2030-05-01', 'with the date it runs out', got.passport_expiry);
+    check(got.legal_last === 'Whitfield', 'and the name the document spells', got.legal_last);
+    check(got.city === 'Tampa', 'and somewhere to post things', got.city);
+    let loy = [];
+    try { loy = JSON.parse(got.loyalty_json || '[]'); } catch { loy = []; }
+    check(loy.length === 2 && loy[0].number === '123456789',
+      'past-guest numbers are a list, not one column', JSON.stringify(loy));
+
     const noName = await call(advisor, 'POST', '/api/clients', { email: 'x@y.dev' });
     check(noName.status === 400, 'a client without a name is refused',
       `status ${noName.status}`);
