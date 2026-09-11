@@ -136,17 +136,23 @@ const NAV = [
   { href: '/app/vendors', label: 'Vendors', icon: I.handshake },
   { href: '/app/cruise-search', label: 'Cruise search', icon: I.ship },
   {
+    // The people first, then the work.
+    //
+    // Clients, Households and Sales opportunities are the same set of people
+    // at three stages: somebody you know, the address they share, and the
+    // trip they have not booked yet. They sit together at the top because
+    // that is the order somebody thinks in. The daily lists follow.
     hub: 'Client', icon: I.people, items: [
-      { href: '/app/tasks', label: 'To do' },
-      { href: '/app/hotlists', label: 'Who to call' },
       { href: '/app/clients', label: 'Clients' },
       { href: '/app/households', label: 'Households' },
+      { href: '/app/pipeline', label: 'Sales opportunities' },
       // No separate CRM contacts entry. Clients now lists everyone the CRM
       // knows alongside everyone who has booked, and two menu items for one
       // set of people was how the same person ended up on the list twice.
       // /app/leads still works for anyone holding a link to it.
+      { href: '/app/tasks', label: 'To do' },
+      { href: '/app/hotlists', label: 'Who to call' },
       { href: '/app/credits', label: 'Client credits' },
-      { href: '/app/pipeline', label: 'Sales opportunities' },
       { href: '/app/inbox', label: 'Messages' },
       { href: '/app/calendar', label: 'Calendar' },
     ],
