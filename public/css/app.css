@@ -495,6 +495,15 @@ tbody tr[data-href] { cursor: pointer; }
   border-bottom: 1px solid var(--navy-100);
 }
 .picker-results button:hover { background: var(--navy-50); }
+/*
+  A dropdown inside a dialog has to be allowed out of it.
+
+  The body of a dialog scrolls, so its results list was clipped at the bottom
+  edge and you had to scroll the dialog to see what you were picking. Letting
+  the padding area overflow visibly puts the list over the buttons instead,
+  which is where a dropdown belongs.
+*/
+dialog > form > .card-pad:has(.picker-results) { overflow: visible; }
 
 /* Calendar agenda */
 .day-head {

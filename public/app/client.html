@@ -112,10 +112,17 @@
         <input id="join-name" maxlength="120" placeholder="The Beasleys">
         <p class="field-hint">Leave it blank and it is named after the people in it.</p></div>
 
-      <div class="field"><label for="join-search">Who else lives there</label>
-        <input id="join-search" autocomplete="off" placeholder="Search your clients by name">
-        <div class="picker-results" id="join-results" hidden></div>
-        <p class="field-hint">At least one other person. A household of one is just a client.</p></div>
+      <div class="field">
+        <label for="join-search">Who else lives there</label>
+        <p class="field-hint" style="margin:0 0 .35rem;">At least one other person. A household
+          of one is just a client.</p>
+        <!-- .picker is what the results hang off. Without it they are absolutely
+             positioned against the dialog and land underneath the button. -->
+        <div class="picker">
+          <input id="join-search" autocomplete="off" placeholder="Search your clients by name">
+          <div class="picker-results" id="join-results" hidden></div>
+        </div>
+      </div>
 
       <div id="join-picked"></div>
     </div>
