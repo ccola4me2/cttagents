@@ -78,6 +78,12 @@ const PAGES = [
 // the user's vendors together or delete a live deal and the names against it.
 // Listed here deliberately rather than left to look like a mismatch, and the
 // smoke test drives all three responses instead.
+//
+// size, has, set, get, add, clear and delete are Map and Set methods. Several
+// of these pages hold what the user has ticked in a Set or a Map, and reading
+// its size is not reading an API field. keys, values and entries were already
+// here for the same reason; the rest were missing and turned the first page to
+// use a Map into a failure with nothing wrong in it.
 const IGNORE = new Set(`
 length map filter reduce forEach join slice split replace trim toFixed push pop
 includes some every find findIndex sort concat indexOf toLowerCase toUpperCase
@@ -90,6 +96,7 @@ padStart repeat match matchAll test exec keys values entries prototype
 href location origin search pathname target scrollIntoView focus blur
 firstChild lastChild parentElement nextElementSibling previousElementSibling
 constructor hasOwnProperty toString valueOf now random floor ceil round abs min max
+size has set get add clear delete
 isArray fromEntries createElement className scrollTop scrollHeight isNaN isFinite
 isInteger parse stringify
 writeText clipboard currentTarget preventDefault stopPropagation replaceChildren
