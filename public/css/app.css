@@ -1101,3 +1101,20 @@ input.derived {
 .opp-link .t { display: block; text-decoration: none; color: inherit; font-weight: 650; }
 .opp-link:hover { border-color: var(--teal-400); }
 .opp-link .t:hover { color: var(--teal-600); }
+
+/*
+  A column heading you can order by.
+
+  Styled as the heading it already was rather than as a button, because a row
+  of six buttons across the top of a table reads as a toolbar.
+*/
+.th-sort {
+  display: inline-flex; align-items: center; gap: .3rem;
+  background: none; border: 0; padding: 0; margin: 0;
+  font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit;
+  cursor: pointer;
+}
+.th-sort:hover { color: var(--teal-600); }
+.th-sort:focus-visible { outline: 2px solid var(--teal-400); outline-offset: 2px; border-radius: 2px; }
+.th-sort .caret { font-size: .6em; color: var(--teal-500); }
+th.num .th-sort { justify-content: flex-end; }

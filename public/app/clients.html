@@ -238,6 +238,46 @@ function drawPicked() {
   });
 }
 
+/**
+ * Which column the list is ordered by.
+ *
+ * Blank means the order the server sent: pinned first, then by lifetime value.
+ * That is the right default and a bad permanent answer, because "who has not
+ * travelled in two years" and "who is worth the most" are different questions
+ * and the second was the only one the page could answer.
+ *
+ * Remembered per browser, since whichever column somebody works from is not a
+ * thing they want to re-pick every morning.
+ */
+let sort = (() => {
+  try { return JSON.parse(localStorage.getItem('ctt.clients.sort') || 'null') || { key: '', dir: 'desc' }; }
+  catch { return { key: '', dir: 'desc' }; }
+})();
+
+function sortRows(list) {
+  if (!sort.key) return list;
+  const dir = sort.dir === 'asc' ? 1 : -1;
+  const of = (c) => {
+    if (sort.key === 'contact') return (c.email || c.phone || '').toLowerCase();
+    if (sort.key === 'name') return (c.name || '').toLowerCase();
+    return c[sort.key];
+  };
+  // A blank date or a missing total always sorts last, whichever way the
+  // column is pointing. Somebody sorting by next trip wants the soonest at the
+  // top, not forty people with nothing booked.
+  return [...list].sort((a, b) => {
+    const x = of(a);
+    const y = of(b);
+    const xEmpty = x === null || x === undefined || x === '';
+    const yEmpty = y === null || y === undefined || y === '';
+    if (xEmpty && yEmpty) return 0;
+    if (xEmpty) return 1;
+    if (yEmpty) return -1;
+    if (typeof x === 'number' && typeof y === 'number') return (x - y) * dir;
+    return String(x).localeCompare(String(y)) * dir;
+  });
+}
+
 function render(d) {
   const s = d.stats;
   document.getElementById('stats').innerHTML = `
@@ -260,14 +300,21 @@ function render(d) {
     return;
   }
 
+  const rows = sortRows(d.clients);
+
   panel.innerHTML = `
     ${d.truncated ? `<div class="notice notice-warn">Showing the first ${d.cap} only.
       Search to narrow it down; filtering what is on screen will not reach the rest.</div>` : ''}
     <div class="table-wrap"><table>
     <thead><tr><th style="width:2rem;"></th><th style="width:2rem;"></th>
-      <th>Client</th><th>Contact</th><th>Last trip</th>
-      <th>Next trip</th><th class="num">Trips</th><th class="num">Lifetime</th></tr></thead>
-    <tbody>${d.clients.map((c) => `<tr>
+      ${[['name', 'Client', ''], ['contact', 'Contact', ''], ['last_date', 'Last trip', ''],
+         ['next_date', 'Next trip', ''], ['trips', 'Trips', 'num'], ['lifetime_cents', 'Lifetime', 'num']]
+        .map(([key, label, cls]) => `<th${cls ? ` class="${cls}"` : ''}
+          aria-sort="${sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}">
+          <button type="button" class="th-sort" data-sort="${key}">${esc(label)}<span class="caret"
+            aria-hidden="true">${sort.key === key ? (sort.dir === 'asc' ? '▲' : '▼') : ''}</span>
+          </button></th>`).join('')}</tr></thead>
+    <tbody>${rows.map((c) => `<tr>
       <td>${c.user_id === ME
         ? `<input type="checkbox" class="pick" data-pick="${esc(c.id)}" style="width:auto;"
              ${picked.has(c.id) ? 'checked' : ''}
@@ -321,6 +368,20 @@ function render(d) {
         btn.disabled = false;
         btn.textContent = 'Make a client';
       }
+    });
+  });
+
+  panel.querySelectorAll('[data-sort]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.sort;
+      // Same column flips direction. A new column starts where that column is
+      // most useful: biggest first for money and counts, soonest first for a
+      // date, A to Z for a name.
+      sort = sort.key === key
+        ? { key, dir: sort.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: (key === 'name' || key === 'contact' || key === 'next_date') ? 'asc' : 'desc' };
+      try { localStorage.setItem('ctt.clients.sort', JSON.stringify(sort)); } catch { /* private window */ }
+      render(d);
     });
   });
 
