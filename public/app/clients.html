@@ -58,12 +58,10 @@
       <div class="field"><label for="c-notes">Notes</label>
         <textarea id="c-notes" name="notes" rows="3"></textarea></div>
 
-      <!-- Open on demand. Most clients are added from a phone call with a name
-           and a number; the ones added with a passport on the desk should not
-           have to save and reopen to type the rest. -->
-      <details id="c-more" style="margin-top:.4rem;">
-        <summary style="cursor:pointer;font-weight:650;font-size:.9rem;padding:.4rem 0;">
-          What a vendor will ask for</summary>
+      <!-- Shown, not hidden behind a disclosure. A field somebody has to go
+           looking for is a field that stays empty, and these are the ones a
+           vendor asks for at the worst moment. -->
+      <h3 style="margin:1.4rem 0 .3rem;font-size:.95rem;">What a vendor will ask for</h3>
         <p class="muted" style="margin:.2rem 0 .9rem;font-size:.82rem;">All optional, and
           all editable later on their record.</p>
         <div class="field-row">
@@ -117,7 +115,6 @@
           <div class="field"><label for="c-rd">Redress</label>
             <input id="c-rd" name="redress" maxlength="40"></div>
         </div>
-      </details>
     </div>
     <div class="card-foot">
       <button class="btn btn-primary" type="submit">Add client</button>
