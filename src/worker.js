@@ -106,7 +106,7 @@ import {
 import {
   handleListHouseholds, handleCreateHousehold, handleUpdateHousehold,
   handleAddMember, handleRemoveMember, handleDeleteHousehold, handleHouseholdTravellers,
-  handleHouseholdRecord,
+  handleHouseholdRecord, handleSuggestHouseholds,
 } from './households.js';
 import { handleGetGoals, handleSaveGoals } from './goals.js';
 import { handleListCommissions, handleSetCommissionStatus } from './commissions.js';
@@ -625,6 +625,9 @@ async function routeApi(request, env, path, method) {
   // People who live at the same address, kept together.
   if (path === '/api/households' && method === 'GET') return handleListHouseholds(request, env);
   if (path === '/api/households' && method === 'POST') return handleCreateHousehold(request, env);
+  if (path === '/api/households/suggestions' && method === 'GET') {
+    return handleSuggestHouseholds(request, env);
+  }
   // Before the single-segment match, which would otherwise swallow it.
   if (path === '/api/households/travellers' && method === 'GET') {
     return handleHouseholdTravellers(request, env);

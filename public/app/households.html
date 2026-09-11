@@ -19,6 +19,11 @@
     </header>
     <div class="content">
       <div id="err"></div>
+      <section class="card" id="suggest-card" hidden style="margin-bottom:1.5rem;">
+        <div class="card-head"><h2>People who share an address</h2>
+          <span class="muted" id="suggest-count"></span></div>
+        <div class="card-pad" id="suggest"></div>
+      </section>
       <section class="card" id="panel"><p class="spinner">Loading households...</p></section>
     </div>
   </div>
@@ -268,6 +273,61 @@ async function load() {
   } catch (e) { showError(panel, e); }
 }
 
+// ------------------------------------------------------------- suggestions ---
+// An imported client list arrives one person at a time, so a couple who have
+// travelled together for twenty years land as two unrelated rows. The address
+// is already on both and says so; nobody was asked to read it.
+//
+// Proposed rather than made. Two people at one address are usually a family
+// and sometimes two tenants, and the difference is not in the data.
+async function drawSuggestions() {
+  const card = document.getElementById('suggest-card');
+  let groups = [];
+  try {
+    const { suggestions = [] } = await api('/api/households/suggestions');
+    groups = suggestions;
+  } catch { card.hidden = true; return; }
+
+  card.hidden = !groups.length;
+  if (!groups.length) return;
+
+  document.getElementById('suggest-count').textContent =
+    `${groups.length} to look at`;
+
+  document.getElementById('suggest').innerHTML = `
+    <p class="field-hint" style="margin:0 0 .9rem;">Matched on the street and postcode already on
+      their records. Nobody is moved until you say so.</p>
+    <ul class="rows">${groups.map((g, i) => `<li style="padding-left:0;padding-right:0;">
+      <div class="row-between" style="gap:1rem;flex-wrap:wrap;align-items:flex-start;">
+        <div>
+          <div class="t" style="font-weight:600;">${esc(g.name)}</div>
+          <div class="muted" style="font-size:.8rem;">${esc(g.address)}</div>
+          <div class="muted" style="font-size:.82rem;margin-top:.2rem;">${
+            g.members.map((m) => esc(m.name)).join(' &middot; ')}</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" data-make="${i}">Make a household</button>
+      </div></li>`).join('')}</ul>`;
+
+  document.querySelectorAll('[data-make]').forEach((b) => b.addEventListener('click', async () => {
+    const g = groups[Number(b.dataset.make)];
+    b.disabled = true;
+    b.textContent = 'Making...';
+    try {
+      await api('/api/households', {
+        method: 'POST',
+        body: { clientIds: g.members.map((m) => m.id), name: g.name, address: g.address },
+      });
+      await load();
+      await drawSuggestions();
+    } catch (e) {
+      showError(err, e);
+      b.disabled = false;
+      b.textContent = 'Make a household';
+    }
+  }));
+}
+
 await load();
+await drawSuggestions();
 </script>
 </body></html>

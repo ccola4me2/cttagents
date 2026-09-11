@@ -84,6 +84,47 @@
   </form>
 </dialog>
 
+<!--
+  Putting somebody in a household, from their own page.
+
+  Previously the only route was the Clients list: find both people in a list
+  thousands long, tick them, and press Make a household. Which is the right
+  tool when you are filing several at once and the wrong one when you are
+  looking at one person and can see they live with somebody you already know.
+-->
+<dialog id="house-dlg">
+  <form id="house-form" method="dialog">
+    <div class="card-head"><h2 id="house-dlg-title">Add to a household</h2>
+      <button class="btn btn-ghost btn-sm" type="button" data-close-house>Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" hidden></div>
+
+      <div id="house-existing" hidden>
+        <div class="field"><label for="house-pick">An existing household</label>
+          <select id="house-pick"></select>
+          <p class="field-hint">They move in, keeping their own trips and credits.</p></div>
+        <button class="btn btn-primary btn-sm" type="button" id="house-join">Move them in</button>
+        <hr style="margin:1.4rem 0;border:0;border-top:1px solid var(--navy-100);">
+      </div>
+
+      <p class="label" style="margin:0 0 .5rem;">Or start a new one</p>
+      <div class="field"><label for="house-name">Household name</label>
+        <input id="house-name" maxlength="120" placeholder="The Beasleys">
+        <p class="field-hint">Leave it blank and it is named after the people in it.</p></div>
+
+      <div class="field"><label for="house-search">Who else lives there</label>
+        <input id="house-search" autocomplete="off" placeholder="Search your clients by name">
+        <div class="picker-results" id="house-results" hidden></div>
+        <p class="field-hint">At least one other person. A household of one is just a client.</p></div>
+
+      <div id="house-picked"></div>
+    </div>
+    <div class="card-foot">
+      <button class="btn btn-primary" type="submit">Create household</button>
+    </div>
+  </form>
+</dialog>
+
 <script type="module">
 import { api, mountShell, esc, money, dateFmt, daysUntil, showError, onSubmit } from '/js/app.js';
 await mountShell();
@@ -107,9 +148,24 @@ const STATUS_TONE = { quoted: 'badge-navy', booked: 'badge-green', travelled: 'b
 function drawHousehold(d) {
   const card = document.getElementById('house-card');
   const h = d.household;
-  card.hidden = !h;
-  if (!h) return;
 
+  // The card used to disappear when somebody was in no household, which is
+  // exactly when you want to put them in one. It stays, and offers.
+  if (!h) {
+    card.hidden = !d.editable;
+    document.getElementById('house-actions').innerHTML = '';
+    document.getElementById('house').innerHTML = d.editable
+      ? `<div class="row-between" style="gap:1rem;flex-wrap:wrap;align-items:center;">
+          <p class="muted" style="margin:0;">Not in a household. Put them in one and the address,
+            home phone and the people they travel with are kept in one place.</p>
+          <button class="btn btn-secondary btn-sm" id="house-add">Add to a household</button>
+        </div>` : '';
+    const addBtn = document.getElementById('house-add');
+    if (addBtn) addBtn.addEventListener('click', openHouseDialog);
+    return;
+  }
+
+  card.hidden = false;
   document.getElementById('house-actions').innerHTML = d.editable
     ? `<button class="btn btn-ghost btn-sm" id="house-edit">Edit</button>` : '';
 
@@ -196,8 +252,13 @@ onSubmit(houseForm, async (values) => {
   await load();
 });
 
+// The client this page is about, held so the household dialog can name them
+// and can refuse to offer them as their own housemate.
+let current = { id: '', name: '' };
+
 function render(d) {
   const c = d.client;
+  current = { id: c.id, name: c.name };
   document.getElementById('name').textContent = c.name;
   document.getElementById('sub').textContent = c.nextDeparture
     ? `Next trip ${short(c.nextDeparture)}`
@@ -469,6 +530,122 @@ async function load() {
     err.innerHTML = '';
   } catch (e) { showError(err, e); }
 }
+
+// ------------------------------------------------------ add to a household ---
+// Two ways in, because there are two situations. Either the household already
+// exists, usually because you filed their spouse last week, or it does not and
+// you are making it now from the person in front of you.
+const houseDlg = document.getElementById('house-dlg');
+const houseForm = document.getElementById('house-form');
+const houseSearch = document.getElementById('house-search');
+const houseResults = document.getElementById('house-results');
+const housePickedBox = document.getElementById('house-picked');
+const housePicked = new Map();
+let houseTimer = null;
+
+function drawHousePicked() {
+  housePickedBox.innerHTML = housePicked.size
+    ? `<div class="notice notice-info call-undo" style="margin:0;">
+        <span>With <strong>${esc(current.name)}</strong>: ${
+          [...housePicked.values()].map(esc).join(', ')}</span>
+        <button class="btn btn-ghost btn-sm" type="button" id="house-clear">Clear</button></div>`
+    : '';
+  const clear = document.getElementById('house-clear');
+  if (clear) clear.addEventListener('click', () => { housePicked.clear(); drawHousePicked(); });
+}
+
+async function openHouseDialog() {
+  houseForm.reset();
+  houseForm.querySelector('.notice-error').hidden = true;
+  housePicked.clear();
+  drawHousePicked();
+  houseResults.hidden = true;
+
+  // Only offered when there is one to join, so the dialog does not show an
+  // empty select to the first person who ever uses it.
+  const existing = document.getElementById('house-existing');
+  try {
+    const { households = [] } = await api('/api/households');
+    const pick = document.getElementById('house-pick');
+    pick.innerHTML = households.map((x) =>
+      `<option value="${esc(x.id)}">${esc(x.name)}${x.members ? ` · ${x.members} people` : ''}</option>`).join('');
+    existing.hidden = !households.length;
+  } catch { existing.hidden = true; }
+
+  houseDlg.showModal();
+}
+
+document.querySelectorAll('[data-close-house]').forEach((b) =>
+  b.addEventListener('click', () => houseDlg.close()));
+
+const houseJoin = document.getElementById('house-join');
+houseJoin.addEventListener('click', async () => {
+  const pick = document.getElementById('house-pick');
+  if (!pick.value) return;
+  houseJoin.disabled = true;
+  try {
+    await api(`/api/households/${encodeURIComponent(pick.value)}/members`,
+      { method: 'POST', body: { clientId: current.id } });
+    houseDlg.close();
+    await load();
+  } catch (e) {
+    const box = houseForm.querySelector('.notice-error');
+    box.textContent = e.message || 'Could not move them in.';
+    box.hidden = false;
+  } finally { houseJoin.disabled = false; }
+});
+
+houseSearch.addEventListener('input', () => {
+  clearTimeout(houseTimer);
+  const q = houseSearch.value.trim();
+  if (q.length < 2) { houseResults.hidden = true; return; }
+  houseTimer = setTimeout(async () => {
+    try {
+      const { clients = [] } = await api(`/api/clients?q=${encodeURIComponent(q)}&limit=8`);
+      // Never the person whose page this is: they are in it by definition, and
+      // offering them is how you end up with a household of one.
+      const hits = clients.filter((c) => c.id && c.id !== current.id && !housePicked.has(c.id));
+      houseResults.innerHTML = hits.length
+        ? hits.map((c) => `<button type="button" data-add="${esc(c.id)}" data-name="${esc(c.name)}">
+            ${esc(c.name)}${c.email ? ` <span class="muted">${esc(c.email)}</span>` : ''}</button>`).join('')
+        : '<button type="button" disabled>Nobody else by that name.</button>';
+      houseResults.hidden = false;
+      houseResults.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => {
+        housePicked.set(b.dataset.add, b.dataset.name);
+        houseSearch.value = '';
+        houseResults.hidden = true;
+        drawHousePicked();
+      }));
+    } catch { houseResults.hidden = true; }
+  }, 250);
+});
+
+houseForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const box = houseForm.querySelector('.notice-error');
+  box.hidden = true;
+  if (!housePicked.size) {
+    box.textContent = 'Pick at least one other person. A household of one is just a client.';
+    box.hidden = false;
+    return;
+  }
+  const btn = houseForm.querySelector('button[type=submit]');
+  btn.disabled = true;
+  try {
+    await api('/api/households', {
+      method: 'POST',
+      body: {
+        clientIds: [current.id, ...housePicked.keys()],
+        name: document.getElementById('house-name').value,
+      },
+    });
+    houseDlg.close();
+    await load();
+  } catch (e2) {
+    box.textContent = e2.message || 'Could not create that household.';
+    box.hidden = false;
+  } finally { btn.disabled = false; }
+});
 
 if (!id && !name) {
   err.innerHTML = '<div class="notice notice-error">No client was named in the address.</div>';
