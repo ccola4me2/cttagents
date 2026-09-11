@@ -5296,6 +5296,45 @@ async function main() {
     `${commRow?.advisor_cents} vs ${sp.advisorCents}`);
   check(comm.data?.anySplit === true, 'and the page knows there is a split to show');
 
+  // ------------------------------------------- no commission pays nobody ----
+  // "No commission" used to mean the advisor was not paid and the agency
+  // still was, which is not what the words say. A courtesy booking earns
+  // nobody anything, so every total has to read zero and not just the one on
+  // the advisor's half.
+  const beforeNil = await call(advisor, 'GET', '/api/commissions');
+  const beforeRow = (beforeNil.data?.rows || []).find((r) => r.id === halfId);
+  const agencyWas = beforeRow?.agency_cents;
+  check(agencyWas > 0, 'a normal trip leaves the agency a share', agencyWas);
+
+  const nilled = await call(advisor, 'PUT', `/api/bookings/${halfId}`,
+    { commissionStatus: 'none' });
+  check(nilled.status === 200, 'a trip is marked no commission', `status ${nilled.status}`);
+
+  const nilRec = await call(advisor, 'GET', `/api/bookings/${halfId}/record`);
+  check(nilRec.data?.split?.earns === false,
+    'the reservation says it earns nothing', JSON.stringify(nilRec.data?.split?.earns));
+  check(nilRec.data?.split?.advisorCents === 0 && nilRec.data?.split?.agencyCents === 0,
+    'and neither the advisor nor the agency is owed a cent',
+    `${nilRec.data?.split?.advisorCents} / ${nilRec.data?.split?.agencyCents}`);
+  // The figure itself stays on the record: a commission that was waived is
+  // worth being able to see afterwards.
+  check(nilRec.data?.booking?.commission_cents === 33333,
+    'while the figure that was waived is still on the reservation',
+    nilRec.data?.booking?.commission_cents);
+
+  const nilList = await call(advisor, 'GET', '/api/commissions');
+  check(!(nilList.data?.rows || []).some((r) => r.id === halfId),
+    'it drops off the list of what there is to chase');
+  const nilFiltered = await call(advisor, 'GET', '/api/commissions?status=none');
+  check((nilFiltered.data?.rows || []).some((r) => r.id === halfId),
+    'but is still findable by asking for that status, so a mistake can be undone');
+
+  // Put it back, because the checks after this one assume it earns.
+  await call(advisor, 'PUT', `/api/bookings/${halfId}`, { commissionStatus: 'pending' });
+  const restored = await call(advisor, 'GET', `/api/bookings/${halfId}/record`);
+  check(restored.data?.split?.advisorCents === sp.advisorCents,
+    'and unmarking it restores the share exactly', restored.data?.split?.advisorCents);
+
   // A trip can carry its own figure, and blank puts it back on the agreement.
   // Through the admin endpoint: the advisor cannot set what they are paid.
   await call(admin, 'PUT', `/api/admin/bookings/${halfId}/split`, { advisorSplitPct: 80 });
