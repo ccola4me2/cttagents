@@ -16,6 +16,10 @@
       <div><h1>Sales opportunities</h1><p class="sub">Open opportunities by stage.</p></div>
       <div class="toolbar" style="margin:0;">
         <select id="pipeline-select" aria-label="Pipeline" hidden></select>
+        <select id="view" aria-label="How to show them" style="width:auto;">
+          <option value="board">Board</option>
+          <option value="list">List</option>
+        </select>
         <button class="btn btn-ghost btn-sm" id="refresh">Refresh</button>
         <button class="btn btn-primary btn-sm" id="new-deal">New deal</button>
       </div>
@@ -69,7 +73,20 @@ await mountShell();
 const panel = document.getElementById('panel');
 const summary = document.getElementById('summary');
 const select = document.getElementById('pipeline-select');
+const viewSelect = document.getElementById('view');
 let lastData = null;
+// Remembered per browser, because whichever of the two somebody thinks in is
+// not a thing they want to re-choose every morning.
+let view = (() => {
+  try { return localStorage.getItem('ctt.pipeline.view') || 'board'; } catch { return 'board'; }
+})();
+viewSelect.value = view;
+viewSelect.addEventListener('change', () => {
+  view = viewSelect.value;
+  try { localStorage.setItem('ctt.pipeline.view', view); } catch { /* private window */ }
+  // Redrawn from what is already loaded: the two views are the same data.
+  if (lastData) render(lastData);
+});
 
 function render(data) {
   lastData = data;
@@ -95,6 +112,8 @@ function render(data) {
     <div class="stat"><p class="label">Stages</p><p class="value">${data.stages.length}</p>
       <p class="meta">In this pipeline</p></div>`;
 
+  if (view === 'list') { drawList(data); return; }
+
   panel.innerHTML = `<div class="board">${data.stages.map((s) => `
     <div class="board-col"${s.id ? ` data-stage="${esc(s.id)}"` : ''}>
       <h3>${esc(s.name)}</h3>
@@ -115,6 +134,48 @@ function render(data) {
     </div>`).join('')}</div>`;
 
   wireBoard();
+}
+
+/**
+ * The same opportunities down a page instead of across one.
+ *
+ * A board answers "where is everything", which is the question on a Monday. A
+ * list answers "what is worth the most" and "what has not moved", which are
+ * the questions when there are eighty of them and the board has become a
+ * horizontal scroll nobody reads to the end of.
+ *
+ * Sorted by value rather than by stage, because that is the ordering a board
+ * cannot express.
+ */
+function drawList(data) {
+  const rows = data.stages.flatMap((s) =>
+    s.opportunities.map((o) => ({ ...o, stageName: s.name })))
+    .sort((a, b) => (b.monetaryValue || 0) - (a.monetaryValue || 0));
+
+  if (!rows.length) {
+    panel.innerHTML = '<div class="card"><div class="empty"><h3>Nothing in this pipeline</h3>'
+      + '<p>Opportunities you add show up here and on the board.</p></div></div>';
+    return;
+  }
+
+  panel.innerHTML = `<div class="card"><div class="table-wrap"><table>
+    <thead><tr><th>Opportunity</th><th>Client</th><th>Stage</th>
+      <th class="num">Value</th></tr></thead>
+    <tbody>${rows.map((o) => `
+      <tr>
+        <td><span class="name">${esc(o.name)}</span></td>
+        <td>${o.contactName ? esc(o.contactName) : '<span class="muted">-</span>'}</td>
+        <td><label class="sr-only" for="lv-${esc(o.id)}">Move stage</label>
+          <select id="lv-${esc(o.id)}" data-move="${esc(o.id)}" style="width:auto;">
+            ${data.stages.filter((st) => st.id).map((st) =>
+              `<option value="${esc(st.id)}"${st.id === o.stageId ? ' selected' : ''}>${
+                esc(st.name)}</option>`).join('')}
+          </select></td>
+        <td class="num">${o.monetaryValue ? money(o.monetaryValue * 100) : '-'}</td>
+      </tr>`).join('')}</tbody></table></div></div>`;
+
+  // The same select the cards carry, so moving a deal works the same either way.
+  wireMoves();
 }
 
 /** Drag to move, with a per-card select so touch and keyboard also work. */
@@ -147,6 +208,11 @@ function wireBoard() {
     });
   });
 
+  wireMoves();
+}
+
+/** The stage select, which both views carry, so a deal moves the same either way. */
+function wireMoves() {
   panel.querySelectorAll('[data-move]').forEach((sel) => {
     sel.addEventListener('change', () => moveOpportunity(sel.dataset.move, sel.value));
   });
