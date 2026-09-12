@@ -866,7 +866,14 @@ export function mountScopePicker(host, data, reload) {
   // files under whoever is signed in, so nothing you add while browsing an
   // advisor's records can land in their book by accident. Adding something on
   // their behalf is a deliberate second step, which is the button below.
-  const picked = advisors.find((a) => a.id === current && a.id !== scope.viewerId);
+  // Offered only where it would actually work. Working as somebody is for
+  // doing an advisor's filing, not for borrowing another owner's access, so
+  // the endpoint refuses an admin target. Showing the button anyway meant the
+  // refusal arrived as "You can only work as an advisor", which reads as a
+  // statement about you rather than about who you picked.
+  const picked = advisors.find((a) => a.id === current
+    && a.id !== scope.viewerId
+    && a.role !== 'admin');
   host.innerHTML = `<select aria-label="Whose records to show" style="width:auto;">
     <option value="all"${current === 'all' ? ' selected' : ''}>All advisors</option>
     ${advisors.map((a) => `<option value="${esc(a.id)}"${a.id === current ? ' selected' : ''}>

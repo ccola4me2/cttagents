@@ -214,7 +214,13 @@ export async function handleStartActing(request, env, userId) {
   // agency owner could use it to reach an account they are not allowed to
   // change directly.
   if (target.role === 'admin' || target.platform_owner) {
-    return forbidden('You can only work as an advisor.');
+    // Named, because the old wording said "You can only work as an advisor",
+    // which an owner reads as a claim about their own account rather than
+    // about the one they picked.
+    const who = [target.first_name, target.last_name].filter(Boolean).join(' ') || target.email;
+    return forbidden(`${who} is an owner, so there is nothing to work as. `
+      + 'Working as somebody is for doing an advisor\'s filing, not for reaching '
+      + 'another owner\'s account.');
   }
   if (target.status !== 'active') return badRequest('That account is not active.');
 
