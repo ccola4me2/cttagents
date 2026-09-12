@@ -219,7 +219,9 @@
       <div class="notice notice-error" hidden></div>
       <div class="field"><label for="t-name">Full name, as on the passport</label>
         <input id="t-name" name="name" maxlength="120" required>
-        <p class="field-hint">Vendors match documents on this, not on what the client is called.</p></div>
+        <p class="field-hint" id="t-name-hint">Start typing to find somebody already on your books,
+          or type a name nobody has yet. Vendors match documents on this, not on what the client
+          is called.</p></div>
       <div class="field-row">
         <div class="field"><label for="t-dob">Date of birth</label>
           <input id="t-dob" name="dob" type="date"></div>
@@ -364,6 +366,7 @@
 
 <script type="module">
 import { api, mountShell, esc, money, dateFmt, daysUntil, timeAgo, showError, onSubmit } from '/js/app.js';
+import { mountClientSuggest } from '/js/client-suggest.js';
 await mountShell();
 
 const id = new URLSearchParams(location.search).get('id') || '';
@@ -2300,12 +2303,65 @@ const amenityForm = document.getElementById('amenity-form');
 let editingTraveller = null;
 let editingAmenity = null;
 
+/**
+ * Somebody already on the books, rather than typed out again.
+ *
+ * A traveller is almost always a client: the person who booked, their spouse,
+ * the friend travelling with them. Everything the vendor asks for is already
+ * on that client record, and retyping it is both the slow way and the way a
+ * passport number gets a digit wrong.
+ *
+ * The same box as the client field on a new reservation, so it behaves the way
+ * it does everywhere else. Typing a name nobody has is still allowed, because
+ * a traveller who is not a client is a real thing.
+ *
+ * Filling only happens while adding. Picking a suggestion halfway through
+ * correcting an existing traveller would overwrite the correction with the
+ * record being corrected.
+ */
+mountClientSuggest(document.getElementById('t-name'), {
+  emptyText: 'Nobody by that name yet. Keep typing to add them as a new traveller.',
+  async onChoose(row) {
+    if (editingTraveller || !row.id) return;
+    let c;
+    try { c = (await api(`/api/client?id=${encodeURIComponent(row.id)}`)).client; }
+    catch { return; }
+    if (!c) return;
+
+    const set = (n, v) => {
+      const el = travellerForm.elements[n];
+      // Never over the top of something already typed. Somebody who filled the
+      // passport in by hand and then picked the client meant the one they
+      // typed.
+      if (el && !el.value && v) el.value = v;
+    };
+    // The passport name where there is one, since that is what this field is
+    // for and what the vendor matches on.
+    const legal = [c.legal_first, c.legal_middle, c.legal_last].filter(Boolean).join(' ');
+    if (legal) travellerForm.elements.name.value = legal;
+    set('dob', c.birthday);
+    set('email', c.email);
+    set('phone', c.phone);
+    set('passportNumber', c.passport_number);
+    set('passportExpiry', c.passport_expiry);
+    set('passportCountry', c.passport_country);
+
+    const hint = document.getElementById('t-name-hint');
+    hint.innerHTML = `Filled in from <strong>${esc(c.name)}</strong>'s client record.${
+      legal ? ' Their passport name is shown above.' : ''} Change anything that is out of date.`;
+  },
+});
+
 function openTraveller(t) {
   editingTraveller = t ? t.id : null;
   travellerForm.reset();
   travellerForm.querySelector('.notice-error').hidden = true;
   document.getElementById('traveller-title').textContent = t ? 'Edit traveller' : 'Add a traveller';
   document.getElementById('t-delete').hidden = !t;
+  document.getElementById('t-name-hint').innerHTML = t
+    ? 'Vendors match documents on this, not on what the client is called.'
+    : `Start typing to find somebody already on your books, or type a name nobody has yet.
+       Vendors match documents on this, not on what the client is called.`;
   if (t) {
     const set = (n, v) => { const el = travellerForm.elements[n]; if (el) el.value = v ?? ''; };
     set('name', t.name); set('dob', t.dob); set('email', t.email); set('phone', t.phone);
