@@ -14,10 +14,12 @@
 import { json, badRequest, notFound, clean, cleanText, toCents, uid, now, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
+import * as ghl from './ghl.js';
+import { fireTrigger } from './automations.js';
 
 const COLUMNS = `
   id, booking_id, user_id, label, detail, amount_cents, chosen, sort_order,
-  image_url, inclusions, chosen_at, chosen_by, created_at, updated_at
+  image_url, inclusions, chosen_at, chosen_by, component_id, created_at, updated_at
 `;
 
 export async function listOptions(env, bookingId, scope) {
@@ -51,8 +53,27 @@ function parse(body) {
       // prose in detail, because this is the part they compare across three
       // options and comparing needs it in the same place on each.
       inclusions: cleanText(body.inclusions, 1500) || null,
+      // Which part of the trip this is an alternative for. Blank means the
+      // trip itself, which is what every option was before components could
+      // carry their own.
+      componentId: clean(body.componentId, 64) || null,
     },
   };
+}
+
+/**
+ * The component an option belongs to, if it belongs to one and it is ours.
+ *
+ * Checked rather than trusted: the id arrives in the request, and an option
+ * pinned to somebody else's component would group with theirs and be cleared
+ * by their client's choice.
+ */
+async function ownComponent(env, userId, bookingId, componentId) {
+  if (!componentId) return null;
+  const row = await env.DB.prepare(
+    'SELECT id FROM components WHERE id = ? AND booking_id = ? AND user_id = ?'
+  ).bind(componentId, bookingId, userId).first();
+  return row ? row.id : null;
 }
 
 export async function handleAddOption(request, env, bookingId) {
@@ -70,10 +91,11 @@ export async function handleAddOption(request, env, bookingId) {
   await env.DB.prepare(
     `INSERT INTO quote_options
        (id, booking_id, user_id, label, detail, amount_cents, chosen, sort_order,
-        image_url, inclusions, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`
+        image_url, inclusions, component_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`
   ).bind(id, bookingId, user.id, fields.label, fields.detail, fields.amountCents,
-         fields.sortOrder, fields.imageUrl, fields.inclusions, ts, ts).run();
+         fields.sortOrder, fields.imageUrl, fields.inclusions,
+         await ownComponent(env, user.id, bookingId, fields.componentId), ts, ts).run();
 
   await db.logActivity(env, user.id, 'option.add',
     `Added "${fields.label}" to ${booking.client_name}'s quote`, { bookingId });
@@ -87,11 +109,21 @@ export async function handleUpdateOption(request, env, id) {
   const { fields, error } = parse(await readJson(request));
   if (error) return badRequest(error);
 
+  // Read first, because moving an option between groups has to be checked
+  // against the booking it is already on rather than one named in the request.
+  const before = await env.DB.prepare(
+    'SELECT booking_id, chosen FROM quote_options WHERE id = ? AND user_id = ?'
+  ).bind(id, user.id).first();
+  if (!before) return notFound('Option not found.');
+
+  const componentId = await ownComponent(env, user.id, before.booking_id, fields.componentId);
+
   const res = await env.DB.prepare(
     `UPDATE quote_options SET label = ?, detail = ?, amount_cents = ?, sort_order = ?,
-            image_url = ?, inclusions = ?, updated_at = ? WHERE id = ? AND user_id = ?`
+            image_url = ?, inclusions = ?, component_id = ?,
+            updated_at = ? WHERE id = ? AND user_id = ?`
   ).bind(fields.label, fields.detail, fields.amountCents, fields.sortOrder,
-         fields.imageUrl, fields.inclusions, now(), id, user.id).run();
+         fields.imageUrl, fields.inclusions, componentId, now(), id, user.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Option not found.');
   return json({ ok: true });
 }
@@ -157,12 +189,20 @@ export async function handleChooseOption(request, env, id) {
   // than a client changing their mind.
   const chosen = body.chosen === false ? 0 : 1;
 
-  // One at a time. Two chosen options is not a client who wants both, it is a
-  // record nobody can read.
+  // One at a time within a group, not across the whole reservation.
+  //
+  // A group is the component the option belongs to, or the trip itself for the
+  // whole-trip alternatives. Clearing everything was right when every option
+  // was a whole alternative and is wrong now: choosing a cabin would unchoose
+  // the insurance, and the client would watch their last answer disappear.
+  const group = option.component_id
+    ? { sql: 'component_id = ?', binds: [option.component_id] }
+    : { sql: 'component_id IS NULL', binds: [] };
+
   await env.DB.prepare(
     `UPDATE quote_options SET chosen = 0, chosen_at = NULL, chosen_by = NULL,
-       updated_at = ? WHERE booking_id = ? AND user_id = ?`
-  ).bind(now(), option.booking_id, user.id).run();
+       updated_at = ? WHERE booking_id = ? AND user_id = ? AND ${group.sql}`
+  ).bind(now(), option.booking_id, user.id, ...group.binds).run();
 
   if (chosen) {
     await env.DB.prepare(
@@ -170,9 +210,28 @@ export async function handleChooseOption(request, env, id) {
          updated_at = ? WHERE id = ? AND user_id = ?`
     ).bind(now(), now(), id, user.id).run();
 
-    await env.DB.prepare(
-      'UPDATE bookings SET gross_cents = ?, updated_at = ? WHERE id = ? AND user_id = ?'
-    ).bind(option.amount_cents, now(), option.booking_id, user.id).run();
+    // Only a whole-trip option is the trip's price. A cabin grade or an
+    // insurance choice is part of the total, not the total, and writing it
+    // over gross_cents would report a $6,000 cruise as a $90 policy.
+    if (!option.component_id) {
+      await env.DB.prepare(
+        'UPDATE bookings SET gross_cents = ?, updated_at = ? WHERE id = ? AND user_id = ?'
+      ).bind(option.amount_cents, now(), option.booking_id, user.id).run();
+    }
+  }
+
+  if (chosen) {
+    await fireTrigger(env, ghl.locationFor(env, user), 'option.chosen', {
+      bookingId: booking.id,
+      contactId: booking.ghl_contact_id || null,
+      name: booking.client_name,
+      option: option.label,
+      amount: option.amount_cents || 0,
+      part: option.component_id ? 'part of the trip' : 'the whole trip',
+      chosen_by: 'advisor',
+      // Once per option. Unchoosing and rechoosing is a correction, not a
+      // second yes, and it should not send the client a second welcome.
+    }, { key: `option.chosen:${option.id}` });
   }
 
   await db.logActivity(env, user.id, 'option.choose',

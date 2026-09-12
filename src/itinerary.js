@@ -218,6 +218,43 @@ export async function handleSaveItem(request, env, bookingId, id = null) {
   return json({ ok: true, items: await listItems(env, bookingId, db.selfScope(user)) }, 201);
 }
 
+/**
+ * Put the items in the order somebody dragged them into.
+ *
+ * sort_order has always existed and was only ever set from a number field,
+ * which is a strange way to ask "does the excursion come before lunch". The
+ * ids arrive in the order they now appear and are numbered by position.
+ *
+ * Scoped to the booking as well as the user, so a list of ids from one
+ * reservation cannot renumber another's. Anything not on this booking is
+ * ignored rather than refused: a stale tab reordering a deleted item should
+ * not lose the rest of the move.
+ */
+export async function handleReorderItinerary(request, env, bookingId) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const booking = await db.getBooking(env, bookingId, user.id);
+  if (!booking) return notFound('Reservation not found.');
+
+  const body = await readJson(request);
+  const ids = Array.isArray(body.ids)
+    ? body.ids.filter((x) => typeof x === 'string').slice(0, 200) : [];
+  if (!ids.length) return badRequest('Nothing to reorder.');
+
+  const ts = now();
+  let moved = 0;
+  for (const [i, itemId] of ids.entries()) {
+    const res = await env.DB.prepare(
+      `UPDATE itinerary_items SET sort_order = ?, updated_at = ?
+        WHERE id = ? AND booking_id = ? AND user_id = ?`
+    ).bind(i, ts, itemId, bookingId, user.id).run();
+    if (res.meta && res.meta.changes) moved += 1;
+  }
+
+  return json({ ok: true, moved });
+}
+
 export async function handleDeleteItem(request, env, bookingId, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;

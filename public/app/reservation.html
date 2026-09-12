@@ -187,6 +187,11 @@
       <button class="btn btn-ghost btn-sm" type="button" data-close-option>Close</button></div>
     <div class="card-pad">
       <div class="notice notice-error" hidden></div>
+      <div class="field"><label for="o-component">What they are choosing</label>
+        <select id="o-component" name="componentId"></select>
+        <p class="field-hint">The whole trip means this option is an alternative to the other
+          whole-trip options. Pick a part of the trip and the client answers that question on
+          its own, so choosing a cabin does not undo their insurance.</p></div>
       <div class="field"><label for="o-label">What it is</label>
         <input id="o-label" name="label" maxlength="120" required placeholder="Verandah, deck 8"></div>
       <div class="field"><label for="o-detail">Anything the client should know</label>
@@ -1890,9 +1895,10 @@ function drawItinerary() {
     return;
   }
 
-  const row = (i) => `<li class="row-between" style="padding:.45rem 0;
-      border-bottom:1px solid var(--navy-50);">
-    <span style="min-width:0;">
+  const row = (i) => `<li class="row-between itin-row" draggable="true" data-drag="${esc(i.id)}"
+      style="padding:.45rem 0;border-bottom:1px solid var(--navy-50);">
+    <span class="itin-grip" aria-hidden="true" title="Drag to reorder">&#8942;&#8942;</span>
+    <span style="min-width:0;flex:1;">
       <span class="muted" style="font-size:.76rem;">${esc(sayTime(i.start_time))}${
   i.end_time ? ` - ${esc(sayTime(i.end_time))}` : ''}${
   i.start_time ? ' &middot; ' : ''}${esc(kindWord(i.kind))}</span>
@@ -1919,6 +1925,60 @@ function drawItinerary() {
   box.querySelectorAll('[data-item]').forEach((b) => {
     b.addEventListener('click',
       () => openItem(itin.items.find((x) => x.id === b.dataset.item)));
+  });
+
+  wireItinDrag(box);
+}
+
+/**
+ * Drag a stop into the order it happens in.
+ *
+ * sort_order has always existed and was only ever set from a number field,
+ * which is a strange way to ask whether the excursion comes before lunch.
+ *
+ * Only within one list. A day is a list and so is the whole-trip group, and
+ * dragging between them would be changing which day something is on, which is
+ * a different decision and belongs in the item's own form where the date is.
+ */
+function wireItinDrag(box) {
+  let dragging = null;
+
+  box.querySelectorAll('[data-drag]').forEach((li) => {
+    li.addEventListener('dragstart', (e) => {
+      dragging = li;
+      li.classList.add('itin-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      // Firefox will not start a drag without something on the transfer.
+      e.dataTransfer.setData('text/plain', li.dataset.drag);
+    });
+
+    li.addEventListener('dragend', async () => {
+      li.classList.remove('itin-dragging');
+      if (!dragging) return;
+      const list = li.parentElement;
+      dragging = null;
+      const ids = [...list.querySelectorAll('[data-drag]')].map((x) => x.dataset.drag);
+      try {
+        await api(`/api/bookings/${encodeURIComponent(id)}/itinerary/reorder`,
+          { method: 'POST', body: { ids } });
+        await loadItinerary();
+      } catch (e) {
+        // Put it back the way the server still has it rather than leaving the
+        // screen showing an order that was never saved.
+        showError(err, e);
+        await loadItinerary();
+      }
+    });
+
+    li.addEventListener('dragover', (e) => {
+      if (!dragging || dragging === li) return;
+      // Same list only: a drop onto another day is a date change, not a move.
+      if (dragging.parentElement !== li.parentElement) return;
+      e.preventDefault();
+      const box2 = li.getBoundingClientRect();
+      const below = e.clientY > box2.top + box2.height / 2;
+      li.parentElement.insertBefore(dragging, below ? li.nextSibling : li);
+    });
   });
 }
 
@@ -2185,7 +2245,19 @@ function openOption(o) {
   optionForm.reset();
   optionForm.querySelector('.notice-error').hidden = true;
   document.getElementById('o-delete').hidden = !o;
+
+  // The parts of this trip, so an option can be an alternative for one of them
+  // rather than for all of it. A cruise is one sailing with choices inside it,
+  // and offering those as whole alternatives means one option per combination:
+  // four options to ask two questions.
+  document.getElementById('o-component').innerHTML =
+    '<option value="">The whole trip</option>'
+    + (d.components || []).map((c) => `<option value="${esc(c.id)}">${
+      esc([c.product_name || c.supplier, c.kind].filter(Boolean).join(' &middot; '))
+    }</option>`).join('');
+
   if (o) {
+    optionForm.elements.componentId.value = o.component_id || '';
     optionForm.elements.label.value = o.label;
     optionForm.elements.detail.value = o.detail || '';
     optionForm.elements.amount.value = (o.amount_cents / 100).toFixed(2);

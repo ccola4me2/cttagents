@@ -110,6 +110,7 @@ import {
 } from './households.js';
 import {
   handleListItinerary, handleSaveItem, handleDeleteItem, handleShareItinerary,
+  handleReorderItinerary,
 } from './itinerary.js';
 import {
   handleListLibrary, handleSaveLibraryPiece, handleDeleteLibraryPiece, handleUseLibraryPiece,
@@ -385,6 +386,7 @@ async function routeApi(request, env, path, method) {
   const itinItemMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary\/([^/]+)$/);
   const itinShareMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary-shared$/);
   const itinUseMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary\/from-library$/);
+  const itinOrderMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary\/reorder$/);
   const optionsOpenMatch = path.match(/^\/api\/bookings\/([^/]+)\/options-open$/);
   const libMatch = path.match(/^\/api\/itinerary-library\/([^/]+)$/);
   const provisionMatch = path.match(/^\/api\/agencies\/([^/]+)\/provision$/);
@@ -650,6 +652,10 @@ async function routeApi(request, env, path, method) {
   // The trip, day by day. from-library goes before the single-segment item
   // match, which would otherwise read "from-library" as an item id.
   if (itinUseMatch && method === 'POST') return handleUseLibraryPiece(request, env, itinUseMatch[1]);
+  // Before the single-segment item match, which would read "reorder" as an id.
+  if (itinOrderMatch && method === 'POST') {
+    return handleReorderItinerary(request, env, itinOrderMatch[1]);
+  }
   if (itinShareMatch && method === 'POST') {
     return handleShareItinerary(request, env, itinShareMatch[1]);
   }

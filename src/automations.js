@@ -32,6 +32,11 @@ export const TRIGGERS = [
   // these for its own to-do lists; firing them as triggers lets a GoHighLevel
   // campaign do the talking instead of the advisor remembering to.
   'booking.returned',
+  // The client said yes. Until now that was recorded and nothing followed it,
+  // so the form, the deposit reminder and the welcome all waited on an advisor
+  // noticing. It is the one moment in the whole arc where the client has just
+  // acted and is still paying attention.
+  'option.chosen',
 ];
 
 export const ACTIONS = [

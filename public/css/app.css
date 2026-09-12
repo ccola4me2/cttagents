@@ -1134,3 +1134,18 @@ th.num .th-sort { justify-content: flex-end; }
 .pick { display: flex; align-items: center; gap: .5rem; font-weight: 400; padding: .2rem 0; }
 .pick input { width: auto; margin: 0; }
 .pick:has(input:disabled) { opacity: .5; }
+
+/*
+  An itinerary stop you can drag into place.
+
+  sort_order was only ever settable from a number field, which is a strange
+  way to answer "does the excursion come before lunch".
+*/
+.itin-row { display: flex; align-items: center; gap: .6rem; cursor: default; }
+.itin-grip {
+  cursor: grab; color: var(--navy-300, #9aa8ba); letter-spacing: -2px;
+  font-size: .9rem; line-height: 1; user-select: none; flex: none;
+}
+.itin-grip:active { cursor: grabbing; }
+.itin-row.itin-dragging { opacity: .45; }
+.itin-row:hover .itin-grip { color: var(--teal-500); }

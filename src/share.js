@@ -31,6 +31,8 @@ import { json, badRequest, notFound, clean, cleanText, uid, now, sha256Hex, read
 import { brandForUser, DEFAULT_BRAND, HEX_COLOR } from './brand.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
+import * as ghl from './ghl.js';
+import { fireTrigger } from './automations.js';
 import { sendTripMessageEmail, sendOptionChosenEmail } from './email.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
@@ -151,7 +153,7 @@ async function loadTrip(env, code) {
   const booking = await env.DB.prepare(
     `SELECT b.*, u.first_name, u.last_name, u.email AS advisor_email,
             u.notify_email, u.phone AS advisor_phone, u.agency_name,
-            u.agency_address, u.seller_of_travel
+            u.agency_address, u.seller_of_travel, u.ghl_location_id
        FROM bookings b JOIN users u ON u.id = b.user_id
       WHERE b.share_code = ?`
   ).bind(code).first();
@@ -177,7 +179,7 @@ async function loadTrip(env, code) {
     // inclusions are what make three lines of text into a choice anybody
     // enjoys making.
     env.DB.prepare(`SELECT id, label, detail, amount_cents, chosen, image_url, inclusions,
-                           chosen_at, chosen_by
+                           chosen_at, chosen_by, component_id
                       FROM quote_options
                      WHERE booking_id = ? AND user_id = ? ORDER BY sort_order ASC`)
       .bind(booking.id, owner).all(),
@@ -583,12 +585,18 @@ export async function handleClientChoose(request, env, code) {
   const owner = trip.booking.user_id;
   const ts = now();
 
-  // One at a time. Two chosen options is not a client who wants both, it is a
-  // record nobody can read.
+  // One at a time within a group, not across the whole reservation. The group
+  // is the part of the trip the option belongs to, or the trip itself. Without
+  // this, a client choosing their cabin would clear the insurance they picked
+  // a moment earlier and watch their own answer vanish.
+  const group = option.component_id
+    ? { sql: 'component_id = ?', binds: [option.component_id] }
+    : { sql: 'component_id IS NULL', binds: [] };
+
   await env.DB.prepare(
     `UPDATE quote_options SET chosen = 0, chosen_at = NULL, chosen_by = NULL, updated_at = ?
-      WHERE booking_id = ? AND user_id = ?`
-  ).bind(ts, trip.booking.id, owner).run();
+      WHERE booking_id = ? AND user_id = ? AND ${group.sql}`
+  ).bind(ts, trip.booking.id, owner, ...group.binds).run();
 
   await env.DB.prepare(
     `UPDATE quote_options SET chosen = 1, chosen_at = ?, chosen_by = 'client', updated_at = ?
@@ -602,6 +610,21 @@ export async function handleClientChoose(request, env, code) {
      VALUES (?, ?, ?, ?, ?, ?)`
   ).bind(uid(), trip.booking.id, owner,
          `Chose "${option.label}" from the options.`, ipHash, ts).run();
+
+  // The client has just said yes and is still paying attention, which is the
+  // moment to send the form, start the deposit reminder, say thank you. Fired
+  // after the choice is recorded, so an automation that reads the booking sees
+  // the answer rather than the question. Keyed on the option, because changing
+  // their mind and changing it back is a correction and not a second yes.
+  await fireTrigger(env, ghl.locationFor(env, trip.booking), 'option.chosen', {
+    bookingId: trip.booking.id,
+    contactId: trip.booking.ghl_contact_id || null,
+    name: trip.booking.client_name,
+    option: option.label,
+    amount: option.amount_cents || 0,
+    part: option.component_id ? 'part of the trip' : 'the whole trip',
+    chosen_by: 'client',
+  }, { key: `option.chosen:${option.id}` });
 
   try {
     await sendOptionChosenEmail(env, {
