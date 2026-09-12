@@ -199,12 +199,21 @@ function render(d) {
   const showAdvisor = Boolean(d.scope && d.scope.all);
   data = d;
   const s = d.stats;
+  // The chase tile counts clients rather than money.
+  //
+  // It used to lead with a total, and that total is the same money as the tile
+  // beside it: a soft reminder is the vendor's balance shown a week early so
+  // somebody rings the client in time. Two headline figures both reading
+  // $2,162.49 look like four thousand owed, which is exactly twice the truth.
+  // What deserves a headline here is how many people to ring.
   statsEl.innerHTML = `
     <div class="stat"><p class="label">Hard payments due</p>
       <p class="value" style="${s.hardDueCents ? 'color:var(--red-600);' : ''}">${money(s.hardDueCents)}</p>
       <p class="meta">${s.hardCount} vendor deadline${s.hardCount === 1 ? '' : 's'} in 30 days</p></div>
-    <div class="stat"><p class="label">Soft reminders due</p><p class="value">${money(s.softDueCents)}</p>
-      <p class="meta">${s.softCount} to chase before the deadline</p></div>
+    <div class="stat"><p class="label">To chase this week</p>
+      <p class="value">${s.softCount}</p>
+      <p class="meta">${s.softCount === 1 ? 'client' : 'clients'} to ring before the deadline.
+        Their balances are counted on the left.</p></div>
     <div class="stat"><p class="label">Past due date</p>
       <p class="value" style="${s.pastDueCents ? 'color:var(--red-600);' : ''}">${money(s.pastDueCents)}</p>
       <p class="meta">${s.pastDueCount} to confirm with the vendor</p></div>
