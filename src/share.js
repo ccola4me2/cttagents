@@ -784,7 +784,7 @@ function page(title, body, brand) {
      app the reader already uses. A link rather than an embedded map: an embed
      needs a key and puts somebody else's script on a page a client opens. */
   .itin-map{font-size:.78rem;text-decoration:none;color:var(--navy);border-bottom:1px dotted}
-  .itin-map:hover{color:var(--coral)}
+  .itin-map:hover{color:var(--teal)}
 
   .hero{margin:0 0 1.6rem}
 
