@@ -61,8 +61,28 @@ const selectOptions = (list, current) => (list || [])
 
 // The lists come from the API rather than being written out here, so this form
 // and the validator behind it cannot disagree about what a status may be.
-const list = await api('/api/bookings?limit=1').catch(() => ({}));
-const o = list.fieldOptions || {};
+//
+// Said out loud when it fails, rather than caught and dropped. A swallowed
+// error here does not produce an error, it produces a form whose Status,
+// Product type and Insurance dropdowns are empty and therefore unclickable,
+// which reads as "the button is broken" and sends nobody to the real cause.
+// This happened for real: two columns were missing from the database, every
+// call to /api/bookings answered 500, and the only symptom anybody saw was a
+// status you could not choose.
+let o = {};
+try {
+  o = (await api('/api/bookings?limit=1')).fieldOptions || {};
+} catch (e) {
+  document.getElementById('err').innerHTML = `<div class="notice notice-error">
+    Could not load the lists this form needs, so its dropdowns are empty:
+    ${esc(e.message || String(e))}<br>
+    <a href="/admin/">Check the portal health</a> before taking this reservation.</div>`;
+}
+if (!o.statuses) {
+  document.getElementById('err').innerHTML = document.getElementById('err').innerHTML
+    || `<div class="notice notice-error">The portal did not send the lists this form needs,
+        so its dropdowns are empty. Nothing typed here would save correctly.</div>`;
+}
 const ME = (await api('/api/auth/me').catch(() => ({}))).user?.id;
 
 // Only the advisor's own open groups: a reservation cannot be sold out of
