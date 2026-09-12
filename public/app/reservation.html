@@ -524,9 +524,17 @@ function drawShare() {
       <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">
         <code style="font-size:.92rem;">${esc(url)}</code>
         <button class="btn btn-ghost btn-sm" id="share-copy">Copy link</button>
-        <a class="btn btn-ghost btn-sm" href="/t/${esc(b.share_code)}" target="_blank"
+        <a class="btn btn-ghost btn-sm" href="/t/${esc(b.share_code)}?preview" target="_blank"
           rel="noopener">Open it</a>
       </div>
+      <p style="margin:.7rem 0 0;font-size:.92rem;">${b.view_count
+        ? `<strong>Opened ${b.view_count} time${b.view_count === 1 ? '' : 's'}.</strong>
+           First ${esc(timeAgo(b.viewed_first_at))}${
+             b.viewed_last_at && b.viewed_last_at !== b.viewed_first_at
+               ? `, last ${esc(timeAgo(b.viewed_last_at))}` : ''}.`
+        : `<span class="muted">Not opened yet.${b.shared_at
+            ? ` Shared ${esc(timeAgo(b.shared_at))}.` : ''}</span>`}
+        <span class="muted">Your own Open it link is not counted.</span></p>
       <p class="field-hint" style="margin-top:.6rem;">Anybody with this link can see the trip.
         ${shownDocs ? `${shownDocs} document${shownDocs === 1 ? '' : 's'} shared.`
           : 'No documents shared yet.'}
