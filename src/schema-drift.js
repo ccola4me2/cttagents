@@ -40,10 +40,18 @@ function tableOrigin(table) {
 /**
  * Compare the live schema against what the migrations describe.
  *
- * Returns { ok, missingTables, missingColumns, checked }. Extra columns and
- * extra tables are not reported: a column the migrations no longer mention is
- * harmless, and treating it as a fault would make the check cry wolf on every
- * table left behind by a migration that dropped something.
+ * Returns { ok, missingTables, missingColumns, unexpectedColumns, checked }.
+ *
+ * Missing is a fault: a page will 500 on it. Extra is not, and ok ignores it,
+ * because a column the migrations no longer mention is harmless and failing on
+ * one would cry wolf over everything a dropped migration left behind.
+ *
+ * Extra is still worth naming though, which it was not before. quote_options
+ * turned out to be carrying a component_id that no migration in the repository
+ * creates, and the only way that was ever going to surface was an ALTER TABLE
+ * answering "duplicate column name" to somebody applying a migration by hand.
+ * A column nobody can account for means the migrations have stopped describing
+ * the database, and that is worth reading before it is worth worrying about.
  */
 export async function schemaDrift(env) {
   const names = Object.keys(EXPECTED_SCHEMA).filter((t) => SAFE.test(t));
@@ -54,11 +62,15 @@ export async function schemaDrift(env) {
   try {
     results = await env.DB.batch(names.map((t) => env.DB.prepare(`PRAGMA table_info(${t})`)));
   } catch (e) {
-    return { ok: false, error: String((e && e.message) || e), checked: 0, missingTables: [], missingColumns: [] };
+    return {
+      ok: false, error: String((e && e.message) || e), checked: 0,
+      missingTables: [], missingColumns: [], unexpectedColumns: [],
+    };
   }
 
   const missingTables = [];
   const missingColumns = [];
+  const unexpectedColumns = [];
 
   names.forEach((table, i) => {
     const rows = results[i]?.results || [];
@@ -69,6 +81,9 @@ export async function schemaDrift(env) {
       const files = [...new Set(absent.map((c) => COLUMN_ORIGIN[`${table}.${c}`]).filter(Boolean))];
       missingColumns.push({ table, columns: absent, migrations: files });
     }
+    const expected = new Set(EXPECTED_SCHEMA[table]);
+    const extra = [...live].filter((c) => !expected.has(c));
+    if (extra.length) unexpectedColumns.push({ table, columns: extra });
   });
 
   // Both kinds of absence, in one list. Built from missing columns alone at
@@ -85,6 +100,9 @@ export async function schemaDrift(env) {
     checked: names.length,
     missingTables,
     missingColumns,
+    // Not counted in ok. Nothing breaks because of these; they are a note that
+    // somebody changed the database without a migration to say so.
+    unexpectedColumns,
     // The migrations that would fix it, which is the only part anyone has to
     // act on.
     pendingMigrations: pending,

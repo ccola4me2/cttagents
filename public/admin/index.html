@@ -43,6 +43,18 @@
         </div>
         <div id="mail-body" class="card-pad"><p class="spinner">Loading...</p></div>
       </section>
+      <!--
+        The schema check has existed for months and was rendered nowhere, so
+        the answer to "why is this page 500ing" sat behind an authenticated
+        endpoint nobody was going to curl. Three migrations went unapplied for
+        weeks and the symptom that finally reached anybody was a dropdown that
+        would not open.
+      -->
+      <section class="card" id="schema">
+        <div class="card-head"><h2>Database</h2>
+          <span class="muted" id="schema-sum"></span></div>
+        <div id="schema-body" class="card-pad"><p class="spinner">Loading...</p></div>
+      </section>
       <section class="card" id="add">
         <div class="card-head"><h2>Add an advisor</h2></div>
         <div class="card-pad">
@@ -185,6 +197,66 @@ async function loadMail(probe = false) {
 }
 
 document.getElementById('mail-check').addEventListener('click', () => loadMail(true));
+
+/**
+ * What the database is missing, and what nobody can account for.
+ *
+ * Missing is the fault: a page reading a column that is not there answers 500,
+ * and the code is right, so there is nothing in the repository to look at. The
+ * migration that would fix it is named because that is the only part anybody
+ * has to act on.
+ *
+ * Unexpected is not a fault and is not counted as one. It means somebody
+ * altered the database without a migration saying so, which is worth reading
+ * before it is worth worrying about.
+ */
+async function loadSchema() {
+  const body = document.getElementById('schema-body');
+  const sum = document.getElementById('schema-sum');
+  try {
+    const d = await api('/api/admin/health');
+    const sc = d.schema;
+    if (!sc) {
+      sum.textContent = '';
+      body.innerHTML = '<p class="field-hint" style="margin:0;">The database could not be '
+        + 'reached, so nothing could be checked.</p>';
+      return;
+    }
+
+    sum.textContent = sc.ok
+      ? `${sc.checked} tables, all present`
+      : `${sc.missingTables.length + sc.missingColumns.length} to fix`;
+
+    let html = '';
+    if (sc.ok) {
+      html += mailRow('Schema', 'matches the migrations', 'green-600');
+    } else {
+      if (sc.missingTables.length) {
+        html += mailRow('Missing tables', sc.missingTables.join(', '), 'red-600');
+      }
+      for (const m of sc.missingColumns) {
+        html += mailRow(`Missing from ${m.table}`, m.columns.join(', '), 'red-600');
+      }
+      if (sc.pendingMigrations && sc.pendingMigrations.length) {
+        html += `<p class="field-hint" style="margin-top:.6rem;">Run ${
+          sc.pendingMigrations.map((f) => `<code>${esc(f)}</code>`).join(', ')
+        } against this database. Until then any page reading those columns answers 500,
+          and the code is right.</p>`;
+      }
+    }
+
+    if (sc.unexpectedColumns && sc.unexpectedColumns.length) {
+      for (const u of sc.unexpectedColumns) {
+        html += mailRow(`Not in any migration: ${u.table}`, u.columns.join(', '), 'amber-600');
+      }
+      html += '<p class="field-hint" style="margin-top:.6rem;">Nothing breaks because of '
+        + 'these. They mean the database was changed without a migration to record it, so '
+        + 'a database built fresh from the migrations would not have them.</p>';
+    }
+
+    body.innerHTML = html;
+  } catch (err) { showError(body, err); }
+}
 
 document.getElementById('mail-test').addEventListener('click', async (ev) => {
   const btn = ev.target;
@@ -535,5 +607,6 @@ actas.addEventListener('change', async () => {
 filter.addEventListener('change', load);
 await Promise.all([load(), loadSync()]);
 loadMail();
+loadSchema();
 </script>
 </body></html>
