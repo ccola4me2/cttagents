@@ -2160,6 +2160,128 @@ async function main() {
     check(theirs.status === 404, 'another advisor cannot add to it', `status ${theirs.status}`);
   }
 
+  // ------------------------------------------- the client answers back -----
+  // The options existed and the page showed them read only, under "tell your
+  // advisor below". So the client typed their pick into a message box and
+  // somebody transcribed it, which is a proposal stopping one step short of
+  // the only thing a proposal is for.
+  step('A client chooses from the proposal');
+  {
+    const q = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Proposal ${stamp}`, supplier: 'Princess',
+      departDate: isoDay(200), returnDate: isoDay(207), status: 'quoted',
+    });
+    const qid = q.data?.booking?.id;
+    if (qid) cleanup('the proposal reservation',
+      () => call(advisor, 'DELETE', `/api/bookings/${qid}`));
+
+    const badPic = await call(advisor, 'POST', `/api/bookings/${qid}/options`, {
+      label: 'Insecure', amount: '100', imageUrl: 'http://example.com/a.jpg',
+    });
+    check(badPic.status === 400,
+      'a picture over plain http is refused, since the page it loads on is https',
+      `status ${badPic.status}`);
+
+    await call(advisor, 'POST', `/api/bookings/${qid}/options`, {
+      label: 'Inside', amount: '2196.00', inclusions: 'Wi-Fi for one\nGratuities',
+      imageUrl: 'https://example.com/inside.jpg',
+    });
+    await call(advisor, 'POST', `/api/bookings/${qid}/options`, {
+      label: 'Balcony', amount: '2996.00', inclusions: 'Drinks package\n$100 credit',
+    });
+    const rec = await call(advisor, 'GET', `/api/bookings/${qid}/record`);
+    const balcony = (rec.data?.options || []).find((o) => o.label === 'Balcony');
+    check((rec.data?.options || []).length === 2 && balcony,
+      'two options sit on the quote', `${(rec.data?.options || []).length}`);
+    check((rec.data.options.find((o) => o.label === 'Inside') || {}).inclusions
+      === 'Wi-Fi for one\nGratuities',
+      'each carrying what is included, which is the part they compare');
+
+    const code = (await call(advisor, 'POST', `/api/bookings/${qid}/share`, { shared: true }))
+      .data?.code;
+    check(Boolean(code), 'the trip page has a code to answer on', JSON.stringify(code));
+
+    // Shut until the advisor opens it.
+    const shut = await fetch(`${BASE}/t/${code}/choose`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ optionId: balcony.id }),
+    });
+    check(shut.status === 400,
+      'a quote still being written cannot be answered', `status ${shut.status}`);
+
+    await call(advisor, 'POST', `/api/bookings/${qid}/options-open`, { open: true });
+    const page = await fetch(`${BASE}/t/${code}`).then((r) => r.text());
+    check(/Choose your trip/.test(page) && /Choose this one/.test(page),
+      'once open the page asks rather than tells');
+    check(/Nothing is booked and nothing is paid by choosing/.test(page),
+      'and says plainly that choosing is not paying');
+
+    const picked = await fetch(`${BASE}/t/${code}/choose`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ optionId: balcony.id }),
+    }).then((r) => r.json());
+    check(picked.ok === true && picked.chosen === balcony.id,
+      'the client picks one with no account and no session', JSON.stringify(picked).slice(0, 90));
+
+    const after = await call(advisor, 'GET', `/api/bookings/${qid}/record`);
+    const chosen = (after.data?.options || []).filter((o) => o.chosen);
+    check(chosen.length === 1 && chosen[0].id === balcony.id,
+      'exactly one is marked, not two');
+    check(chosen[0].chosen_by === 'client' && chosen[0].chosen_at,
+      'stamped as theirs and when, because that is different from the advisor ticking it',
+      `${chosen[0].chosen_by}`);
+    // The whole point of keeping money out of it.
+    check(!after.data.booking.gross_cents,
+      'and the reservation price is untouched: choosing is a decision, not a payment',
+      `${after.data.booking.gross_cents}`);
+
+    const said = await call(advisor, 'GET', `/api/bookings/${qid}/messages`);
+    check((said.data?.messages || []).some((m) => /Chose "Balcony"/.test(m.body)),
+      'the choice lands in the conversation too, so it is all in one place');
+
+    // Changing their mind moves the mark rather than adding a second.
+    const inside = (after.data.options).find((o) => o.label === 'Inside');
+    await fetch(`${BASE}/t/${code}/choose`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ optionId: inside.id }),
+    });
+    const moved = await call(advisor, 'GET', `/api/bookings/${qid}/record`);
+    check((moved.data.options || []).filter((o) => o.chosen).length === 1
+      && (moved.data.options.find((o) => o.chosen) || {}).id === inside.id,
+      'changing their mind moves the mark rather than adding a second');
+
+    const nonsense = await fetch(`${BASE}/t/${code}/choose`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ optionId: 'not-an-option' }),
+    });
+    check(nonsense.status === 400, 'an option that is not on this quote is refused',
+      `status ${nonsense.status}`);
+
+    const bot = await fetch(`${BASE}/t/${code}/choose`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ optionId: balcony.id, company_website: 'spam.example' }),
+    }).then((r) => r.json());
+    const afterBot = await call(advisor, 'GET', `/api/bookings/${qid}/record`);
+    check(bot.ok === true
+      && (afterBot.data.options.find((o) => o.chosen) || {}).id === inside.id,
+      'a bot is thanked and changes nothing, so it learns which it was from neither');
+
+    await call(advisor, 'POST', `/api/bookings/${qid}/options-open`, { open: false });
+    const closed = await fetch(`${BASE}/t/${code}`).then((r) => r.text());
+    check(/What was offered/.test(closed) && !/data-choose=/.test(closed),
+      'closing it puts the page back to showing rather than asking');
+
+    // Removed here rather than left to the final sweep. The dashboard's quote
+    // panel shows twelve, and an extra quote left lying about for the rest of
+    // the run pushes somebody else's fixture off the end of it.
+    await call(advisor, 'DELETE', `/api/bookings/${qid}`);
+  }
+
   // ---------------------------------------------- written once, reused -----
   // The builder without this is a retyping exercise, which is where a tool
   // like it gets abandoned: doing the job twice is slower than the email.

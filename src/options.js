@@ -11,13 +11,13 @@
 // about a client the next time you quote them, and it is exactly what gets
 // lost when the losing options are deleted.
 
-import { json, badRequest, notFound, clean, toCents, uid, now, readJson } from './util.js';
+import { json, badRequest, notFound, clean, cleanText, toCents, uid, now, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 
 const COLUMNS = `
   id, booking_id, user_id, label, detail, amount_cents, chosen, sort_order,
-  created_at, updated_at
+  image_url, inclusions, chosen_at, chosen_by, created_at, updated_at
 `;
 
 export async function listOptions(env, bookingId, scope) {
@@ -33,12 +33,24 @@ export async function listOptions(env, bookingId, scope) {
 function parse(body) {
   const label = clean(body.label, 120);
   if (!label) return { error: 'What is this option called?' };
+
+  const imageUrl = clean(body.imageUrl, 500);
+  if (imageUrl && !/^https:\/\//i.test(imageUrl)) {
+    // It loads on a page the client opens over https, and a plain http image
+    // on one of those is a browser warning beside your proposal.
+    return { error: 'A picture address has to start with https://.' };
+  }
   return {
     fields: {
       label,
       detail: clean(body.detail, 200),
       amountCents: toCents(body.amount),
       sortOrder: Math.max(0, Math.min(Number(body.sortOrder) || 0, 999)),
+      imageUrl: imageUrl || null,
+      // What the client gets for the money. Its own field rather than more
+      // prose in detail, because this is the part they compare across three
+      // options and comparing needs it in the same place on each.
+      inclusions: cleanText(body.inclusions, 1500) || null,
     },
   };
 }
@@ -57,10 +69,11 @@ export async function handleAddOption(request, env, bookingId) {
   const ts = now();
   await env.DB.prepare(
     `INSERT INTO quote_options
-       (id, booking_id, user_id, label, detail, amount_cents, chosen, sort_order, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
+       (id, booking_id, user_id, label, detail, amount_cents, chosen, sort_order,
+        image_url, inclusions, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`
   ).bind(id, bookingId, user.id, fields.label, fields.detail, fields.amountCents,
-         fields.sortOrder, ts, ts).run();
+         fields.sortOrder, fields.imageUrl, fields.inclusions, ts, ts).run();
 
   await db.logActivity(env, user.id, 'option.add',
     `Added "${fields.label}" to ${booking.client_name}'s quote`, { bookingId });
@@ -76,9 +89,9 @@ export async function handleUpdateOption(request, env, id) {
 
   const res = await env.DB.prepare(
     `UPDATE quote_options SET label = ?, detail = ?, amount_cents = ?, sort_order = ?,
-            updated_at = ? WHERE id = ? AND user_id = ?`
+            image_url = ?, inclusions = ?, updated_at = ? WHERE id = ? AND user_id = ?`
   ).bind(fields.label, fields.detail, fields.amountCents, fields.sortOrder,
-         now(), id, user.id).run();
+         fields.imageUrl, fields.inclusions, now(), id, user.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Option not found.');
   return json({ ok: true });
 }
@@ -106,6 +119,27 @@ export async function handleDeleteOption(request, env, id) {
  * not a deposit, and moving the reservation to booked on their behalf would
  * put money into production that nobody has taken.
  */
+/**
+ * Let the client answer, or stop them.
+ *
+ * Its own switch rather than "there are options, so they may pick one": a
+ * quote still being written should not be answerable, and one already settled
+ * on the phone should not be contradicted by the page a week later.
+ */
+export async function handleOpenOptions(request, env, bookingId) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const body = await readJson(request);
+  const open = body.open === true || body.open === 'on';
+  const res = await env.DB.prepare(
+    'UPDATE bookings SET options_open = ?, updated_at = ? WHERE id = ? AND user_id = ?'
+  ).bind(open ? 1 : 0, now(), bookingId, user.id).run();
+  if (!res.meta || res.meta.changes === 0) return notFound('Reservation not found.');
+
+  return json({ ok: true, open });
+}
+
 export async function handleChooseOption(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
@@ -126,13 +160,15 @@ export async function handleChooseOption(request, env, id) {
   // One at a time. Two chosen options is not a client who wants both, it is a
   // record nobody can read.
   await env.DB.prepare(
-    'UPDATE quote_options SET chosen = 0, updated_at = ? WHERE booking_id = ? AND user_id = ?'
+    `UPDATE quote_options SET chosen = 0, chosen_at = NULL, chosen_by = NULL,
+       updated_at = ? WHERE booking_id = ? AND user_id = ?`
   ).bind(now(), option.booking_id, user.id).run();
 
   if (chosen) {
     await env.DB.prepare(
-      'UPDATE quote_options SET chosen = 1, updated_at = ? WHERE id = ? AND user_id = ?'
-    ).bind(now(), id, user.id).run();
+      `UPDATE quote_options SET chosen = 1, chosen_at = ?, chosen_by = 'advisor',
+         updated_at = ? WHERE id = ? AND user_id = ?`
+    ).bind(now(), now(), id, user.id).run();
 
     await env.DB.prepare(
       'UPDATE bookings SET gross_cents = ?, updated_at = ? WHERE id = ? AND user_id = ?'

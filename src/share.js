@@ -31,7 +31,7 @@ import { json, badRequest, notFound, clean, cleanText, uid, now, sha256Hex, read
 import { brandForUser, DEFAULT_BRAND, HEX_COLOR } from './brand.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
-import { sendTripMessageEmail } from './email.js';
+import { sendTripMessageEmail, sendOptionChosenEmail } from './email.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -173,7 +173,12 @@ async function loadTrip(env, code) {
     env.DB.prepare(`SELECT kind, product_name, supplier, start_date, end_date, confirmation_number
                       FROM components WHERE booking_id = ? AND user_id = ? ORDER BY sort_order ASC`)
       .bind(booking.id, owner).all(),
-    env.DB.prepare(`SELECT label, detail, amount_cents, chosen FROM quote_options
+    // The id is needed now that the client can choose one, and the picture and
+    // inclusions are what make three lines of text into a choice anybody
+    // enjoys making.
+    env.DB.prepare(`SELECT id, label, detail, amount_cents, chosen, image_url, inclusions,
+                           chosen_at, chosen_by
+                      FROM quote_options
                      WHERE booking_id = ? AND user_id = ? ORDER BY sort_order ASC`)
       .bind(booking.id, owner).all(),
     env.DB.prepare(`SELECT kind, amount_cents, due_date, paid_date FROM booking_payments
@@ -300,6 +305,47 @@ function dayDate(depart, n) {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * The options, and a way to answer them.
+ *
+ * These were read only for a long time, under "tell your advisor below", so
+ * the client typed their pick into a message box and somebody transcribed it.
+ * Now they can say it here. Choosing does not book anything and does not move
+ * a price: it records the answer and tells the advisor, which is exactly what
+ * the message box was doing, minus the transcription.
+ */
+function optionsBlock(trip, advisor) {
+  const list = trip.options || [];
+  if (!list.length) return '';
+  const open = Boolean(trip.booking.options_open);
+  const taken = list.find((o) => o.chosen);
+
+  const card = (o) => `<div class="option${o.chosen ? ' on' : ''}">
+    ${o.chosen ? '<span class="tick">Chosen</span>' : ''}
+    ${o.image_url ? `<img class="opic" src="${esc(o.image_url)}" alt="" loading="lazy">` : ''}
+    <p class="olabel">${esc(o.label)}</p>
+    ${o.amount_cents ? `<p class="oamount">${esc(money(o.amount_cents))}</p>` : ''}
+    ${o.detail ? `<p class="dim">${esc(o.detail)}</p>` : ''}
+    ${o.inclusions ? `<p class="oinc">${esc(o.inclusions)}</p>` : ''}
+    ${open && !o.chosen
+    ? `<button class="obtn" type="button" data-choose="${esc(o.id)}">Choose this one</button>`
+    : ''}
+  </div>`;
+
+  return `<section class="card pad" id="options">
+    <h2>${open ? 'Choose your trip' : 'What was offered'}</h2>
+    <p class="dim">${open
+    ? `Pick the one you want and ${esc(advisor)} will confirm it. Nothing is booked and nothing `
+      + 'is paid by choosing.'
+    : `If you would rather have one of the others, tell ${esc(advisor)} below.`}</p>
+    ${taken && taken.chosen_by === 'client'
+    ? `<p class="ochose">You chose <strong>${esc(taken.label)}</strong>. ${esc(advisor)} will
+        confirm it with you.</p>` : ''}
+    <div class="options">${list.map(card).join('')}</div>
+    <div id="choose-said"></div>
+  </section>`;
+}
+
 export async function renderTripPage(request, env, code) {
   const trip = await loadTrip(env, clean(code, 40));
   if (!trip) {
@@ -363,16 +409,7 @@ export async function renderTripPage(request, env, code) {
       </li>`).join('')}</ul>
     </section>` : ''}
 
-    ${trip.options.length ? `<section class="card pad">
-      <h2>What was offered</h2>
-      <p class="dim">If you would rather have one of the others, tell ${esc(advisor)} below.</p>
-      <div class="options">${trip.options.map((o) => `<div class="option${o.chosen ? ' on' : ''}">
-        ${o.chosen ? '<span class="tick">Chosen</span>' : ''}
-        <p class="olabel">${esc(o.label)}</p>
-        ${o.amount_cents ? `<p class="oamount">${esc(money(o.amount_cents))}</p>` : ''}
-        ${o.detail ? `<p class="dim">${esc(o.detail)}</p>` : ''}
-      </div>`).join('')}</div>
-    </section>` : ''}
+    ${optionsBlock(trip, advisor)}
 
     ${total || trip.payments.length ? `<section class="card pad">
       <h2>What it costs</h2>
@@ -435,7 +472,8 @@ export async function renderTripPage(request, env, code) {
       ${b.agency_address ? `<p class="dim">${esc(b.agency_address)}</p>` : ''}
       ${b.seller_of_travel ? `<p class="dim">${esc(b.seller_of_travel)}</p>` : ''}
     </footer>
-    ${SAY_SCRIPT}`;
+    ${SAY_SCRIPT}
+    ${CHOOSE_SCRIPT}`;
 
   return html(page(b.itinerary || b.product_name || 'Your trip', body,
     await brandForUser(env, b.user_id)));
@@ -492,6 +530,83 @@ export async function handleTripMessage(request, env, code) {
   return json({ ok: true, message: 'Sent. They will come back to you.' });
 }
 
+/**
+ * The client picks one of the options.
+ *
+ * The page has shown these for a long time and asked the client to describe
+ * their pick in a message, which the advisor then transcribed. That is a
+ * proposal stopping one step short of the only thing a proposal is for.
+ *
+ * Deliberately does not set the price on the reservation, and does not book
+ * anything. A client tapping a button is a decision to confirm, not money
+ * moving, and this portal never moves money on its own: the advisor applies
+ * the price, exactly as they do when they take the answer over the phone.
+ */
+export async function handleClientChoose(request, env, code) {
+  const trip = await loadTrip(env, clean(code, 40));
+  if (!trip) return notFound('This trip page is not available.');
+
+  // Shut unless the advisor opened it. A quote still being written should not
+  // be answerable, and one already settled on the phone should not be
+  // contradicted by the page.
+  if (!trip.booking.options_open) {
+    return badRequest('This quote is not taking answers. Get in touch and they will sort it.');
+  }
+
+  const body = await readJson(request);
+  if (clean(body.company_website, 200)) return json({ ok: true, message: 'Thanks.' });
+
+  const optionId = clean(body.optionId, 64);
+  const option = trip.options.find((o) => o.id === optionId);
+  if (!option) return badRequest('That is not one of the options.');
+
+  const ip = request.headers.get('CF-Connecting-IP') || '';
+  const ipHash = ip ? (await sha256Hex(`choose:${code}:${ip}`)).slice(0, 32) : null;
+
+  const owner = trip.booking.user_id;
+  const ts = now();
+
+  // One at a time. Two chosen options is not a client who wants both, it is a
+  // record nobody can read.
+  await env.DB.prepare(
+    `UPDATE quote_options SET chosen = 0, chosen_at = NULL, chosen_by = NULL, updated_at = ?
+      WHERE booking_id = ? AND user_id = ?`
+  ).bind(ts, trip.booking.id, owner).run();
+
+  await env.DB.prepare(
+    `UPDATE quote_options SET chosen = 1, chosen_at = ?, chosen_by = 'client', updated_at = ?
+      WHERE id = ? AND booking_id = ? AND user_id = ?`
+  ).bind(ts, ts, option.id, trip.booking.id, owner).run();
+
+  // Written into the conversation as well, so the choice and everything else
+  // they have said sit in one place rather than two.
+  await env.DB.prepare(
+    `INSERT INTO trip_messages (id, booking_id, user_id, body, ip_hash, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(uid(), trip.booking.id, owner,
+         `Chose "${option.label}" from the options.`, ipHash, ts).run();
+
+  try {
+    await sendOptionChosenEmail(env, {
+      to: trip.booking.notify_email || trip.booking.advisor_email,
+      firstName: trip.booking.first_name,
+      clientName: trip.booking.client_name,
+      tripName: trip.booking.itinerary || trip.booking.product_name || 'their trip',
+      optionLabel: option.label,
+      amountCents: option.amount_cents,
+      href: `${appUrl(env)}/app/reservation?id=${encodeURIComponent(trip.booking.id)}`,
+    });
+  } catch (e) {
+    console.error('option chosen mail', e);
+  }
+
+  return json({
+    ok: true,
+    chosen: option.id,
+    message: 'Thank you. They will confirm it with you shortly.',
+  });
+}
+
 /** One shared document, fetched through the trip page rather than by key. */
 export async function serveTripDocument(request, env, code, docId) {
   const trip = await loadTrip(env, clean(code, 40));
@@ -526,6 +641,36 @@ function html(markup, status = 200) {
 
 // Split so it cannot close the page early if this file is ever templated into
 // something else. The same trick the group page uses.
+const CHOOSE_SCRIPT = `<scr${''}ipt>
+document.querySelectorAll('[data-choose]').forEach(function (b) {
+  b.addEventListener('click', async function () {
+    var said = document.getElementById('choose-said');
+    // Every button, not just this one: two requests in flight would race to
+    // decide which option is the chosen one.
+    var all = document.querySelectorAll('[data-choose]');
+    all.forEach(function (x) { x.disabled = true; });
+    b.textContent = 'One moment...';
+    try {
+      var res = await fetch(location.pathname + '/choose', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ optionId: b.dataset.choose, company_website: '' }),
+      });
+      var data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'That did not go through.');
+      said.innerHTML = '<p class="ochose">' + data.message + '</p>';
+      // Reloaded rather than patched, so the page they are looking at is the
+      // page the advisor is looking at.
+      setTimeout(function () { location.reload(); }, 1200);
+    } catch (ex) {
+      said.innerHTML = '<p class="oerr">' + ex.message + '</p>';
+      all.forEach(function (x) { x.disabled = false; });
+      b.textContent = 'Choose this one';
+    }
+  });
+});
+</scr${''}ipt>`;
+
 const SAY_SCRIPT = `<scr${''}ipt>
 document.getElementById('say').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -632,6 +777,17 @@ function page(title, body, brand) {
   .tick{position:absolute;top:-.6rem;left:1rem;background:var(--navy);color:#fff;
     font-size:.64rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
     padding:.15rem .45rem;border-radius:4px}
+  .opic{width:100%;height:104px;object-fit:cover;border-radius:8px;margin:0 0 .6rem;display:block}
+  .oinc{margin:.4rem 0 0;font-size:.85rem;white-space:pre-wrap;color:var(--ink)}
+  .obtn{margin-top:.7rem;width:100%;border:1px solid var(--navy);background:#fff;
+    color:var(--navy);font:inherit;font-size:.85rem;font-weight:650;padding:.5rem .8rem;
+    border-radius:999px;cursor:pointer}
+  .obtn:hover{background:var(--navy);color:#fff}
+  .obtn:disabled{opacity:.55;cursor:not-allowed}
+  .oerr{margin:.7rem 0 0;padding:.6rem .8rem;background:#fdeeec;border-radius:8px;
+    font-size:.9rem;color:var(--late)}
+  .ochose{margin:0 0 .8rem;padding:.6rem .8rem;background:#eef6f1;border-radius:8px;
+    font-size:.9rem;color:var(--ok)}
   .olabel{margin:0;font-weight:650;color:var(--navy)}
   .oamount{margin:.2rem 0;font-size:1.25rem;font-weight:650;color:var(--navy);
     font-variant-numeric:tabular-nums}

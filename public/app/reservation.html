@@ -194,6 +194,15 @@
       <div class="field"><label for="o-amount">Total price (USD)</label>
         <input id="o-amount" name="amount" inputmode="decimal" placeholder="2596.00">
         <p class="field-hint">What this option costs the client in full, not the difference.</p></div>
+      <div class="field"><label for="o-inclusions">What is included</label>
+        <textarea id="o-inclusions" name="inclusions" maxlength="1500"
+          placeholder="Drinks package&#10;Wi-Fi for two&#10;$100 onboard credit"></textarea>
+        <p class="field-hint">One per line. This is the part they compare across the options,
+          so it wants to say the same kind of thing on each.</p></div>
+      <div class="field"><label for="o-image">Picture</label>
+        <input id="o-image" name="imageUrl" type="url" maxlength="500" placeholder="https://...">
+        <p class="field-hint">Has to start with https. A choice between three lines of text and
+          a number is not one anybody enjoys making.</p></div>
     </div>
     <div class="card-foot">
       <button class="btn btn-danger btn-sm" type="button" id="o-delete" hidden>Remove</button>
@@ -842,17 +851,38 @@ function drawOptions() {
   if (card.hidden) return;
 
   document.getElementById('option-actions').innerHTML = d.editable
-    ? '<button class="btn btn-ghost btn-sm" id="add-option">Add an option</button>' : '';
+    ? `${rows.length ? `<label style="display:inline-flex;align-items:center;gap:.4rem;
+        font-weight:400;font-size:.82rem;margin-right:.6rem;">
+        <input type="checkbox" id="opts-open" style="width:auto;"
+          ${d.booking.options_open ? 'checked' : ''}> Client can choose</label>` : ''}
+      <button class="btn btn-ghost btn-sm" id="add-option">Add an option</button>` : '';
   const add = document.getElementById('add-option');
   if (add) add.addEventListener('click', () => openOption(null));
+
+  const opens = document.getElementById('opts-open');
+  if (opens) opens.addEventListener('change', async () => {
+    opens.disabled = true;
+    try {
+      await api(`/api/bookings/${encodeURIComponent(id)}/options-open`,
+        { method: 'POST', body: { open: opens.checked } });
+      d.booking.options_open = opens.checked ? 1 : 0;
+    } catch (e) { opens.checked = !opens.checked; showError(err, e); }
+    finally { opens.disabled = false; }
+  });
 
   document.getElementById('options').innerHTML = rows.length
     ? `<div class="table-wrap"><table>
         <thead><tr><th>Option</th><th class="num">Price</th><th></th></tr></thead>
         <tbody>${rows.map((o) => `<tr${o.chosen ? ' style="background:var(--navy-50);"' : ''}>
           <td><span class="name">${esc(o.label)}</span>
-            ${o.chosen ? ' <span class="badge badge-green">chosen</span>' : ''}
-            ${o.detail ? `<div class="muted">${esc(o.detail)}</div>` : ''}</td>
+            ${o.chosen ? ` <span class="badge badge-green">chosen</span>${
+    o.chosen_by === 'client'
+      ? ' <span class="badge badge-navy">by the client</span>' : ''}` : ''}
+            ${o.detail ? `<div class="muted">${esc(o.detail)}</div>` : ''}
+            ${o.chosen && o.chosen_at
+    ? `<div class="muted" style="font-size:.74rem;">${
+      o.chosen_by === 'client' ? 'They chose it ' : 'Recorded '}${esc(timeAgo(o.chosen_at))}</div>`
+    : ''}</td>
           <td class="num">${money(o.amount_cents)}</td>
           <td class="num" style="white-space:nowrap;">${d.editable ? `
             <button class="btn btn-ghost btn-sm" data-choose="${esc(o.id)}"
@@ -2156,6 +2186,8 @@ function openOption(o) {
     optionForm.elements.label.value = o.label;
     optionForm.elements.detail.value = o.detail || '';
     optionForm.elements.amount.value = (o.amount_cents / 100).toFixed(2);
+    optionForm.elements.inclusions.value = o.inclusions || '';
+    optionForm.elements.imageUrl.value = o.image_url || '';
   }
   optionDlg.showModal();
 }

@@ -458,7 +458,8 @@ const BOOKING_COLUMNS = `
   cabin, cabin_category, itinerary, booking_method, insurance_status, advisor_split_pct,
   quote_sent_at, quote_sent_count, statement_sent_at, welcomed_at,
   invoice_no, invoice_issued_at, invoice_notes, personal,
-  created_at, updated_at, share_code, shared_at, statement_hash, lead_source, itinerary_shared
+  created_at, updated_at, share_code, shared_at, statement_hash, lead_source,
+  itinerary_shared, options_open
 `;
 
 // The same columns qualified, for the queries that join users to name the

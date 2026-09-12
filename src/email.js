@@ -405,6 +405,37 @@ export function sendTripMessageEmail(env, { to, firstName, clientName, tripName,
   });
 }
 
+/**
+ * A client has picked one of the options.
+ *
+ * The one message in this file that is genuinely good news, and it is time
+ * sensitive: somebody has just decided, and the gap between deciding and being
+ * confirmed is where people go cold.
+ */
+export function sendOptionChosenEmail(env, {
+  to, firstName, clientName, tripName, optionLabel, amountCents, href,
+}) {
+  if (!to) return Promise.resolve({ skipped: true });
+  const price = amountCents
+    ? ` at ${'$'}${((amountCents || 0) / 100).toFixed(2)}`
+    : '';
+  return send(env, {
+    to,
+    subject: `${clientName} chose ${optionLabel}`,
+    html: layout(env, {
+      heading: `${escapeHtml(clientName)} has chosen`,
+      body: `<p style="margin:0 0 12px;">Hi ${escapeHtml(firstName || 'there')},</p>
+             <p style="margin:0 0 12px;">They picked
+             <strong>${escapeHtml(optionLabel)}</strong>${escapeHtml(price)} for
+             <strong>${escapeHtml(tripName)}</strong>.</p>
+             <p style="margin:0 0 16px;">Nothing has been booked and nothing has been paid.
+             The reservation still shows whatever price you last put on it, so confirm the
+             option on the record when you are ready.</p>`,
+      cta: { label: 'Open the reservation', href },
+    }),
+  });
+}
+
 export function sendPasswordResetEmail(env, user, token) {
   const minutes = Number(env.RESET_TTL_MINUTES || 60);
   return send(env, {

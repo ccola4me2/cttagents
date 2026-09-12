@@ -32,7 +32,7 @@ import { remindDuePayments } from './payremind.js';
 import { sendCallLists } from './calllist.js';
 import {
   handleShareTrip, handleShareDocument, handleTripMessages, handleReadTripMessage,
-  renderTripPage, handleTripMessage, serveTripDocument,
+  renderTripPage, handleTripMessage, handleClientChoose, serveTripDocument,
 } from './share.js';
 import { handleReadConfirmation } from './confirm.js';
 import { migrationHint } from './schema-drift.js';
@@ -44,7 +44,7 @@ import {
 } from './documents.js';
 import { handleStatement } from './statement.js';
 import {
-  handleAddOption, handleUpdateOption, handleDeleteOption, handleChooseOption,
+  handleAddOption, handleUpdateOption, handleDeleteOption, handleChooseOption, handleOpenOptions,
 } from './options.js';
 import {
   handleListTiers, handleAddTier, handleUpdateTier, handleDeleteTier, handleApplyVendorTerms,
@@ -385,6 +385,7 @@ async function routeApi(request, env, path, method) {
   const itinItemMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary\/([^/]+)$/);
   const itinShareMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary-shared$/);
   const itinUseMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary\/from-library$/);
+  const optionsOpenMatch = path.match(/^\/api\/bookings\/([^/]+)\/options-open$/);
   const libMatch = path.match(/^\/api\/itinerary-library\/([^/]+)$/);
   const provisionMatch = path.match(/^\/api\/agencies\/([^/]+)\/provision$/);
   const houseMatch = path.match(/^\/api\/households\/([^/]+)$/);
@@ -633,6 +634,11 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/hotlists/done' && method === 'POST') return handleHotListDone(request, env);
   if (path === '/api/hotlists/undo' && method === 'POST') return handleHotListUndo(request, env);
 
+  // Whether the client may answer their own proposal.
+  if (optionsOpenMatch && method === 'POST') {
+    return handleOpenOptions(request, env, optionsOpenMatch[1]);
+  }
+
   // Pieces of an itinerary, written once and dropped into any trip.
   if (path === '/api/itinerary-library' && method === 'GET') return handleListLibrary(request, env);
   if (path === '/api/itinerary-library' && method === 'POST') {
@@ -816,6 +822,12 @@ async function routePage(request, env, path) {
   if (tripDoc) {
     return serveTripDocument(request, env,
       decodeURIComponent(tripDoc[1]), decodeURIComponent(tripDoc[2]));
+  }
+  // The client answering their proposal. Before the page match, which would
+  // otherwise read /choose as part of the code.
+  const tripChoose = path.match(/^\/t\/([^/]+)\/choose$/);
+  if (tripChoose && request.method === 'POST') {
+    return handleClientChoose(request, env, decodeURIComponent(tripChoose[1]));
   }
   const tripPage = path.match(/^\/t\/([^/]+)\/?$/);
   if (tripPage) {
