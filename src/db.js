@@ -1149,11 +1149,16 @@ export async function reservationPipeline(env, scope, today) {
     `SELECT b.id, b.client_name, b.supplier, b.product_name, b.status, b.gross_cents,
             b.depart_date, b.return_date, b.final_payment_due, b.quote_sent_at,
             b.ghl_contact_id,
+            -- Hard rows only, like every other money total. A soft row is the
+            -- same balance a week early, so counting a paid one would carry a
+            -- reservation to "paid in full" on half the money.
             COALESCE((SELECT SUM(p.amount_cents) FROM booking_payments p
                        WHERE p.booking_id = b.id AND p.kind = 'deposit'
+                         AND p.payment_class = 'hard'
                          AND p.paid_date IS NOT NULL), 0) AS deposit_paid_cents,
             COALESCE((SELECT SUM(p.amount_cents) FROM booking_payments p
-                       WHERE p.booking_id = b.id AND p.paid_date IS NOT NULL), 0) AS paid_cents
+                       WHERE p.booking_id = b.id AND p.payment_class = 'hard'
+                         AND p.paid_date IS NOT NULL), 0) AS paid_cents
        FROM bookings b
       WHERE ${b.sql} AND b.status IN ('quoted', 'booked', 'travelled')
       ORDER BY COALESCE(b.depart_date, '9999-12-31') ASC

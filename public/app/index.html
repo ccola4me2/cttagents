@@ -213,8 +213,17 @@ function build() {
 }
 
 // Module scope, because the panel builders below run outside build().
-const byClass = (cls) => d.upcomingPayments.filter((x) =>
-  cls === 'past' ? x.due_date < d.today : (x.payment_class === cls && x.due_date >= d.today));
+//
+// Passed means a vendor deadline that has gone by, so it counts hard rows
+// only. A soft row is the same balance a week early, and listing both put the
+// same money on the tab twice.
+//
+// A reminder whose own date has gone by is still something to chase, so it
+// stays on the chase tab rather than falling between the two.
+const byClass = (cls) => d.upcomingPayments.filter((x) => (
+  cls === 'past' ? x.payment_class === 'hard' && x.due_date < d.today
+    : cls === 'soft' ? x.payment_class === 'soft'
+      : x.payment_class === cls && x.due_date >= d.today));
 
 // --------------------------------------------------------------- panels ---
 // One builder per panel id. The server holds the same list of ids and drops
