@@ -37,6 +37,12 @@ jobs:
 
       - run: npm ci
 
+      # Cheapest of the lot: reads filenames. Goes first because a duplicated
+      # migration number makes "applied up to N" ambiguous, and the person
+      # applying them by hand is the one who pays for that.
+      - name: Migration numbers
+        run: npm run check:migrations
+
       # Offline, needs no server, and catches the cheapest class of bug, so it
       # goes first and fails fast.
       - name: Column lists against the schema
