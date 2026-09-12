@@ -43,6 +43,12 @@ jobs:
       - name: Migration numbers
         run: npm run check:migrations
 
+      # Also filenames-and-text cheap, and guards a rule that has been broken
+      # on five screens: a soft payment row is the same balance as its hard
+      # twin, so a total that counts both counts the money twice.
+      - name: Payment totals against the soft twin
+        run: npm run check:payments
+
       # Offline, needs no server, and catches the cheapest class of bug, so it
       # goes first and fails fast.
       - name: Column lists against the schema
