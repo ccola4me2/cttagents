@@ -167,8 +167,20 @@ export async function mountSupplierPicker(host, { typeOf, set, onSailing }) {
     sailingRow.hidden = !line;
     if (!line) return;
 
-    const d = await api(`/api/catalog/ships?line=${encodeURIComponent(line)}`).catch(() => null);
-    if (!d || !d.ships.length) {
+    // A lookup that failed and a line with nothing imported are different
+    // answers and used to read the same. "No sailings imported" sent people to
+    // the catalog to import what was already there, when the real problem was
+    // that the request had not come back.
+    let d;
+    try {
+      d = await api(`/api/catalog/ships?line=${encodeURIComponent(line)}`);
+    } catch (e) {
+      picked.hidden = false;
+      picked.textContent = `Could not look up ships for ${line}: ${
+        e.message || e}. Type the ship and dates in.`;
+      return;
+    }
+    if (!d.ships || !d.ships.length) {
       picked.hidden = false;
       picked.textContent = `No sailings imported for ${line} yet. Type the ship and dates in.`;
       return;
@@ -184,9 +196,25 @@ export async function mountSupplierPicker(host, { typeOf, set, onSailing }) {
     pickDate.disabled = true;
     dateRows = [];
     if (!pickShip.value) return;
-    const d = await api(`/api/catalog/dates?ship=${encodeURIComponent(pickShip.value)}`
-      + `&line=${encodeURIComponent(pickedLine)}`).catch(() => null);
-    if (!d || !d.dates.length) return;
+    // Said rather than left as a dropdown that will not open. An empty select
+    // is indistinguishable from a broken one, and the person looking at it has
+    // no way to tell which they have.
+    let d;
+    try {
+      d = await api(`/api/catalog/dates?ship=${encodeURIComponent(pickShip.value)}`
+        + `&line=${encodeURIComponent(pickedLine)}`);
+    } catch (e) {
+      picked.hidden = false;
+      picked.textContent = `Could not look up departures for ${pickShip.value}: ${
+        e.message || e}. Type the dates in.`;
+      return;
+    }
+    if (!d.dates || !d.dates.length) {
+      picked.hidden = false;
+      picked.textContent = `No departures imported for ${pickShip.value}. Type the dates in.`;
+      return;
+    }
+    picked.hidden = true;
     dateRows = d.dates;
     pickDate.innerHTML = '<option value="">Departure</option>'
       + d.dates.map((r) => `<option value="${esc(r.depart_date)}">${esc(sailingLabel(r))}</option>`)

@@ -2296,6 +2296,23 @@ onSubmit(postForm, async (values) => {
   await load();
 });
 
+// Passengers the new-reservation form could not save.
+//
+// It creates the reservation first and adds the names afterwards, so a name
+// the API refuses leaves a trip for four carrying three people. Said once,
+// here, where they can be added by hand.
+(() => {
+  let lost = [];
+  try {
+    lost = JSON.parse(sessionStorage.getItem('ctt.travellers.lost') || '[]');
+    sessionStorage.removeItem('ctt.travellers.lost');
+  } catch { return; }
+  if (!Array.isArray(lost) || !lost.length) return;
+  err.innerHTML = `<div class="notice notice-warn">The reservation saved, but ${
+    lost.length === 1 ? 'this traveller was' : 'these travellers were'} not added: ${
+    esc(lost.join(', '))}. Add ${lost.length === 1 ? 'them' : 'each of them'} below.</div>`;
+})();
+
 const travellerDlg = document.getElementById('traveller-dlg');
 const travellerForm = document.getElementById('traveller-form');
 const amenityDlg = document.getElementById('amenity-dlg');

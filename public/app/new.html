@@ -87,8 +87,18 @@ const ME = (await api('/api/auth/me').catch(() => ({}))).user?.id;
 
 // Only the advisor's own open groups: a reservation cannot be sold out of
 // somebody else's block.
-const groups = await api('/api/groups?status=open')
-  .then((g) => g.groups.filter((x) => x.user_id === ME)).catch(() => []);
+//
+// A failure is remembered rather than swallowed. The group field is left out
+// when there are no groups, which is right, and was also what a failed lookup
+// produced, which is not: the field simply vanished and the form looked like
+// it had never offered to sell from a group at all.
+let groups = [];
+let groupsFailed = '';
+try {
+  groups = (await api('/api/groups?status=open')).groups.filter((x) => x.user_id === ME);
+} catch (e) {
+  groupsFailed = e.message || String(e);
+}
 
 // The CRM people currently on offer, by name, so choosing one can carry their
 // contact id and details onto the reservation instead of just their name.
@@ -138,12 +148,16 @@ document.getElementById('fields').innerHTML = [
   row(text('supplier', 'Vendor'), text('productName', 'Ship, hotel or product')),
   row(text('confirmationNumber', 'Confirmation number'),
       select('insuranceStatus', 'Insurance', o.insuranceStatuses, 'unknown')),
-  groups.length
-    ? `<div class="field"><label for="f-groupId">Sold from a group</label>
-        <select id="f-groupId" name="groupId"><option value="">Not from a group</option>
-        ${groups.map((g) => `<option value="${esc(g.id)}">${
-          esc([g.group_code, g.name].filter(Boolean).join(' / '))}</option>`).join('')}</select></div>`
-    : '',
+  groupsFailed
+    ? `<div class="field"><label>Sold from a group</label>
+        <p class="field-hint">Could not load your groups: ${esc(groupsFailed)}.
+          Take the reservation and attach it to its group afterwards.</p></div>`
+    : groups.length
+      ? `<div class="field"><label for="f-groupId">Sold from a group</label>
+          <select id="f-groupId" name="groupId"><option value="">Not from a group</option>
+          ${groups.map((g) => `<option value="${esc(g.id)}">${
+            esc([g.group_code, g.name].filter(Boolean).join(' / '))}</option>`).join('')}</select></div>`
+      : '',
 
   group('Travel'),
   row(date('departDate', 'Departing'), date('returnDate', 'Returning')),
@@ -409,9 +423,21 @@ onSubmit(form, async (values) => {
   // One at a time, and failures are not fatal: the reservation exists and the
   // names can be added on it. Losing the trip because a passenger name was
   // rejected would be the wrong way round.
+  //
+  // Not fatal is not the same as not worth saying. Silently dropping a
+  // passenger leaves a reservation for four with three people on it, and the
+  // only way to notice is to count. Whoever did not make it is named on the
+  // reservation when it opens.
+  const lost = [];
   for (const [i, name] of names.entries()) {
-    await api(`/api/bookings/${encodeURIComponent(id)}/travellers`,
-      { method: 'POST', body: { name, isLead: i === 0 } }).catch(() => null);
+    try {
+      await api(`/api/bookings/${encodeURIComponent(id)}/travellers`,
+        { method: 'POST', body: { name, isLead: i === 0 } });
+    } catch { lost.push(name); }
+  }
+  if (lost.length) {
+    try { sessionStorage.setItem('ctt.travellers.lost', JSON.stringify(lost)); }
+    catch { /* private window: the reservation still opens, just without the note */ }
   }
 
   location.href = `/app/reservation?id=${encodeURIComponent(id)}`;
