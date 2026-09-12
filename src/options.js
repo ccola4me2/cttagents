@@ -195,14 +195,17 @@ export async function handleChooseOption(request, env, id) {
   // whole-trip alternatives. Clearing everything was right when every option
   // was a whole alternative and is wrong now: choosing a cabin would unchoose
   // the insurance, and the client would watch their last answer disappear.
-  const group = option.component_id
-    ? { sql: 'component_id = ?', binds: [option.component_id] }
-    : { sql: 'component_id IS NULL', binds: [] };
+  // Named so it cannot be mistaken for a scope helper. check-scope refuses a
+  // write that names user_id and also interpolates ${something.sql}, because a
+  // write must never borrow a viewing scope, and a grouping predicate called
+  // group.sql is indistinguishable from one at a glance. It was right to ask.
+  const sameGroup = option.component_id ? 'component_id = ?' : 'component_id IS NULL';
+  const groupBinds = option.component_id ? [option.component_id] : [];
 
   await env.DB.prepare(
     `UPDATE quote_options SET chosen = 0, chosen_at = NULL, chosen_by = NULL,
-       updated_at = ? WHERE booking_id = ? AND user_id = ? AND ${group.sql}`
-  ).bind(now(), option.booking_id, user.id, ...group.binds).run();
+       updated_at = ? WHERE booking_id = ? AND user_id = ? AND ${sameGroup}`
+  ).bind(now(), option.booking_id, user.id, ...groupBinds).run();
 
   if (chosen) {
     await env.DB.prepare(

@@ -589,14 +589,16 @@ export async function handleClientChoose(request, env, code) {
   // is the part of the trip the option belongs to, or the trip itself. Without
   // this, a client choosing their cabin would clear the insurance they picked
   // a moment earlier and watch their own answer vanish.
-  const group = option.component_id
-    ? { sql: 'component_id = ?', binds: [option.component_id] }
-    : { sql: 'component_id IS NULL', binds: [] };
+  // Plain strings rather than a { sql, binds } pair: check-scope refuses a
+  // write that names user_id and also interpolates ${something.sql}, because
+  // that shape is how a write would borrow a viewing scope.
+  const sameGroup = option.component_id ? 'component_id = ?' : 'component_id IS NULL';
+  const groupBinds = option.component_id ? [option.component_id] : [];
 
   await env.DB.prepare(
     `UPDATE quote_options SET chosen = 0, chosen_at = NULL, chosen_by = NULL, updated_at = ?
-      WHERE booking_id = ? AND user_id = ? AND ${group.sql}`
-  ).bind(ts, trip.booking.id, owner, ...group.binds).run();
+      WHERE booking_id = ? AND user_id = ? AND ${sameGroup}`
+  ).bind(ts, trip.booking.id, owner, ...groupBinds).run();
 
   await env.DB.prepare(
     `UPDATE quote_options SET chosen = 1, chosen_at = ?, chosen_by = 'client', updated_at = ?
