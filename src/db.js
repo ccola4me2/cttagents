@@ -1816,12 +1816,20 @@ export async function paymentStats(env, scope, { today, soonThrough, softThrough
        -- Money totals count hard rows only: a soft row is the same balance
        -- again, a week earlier, so including it doubles every final payment.
        -- The soft and hard due figures below are counts within a window
-       -- rather than totals owed, so they are class filtered already.
+       -- rather than totals owed, and are class filtered for that reason.
        SUM(CASE WHEN payment_class = 'hard' AND paid_date IS NOT NULL THEN amount_cents ELSE 0 END) AS posted,
        SUM(CASE WHEN payment_class = 'hard' AND paid_date IS NULL THEN amount_cents ELSE 0 END) AS outstanding,
-       SUM(CASE WHEN paid_date IS NULL AND due_date IS NOT NULL AND due_date < ?
+       -- Hard rows only, for the same reason as the two above, which the
+       -- comment claimed was already true here and was not. A final payment
+       -- has two rows: the vendor's deadline and this portal's reminder a week
+       -- earlier for the same balance. Counting both made every late payment
+       -- worth twice what it was, and a balance that had been posted stayed in
+       -- the past due column because only its hard row had been ticked.
+       SUM(CASE WHEN payment_class = 'hard' AND paid_date IS NULL
+                     AND due_date IS NOT NULL AND due_date < ?
                 THEN amount_cents ELSE 0 END) AS past_due,
-       SUM(CASE WHEN paid_date IS NULL AND due_date IS NOT NULL AND due_date < ?
+       SUM(CASE WHEN payment_class = 'hard' AND paid_date IS NULL
+                     AND due_date IS NOT NULL AND due_date < ?
                 THEN 1 ELSE 0 END) AS past_due_count,
        SUM(CASE WHEN paid_date IS NULL AND payment_class = 'soft'
                      AND due_date IS NOT NULL AND due_date >= ? AND due_date <= ?

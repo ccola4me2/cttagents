@@ -1405,6 +1405,20 @@ function render() {
   });
 
   const left = daysUntil(b.final_payment_due);
+
+  // Whether the vendor is still waiting for anything.
+  //
+  // This tile used to read the deadline and nothing else, so the day after the
+  // date it turned red and said "passed, confirm with the vendor" whether or
+  // not you had posted the money. A reservation paid in full read as one about
+  // to be cancelled, which is the most alarming thing this screen can say and
+  // it was saying it for no reason.
+  //
+  // Only hard rows count. A soft row is this portal's own reminder to chase,
+  // and a reminder nobody needs any more is not the vendor waiting.
+  const owing = (d.payments || []).filter((p) => p.payment_class === 'hard' && !p.paid_date);
+  const settled = !owing.length;
+
   document.getElementById('money').innerHTML = `
     <div class="stat"><p class="label">Trip cost</p><p class="value">${money(b.gross_cents)}</p>
       <p class="meta"><span class="badge ${STATUS_TONE[b.status] || 'badge-navy'}">${esc(b.status)}</span></p></div>
@@ -1414,11 +1428,17 @@ function render() {
       <p class="value" style="${d.money.unscheduledCents ? 'color:var(--amber-600);' : ''}">${money(d.money.unscheduledCents)}</p>
       <p class="meta">Nothing will chase what is not on the schedule</p></div>
     <div class="stat"><p class="label">Final payment</p>
-      <p class="value" style="font-size:1.1rem;${left !== null && left < 14 ? 'color:var(--red-600);' : ''}">${
-        b.final_payment_due ? esc(short(b.final_payment_due)) : 'none set'}</p>
-      <p class="meta">${b.final_payment_due
-        ? (left < 0 ? 'passed, confirm with the vendor' : `vendor cancels in ${left} days`)
-        : 'nothing can warn you without a date'}</p></div>`;
+      <p class="value" style="font-size:1.1rem;${
+        !settled && left !== null && left < 14 ? 'color:var(--red-600);' : ''}">${
+        settled ? 'Paid in full'
+          : b.final_payment_due ? esc(short(b.final_payment_due)) : 'none set'}</p>
+      <p class="meta">${settled
+        ? (b.final_payment_due
+          ? `nothing owing, due ${esc(short(b.final_payment_due))}`
+          : 'nothing owing')
+        : b.final_payment_due
+          ? (left < 0 ? 'passed, confirm with the vendor' : `vendor cancels in ${left} days`)
+          : 'nothing can warn you without a date'}</p></div>`;
 
   // ---- schedule ----
   document.getElementById('schedule-actions').innerHTML = d.editable

@@ -352,6 +352,16 @@ export async function handleUpdatePayment(request, env, id) {
   const payment = await db.updatePayment(env, id, user.id, fields);
   if (!payment) return notFound('Payment not found.');
   await settleCredit(env, user.id, payment, existing.credit_id || null);
+  // The same resync Mark paid does. Editing a row to fill in its paid date is
+  // the other way money gets recorded, and it left the reminder behind: the
+  // vendor's line was settled, its soft twin was not, and the balance went on
+  // reading as owed and overdue on a reservation that was paid in full.
+  await syncSoftReminder(env, user, existing.booking_id, existing.kind);
+  if (fields.kind !== existing.kind) {
+    // A row moved between kinds leaves the reminder for the kind it left.
+    await syncSoftReminder(env, user, existing.booking_id, fields.kind);
+  }
+
   await db.logActivity(env, user.id, 'payment.update', 'Updated a payment', { id });
   return json({ ok: true, payment });
 }
