@@ -111,6 +111,9 @@ import {
 import {
   handleListItinerary, handleSaveItem, handleDeleteItem, handleShareItinerary,
 } from './itinerary.js';
+import {
+  handleListLibrary, handleSaveLibraryPiece, handleDeleteLibraryPiece, handleUseLibraryPiece,
+} from './itinlibrary.js';
 import { handleGetGoals, handleSaveGoals } from './goals.js';
 import { handleListCommissions, handleSetCommissionStatus } from './commissions.js';
 import {
@@ -381,6 +384,8 @@ async function routeApi(request, env, path, method) {
   const itinMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary$/);
   const itinItemMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary\/([^/]+)$/);
   const itinShareMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary-shared$/);
+  const itinUseMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary\/from-library$/);
+  const libMatch = path.match(/^\/api\/itinerary-library\/([^/]+)$/);
   const provisionMatch = path.match(/^\/api\/agencies\/([^/]+)\/provision$/);
   const houseMatch = path.match(/^\/api\/households\/([^/]+)$/);
   const houseMemberMatch = path.match(/^\/api\/households\/([^/]+)\/members$/);
@@ -628,7 +633,17 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/hotlists/done' && method === 'POST') return handleHotListDone(request, env);
   if (path === '/api/hotlists/undo' && method === 'POST') return handleHotListUndo(request, env);
 
-  // The trip, day by day.
+  // Pieces of an itinerary, written once and dropped into any trip.
+  if (path === '/api/itinerary-library' && method === 'GET') return handleListLibrary(request, env);
+  if (path === '/api/itinerary-library' && method === 'POST') {
+    return handleSaveLibraryPiece(request, env, null);
+  }
+  if (libMatch && method === 'PUT') return handleSaveLibraryPiece(request, env, libMatch[1]);
+  if (libMatch && method === 'DELETE') return handleDeleteLibraryPiece(request, env, libMatch[1]);
+
+  // The trip, day by day. from-library goes before the single-segment item
+  // match, which would otherwise read "from-library" as an item id.
+  if (itinUseMatch && method === 'POST') return handleUseLibraryPiece(request, env, itinUseMatch[1]);
   if (itinShareMatch && method === 'POST') {
     return handleShareItinerary(request, env, itinShareMatch[1]);
   }

@@ -2160,6 +2160,99 @@ async function main() {
     check(theirs.status === 404, 'another advisor cannot add to it', `status ${theirs.status}`);
   }
 
+  // ---------------------------------------------- written once, reused -----
+  // The builder without this is a retyping exercise, which is where a tool
+  // like it gets abandoned: doing the job twice is slower than the email.
+  step('An itinerary piece kept and reused');
+  {
+    const t1 = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Library A ${stamp}`, supplier: 'Princess',
+      departDate: isoDay(80), returnDate: isoDay(87), gross: '3000', status: 'booked',
+    });
+    const b1 = t1.data?.booking?.id;
+    if (b1) cleanup('the library source trip',
+      () => call(advisor, 'DELETE', `/api/bookings/${b1}`));
+
+    await call(advisor, 'POST', `/api/bookings/${b1}/itinerary`, {
+      dayNumber: 3, startTime: '08:00', kind: 'activity',
+      title: 'Snorkelling at Palancar Reef', location: 'Cozumel',
+      detail: 'Meet the guide at the pier at 7:45.', confirmation: 'CZ-1',
+    });
+    const src = (await call(advisor, 'GET', `/api/bookings/${b1}/itinerary`)).data.items[0];
+
+    const kept = await call(advisor, 'POST', '/api/itinerary-library', {
+      fromItem: src.id, name: `Cozumel: Palancar ${stamp}`,
+    });
+    const pieceId = kept.data?.id;
+    if (pieceId) cleanup('the library piece',
+      () => call(advisor, 'DELETE', `/api/itinerary-library/${pieceId}`));
+    check(kept.status === 201 && pieceId,
+      'an item written on a trip can be kept for the next one', `status ${kept.status}`);
+
+    const listed = (await call(advisor, 'GET', '/api/itinerary-library')).data.pieces || [];
+    const mine = listed.find((p) => p.id === pieceId);
+    check(mine?.title === 'Snorkelling at Palancar Reef' && mine?.location === 'Cozumel',
+      'carrying the wording and the place, which is the part worth keeping');
+    check(mine?.start_time === '08:00', 'and the time, so it lands where it belongs');
+
+    // The whole design rests on this: a piece is a starting point, not a parent.
+    const t2 = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Library B ${stamp}`, supplier: 'Princess',
+      departDate: isoDay(120), returnDate: isoDay(127), gross: '3000', status: 'booked',
+    });
+    const b2 = t2.data?.booking?.id;
+    if (b2) cleanup('the library target trip',
+      () => call(advisor, 'DELETE', `/api/bookings/${b2}`));
+
+    const used = await call(advisor, 'POST', `/api/bookings/${b2}/itinerary/from-library`,
+      { pieceId, dayNumber: 2 });
+    check(used.status === 201, 'and dropped onto another trip', `status ${used.status}`);
+
+    const onB2 = (await call(advisor, 'GET', `/api/bookings/${b2}/itinerary`)).data;
+    const copied = (onB2.days.find((d) => d.dayNumber === 2)?.items || [])[0];
+    check(copied?.title === 'Snorkelling at Palancar Reef', 'landing on the day asked for');
+    check(copied?.confirmation === null,
+      'without the confirmation number, which belonged to the other client',
+      JSON.stringify(copied?.confirmation));
+
+    // Copied, not linked.
+    await call(advisor, 'PUT', `/api/itinerary-library/${pieceId}`, {
+      name: `Cozumel: Palancar ${stamp}`, title: 'Snorkelling, rewritten later',
+    });
+    const after = (await call(advisor, 'GET', `/api/bookings/${b2}/itinerary`)).data;
+    const still = (after.days.find((d) => d.dayNumber === 2)?.items || [])[0];
+    check(still?.title === 'Snorkelling at Palancar Reef',
+      'rewriting the library later does not rewrite a trip already built from it',
+      still?.title);
+
+    const counted = ((await call(advisor, 'GET', '/api/itinerary-library')).data.pieces || [])
+      .find((p) => p.id === pieceId);
+    check(counted?.used_count === 1,
+      'and a use is counted, so the ones reached for rise up a long list',
+      `${counted?.used_count}`);
+
+    // Shared across the agency like the supplier directory, and no further.
+    const colleague = (await call(admin, 'GET', '/api/itinerary-library')).data.pieces || [];
+    check(colleague.some((p) => p.id === pieceId),
+      'a colleague in the same agency has it too, since it is what the agency knows');
+
+    // The fence itself is proved in the supplier section, which drives a real
+    // second agency through the same agencyScope helper this list uses. What
+    // is worth checking here is that a piece nobody can reach is a 404 rather
+    // than a blank item quietly added to somebody's trip.
+    const ghost = await call(advisor, 'POST', `/api/bookings/${b2}/itinerary/from-library`,
+      { pieceId: 'no-such-piece' });
+    check(ghost.status === 404, 'a piece that is not there cannot be used',
+      `status ${ghost.status}`);
+    const afterGhost = (await call(advisor, 'GET', `/api/bookings/${b2}/itinerary`)).data;
+    check(afterGhost.items.length === 1,
+      'and nothing is added to the trip when it fails', `${afterGhost.items.length}`);
+
+    const noTitle = await call(advisor, 'POST', '/api/itinerary-library', { name: 'Nameless' });
+    check(noTitle.status === 400, 'a piece with nothing to say is refused',
+      `status ${noTitle.status}`);
+  }
+
   // ------------------------------------------------ people in one house -----
   // A client record is one person and stays one. A household is the fact that
   // two of those rows are married, which the portal had no way to know, so the

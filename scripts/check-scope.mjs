@@ -43,7 +43,7 @@ const OWNED = new Set([
   'group_registrations', 'task_items', 'task_templates', 'trip_messages',
   'hotlist_actions', 'specials', 'special_leads', 'households', 'form_templates',
   'advisor_billing',
-  'itinerary_items',
+  'itinerary_items', 'itinerary_library',
 ]);
 
 // Shared by a whole agency through a GoHighLevel sub-account, so location_id
@@ -89,6 +89,18 @@ const ALLOWED = [
     'deleting a shared vendor: the agency\'s reservations lose the link, not just yours'],
   ['DELETE FROM vendors WHERE id = ? AND ${scoped.sql}',
     'the directory is the agency\'s, so anybody in it may remove an entry'],
+  // The itinerary library is the agency's for the same reason the supplier
+  // directory is: how a shore excursion actually runs is what the agency knows
+  // about that excursion, not one person's note, and a wrong meeting time is
+  // worth fixing by whoever finds it. Listed statement by statement rather
+  // than exempting the table, so this stays a claim about the library and not
+  // a licence for the rest of the file.
+  ['UPDATE itinerary_library SET name = ?, kind = ?',
+    'the library is the agency\'s: anybody in it may correct a description'],
+  ['DELETE FROM itinerary_library WHERE id = ? AND ${scoped.sql}',
+    'the same, removing one; the trips built from it keep what they were given'],
+  ['UPDATE itinerary_library SET used_count = used_count + 1 WHERE id = ? AND ${scoped.sql}',
+    'a use counter on a row the same scope just fetched, so the popular ones rise'],
   ['UPDATE vendors SET name = ?, final_days = ?',
     'the directory is the agency\'s: a renegotiated rate is a correction for everyone'],
   ['UPDATE bookings SET supplier = ? WHERE vendor_id = ? AND ${bScope.sql}',

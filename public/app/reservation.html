@@ -1834,9 +1834,11 @@ function drawItinerary() {
       font-weight:400;font-size:.82rem;margin-right:.6rem;">
       <input type="checkbox" id="itin-share" style="width:auto;"
         ${itin.shared ? 'checked' : ''}> Client sees it</label>` : ''}
+    <button class="btn btn-ghost btn-sm" id="itin-lib">From library</button>
     <button class="btn btn-secondary btn-sm" id="itin-add">Add an item</button>`;
 
   document.getElementById('itin-add').addEventListener('click', () => openItem(null));
+  document.getElementById('itin-lib').addEventListener('click', openLibrary);
   const share = document.getElementById('itin-share');
   if (share) share.addEventListener('change', async () => {
     share.disabled = true;
@@ -1895,6 +1897,7 @@ function openItem(item) {
   itinForm.querySelector('.notice-error').hidden = true;
   document.getElementById('itin-title').textContent = item ? 'Edit item' : 'Add an item';
   document.getElementById('it-delete').hidden = !item;
+  document.getElementById('it-keep').hidden = !item;
   document.getElementById('it-kind').innerHTML = (itin?.kinds || [])
     .map((k) => `<option value="${esc(k.kind)}">${esc(k.label)}</option>`).join('');
   if (item) {
@@ -1929,6 +1932,103 @@ onSubmit(itinForm, async (values) => {
   await api(path, { method: editingItem ? 'PUT' : 'POST', body: values });
   itinDlg.close();
   await loadItinerary();
+});
+
+// ------------------------------------------------------- the library --------
+//
+// The builder without this is a retyping exercise: the same advisor describes
+// the same Palancar Reef snorkelling every time they sell it, in slightly
+// different words, with the meeting time wrong on one of them.
+const libDlg = document.getElementById('lib-dlg');
+const libErr = document.getElementById('lib-err');
+let libTimer = null;
+
+async function openLibrary() {
+  document.getElementById('lib-q').value = '';
+  document.getElementById('lib-day').value = '';
+  libErr.hidden = true;
+  libDlg.showModal();
+  await drawLibrary();
+}
+
+async function drawLibrary() {
+  const list = document.getElementById('lib-list');
+  const q = document.getElementById('lib-q').value.trim();
+  list.innerHTML = '<p class="spinner">Loading...</p>';
+  let d;
+  try {
+    d = await api(`/api/itinerary-library${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+  } catch (e) { showError(libErr, e); list.innerHTML = ''; return; }
+
+  if (!d.pieces.length) {
+    list.innerHTML = q
+      ? '<p class="muted" style="margin:0;">Nothing matches that.</p>'
+      : `<p class="muted" style="margin:0;">Nothing saved yet. Write an item on a trip, then
+         use <strong>Keep in library</strong> and it will be here for the next one.</p>`;
+    return;
+  }
+
+  list.innerHTML = `<ul class="plain" style="margin:0;">${d.pieces.map((p) => `
+    <li class="row-between" style="padding:.5rem 0;border-bottom:1px solid var(--navy-50);">
+      <span style="min-width:0;">
+        <span style="display:block;font-weight:600;color:var(--navy-800);">${esc(p.name)}</span>
+        <span class="muted" style="font-size:.78rem;">${esc(kindWord(p.kind))}${
+  p.location ? ` &middot; ${esc(p.location)}` : ''}${
+  p.used_count ? ` &middot; used ${p.used_count}×` : ''}${
+  p.written_by ? ` &middot; ${esc(p.written_by)}` : ''}</span>
+      </span>
+      <span style="display:flex;gap:.35rem;">
+        <button class="btn btn-ghost btn-sm" data-lib-drop="${esc(p.id)}">Remove</button>
+        <button class="btn btn-secondary btn-sm" data-lib-use="${esc(p.id)}">Use it</button>
+      </span>
+    </li>`).join('')}</ul>`;
+
+  list.querySelectorAll('[data-lib-use]').forEach((b) => {
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      try {
+        await api(`/api/bookings/${encodeURIComponent(id)}/itinerary/from-library`, {
+          method: 'POST',
+          body: { pieceId: b.dataset.libUse, dayNumber: document.getElementById('lib-day').value },
+        });
+        libDlg.close();
+        await loadItinerary();
+      } catch (e) { b.disabled = false; showError(libErr, e); }
+    });
+  });
+
+  list.querySelectorAll('[data-lib-drop]').forEach((b) => {
+    b.addEventListener('click', async () => {
+      if (!confirm('Remove this from the library? Trips already using it keep what they have.')) return;
+      try {
+        await api(`/api/itinerary-library/${encodeURIComponent(b.dataset.libDrop)}`,
+          { method: 'DELETE' });
+        await drawLibrary();
+      } catch (e) { showError(libErr, e); }
+    });
+  });
+}
+
+document.getElementById('lib-close').addEventListener('click', () => libDlg.close());
+document.getElementById('lib-q').addEventListener('input', () => {
+  clearTimeout(libTimer);
+  libTimer = setTimeout(drawLibrary, 250);
+});
+
+// Saved off a trip, which is where a good description actually gets written:
+// somebody has just described it properly for one client.
+document.getElementById('it-keep').addEventListener('click', async () => {
+  if (!editingItem) return;
+  const name = prompt('Name it for your library',
+    itinForm.elements.title.value.trim() || 'Saved item');
+  if (name === null) return;
+  try {
+    await api('/api/itinerary-library', {
+      method: 'POST', body: { fromItem: editingItem, name },
+    });
+    err.innerHTML = `<div class="notice notice-ok">Kept. It is under
+      <strong>From library</strong> next time.</div>`;
+  } catch (e) { showError(err, e); }
 });
 
 async function loadItinerary() {
@@ -2278,8 +2378,24 @@ else await load();
     </div>
     <div class="card-foot">
       <button class="btn btn-danger btn-sm" type="button" id="it-delete" hidden>Remove</button>
+      <button class="btn btn-ghost btn-sm" type="button" id="it-keep" hidden>Keep in library</button>
       <button class="btn btn-primary" type="submit">Save item</button>
     </div>
   </form>
+</dialog>
+<dialog id="lib-dlg">
+  <div class="card-head"><h2>Your library</h2>
+    <button class="btn btn-ghost btn-sm" type="button" id="lib-close">Close</button></div>
+  <div class="card-pad">
+    <div class="notice notice-error" id="lib-err" hidden></div>
+    <div class="field-row">
+      <div class="field"><label for="lib-q">Find</label>
+        <input id="lib-q" type="search" placeholder="Cozumel, transfer, what to pack"></div>
+      <div class="field"><label for="lib-day">Put it on day</label>
+        <input id="lib-day" type="number" min="1" max="399">
+        <p class="field-hint">Leave blank for something true of the whole trip.</p></div>
+    </div>
+    <div id="lib-list"></div>
+  </div>
 </dialog>
 </body></html>
