@@ -22,6 +22,7 @@
 import { uid, now, clean, oneOf, PermanentError } from './util.js';
 import * as ghl from './ghl.js';
 import { sendAutomationEmail } from './email.js';
+import { isSuppressed, unsubscribeToken, marketingFooter } from './suppression.js';
 
 export const TRIGGERS = [
   'form.submitted',
@@ -72,6 +73,12 @@ export function parseSteps(raw) {
       step.subject = clean(s.subject, 200);
       step.body = clean(s.body, 6000);
       if (!step.subject || !step.body) continue;
+      // Stated rather than guessed. A note about somebody's own booking is
+      // transactional and always sends; anything they could reasonably not
+      // want is marketing, checks the suppression list and carries a footer
+      // with a postal address and a way out. Defaulting to transactional
+      // keeps every automation written before this behaving as it did.
+      step.marketing = Boolean(s.marketing);
     } else if (action === 'send_sms') {
       step.body = clean(s.body, 800);
       if (!step.body) continue;
@@ -192,6 +199,35 @@ async function log(env, run, stepIndex, action, status, detail) {
   }
 }
 
+/**
+ * The agency a sub-account belongs to.
+ *
+ * Automations are keyed on the GoHighLevel location and the suppression list
+ * is keyed on the agency, because the agency is this portal's fence and the
+ * sub-account is somebody else's idea of one. One lookup per marketing send,
+ * which is the rate marketing sends happen at.
+ *
+ * Null when there is no agency behind the location, which suppresses nothing
+ * and puts no address in the footer rather than inventing either.
+ */
+// The same one-liner email.js, share.js and publicform.js each keep privately.
+// Worth a shared home one day; not worth a fifth import today.
+function appUrl(env) {
+  return (env.APP_URL || 'https://cttagents.com').replace(/\/$/, '');
+}
+
+async function agencyForLocation(env, locationId) {
+  if (!locationId) return null;
+  try {
+    return await env.DB.prepare(
+      'SELECT id, name, address FROM agencies WHERE ghl_location_id = ? LIMIT 1'
+    ).bind(locationId).first();
+  } catch (e) {
+    console.error('agencyForLocation', e);
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------
@@ -200,8 +236,26 @@ async function runStep(env, run, step, context) {
     case 'send_email': {
       const to = context.email;
       if (!to) return { status: 'skipped', detail: 'no email address on the contact' };
-      await sendAutomationEmail(env, to, fill(step.subject, context), fill(step.body, context));
-      return { status: 'ok', detail: `emailed ${to}` };
+
+      let footer;
+      if (step.marketing) {
+        const agency = await agencyForLocation(env, run.location_id);
+        if (await isSuppressed(env, agency?.id || null, to)) {
+          // Skipped, not failed. The run carries on to whatever follows,
+          // because a person who opted out of the newsletter has not opted out
+          // of the task the next step creates for their advisor.
+          return { status: 'skipped', detail: `${to} has unsubscribed` };
+        }
+        footer = marketingFooter({
+          agencyName: agency?.name,
+          agencyAddress: agency?.address,
+          unsubscribeUrl: `${appUrl(env)}/u/${await unsubscribeToken(env, agency?.id || null, to)}`,
+        });
+      }
+
+      await sendAutomationEmail(env, to, fill(step.subject, context), fill(step.body, context),
+        { footer });
+      return { status: 'ok', detail: `emailed ${to}${step.marketing ? ', with an opt out' : ''}` };
     }
     case 'send_sms': {
       if (!context.contactId) return { status: 'skipped', detail: 'no contact to message' };

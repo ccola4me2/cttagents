@@ -36,6 +36,7 @@ import {
 } from './share.js';
 import { handleReadConfirmation } from './confirm.js';
 import { migrationHint } from './schema-drift.js';
+import { renderUnsubscribe, handleUnsubscribe } from './suppression.js';
 import {
   handleAddComponent, handleUpdateComponent, handleDeleteComponent,
 } from './components.js';
@@ -337,6 +338,7 @@ async function routeApi(request, env, path, method) {
   const statementMatch = path.match(/^\/api\/bookings\/([^/]+)\/statement$/);
   const welcomedMatch = path.match(/^\/api\/bookings\/([^/]+)\/welcomed$/);
   const shareMatch = path.match(/^\/api\/bookings\/([^/]+)\/share$/);
+  const unsubMatch = path.match(/^\/u\/([A-Za-z0-9._-]+)$/);
   const tripMsgMatch = path.match(/^\/api\/bookings\/([^/]+)\/messages$/);
   const msgReadMatch = path.match(/^\/api\/trip-messages\/([^/]+)\/read$/);
   const docShareMatch = path.match(/^\/api\/documents\/([^/]+)\/share$/);
@@ -595,6 +597,11 @@ async function routeApi(request, env, path, method) {
   // Tasks: the advisor's own working list, not the CRM's.
   // Sharing a trip with the person it is for.
   if (shareMatch && method === 'POST') return handleShareTrip(request, env, shareMatch[1]);
+  // Public, no session: whoever opens this is a client. GET asks, POST does
+  // it, because a one-click link is fired by every scanner between the sender
+  // and the reader.
+  if (unsubMatch && method === 'GET') return renderUnsubscribe(env, unsubMatch[1]);
+  if (unsubMatch && method === 'POST') return handleUnsubscribe(env, unsubMatch[1]);
   if (tripMsgMatch && method === 'GET') return handleTripMessages(request, env, tripMsgMatch[1]);
   if (msgReadMatch && method === 'POST') return handleReadTripMessage(request, env, msgReadMatch[1]);
   if (docShareMatch && method === 'POST') return handleShareDocument(request, env, docShareMatch[1]);

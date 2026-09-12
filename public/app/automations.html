@@ -132,6 +132,20 @@ function stepRow(s = { action: 'send_email' }) {
     bodyHtml = `<div class="field" style="margin:0 0 .6rem;">
         <input class="s-subject" placeholder="Subject" value="${esc(s.subject || '')}"></div>
       <textarea class="s-body" placeholder="Hi {{first_name}}, ...">${esc(s.body || '')}</textarea>`;
+    // Only a client email can be marketing. notify_team goes to the advisor,
+    // who did not subscribe to anything and cannot unsubscribe from their own
+    // portal telling them a payment is due.
+    if (s.action === 'send_email') {
+      bodyHtml += `<label style="display:flex;align-items:center;gap:.5rem;font-weight:400;
+          font-size:.85rem;margin-top:.6rem;">
+        <input type="checkbox" class="s-marketing" style="width:auto;"${
+          s.marketing ? ' checked' : ''}> This is marketing
+      </label>
+      <p class="field-hint" style="margin:.3rem 0 0;">Tick it for anything somebody could
+        reasonably not want: a newsletter, a deal, an offer. Those skip anyone who has
+        unsubscribed and carry a footer with your address and a way out. Leave it clear for a
+        note about the trip they have booked, which always sends.</p>`;
+    }
   } else if (s.action === 'send_sms') {
     bodyHtml = `<textarea class="s-body" placeholder="Hi {{first_name}}, ...">${esc(s.body || '')}</textarea>`;
   } else if (s.action === 'add_tag') {
@@ -164,7 +178,13 @@ function readSteps() {
     const action = r.dataset.action;
     const v = (sel) => (r.querySelector(sel) ? r.querySelector(sel).value : '');
     if (action === 'wait') return { action, minutes: Number(v('.s-minutes')) };
-    if (action === 'send_email' || action === 'notify_team') return { action, subject: v('.s-subject'), body: v('.s-body') };
+    if (action === 'send_email' || action === 'notify_team') {
+      const box = r.querySelector('.s-marketing');
+      return {
+        action, subject: v('.s-subject'), body: v('.s-body'),
+        marketing: Boolean(box && box.checked),
+      };
+    }
     if (action === 'send_sms' || action === 'add_note') return { action, body: v('.s-body') };
     if (action === 'add_tag') return { action, tag: v('.s-tag') };
     if (action === 'create_task') return { action, title: v('.s-title'), dueInDays: Number(v('.s-due')) };

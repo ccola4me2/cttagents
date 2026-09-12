@@ -564,7 +564,7 @@ export async function sendTestEmail(env, to) {
  * know a send failed so it can retry, where a signup email failing must never
  * break the signup.
  */
-export async function sendAutomationEmail(env, to, subject, body) {
+export async function sendAutomationEmail(env, to, subject, body, { footer } = {}) {
   // Neither of these improves by waiting five minutes and asking again.
   if (!env.RESEND_API_KEY) {
     throw new PermanentError('Email is not configured: the RESEND_API_KEY secret is not set on the Worker.');
@@ -574,6 +574,9 @@ export async function sendAutomationEmail(env, to, subject, body) {
   const html = layout(env, {
     heading: subject,
     body: `<p style="margin:0;">${escapeHtml(body).replace(/\n/g, '<br>')}</p>`,
+    // Present on a marketing send and absent on a transactional one. Offering
+    // to stop sending somebody their own payment reminders is not a kindness.
+    footer,
   });
 
   const res = await fetch('https://api.resend.com/emails', {
