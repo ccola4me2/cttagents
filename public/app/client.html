@@ -34,7 +34,8 @@
       <div class="split" style="margin-top:1.5rem;">
         <div>
           <section class="card">
-            <div class="card-head"><h2>Trips</h2></div>
+            <div class="card-head"><h2>Reservations</h2>
+              <span id="trips-actions"></span></div>
             <div id="trips"></div>
           </section>
         </div>
@@ -303,6 +304,13 @@ function render(d) {
       <p class="value" style="font-size:1.1rem;">${esc(short(c.nextDeparture || c.lastTravelled))}</p>
       <p class="meta">${c.nextDeparture ? 'Already on the books' : 'Nothing booked since'}</p></div>`;
 
+  // Taking a reservation starts here as often as it starts on the reservations
+  // page, and going the long way round means typing their name back in, which
+  // is how a second client record spelt slightly differently gets made.
+  document.getElementById('trips-actions').innerHTML = d.editable
+    ? `<a class="btn btn-primary btn-sm"
+        href="/app/new?client=${encodeURIComponent(c.name)}">Add a reservation</a>` : '';
+
   document.getElementById('trips').innerHTML = d.bookings.length
     ? `<div class="table-wrap"><table>
         <thead><tr><th>Departing</th><th>Vendor</th><th>Trip</th><th>Status</th>
@@ -316,7 +324,7 @@ function render(d) {
           <td><span class="badge ${STATUS_TONE[b.status] || 'badge-navy'}">${esc(b.status)}</span></td>
           <td class="num">${money(b.gross_cents)}</td>
         </tr>`).join('')}</tbody></table></div>`
-    : '<div class="empty"><p>No trips on file.</p></div>';
+    : '<div class="empty"><p>No reservations on file.</p></div>';
 
   document.getElementById('credits').innerHTML = d.credits.length
     ? `<ul class="rows">${d.credits.map((cr) => {

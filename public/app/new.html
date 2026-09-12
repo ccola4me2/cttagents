@@ -145,6 +145,29 @@ document.getElementById('fields').innerHTML = [
 suggestClients(form.elements.clientName);
 
 /**
+ * Started from a client's own page: fill their name in.
+ *
+ * Arriving here from a client and typing their name back in is retyping an
+ * answer the portal already had, and it is the retyping that produces a second
+ * client record spelt slightly differently.
+ *
+ * The name is enough. Everything downstream matches on it, and the client
+ * record is found rather than made when it already exists.
+ */
+(() => {
+  const name = new URLSearchParams(location.search).get('client');
+  if (!name) return;
+  form.elements.clientName.value = name;
+  // The same events typing would have fired, so the household offer and the
+  // traveller mirror see the name rather than waiting for a keystroke.
+  form.elements.clientName.dispatchEvent(new Event('input'));
+  form.elements.clientName.dispatchEvent(new Event('change'));
+  // Focus goes to the first thing still to answer, not back to the name.
+  const next = form.elements.supplier || form.elements.productName;
+  if (next) next.focus();
+})();
+
+/**
  * Started from the cruise search: fill in the sailing that was chosen.
  *
  * The search answers "which sailing", and arriving here to type the line, the
