@@ -108,6 +108,9 @@ import {
   handleAddMember, handleRemoveMember, handleDeleteHousehold, handleHouseholdTravellers,
   handleHouseholdRecord, handleSuggestHouseholds,
 } from './households.js';
+import {
+  handleListItinerary, handleSaveItem, handleDeleteItem, handleShareItinerary,
+} from './itinerary.js';
 import { handleGetGoals, handleSaveGoals } from './goals.js';
 import { handleListCommissions, handleSetCommissionStatus } from './commissions.js';
 import {
@@ -375,6 +378,9 @@ async function routeApi(request, env, path, method) {
   const creditMatch = path.match(/^\/api\/credits\/([^/]+)$/);
   const specialMatch = path.match(/^\/api\/specials\/([^/]+)$/);
   const myTplMatch = path.match(/^\/api\/form-templates\/([^/]+)$/);
+  const itinMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary$/);
+  const itinItemMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary\/([^/]+)$/);
+  const itinShareMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary-shared$/);
   const provisionMatch = path.match(/^\/api\/agencies\/([^/]+)\/provision$/);
   const houseMatch = path.match(/^\/api\/households\/([^/]+)$/);
   const houseMemberMatch = path.match(/^\/api\/households\/([^/]+)\/members$/);
@@ -621,6 +627,19 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/hotlists' && method === 'GET') return handleHotLists(request, env);
   if (path === '/api/hotlists/done' && method === 'POST') return handleHotListDone(request, env);
   if (path === '/api/hotlists/undo' && method === 'POST') return handleHotListUndo(request, env);
+
+  // The trip, day by day.
+  if (itinShareMatch && method === 'POST') {
+    return handleShareItinerary(request, env, itinShareMatch[1]);
+  }
+  if (itinMatch && method === 'GET') return handleListItinerary(request, env, itinMatch[1]);
+  if (itinMatch && method === 'POST') return handleSaveItem(request, env, itinMatch[1], null);
+  if (itinItemMatch && method === 'PUT') {
+    return handleSaveItem(request, env, itinItemMatch[1], itinItemMatch[2]);
+  }
+  if (itinItemMatch && method === 'DELETE') {
+    return handleDeleteItem(request, env, itinItemMatch[1], itinItemMatch[2]);
+  }
 
   // People who live at the same address, kept together.
   if (path === '/api/households' && method === 'GET') return handleListHouseholds(request, env);

@@ -163,7 +163,7 @@ async function loadTrip(env, code) {
   // query on a public page that says whose rows it wants can be read once and
   // believed, and one that does not has to be traced back to the lookup above.
   const owner = booking.user_id;
-  const [travellers, components, options, payments, documents] = await Promise.all([
+  const [travellers, components, options, payments, documents, itinerary] = await Promise.all([
     // Names only. The row carries passport numbers and dates of birth, and a
     // page that selects * is a page one careless template change away from
     // publishing them.
@@ -182,6 +182,17 @@ async function loadTrip(env, code) {
     env.DB.prepare(`SELECT id, filename, category, size_bytes FROM documents
                      WHERE booking_id = ? AND user_id = ? AND shared = 1 ORDER BY created_at ASC`)
       .bind(booking.id, owner).all(),
+    // Only when the advisor has said it is ready. A half-written itinerary is
+    // worse than none: four days filled in and three blank reads as a trip
+    // with nothing planned after Wednesday.
+    booking.itinerary_shared
+      ? env.DB.prepare(`SELECT day_number, start_time, end_time, kind, title, location,
+                               detail, confirmation, image_url
+                          FROM itinerary_items WHERE booking_id = ? AND user_id = ?
+                         ORDER BY day_number IS NULL ASC, day_number ASC,
+                                  start_time IS NULL ASC, start_time ASC, sort_order ASC`)
+        .bind(booking.id, owner).all()
+      : Promise.resolve({ results: [] }),
   ]);
 
   return {
@@ -191,7 +202,102 @@ async function loadTrip(env, code) {
     options: options.results || [],
     payments: payments.results || [],
     documents: documents.results || [],
+    itinerary: itinerary.results || [],
   };
+}
+
+// What each kind of line looks like at a glance. The client is scanning for
+// "when is the flight", not reading a list of nouns.
+const KIND_MARK = {
+  flight: '\u2708', cruise: '\u2693', hotel: '\u1F6CF', transfer: '\u1F698',
+  activity: '\u2600', meal: '\u1F374', free: '\u263A', note: '\u2139',
+};
+const KIND_WORD = {
+  flight: 'Flight', cruise: 'Cruise', hotel: 'Hotel', transfer: 'Transfer',
+  activity: 'Activity', meal: 'Meal', free: 'Free time', note: 'Note',
+};
+
+/** 09:30 as half past nine, because a client is reading, not filing. */
+function sayTime(hhmm) {
+  const m = String(hhmm || '').match(/^(\d{2}):(\d{2})$/);
+  if (!m) return '';
+  let h = Number(m[1]);
+  const suffix = h < 12 ? 'am' : 'pm';
+  if (h === 0) h = 12; else if (h > 12) h -= 12;
+  return `${h}:${m[2]}${suffix}`;
+}
+
+/**
+ * The trip day by day.
+ *
+ * Every day between departure and return appears, including the ones with
+ * nothing on them. A numbered list with a gap in it is a question the client
+ * has to ask; a day that says "nothing planned" is an answer they can act on,
+ * and on a cruise it is usually the best day of the week.
+ */
+function itineraryBlock(trip) {
+  const items = trip.itinerary || [];
+  if (!items.length) return '';
+
+  const b = trip.booking;
+  const total = tripDays(b.depart_date, b.return_date);
+  const anytime = items.filter((i) => !i.day_number);
+  const byDay = [];
+  for (let n = 1; n <= total; n += 1) {
+    byDay.push({ n, date: dayDate(b.depart_date, n), on: items.filter((i) => i.day_number === n) });
+  }
+  // A day number past the return date is still somebody's plan, and dropping
+  // it because the maths says the trip ended would be losing the client's
+  // itinerary to a typo in a return date.
+  const strays = items.filter((i) => i.day_number && i.day_number > total);
+  for (const i of strays) {
+    if (!byDay.some((d) => d.n === i.day_number)) {
+      byDay.push({ n: i.day_number, date: dayDate(b.depart_date, i.day_number), on: [] });
+    }
+  }
+  for (const d of byDay) d.on = items.filter((i) => i.day_number === d.n);
+  byDay.sort((x, y) => x.n - y.n);
+
+  const line = (i) => `<li class="itin-item">
+    <span class="itin-when">${i.start_time ? esc(sayTime(i.start_time)) : ''}${
+  i.end_time ? ` - ${esc(sayTime(i.end_time))}` : ''}</span>
+    <span class="itin-what">
+      <span class="itin-kind">${esc(KIND_WORD[i.kind] || 'Item')}</span>
+      <strong>${esc(i.title)}</strong>
+      ${i.location ? `<span class="itin-where">${esc(i.location)}</span>` : ''}
+      ${i.detail ? `<span class="itin-detail">${esc(i.detail)}</span>` : ''}
+      ${i.confirmation ? `<span class="itin-conf">Reference ${esc(i.confirmation)}</span>` : ''}
+    </span>
+    ${i.image_url ? `<img class="itin-pic" src="${esc(i.image_url)}" alt="" loading="lazy">` : ''}
+  </li>`;
+
+  return `<section class="card pad">
+    <h2>Your itinerary</h2>
+    ${anytime.length ? `<ul class="itin-list anytime">${anytime.map(line).join('')}</ul>` : ''}
+    ${byDay.map((d) => `<div class="itin-day">
+      <p class="itin-daylabel"><strong>Day ${d.n}</strong>${
+  d.date ? `<span>${esc(sayDate(d.date))}</span>` : ''}</p>
+      ${d.on.length
+    ? `<ul class="itin-list">${d.on.map(line).join('')}</ul>`
+    : '<p class="itin-empty">Nothing planned. The day is yours.</p>'}
+    </div>`).join('')}
+  </section>`;
+}
+
+/** How many days the trip runs. Mirrors itinerary.js, which the client page
+ *  cannot import without pulling the whole admin module onto a public page. */
+function tripDays(a, b) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(a || '')) return 0;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(b || '')) return 1;
+  const n = Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000) + 1;
+  return n > 0 && n < 400 ? n : 1;
+}
+
+function dayDate(depart, n) {
+  if (!n || !/^\d{4}-\d{2}-\d{2}$/.test(depart || '')) return null;
+  const d = new Date(`${depart}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + (n - 1));
+  return d.toISOString().slice(0, 10);
 }
 
 export async function renderTripPage(request, env, code) {
@@ -244,6 +350,8 @@ export async function renderTripPage(request, env, code) {
       <h2>Who is travelling</h2>
       <ul class="plain">${trip.travellers.map((t) => `<li>${esc(t.name)}</li>`).join('')}</ul>
     </section>` : ''}
+
+    ${itineraryBlock(trip)}
 
     ${trip.components.length ? `<section class="card pad">
       <h2>Also on this trip</h2>
@@ -470,6 +578,34 @@ function page(title, body, brand) {
   .brand img{width:36px;height:36px}
   .brand b{font-size:1rem;letter-spacing:.26em;text-transform:uppercase;color:var(--navy);font-weight:650}
   .brand small{display:block;font-size:.62rem;letter-spacing:.06em;color:var(--teal)}
+  /* The itinerary. A time rail down the left so the eye can run the day
+     without reading it, and the day heading sticky enough to stay useful on a
+     fourteen night sailing. */
+  .itin-day{margin:0 0 1.4rem}
+  .itin-daylabel{display:flex;align-items:baseline;gap:.6rem;margin:0 0 .5rem;
+    padding-bottom:.35rem;border-bottom:1px solid var(--line);font-size:.95rem}
+  .itin-daylabel strong{color:var(--navy)}
+  .itin-daylabel span{font-size:.8rem;color:var(--dim)}
+  .itin-list{list-style:none;margin:0;padding:0}
+  .itin-list.anytime{margin:0 0 1.4rem;padding-bottom:1rem;border-bottom:1px solid var(--line)}
+  .itin-item{display:grid;grid-template-columns:5.2rem 1fr auto;gap:.7rem;
+    padding:.6rem 0;align-items:start}
+  .itin-when{font-size:.82rem;color:var(--dim);font-variant-numeric:tabular-nums;
+    padding-top:.1rem;white-space:nowrap}
+  .itin-what{display:flex;flex-direction:column;gap:.15rem;min-width:0}
+  .itin-kind{font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--teal)}
+  .itin-what strong{color:var(--navy);font-weight:600}
+  .itin-where{font-size:.85rem;color:var(--dim)}
+  .itin-detail{font-size:.9rem;white-space:pre-wrap;margin-top:.15rem}
+  .itin-conf{font-size:.78rem;color:var(--dim);margin-top:.2rem}
+  .itin-pic{width:84px;height:62px;object-fit:cover;border-radius:8px;flex:none}
+  .itin-empty{margin:.2rem 0 0;font-size:.9rem;color:var(--dim)}
+  @media (max-width:560px){
+    .itin-item{grid-template-columns:4.2rem 1fr}
+    .itin-pic{display:none}
+  }
+
   .hero{margin:0 0 1.6rem}
   .eyebrow{margin:0 0 .3rem;font-size:.72rem;font-weight:700;letter-spacing:.16em;
     text-transform:uppercase;color:var(--teal)}

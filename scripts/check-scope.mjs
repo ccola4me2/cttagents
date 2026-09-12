@@ -43,6 +43,7 @@ const OWNED = new Set([
   'group_registrations', 'task_items', 'task_templates', 'trip_messages',
   'hotlist_actions', 'specials', 'special_leads', 'households', 'form_templates',
   'advisor_billing',
+  'itinerary_items',
 ]);
 
 // Shared by a whole agency through a GoHighLevel sub-account, so location_id

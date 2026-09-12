@@ -61,6 +61,11 @@
               <span id="traveller-actions"></span></div>
             <div id="travellers"></div>
           </section>
+          <section class="card" style="margin-bottom:1.5rem;" id="itinerary-card">
+            <div class="card-head" id="sec-itinerary"><h2>Itinerary</h2>
+              <span id="itin-actions"></span></div>
+            <div class="card-pad" id="itinerary"></div>
+          </section>
           <section class="card">
             <div class="card-head" id="sec-payments"><h2>Payment schedule</h2>
               <span id="schedule-actions"></span></div>
@@ -1791,6 +1796,145 @@ async function load() {
     d = await api(`/api/bookings/${encodeURIComponent(id)}/record`);
     err.innerHTML = '';
     render();
+    // After the record, not with it: the itinerary is its own fetch so a save
+    // redraws one card rather than the whole page.
+    await loadItinerary();
+  } catch (e) { showError(err, e); }
+}
+
+// ---------------------------------------------------------------- itinerary --
+//
+// The trip day by day. A reservation says what was sold; this says what
+// happens, which is the half the client actually opens the page for.
+//
+// Its own fetch rather than part of the record call, because the builder
+// reloads it after every save and the record is a much bigger answer.
+let itin = null;
+
+const itinDlg = document.getElementById('itin-dlg');
+const itinForm = document.getElementById('itin-form');
+let editingItem = null;
+
+const sayTime = (t) => {
+  const m = String(t || '').match(/^(\d{2}):(\d{2})$/);
+  if (!m) return '';
+  let h = Number(m[1]);
+  const suffix = h < 12 ? 'am' : 'pm';
+  if (h === 0) h = 12; else if (h > 12) h -= 12;
+  return `${h}:${m[2]}${suffix}`;
+};
+
+function drawItinerary() {
+  const box = document.getElementById('itinerary');
+  const acts = document.getElementById('itin-actions');
+  if (!itin) { box.innerHTML = '<p class="spinner">Loading...</p>'; return; }
+
+  const count = itin.items.length;
+  acts.innerHTML = `${count ? `<label style="display:inline-flex;align-items:center;gap:.4rem;
+      font-weight:400;font-size:.82rem;margin-right:.6rem;">
+      <input type="checkbox" id="itin-share" style="width:auto;"
+        ${itin.shared ? 'checked' : ''}> Client sees it</label>` : ''}
+    <button class="btn btn-secondary btn-sm" id="itin-add">Add an item</button>`;
+
+  document.getElementById('itin-add').addEventListener('click', () => openItem(null));
+  const share = document.getElementById('itin-share');
+  if (share) share.addEventListener('change', async () => {
+    share.disabled = true;
+    try {
+      await api(`/api/bookings/${encodeURIComponent(id)}/itinerary-shared`,
+        { method: 'POST', body: { shared: share.checked } });
+      itin.shared = share.checked;
+    } catch (e) { share.checked = !share.checked; showError(err, e); }
+    finally { share.disabled = false; }
+  });
+
+  if (!count) {
+    box.innerHTML = `<p class="muted" style="margin:0;">Nothing yet. Add the flights, the
+      excursions and the dinners and the client sees the trip day by day instead of a
+      confirmation number.</p>`;
+    return;
+  }
+
+  const row = (i) => `<li class="row-between" style="padding:.45rem 0;
+      border-bottom:1px solid var(--navy-50);">
+    <span style="min-width:0;">
+      <span class="muted" style="font-size:.76rem;">${esc(sayTime(i.start_time))}${
+  i.end_time ? ` - ${esc(sayTime(i.end_time))}` : ''}${
+  i.start_time ? ' &middot; ' : ''}${esc(kindWord(i.kind))}</span>
+      <span style="display:block;font-weight:600;color:var(--navy-800);">${esc(i.title)}</span>
+      ${i.location ? `<span class="muted" style="font-size:.78rem;">${esc(i.location)}</span>` : ''}
+    </span>
+    <button class="btn btn-ghost btn-sm" data-item="${esc(i.id)}">Edit</button>
+  </li>`;
+
+  box.innerHTML = `
+    ${itin.anytime.length ? `<div style="margin-bottom:1rem;">
+      <p class="muted" style="font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;
+        margin:0 0 .2rem;">The whole trip</p>
+      <ul class="plain" style="margin:0;">${itin.anytime.map(row).join('')}</ul></div>` : ''}
+    ${itin.days.map((day) => `<div style="margin-bottom:1rem;">
+      <p class="muted" style="font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;
+        margin:0 0 .2rem;">Day ${day.dayNumber}${
+  day.date ? ` &middot; ${esc(dateFmt(day.date))}` : ''}</p>
+      ${day.items.length
+    ? `<ul class="plain" style="margin:0;">${day.items.map(row).join('')}</ul>`
+    : `<p class="muted" style="margin:.1rem 0 0;font-size:.82rem;">Nothing planned.</p>`}
+    </div>`).join('')}`;
+
+  box.querySelectorAll('[data-item]').forEach((b) => {
+    b.addEventListener('click',
+      () => openItem(itin.items.find((x) => x.id === b.dataset.item)));
+  });
+}
+
+const kindWord = (k) => (itin?.kinds || []).find((x) => x.kind === k)?.label || 'Item';
+
+function openItem(item) {
+  editingItem = item ? item.id : null;
+  itinForm.reset();
+  itinForm.querySelector('.notice-error').hidden = true;
+  document.getElementById('itin-title').textContent = item ? 'Edit item' : 'Add an item';
+  document.getElementById('it-delete').hidden = !item;
+  document.getElementById('it-kind').innerHTML = (itin?.kinds || [])
+    .map((k) => `<option value="${esc(k.kind)}">${esc(k.label)}</option>`).join('');
+  if (item) {
+    itinForm.elements.dayNumber.value = item.day_number ?? '';
+    itinForm.elements.kind.value = item.kind;
+    itinForm.elements.startTime.value = item.start_time || '';
+    itinForm.elements.endTime.value = item.end_time || '';
+    itinForm.elements.title.value = item.title || '';
+    itinForm.elements.location.value = item.location || '';
+    itinForm.elements.detail.value = item.detail || '';
+    itinForm.elements.confirmation.value = item.confirmation || '';
+    itinForm.elements.imageUrl.value = item.image_url || '';
+  }
+  itinDlg.showModal();
+}
+
+document.getElementById('itin-close').addEventListener('click', () => itinDlg.close());
+
+document.getElementById('it-delete').addEventListener('click', async () => {
+  if (!editingItem || !confirm('Remove this from the itinerary?')) return;
+  try {
+    await api(`/api/bookings/${encodeURIComponent(id)}/itinerary/${encodeURIComponent(editingItem)}`,
+      { method: 'DELETE' });
+    itinDlg.close();
+    await loadItinerary();
+  } catch (e) { showError(err, e); }
+});
+
+onSubmit(itinForm, async (values) => {
+  const path = `/api/bookings/${encodeURIComponent(id)}/itinerary${
+    editingItem ? `/${encodeURIComponent(editingItem)}` : ''}`;
+  await api(path, { method: editingItem ? 'PUT' : 'POST', body: values });
+  itinDlg.close();
+  await loadItinerary();
+});
+
+async function loadItinerary() {
+  try {
+    itin = await api(`/api/bookings/${encodeURIComponent(id)}/itinerary`);
+    drawItinerary();
   } catch (e) { showError(err, e); }
 }
 
@@ -2092,4 +2236,50 @@ onSubmit(amenityForm, async (values) => {
 if (!id) err.innerHTML = '<div class="notice notice-error">No reservation was named in the address.</div>';
 else await load();
 </script>
+<dialog id="itin-dlg">
+  <form id="itin-form" method="dialog">
+    <div class="card-head"><h2 id="itin-title">Itinerary item</h2>
+      <button class="btn btn-ghost btn-sm" type="button" id="itin-close">Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" hidden></div>
+      <div class="field-row">
+        <div class="field"><label for="it-day">Day</label>
+          <input id="it-day" name="dayNumber" type="number" min="1" max="399">
+          <p class="field-hint">Day 1 is departure. Leave it blank for something true of the
+            whole trip, like the insurance policy.</p></div>
+        <div class="field"><label for="it-kind">Kind</label>
+          <select id="it-kind" name="kind"></select></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="it-start">Starts</label>
+          <input id="it-start" name="startTime" placeholder="09:30"></div>
+        <div class="field"><label for="it-end">Ends</label>
+          <input id="it-end" name="endTime" placeholder="17:00">
+          <p class="field-hint">Leave blank for "some time that day".</p></div>
+      </div>
+      <div class="field"><label for="it-name">What happens</label>
+        <input id="it-name" name="title" maxlength="200" required
+          placeholder="Snorkelling at Palancar Reef"></div>
+      <div class="field"><label for="it-loc">Where</label>
+        <input id="it-loc" name="location" maxlength="200" placeholder="Cozumel, Mexico"></div>
+      <div class="field"><label for="it-detail">Details for the client</label>
+        <textarea id="it-detail" name="detail" maxlength="4000"
+          placeholder="Meet the guide at the pier at 7:45. Reef shoes provided."></textarea></div>
+      <div class="field-row">
+        <div class="field"><label for="it-conf">Reference</label>
+          <input id="it-conf" name="confirmation" maxlength="80">
+          <p class="field-hint">The vendor's own number for this piece, which is what a desk
+            asks for.</p></div>
+        <div class="field"><label for="it-img">Picture</label>
+          <input id="it-img" name="imageUrl" type="url" maxlength="500"
+            placeholder="https://...">
+          <p class="field-hint">Has to start with https.</p></div>
+      </div>
+    </div>
+    <div class="card-foot">
+      <button class="btn btn-danger btn-sm" type="button" id="it-delete" hidden>Remove</button>
+      <button class="btn btn-primary" type="submit">Save item</button>
+    </div>
+  </form>
+</dialog>
 </body></html>

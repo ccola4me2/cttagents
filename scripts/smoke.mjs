@@ -2077,6 +2077,89 @@ async function main() {
 
 
 
+  // ------------------------------------------------ the trip day by day ----
+  // A reservation says what was sold. The itinerary says what happens, which
+  // is the half the client opens the page for.
+  step('An itinerary, day by day');
+  {
+    const trip = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Itinerary ${stamp}`, supplier: 'Princess',
+      departDate: isoDay(60), returnDate: isoDay(67), gross: '4200', status: 'booked',
+    });
+    const tripId = trip.data?.booking?.id;
+    if (tripId) cleanup('the itinerary reservation',
+      () => call(advisor, 'DELETE', `/api/bookings/${tripId}`));
+
+    const empty = await call(advisor, 'GET', `/api/bookings/${tripId}/itinerary`);
+    check(empty.data?.dayCount === 8,
+      'the days come from the reservation rather than being typed again',
+      `${empty.data?.dayCount}`);
+    check((empty.data?.days || []).length === 8 && empty.data.days.every((d) => !d.items.length),
+      'and every day is there before anything is on it');
+
+    const made = await call(advisor, 'POST', `/api/bookings/${tripId}/itinerary`, {
+      dayNumber: 3, startTime: '8:00 am', endTime: '17:00', kind: 'activity',
+      title: 'Snorkelling at Palancar Reef', location: 'Cozumel',
+      detail: 'Meet the guide at the pier.', confirmation: 'CZ-88412',
+    });
+    check(made.status === 201, 'an item can be put on a day', `status ${made.status}`);
+
+    const loaded = await call(advisor, 'GET', `/api/bookings/${tripId}/itinerary`);
+    const day3 = (loaded.data?.days || []).find((d) => d.dayNumber === 3);
+    check(day3?.items?.length === 1, 'and lands on that day', JSON.stringify(day3?.items?.length));
+    check(day3?.items?.[0]?.start_time === '08:00',
+      'with 8:00 am read as 08:00, so the day sorts by time and not by typing',
+      day3?.items?.[0]?.start_time);
+    check(day3?.date === isoDay(62),
+      'the date worked out from departure rather than stored beside it', day3?.date);
+
+    const badTime = await call(advisor, 'POST', `/api/bookings/${tripId}/itinerary`, {
+      dayNumber: 1, title: 'Nonsense', startTime: 'after lunch',
+    });
+    check(badTime.status === 400, 'a time nobody can read is refused rather than dropped',
+      `status ${badTime.status}`);
+
+    const httpPic = await call(advisor, 'POST', `/api/bookings/${tripId}/itinerary`, {
+      dayNumber: 1, title: 'Insecure picture', imageUrl: 'http://example.com/a.jpg',
+    });
+    check(httpPic.status === 400,
+      'and a picture over plain http is refused, since the client page is https',
+      `status ${httpPic.status}`);
+
+    const anytime = await call(advisor, 'POST', `/api/bookings/${tripId}/itinerary`, {
+      kind: 'note', title: 'Travel insurance', detail: 'Policy AGL-7741.',
+    });
+    check(anytime.status === 201, 'something true of the whole trip needs no day');
+    const withNote = await call(advisor, 'GET', `/api/bookings/${tripId}/itinerary`);
+    check((withNote.data?.anytime || []).length === 1
+      && withNote.data.days.every((d) => d.items.every((i) => i.title !== 'Travel insurance')),
+      'and is kept apart rather than dumped on day one');
+
+    // The gate. A half written itinerary is worse than none.
+    const shared = await call(advisor, 'POST', `/api/bookings/${tripId}/share`, { shared: true });
+    const code = shared.data?.code;
+    // Asserted rather than assumed. Reading the wrong field leaves this
+    // undefined, /t/undefined is a 404, and both checks below would then be
+    // testing a missing page instead of the gate.
+    check(Boolean(code), 'the trip page has a code to test against', JSON.stringify(shared.data));
+    const off = await fetch(`${BASE}/t/${code}`).then((r) => r.text());
+    check(!/Your itinerary/.test(off) && !/Palancar/.test(off),
+      'the client sees nothing until the advisor says it is ready');
+
+    await call(advisor, 'POST', `/api/bookings/${tripId}/itinerary-shared`, { shared: true });
+    const on = await fetch(`${BASE}/t/${code}`).then((r) => r.text());
+    check(/Your itinerary/.test(on) && /Palancar/.test(on),
+      'and sees it once they do');
+    check(/Nothing planned/.test(on),
+      'with the empty days saying so, because a gap in a numbered list is a question');
+
+    // Somebody else's trip is not yours to plan.
+    const theirs = await call(admin, 'POST', `/api/bookings/${tripId}/itinerary`, {
+      dayNumber: 1, title: 'Not mine',
+    });
+    check(theirs.status === 404, 'another advisor cannot add to it', `status ${theirs.status}`);
+  }
+
   // ------------------------------------------------ people in one house -----
   // A client record is one person and stays one. A household is the fact that
   // two of those rows are married, which the portal had no way to know, so the
