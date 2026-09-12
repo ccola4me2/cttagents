@@ -2160,6 +2160,52 @@ async function main() {
     check(theirs.status === 404, 'another advisor cannot add to it', `status ${theirs.status}`);
   }
 
+  // ----------------------------------------------- the page on paper ------
+  // Half the clients who get a trip page print it or save it as a PDF before
+  // they travel, and the version that came out carried a note box, a Send it
+  // button and no way to ring anybody.
+  step('The trip page as something to keep');
+  {
+    const t = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Printable ${stamp}`, supplier: 'Princess',
+      departDate: isoDay(300), returnDate: isoDay(307), gross: '4200', status: 'booked',
+    });
+    const pid = t.data?.booking?.id;
+    if (pid) cleanup('the printable reservation',
+      () => call(advisor, 'DELETE', `/api/bookings/${pid}`));
+
+    await call(advisor, 'POST', `/api/bookings/${pid}/itinerary`, {
+      dayNumber: 3, kind: 'activity', title: 'Snorkelling',
+      location: 'Cozumel, Mexico',
+    });
+    await call(advisor, 'POST', `/api/bookings/${pid}/itinerary-shared`, { shared: true });
+    const code = (await call(advisor, 'POST', `/api/bookings/${pid}/share`, { shared: true }))
+      .data?.code;
+    const html = await fetch(`${BASE}/t/${code}`).then((r) => r.text());
+
+    check(/id="print-it"/.test(html), 'the page offers to print itself');
+    check(/@media print/.test(html), 'and carries rules for what that should look like');
+    check(/form#say,#say[^}]*display:none/.test(html.replace(/\s+/g, ''))
+      || /#say,\.obtn/.test(html.replace(/\s+/g, '')),
+      'with the note box left off the paper version');
+    check(/class="printonly"/.test(html),
+      'and the advisor named on it, since a printed itinerary with nobody to ring gets binbotted'
+        .replace('binbotted', 'binned'));
+    check(html.includes(`/t/${code}`) && /data-url=/.test(html),
+      'carrying the address of the live page, so paper can find its way back to it');
+
+    // A place on an itinerary line is worth being able to find.
+    check(/maps\/search\/\?api=1&amp;query=Cozumel%2C%20Mexico/.test(html),
+      'a place on the itinerary opens in whatever maps app the reader uses',
+      html.match(/maps\/search[^"]*/)?.[0]);
+    check(/class="itin-map"[^>]*rel="noopener noreferrer"/.test(html)
+      || /rel="noopener noreferrer"[^>]*class="itin-map"/.test(html)
+      || /itin-map[\s\S]{0,120}noopener/.test(html),
+      'as a link out, not an embedded map needing a key and somebody else\'s script');
+
+    await call(advisor, 'DELETE', `/api/bookings/${pid}`);
+  }
+
   // ------------------------------------------- the client answers back -----
   // The options existed and the page showed them read only, under "tell your
   // advisor below". So the client typed their pick into a message box and

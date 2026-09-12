@@ -269,7 +269,10 @@ function itineraryBlock(trip) {
     <span class="itin-what">
       <span class="itin-kind">${esc(KIND_WORD[i.kind] || 'Item')}</span>
       <strong>${esc(i.title)}</strong>
-      ${i.location ? `<span class="itin-where">${esc(i.location)}</span>` : ''}
+      ${i.location ? `<span class="itin-where">${esc(i.location)}
+        <a class="itin-map" target="_blank" rel="noopener noreferrer"
+           href="https://www.google.com/maps/search/?api=1&amp;query=${
+  encodeURIComponent(i.location)}">map</a></span>` : ''}
       ${i.detail ? `<span class="itin-detail">${esc(i.detail)}</span>` : ''}
       ${i.confirmation ? `<span class="itin-conf">Reference ${esc(i.confirmation)}</span>` : ''}
     </span>
@@ -467,13 +470,27 @@ export async function renderTripPage(request, env, code) {
       </form>
     </section>
 
-    <footer class="foot">
+    <div class="printbar">
+      <button type="button" id="print-it">Print or save as PDF</button>
+      <span class="dim small">Takes the itinerary and the costs. Leaves out the note box.</span>
+    </div>
+
+    <footer class="foot" data-url="${esc(`${appUrl(env)}/t/${b.share_code}`)}">
+      <!-- Only on paper. A printed itinerary that does not say who to ring is
+           a printed itinerary somebody throws away at the airport. -->
+      <div class="printonly">
+        <p><strong>${esc(advisor)}</strong>${
+  b.agency_name ? ` &middot; ${esc(b.agency_name)}` : ''}</p>
+        <p>${[b.notify_email || b.advisor_email, b.advisor_phone]
+    .filter(Boolean).map(esc).join(' &middot; ')}</p>
+      </div>
       ${b.agency_name ? `<p>${esc(b.agency_name)}</p>` : ''}
       ${b.agency_address ? `<p class="dim">${esc(b.agency_address)}</p>` : ''}
       ${b.seller_of_travel ? `<p class="dim">${esc(b.seller_of_travel)}</p>` : ''}
     </footer>
     ${SAY_SCRIPT}
-    ${CHOOSE_SCRIPT}`;
+    ${CHOOSE_SCRIPT}
+    ${PRINT_SCRIPT}`;
 
   return html(page(b.itinerary || b.product_name || 'Your trip', body,
     await brandForUser(env, b.user_id)));
@@ -641,6 +658,12 @@ function html(markup, status = 200) {
 
 // Split so it cannot close the page early if this file is ever templated into
 // something else. The same trick the group page uses.
+const PRINT_SCRIPT = `<scr${''}ipt>
+document.getElementById('print-it').addEventListener('click', function () {
+  window.print();
+});
+</scr${''}ipt>`;
+
 const CHOOSE_SCRIPT = `<scr${''}ipt>
 document.querySelectorAll('[data-choose]').forEach(function (b) {
   b.addEventListener('click', async function () {
@@ -751,7 +774,44 @@ function page(title, body, brand) {
     .itin-pic{display:none}
   }
 
+  .printbar{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;margin:0 0 1.6rem}
+  .printbar button{border:1px solid var(--navy);background:#fff;color:var(--navy);font:inherit;
+    font-size:.85rem;font-weight:650;padding:.5rem 1.1rem;border-radius:999px;cursor:pointer}
+  .printbar button:hover{background:var(--navy);color:#fff}
+  .printonly{display:none}
+  .small{font-size:.8rem}
+  /* Where an itinerary line says a place, offer to open it in whatever maps
+     app the reader already uses. A link rather than an embedded map: an embed
+     needs a key and puts somebody else's script on a page a client opens. */
+  .itin-map{font-size:.78rem;text-decoration:none;color:var(--navy);border-bottom:1px dotted}
+  .itin-map:hover{color:var(--coral)}
+
   .hero{margin:0 0 1.6rem}
+
+  @media print {
+    /* The page a client keeps. Anything that only works by being clicked is
+       noise once it is on paper, and a page break in the middle of Tuesday is
+       the one thing a printed itinerary must not do. */
+    @page { margin: 14mm; }
+    body{background:#fff;padding:0;font-size:11pt}
+    .wrap{max-width:none}
+    .printbar,.hp,form#say,#say,.obtn,#choose-said,.itin-map{display:none !important}
+    .printonly{display:block}
+    .card{border:0;box-shadow:none;padding:0;margin:0 0 12pt;break-inside:avoid}
+    .card.pad{padding:0}
+    h1{font-size:20pt;margin:0 0 4pt}
+    h2{font-size:13pt;margin:0 0 6pt;border-bottom:1px solid #ccc;padding-bottom:3pt}
+    a{color:#000;text-decoration:none}
+    .itin-day{break-inside:avoid;page-break-inside:avoid}
+    .itin-item{break-inside:avoid;page-break-inside:avoid}
+    .itin-pic,.opic{display:none}
+    .option{break-inside:avoid;border:1px solid #ccc}
+    .brand img{width:28px;height:28px}
+    /* The address of the live page, so a printed copy can find its way back
+       to the one that is up to date. */
+    .foot::after{content:"Your live trip page: " attr(data-url);display:block;
+      margin-top:6pt;font-size:9pt;color:#555}
+  }
   .eyebrow{margin:0 0 .3rem;font-size:.72rem;font-weight:700;letter-spacing:.16em;
     text-transform:uppercase;color:var(--teal)}
   h1{margin:0 0 .4rem;font-size:2rem;line-height:1.15;color:var(--navy);font-weight:650;
