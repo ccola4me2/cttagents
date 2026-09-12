@@ -129,6 +129,46 @@ const howPaid = (p) => (p.payment_type ? (PAY_TYPE[p.payment_type] || p.payment_
 
 // A hard payment is a deadline, not an invoice: miss it and the vendor
 // cancels the reservation. Everything else is a normal due date.
+/**
+ * One obligation, one row.
+ *
+ * A final balance is two rows: the vendor's deadline, and a soft line a week
+ * earlier that exists only to make somebody chase it in time. Listed side by
+ * side they read as two debts for the same money, so this page showed Cathy
+ * Goss owing $2,162.49 twice and looked like four thousand pounds of
+ * exposure. The reservation screen has folded them together for a while; this
+ * one had not.
+ *
+ * The reminder is not thrown away, it moves onto the row it belongs to as a
+ * chase date. And the Soft tab still lists them in their own right, because
+ * asking for the reminders is a fair question to ask.
+ */
+function rowsFor(d) {
+  if (payClass) return d.payments;
+
+  const unpaidHard = new Set(d.payments
+    .filter((p) => p.payment_class === 'hard' && !p.paid_date)
+    .map((p) => `${p.booking_id}|${p.kind}`));
+
+  const chase = new Map();
+  for (const p of d.payments) {
+    if (p.payment_class !== 'soft' || p.paid_date) continue;
+    const key = `${p.booking_id}|${p.kind}`;
+    if (!unpaidHard.has(key)) continue;
+    // The earliest, in case a schedule was built more than once.
+    const held = chase.get(key);
+    if (!held || String(p.due_date || '') < held) chase.set(key, p.due_date);
+  }
+
+  return d.payments
+    .filter((p) => !(p.payment_class === 'soft' && !p.paid_date
+      && unpaidHard.has(`${p.booking_id}|${p.kind}`)))
+    .map((p) => (p.payment_class === 'hard' && !p.paid_date
+      && chase.has(`${p.booking_id}|${p.kind}`)
+      ? { ...p, _chase: chase.get(`${p.booking_id}|${p.kind}`) }
+      : p));
+}
+
 function statusOf(p, today) {
   if (p.paid_date) return { label: 'posted', tone: 'badge-green' };
   if (!p.due_date) return { label: 'unscheduled', tone: 'badge-navy' };
@@ -171,7 +211,7 @@ function render(d) {
     <div class="stat"><p class="label">Paid to vendors</p><p class="value">${money(s.postedCents)}</p>
       <p class="meta">Posted against reservations</p></div>`;
 
-  if (!d.payments.length) {
+  if (!rowsFor(d).length) {
     panel.innerHTML = state === 'paid'
       ? '<div class="empty"><h3>Nothing posted yet</h3><p>Payments you mark as paid appear here.</p></div>'
       : '<div class="empty"><h3>Nothing outstanding</h3><p>Add a deposit amount and dates to a reservation, then build its schedule below.</p></div>';
@@ -182,7 +222,7 @@ function render(d) {
     <div class="table-wrap"><table>
       <thead><tr><th>Client</th>${showAdvisor ? '<th>Advisor</th>' : ''}<th>Trip</th><th>Type</th>
         <th>Status</th><th class="num">Amount</th><th></th></tr></thead>
-      <tbody>${d.payments.map((p) => {
+      <tbody>${rowsFor(d).map((p) => {
         const st = statusOf(p, d.today);
         const mine = p.user_id === ME;
         return `<tr>
@@ -197,7 +237,8 @@ function render(d) {
           <td><span class="badge ${st.tone}">${esc(st.label)}</span>
             <div class="muted">${esc(p.paid_date
                 ? 'Posted ' + dateFmt(p.paid_date) + (howPaid(p) ? ' · ' + howPaid(p) : '')
-                : p.due_date ? dateFmt(p.due_date) : '')}</div></td>
+                : p.due_date ? dateFmt(p.due_date) : '')}</div>
+            ${p._chase ? `<div class="muted">chase from ${esc(dateFmt(p._chase))}</div>` : ''}</td>
           <td class="num">${money(p.amount_cents)}</td>
           <td class="num" style="white-space:nowrap;">${mine
             // An owner reads the agency's payments and writes only their own,
