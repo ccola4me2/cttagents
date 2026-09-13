@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emails | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Emails</h1>
+        <p class="sub">One message to a list, sent once.</p></div>
+      <a class="btn btn-primary btn-sm" href="/app/broadcast">Write a message</a>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <div class="notice notice-info">
+        Every message here carries an unsubscribe link and your agency's postal address.
+        Messages about a trip somebody has booked are sent from the reservation and are
+        not affected by an unsubscribe.
+      </div>
+      <section class="card"><div id="list"><p class="spinner">Loading...</p></div></section>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api, mountShell, esc, dateFmt, showError } from '/js/app.js';
+await mountShell();
+
+const err = document.getElementById('err');
+const box = document.getElementById('list');
+
+const LABEL = {
+  draft: ['Draft', 'badge-navy'],
+  sending: ['Sending', 'badge-amber'],
+  sent: ['Sent', 'badge-green'],
+  cancelled: ['Stopped', 'badge-red'],
+};
+
+function progress(b) {
+  if (b.status === 'draft') return 'Not sent yet';
+  const done = b.sent + b.failed + b.skipped;
+  const bits = [`${b.sent} sent`];
+  // Only mentioned when there are any. A row reading "0 failed, 0 unsubscribed"
+  // on every message trains people to stop reading the row.
+  if (b.skipped) bits.push(`${b.skipped} unsubscribed`);
+  if (b.failed) bits.push(`${b.failed} failed`);
+  if (b.status === 'sending') bits.push(`${b.total - done} still to go`);
+  return bits.join(', ');
+}
+
+async function draw() {
+  try {
+    const { broadcasts } = await api('/api/broadcasts');
+    if (!broadcasts.length) {
+      box.innerHTML = `<div class="empty"><h3>No messages yet</h3>
+        <p>A message goes to one of your saved lists. Build the list first on
+          <a href="/app/segments">Lists</a>, then write to it.</p></div>`;
+      return;
+    }
+    box.innerHTML = `<ul class="rows">${broadcasts.map((b) => `<li>
+      <div class="row-between">
+        <div style="min-width:0;">
+          <a class="name" href="/app/broadcast?id=${esc(b.id)}">${esc(b.name)}</a>
+          <div class="muted" style="font-size:.8rem;">${esc(b.subject)}</div>
+          <div class="muted" style="font-size:.78rem;">${esc(progress(b))}</div>
+        </div>
+        <div style="text-align:right;white-space:nowrap;">
+          <span class="badge ${esc((LABEL[b.status] || [])[1] || 'badge-navy')}"
+            >${esc((LABEL[b.status] || [])[0] || b.status)}</span>
+          <div class="muted" style="font-size:.76rem;margin-top:.3rem;">${
+            esc(dateFmt(b.finishedAt || b.startedAt || b.createdAt))}</div>
+        </div>
+      </div></li>`).join('')}</ul>`;
+  } catch (e) { showError(box, e); }
+}
+
+await draw();
+
+// A send drains on the cron, so an open page would otherwise sit on a stale
+// number until somebody reloaded. Only while something is actually sending.
+setInterval(async () => {
+  const live = [...box.querySelectorAll('.badge')];
+  if (!live.some((p) => p.textContent.trim() === 'Sending')) return;
+  await draw();
+}, 30000);
+</script>
+</body></html>

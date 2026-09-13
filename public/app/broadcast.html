@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Write a message | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1 id="head">Write a message</h1>
+        <p class="sub" id="sub">To one of your lists, once.</p></div>
+      <a class="btn btn-ghost btn-sm" href="/app/broadcasts">All messages</a>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+
+      <div class="split">
+        <div>
+          <section class="card">
+            <div class="card-head"><h2>The message</h2></div>
+            <div class="card-pad">
+              <div class="field"><label for="name">Name it</label>
+                <input id="name" maxlength="80" placeholder="October Alaska deal">
+                <p class="field-hint">For you, not for them. Nobody receiving this sees it.</p></div>
+
+              <div class="field"><label for="segment">Who it goes to</label>
+                <select id="segment"></select>
+                <p class="field-hint">Saved lists come from
+                  <a href="/app/segments">Lists</a>. The list is worked out again when you
+                  press send, so it is whoever matches then.</p></div>
+
+              <div class="field"><label for="subject">Subject</label>
+                <input id="subject" maxlength="160"
+                  placeholder="{{first_name}}, one cabin left on the July sailing"></div>
+
+              <div class="field"><label for="body">Message</label>
+                <textarea id="body" rows="14" maxlength="8000"></textarea>
+                <p class="field-hint">Plain text. <code>{{first_name}}</code> and
+                  <code>{{name}}</code> are filled in per person; anything blank is shown
+                  in the preview before you send, not discovered afterwards.</p></div>
+
+              <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+                <button class="btn btn-primary btn-sm" id="save">Save draft</button>
+                <button class="btn btn-ghost btn-sm" id="test">Send a test to me</button>
+                <button class="btn btn-ghost btn-sm" id="drop"
+                  style="margin-left:auto;color:var(--red-600);">Delete</button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div>
+          <section class="card">
+            <div class="card-head"><h2>Before you send</h2>
+              <button class="btn btn-ghost btn-sm" id="refresh">Check again</button></div>
+            <div class="card-pad" id="check"><p class="muted" style="margin:0;">
+              Pick a list to see who this reaches.</p></div>
+          </section>
+
+          <section class="card" id="send-card" style="margin-top:1.5rem;">
+            <div class="card-head"><h2>Send it</h2></div>
+            <div class="card-pad" id="send-body"></div>
+          </section>
+        </div>
+      </div>
+
+      <section class="card" id="results" hidden style="margin-top:1.5rem;">
+        <div class="card-head"><h2>Who it went to</h2>
+          <span class="muted" id="results-note"></span></div>
+        <div id="results-body"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api, mountShell, esc, dateFmt, showError } from '/js/app.js';
+await mountShell();
+
+const err = document.getElementById('err');
+const id = new URLSearchParams(location.search).get('id');
+const F = (k) => document.getElementById(k);
+let current = null;
+let timer = null;
+
+// --------------------------------------------------------------- the lists ---
+let segments = [];
+try {
+  segments = (await api('/api/segments')).segments || [];
+} catch (e) { showError(err, e); }
+
+F('segment').innerHTML = segments.length
+  ? `<option value="">Choose a list...</option>${segments.map((s) =>
+      `<option value="${esc(s.id)}">${esc(s.name)} (${s.rules.length} rule${
+        s.rules.length === 1 ? '' : 's'})</option>`).join('')}`
+  : '<option value="">You have no saved lists yet</option>';
+
+// ------------------------------------------------------------- the message ---
+if (id) {
+  try {
+    const d = await api(`/api/broadcasts/${encodeURIComponent(id)}`);
+    current = d.broadcast;
+    F('name').value = current.name;
+    F('subject').value = current.subject;
+    F('body').value = current.body;
+    F('segment').value = current.segmentId || '';
+    F('head').textContent = current.name;
+    paintResults(d.recipients);
+  } catch (e) { showError(err, e); }
+}
+
+const sent = () => current && current.status !== 'draft';
+
+function lockIfSent() {
+  if (!sent()) return;
+  // A sent message is a record of something that happened, so the fields it
+  // was sent with stay as they were read.
+  ['name', 'subject', 'body', 'segment'].forEach((k) => { F(k).disabled = true; });
+  ['save', 'test', 'drop'].forEach((k) => { F(k).hidden = true; });
+  F('sub').textContent = 'Sent, so this is the record of it rather than a draft.';
+}
+
+// ----------------------------------------------------------- what it does ---
+async function check() {
+  const box = F('check');
+  const segmentId = F('segment').value;
+  if (!segmentId) {
+    box.innerHTML = '<p class="muted" style="margin:0;">Pick a list to see who this reaches.</p>';
+    return;
+  }
+  box.innerHTML = '<p class="spinner">Working it out...</p>';
+  try {
+    const d = await api('/api/broadcasts/preview', { method: 'POST', body: {
+      segmentId, subject: F('subject').value, body: F('body').value,
+    } });
+
+    const warn = [];
+    if (d.missingAddress) {
+      warn.push(`<div class="notice notice-warn">Your agency has no postal address on
+        <a href="/app/settings">Settings</a>. Marketing email is supposed to carry one, and
+        spam filters read a missing address as a bad sign. The send still works.</div>`);
+    }
+    if (d.blanks.length) {
+      warn.push(`<div class="notice notice-warn">Nothing behind
+        ${d.blanks.map((b) => `<code>{{${esc(b)}}}</code>`).join(' and ')} for
+        ${esc(d.sample.name)}. Check it reads properly with the gap.</div>`);
+    }
+
+    box.innerHTML = `${warn.join('')}
+      <p style="margin:0 0 .75rem;"><strong>${d.total}</strong>
+        ${d.total === 1 ? 'person' : 'people'} on this list right now.</p>
+      <p class="muted" style="font-size:.82rem;margin:0 0 1rem;">Anyone who has unsubscribed
+        is dropped as the message goes out, not now, so somebody who opts out during the
+        send is still honoured.</p>
+      <div style="border:1px solid var(--navy-100);border-radius:10px;padding:1rem;">
+        <p class="muted" style="font-size:.76rem;margin:0 0 .35rem;">As ${esc(d.sample.name)}
+          would read it</p>
+        <p style="margin:0 0 .5rem;font-weight:600;">${esc(d.subject) || '<em>no subject</em>'}</p>
+        <p style="margin:0;white-space:pre-wrap;">${esc(d.body)}</p>
+        <p class="muted" style="font-size:.72rem;margin:1rem 0 0;border-top:1px solid
+          var(--navy-50);padding-top:.6rem;">${d.footer}</p>
+      </div>`;
+  } catch (e) { showError(box, e); }
+}
+
+F('refresh').addEventListener('click', check);
+F('segment').addEventListener('change', check);
+['subject', 'body'].forEach((k) => F(k).addEventListener('input', () => {
+  clearTimeout(timer);
+  timer = setTimeout(check, 600);
+}));
+
+// ------------------------------------------------------------------ saving ---
+function payload() {
+  return {
+    name: F('name').value.trim(),
+    subject: F('subject').value.trim(),
+    body: F('body').value,
+    segmentId: F('segment').value || null,
+  };
+}
+
+async function save() {
+  const d = await api(current ? `/api/broadcasts/${encodeURIComponent(current.id)}` : '/api/broadcasts',
+    { method: current ? 'PUT' : 'POST', body: payload() });
+  if (!current) {
+    // First save gets an id, and the address changes with it so a reload does
+    // not silently start a second message.
+    history.replaceState(null, '', `/app/broadcast?id=${encodeURIComponent(d.id)}`);
+    current = { id: d.id, status: 'draft' };
+  }
+  return current.id;
+}
+
+F('save').addEventListener('click', async () => {
+  try {
+    await save();
+    err.innerHTML = '<div class="notice notice-ok">Saved.</div>';
+    drawSend();
+  } catch (e) { showError(err, e); }
+});
+
+F('test').addEventListener('click', async () => {
+  try {
+    const savedId = await save();
+    const d = await api(`/api/broadcasts/${encodeURIComponent(savedId)}/test`, { method: 'POST' });
+    err.innerHTML = `<div class="notice notice-ok">Test sent to ${esc(d.to)}.</div>`;
+  } catch (e) { showError(err, e); }
+});
+
+F('drop').addEventListener('click', async () => {
+  if (!current) { location.href = '/app/broadcasts'; return; }
+  if (!confirm('Delete this draft?')) return;
+  try {
+    await api(`/api/broadcasts/${encodeURIComponent(current.id)}`, { method: 'DELETE' });
+    location.href = '/app/broadcasts';
+  } catch (e) { showError(err, e); }
+});
+
+// ----------------------------------------------------------------- sending ---
+function drawSend() {
+  const box = F('send-body');
+
+  if (!current) {
+    box.innerHTML = `<p class="muted" style="margin:0;">Save it first. Nothing is sent until
+      you press the button below, and then it goes out in batches over the next few
+      minutes rather than all at once.</p>`;
+    return;
+  }
+
+  if (current.status === 'sending') {
+    const done = current.sent + current.failed + current.skipped;
+    box.innerHTML = `<p style="margin:0 0 .5rem;"><strong>${done}</strong> of
+        ${current.total} handled. This carries on by itself, roughly five hundred an hour,
+        so you can close the page.</p>
+      <p class="muted" style="font-size:.82rem;">${current.sent} sent${
+        current.skipped ? `, ${current.skipped} unsubscribed` : ''}${
+        current.failed ? `, ${current.failed} failed` : ''}.</p>
+      <button class="btn btn-ghost btn-sm" id="stop" style="color:var(--red-600);">
+        Stop the rest</button>`;
+    document.getElementById('stop').addEventListener('click', async () => {
+      if (!confirm('Stop this send? The ones already gone have gone.')) return;
+      try {
+        await api(`/api/broadcasts/${encodeURIComponent(current.id)}/cancel`, { method: 'POST' });
+        await reload();
+      } catch (e) { showError(err, e); }
+    });
+    return;
+  }
+
+  if (current.status === 'sent' || current.status === 'cancelled') {
+    box.innerHTML = `<p style="margin:0;"><strong>${current.sent}</strong> sent${
+      current.skipped ? `, ${current.skipped} skipped as unsubscribed` : ''}${
+      current.failed ? `, ${current.failed} failed` : ''}.</p>
+      <p class="muted" style="font-size:.82rem;margin:.4rem 0 0;">${
+        esc(dateFmt(current.finishedAt || current.startedAt))}</p>`;
+    return;
+  }
+
+  box.innerHTML = `<p class="muted" style="margin:0 0 .9rem;">The list is worked out when you
+      press this, and the people on it are written down, so the record of who got this
+      cannot change afterwards.</p>
+    <button class="btn btn-primary btn-sm" id="go">Send it</button>`;
+  document.getElementById('go').addEventListener('click', async () => {
+    try {
+      const savedId = await save();
+      const d = await api('/api/broadcasts/preview', { method: 'POST', body: {
+        segmentId: F('segment').value, subject: F('subject').value, body: F('body').value,
+      } });
+      // The count is said out loud in the confirmation, because "Send?" and
+      // "Send to 412 people?" are different questions.
+      if (!confirm(`Send "${F('subject').value}" to ${d.total} ${
+        d.total === 1 ? 'person' : 'people'}? This cannot be taken back.`)) return;
+      await api(`/api/broadcasts/${encodeURIComponent(savedId)}/send`, { method: 'POST' });
+      await reload();
+    } catch (e) { showError(err, e); }
+  });
+}
+
+function paintResults(recipients) {
+  if (!recipients || !recipients.length) return;
+  const box = document.getElementById('results');
+  box.hidden = false;
+  document.getElementById('results-note').textContent =
+    `${recipients.length} ${recipients.length === 1 ? 'person' : 'people'}`;
+  document.getElementById('results-body').innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Name</th><th>Email</th><th>What happened</th></tr></thead>
+    <tbody>${recipients.map((r) => `<tr>
+      <td>${esc(r.name || '-')}</td><td>${esc(r.email)}</td>
+      <td>${esc(r.status)}${r.detail ? `<div class="muted" style="font-size:.76rem;">${
+        esc(r.detail)}</div>` : ''}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+async function reload() {
+  const d = await api(`/api/broadcasts/${encodeURIComponent(current.id)}`);
+  current = d.broadcast;
+  lockIfSent();
+  drawSend();
+  paintResults(d.recipients);
+}
+
+lockIfSent();
+drawSend();
+if (F('segment').value) await check();
+
+// While it is going out the numbers come from the cron, so the page asks
+// rather than guessing. Stops as soon as it is finished.
+setInterval(async () => {
+  if (!current || current.status !== 'sending') return;
+  try { await reload(); } catch { /* a tick that fails is not worth saying */ }
+}, 20000);
+</script>
+</body></html>

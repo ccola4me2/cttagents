@@ -47,6 +47,7 @@ const OWNED = new Set([
   // it holds are run inside that advisor's scope, so the list itself is
   // theirs the same way a saved search would be.
   'segments',
+  'broadcasts', 'broadcast_recipients',
   'itinerary_items', 'itinerary_library',
 ]);
 
@@ -146,6 +147,25 @@ const ALLOWED = [
     'a rate limit on a public page, counted for the group being signed up to; there is '
     + 'no session on that request and the owner comes from the group'],
   ['UPDATE travellers SET is_lead = 0', 'follows an ownership check on the traveller being promoted'],
+  // The broadcast sender, which runs on the cron as nobody and drains one
+  // message at a time across every advisor. Same shape as the task digest
+  // above it: the scope is in the rows, not in these statements. Every
+  // recipient row was written by one advisor's own scoped query at the moment
+  // they pressed send, and the four statements below only ever touch rows
+  // belonging to the one broadcast that pass just claimed. Scoping them to a
+  // user would mean asking whose send it is on every row of it, which the
+  // broadcast_id already answers.
+  ['SELECT id, email, name FROM broadcast_recipients',
+    'the next batch of one send, claimed by the cron; the owner is on the broadcast '
+    + 'row it came from'],
+  ['UPDATE broadcast_recipients SET status = ?, detail = ?, sent_at = ? WHERE id = ?',
+    'the outcome of the one send that just happened, stamped on the row it happened to'],
+  ['UPDATE broadcasts SET sent_count = sent_count + ?',
+    'the running tally on the broadcast this pass is draining'],
+  ["UPDATE broadcasts SET status = 'sent', finished_at = ?",
+    'the same broadcast, when nothing is left queued on it'],
+  ['SELECT COUNT(*) AS n FROM broadcast_recipients',
+    'asks whether that send is finished; the count never leaves the check'],
   // Stripe's webhook knows its own customer id and nothing about this portal's
   // users, so the row has to be found by the id Stripe sent. There is no
   // session on that request to scope it to: it arrives from Stripe, and what

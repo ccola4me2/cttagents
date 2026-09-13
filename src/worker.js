@@ -42,6 +42,11 @@ import {
   handleSaveSegment, handleDeleteSegment,
 } from './segments.js';
 import {
+  handleListBroadcasts, handleGetBroadcast, handleSaveBroadcast, handleDeleteBroadcast,
+  handlePreviewBroadcast, handleTestBroadcast, handleSendBroadcast, handleCancelBroadcast,
+  sendQueuedBroadcasts,
+} from './broadcasts.js';
+import {
   handleAddComponent, handleUpdateComponent, handleDeleteComponent,
 } from './components.js';
 import {
@@ -227,6 +232,8 @@ const PAGE_FILES = {
   '/app/import': '/app/import.html',
   '/app/import-clients': '/app/import-clients.html',
   '/app/segments': '/app/segments.html',
+  '/app/broadcasts': '/app/broadcasts.html',
+  '/app/broadcast': '/app/broadcast.html',
   '/app/complete': '/app/complete.html',
   '/app/vendors': '/app/vendors.html',
   '/app/vendor': '/app/vendor.html',
@@ -307,6 +314,11 @@ export default {
     // And once a week, the calls nothing else is chasing anybody about. A
     // no-op on six days in seven, so this costs one query on almost every tick.
     ctx.waitUntil(sendCallLists(env).catch((e) => console.error('call lists', e)));
+    // A broadcast is queued as rows and drained here, forty at a time. A no-op
+    // when nothing is sending, which is almost every tick.
+    ctx.waitUntil(
+      sendQueuedBroadcasts(env).catch((e) => console.error('broadcasts', e))
+    );
     ctx.waitUntil(
       scanTimeTriggers(env, locationFor(env, null))
         .catch((e) => console.error('time triggers', e))
@@ -345,6 +357,8 @@ async function routeApi(request, env, path, method) {
   const shareMatch = path.match(/^\/api\/bookings\/([^/]+)\/share$/);
   const unsubMatch = path.match(/^\/u\/([A-Za-z0-9._-]+)$/);
   const segMatch = path.match(/^\/api\/segments\/([^/]+)$/);
+  const castMatch = path.match(/^\/api\/broadcasts\/([^/]+)$/);
+  const castActMatch = path.match(/^\/api\/broadcasts\/([^/]+)\/(test|send|cancel)$/);
   const tripMsgMatch = path.match(/^\/api\/bookings\/([^/]+)\/messages$/);
   const msgReadMatch = path.match(/^\/api\/trip-messages\/([^/]+)\/read$/);
   const docShareMatch = path.match(/^\/api\/documents\/([^/]+)\/share$/);
@@ -615,6 +629,22 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/segments' && method === 'POST') return handleSaveSegment(request, env, null);
   if (segMatch && method === 'PUT') return handleSaveSegment(request, env, segMatch[1]);
   if (segMatch && method === 'DELETE') return handleDeleteSegment(request, env, segMatch[1]);
+
+  // Before the single-broadcast match, which would read "preview" as an id.
+  if (path === '/api/broadcasts/preview' && method === 'POST') {
+    return handlePreviewBroadcast(request, env);
+  }
+  if (path === '/api/broadcasts' && method === 'GET') return handleListBroadcasts(request, env);
+  if (path === '/api/broadcasts' && method === 'POST') return handleSaveBroadcast(request, env, null);
+  if (castActMatch && method === 'POST') {
+    const [, id, what] = castActMatch;
+    if (what === 'test') return handleTestBroadcast(request, env, id);
+    if (what === 'send') return handleSendBroadcast(request, env, id);
+    return handleCancelBroadcast(request, env, id);
+  }
+  if (castMatch && method === 'GET') return handleGetBroadcast(request, env, castMatch[1]);
+  if (castMatch && method === 'PUT') return handleSaveBroadcast(request, env, castMatch[1]);
+  if (castMatch && method === 'DELETE') return handleDeleteBroadcast(request, env, castMatch[1]);
 
   if (unsubMatch && method === 'GET') return renderUnsubscribe(env, unsubMatch[1]);
   if (unsubMatch && method === 'POST') return handleUnsubscribe(env, unsubMatch[1]);

@@ -64,6 +64,7 @@ const PAGES = [
   // These pages also read a detail endpoint, so both shapes count.
   ['public/app/formbuilder.html', ['/api/myforms', 'detail:/api/myforms/{formId}', '/api/myforms/report']],
   ['public/app/automations.html', ['/api/automations', 'detail:/api/automations/{automationId}', '/api/campaigns']],
+  ['public/app/broadcasts.html', ['/api/broadcasts']],
   ['public/admin/index.html', ['/api/admin/advisors', '/api/admin/sync']],
 ];
 

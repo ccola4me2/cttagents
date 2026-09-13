@@ -1,0 +1,454 @@
+// One message to a list of people, sent once.
+//
+// The piece that makes the previous two worth having. Lists say who to write
+// to and the suppression list says who not to; this is the writing.
+//
+// Three decisions run through the file.
+//
+// The recipients are frozen when send is pressed. A list is a question
+// re-asked every time it is opened, which is right for "who should I write
+// to" and wrong for "who got Tuesday's email". Freezing also makes the send
+// resumable: a Worker invocation lasts seconds, four hundred emails do not,
+// and the cron drains the queue a batch at a time without sending anybody
+// twice.
+//
+// Suppression is checked at send time rather than at freeze time. A send that
+// takes an hour will overlap somebody unsubscribing during it, and the whole
+// point of the list is that the last word wins.
+//
+// It is marketing, always. Every message carries the unsubscribe footer and
+// the agency's postal address, with no switch to turn that off, because the
+// one thing nobody should be able to do from a screen like this is send four
+// hundred people a newsletter with no way out of it.
+
+import { json, badRequest, notFound, clean, cleanText, uid, now, readJson } from './util.js';
+import { requireUser } from './auth.js';
+import * as db from './db.js';
+import { resolveSegment, buildWhere } from './segments.js';
+import { isSuppressed, unsubscribeToken, marketingFooter, normalise } from './suppression.js';
+import { sendAutomationEmail } from './email.js';
+
+// How many go out per cron tick. The cron runs every five minutes, so this is
+// roughly five hundred an hour: slower than Resend would allow and fast enough
+// for a book of any size a travel advisor actually has. Kept low on purpose,
+// because the cost of a batch that runs long is a Worker invocation killed
+// mid-send, and the cost of a batch that is small is waiting.
+const PER_PASS = 40;
+
+// Merge fields, and deliberately few. Every one of these is a column that is
+// either filled in or obviously blank on the client record, so a message can
+// be checked by looking at it. A token that silently renders empty is how
+// somebody emails four hundred people "Hi ,".
+const TOKENS = {
+  first_name: (r) => firstName(r.name),
+  name: (r) => r.name || '',
+};
+
+function firstName(full) {
+  return String(full || '').trim().split(/\s+/)[0] || '';
+}
+
+/**
+ * Fill the merge fields, and say what is left unfilled.
+ *
+ * Returns the text and the tokens that had nothing behind them, so the preview
+ * can show the gap rather than the send discovering it.
+ */
+export function merge(body, row) {
+  const blanks = new Set();
+  const text = String(body || '').replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (whole, key) => {
+    const fn = TOKENS[key.toLowerCase()];
+    if (!fn) return whole;
+    const value = fn(row);
+    if (!value) blanks.add(key.toLowerCase());
+    return value;
+  });
+  return { text, blanks: [...blanks] };
+}
+
+/** The agency behind an advisor, for the footer. */
+async function agencyFor(env, user) {
+  if (!user.agency_id) {
+    // No agency row, so the footer falls back to what the user record holds.
+    // A missing address is a thing to fix on the settings page, not a reason
+    // the send stops.
+    return { id: null, name: user.agency_name || null, address: user.agency_address || null };
+  }
+  try {
+    const row = await env.DB.prepare(
+      'SELECT id, name, address FROM agencies WHERE id = ? LIMIT 1'
+    ).bind(user.agency_id).first();
+    return row || { id: user.agency_id, name: user.agency_name || null, address: null };
+  } catch (e) {
+    console.error('agencyFor', e);
+    return { id: user.agency_id, name: user.agency_name || null, address: null };
+  }
+}
+
+function appUrl(env) {
+  return (env.APP_URL || 'https://cttagents.com').replace(/\/$/, '');
+}
+
+const shape = (b) => ({
+  id: b.id,
+  name: b.name,
+  subject: b.subject,
+  body: b.body,
+  segmentId: b.segment_id,
+  rules: safeRules(b.rules_json),
+  status: b.status,
+  total: b.total,
+  sent: b.sent_count,
+  failed: b.failed_count,
+  skipped: b.skipped_count,
+  createdAt: b.created_at,
+  startedAt: b.started_at,
+  finishedAt: b.finished_at,
+});
+
+function safeRules(raw) {
+  try {
+    const v = JSON.parse(raw || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch { return []; }
+}
+
+// ---------------------------------------------------------------------------
+// The advisor's side
+// ---------------------------------------------------------------------------
+
+export async function handleListBroadcasts(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  const scoped = db.scopeWhere(db.selfScope(user), 'user_id');
+  const { results } = await env.DB.prepare(
+    `SELECT id, name, subject, body, segment_id, rules_json, status, total,
+            sent_count, failed_count, skipped_count, created_at, started_at, finished_at
+       FROM broadcasts WHERE ${scoped.sql} ORDER BY created_at DESC LIMIT 100`
+  ).bind(...scoped.binds).all();
+  return json({ broadcasts: (results || []).map(shape) });
+}
+
+export async function handleGetBroadcast(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  const row = await one(env, user, id);
+  if (!row) return notFound('No such message.');
+
+  // Who it went to, and what happened to each. The record of a send is the
+  // part somebody comes back to weeks later, so it is kept per person rather
+  // than as a tally.
+  const { results } = await env.DB.prepare(
+    `SELECT name, email, status, detail, sent_at FROM broadcast_recipients
+      WHERE broadcast_id = ? AND user_id = ? ORDER BY status, name LIMIT 1000`
+  ).bind(id, row.user_id).all();
+
+  return json({ broadcast: shape(row), recipients: results || [] });
+}
+
+async function one(env, user, id) {
+  const scoped = db.scopeWhere(db.selfScope(user), 'user_id');
+  return env.DB.prepare(
+    `SELECT id, user_id, agency_id, name, subject, body, segment_id, rules_json, status,
+            total, sent_count, failed_count, skipped_count, created_at, started_at, finished_at
+       FROM broadcasts WHERE id = ? AND ${scoped.sql} LIMIT 1`
+  ).bind(id, ...scoped.binds).first();
+}
+
+/** The rules behind a message: its own, or the saved list it points at. */
+async function rulesFor(env, user, { segmentId, rules }) {
+  if (segmentId) {
+    const scoped = db.scopeWhere(db.selfScope(user), 'user_id');
+    const row = await env.DB.prepare(
+      `SELECT rules_json FROM segments WHERE id = ? AND ${scoped.sql} LIMIT 1`
+    ).bind(segmentId, ...scoped.binds).first();
+    if (!row) return null;
+    return safeRules(row.rules_json);
+  }
+  return Array.isArray(rules) ? rules.slice(0, 10) : [];
+}
+
+export async function handleSaveBroadcast(request, env, id = null) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const body = await readJson(request);
+  const name = clean(body.name, 80);
+  const subject = clean(body.subject, 160);
+  const text = cleanText(body.body, 8000);
+  if (!name) return badRequest('Give the message a name, so you can find it again.');
+  if (!subject) return badRequest('A subject line, please: it is most of whether this gets read.');
+  if (!text) return badRequest('The message is empty.');
+
+  const segmentId = clean(body.segmentId, 40) || null;
+  const rules = await rulesFor(env, user, { segmentId, rules: body.rules });
+  if (rules === null) return badRequest('That list is not yours.');
+  if (!buildWhere(rules).length) {
+    // Same refusal the saved lists make, at the same point: when it is named,
+    // not when it is sent.
+    return badRequest('Pick a list, or add a rule. Without one this is your whole book.');
+  }
+
+  const ts = now();
+  if (id) {
+    const existing = await one(env, user, id);
+    if (!existing) return notFound('No such message.');
+    // A sent message is a record of something that happened. Editing the
+    // subject afterwards would make the record say something the recipients
+    // never read.
+    if (existing.status !== 'draft') return badRequest('This has already been sent, so it cannot be changed. Copy it instead.');
+    await env.DB.prepare(
+      `UPDATE broadcasts SET name = ?, subject = ?, body = ?, segment_id = ?, rules_json = ?,
+              updated_at = ? WHERE id = ? AND user_id = ?`
+    ).bind(name, subject, text, segmentId, JSON.stringify(rules), ts, id, user.id).run();
+    return json({ ok: true, id });
+  }
+
+  const agency = await agencyFor(env, user);
+  const newId = uid();
+  await env.DB.prepare(
+    `INSERT INTO broadcasts (id, user_id, agency_id, name, subject, body, segment_id,
+            rules_json, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`
+  ).bind(newId, user.id, agency.id, name, subject, text, segmentId,
+         JSON.stringify(rules), ts, ts).run();
+  return json({ ok: true, id: newId }, 201);
+}
+
+export async function handleDeleteBroadcast(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  const res = await env.DB.prepare(
+    `DELETE FROM broadcasts WHERE id = ? AND user_id = ? AND status = 'draft'`
+  ).bind(id, user.id).run();
+  if (!res.meta || !res.meta.changes) {
+    return badRequest('Only a draft can be removed. A sent message is the record of a send.');
+  }
+  await env.DB.prepare(
+    'DELETE FROM broadcast_recipients WHERE broadcast_id = ? AND user_id = ?'
+  ).bind(id, user.id).run();
+  return json({ ok: true });
+}
+
+/**
+ * What this would do, before it does it.
+ *
+ * Counts the people, counts the ones already unsubscribed, and renders the
+ * message against the first of them so the merge fields can be read rather
+ * than trusted.
+ */
+export async function handlePreviewBroadcast(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const body = await readJson(request);
+  const rules = await rulesFor(env, user, { segmentId: clean(body.segmentId, 40) || null, rules: body.rules });
+  if (rules === null) return badRequest('That list is not yours.');
+
+  const agency = await agencyFor(env, user);
+  const out = await resolveSegment(env, db.selfScope(user), rules, { limit: 5 });
+
+  // Suppressed people are counted here as well as filtered at send, so the
+  // number on the screen is the number who will actually receive it.
+  let suppressed = 0;
+  for (const p of out.people) {
+    if (await isSuppressed(env, agency.id, p.email)) suppressed += 1;
+  }
+
+  const sample = out.people[0] || { name: 'Sample Client', email: 'client@example.com' };
+  const rendered = merge(body.body || '', sample);
+  const subject = merge(body.subject || '', sample);
+
+  return json({
+    total: out.total,
+    everybody: out.rulesUsed === 0,
+    sample: { name: sample.name, email: sample.email },
+    subject: subject.text,
+    body: rendered.text,
+    // Named rather than counted: "birthday is blank for 3" is actionable and
+    // "3 blanks" is not.
+    blanks: [...new Set([...rendered.blanks, ...subject.blanks])],
+    suppressedInSample: suppressed,
+    footer: marketingFooter({
+      agencyName: agency.name,
+      agencyAddress: agency.address,
+      unsubscribeUrl: `${appUrl(env)}/u/preview`,
+    }),
+    missingAddress: !agency.address,
+  });
+}
+
+/** Send it to yourself first. The only way to know what it looks like. */
+export async function handleTestBroadcast(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  const row = await one(env, user, id);
+  if (!row) return notFound('No such message.');
+
+  const agency = await agencyFor(env, user);
+  const me = { name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'You' };
+  const to = user.notify_email || user.email;
+
+  await sendAutomationEmail(env, to, `[Test] ${merge(row.subject, me).text}`,
+    merge(row.body, me).text, {
+      footer: marketingFooter({
+        agencyName: agency.name,
+        agencyAddress: agency.address,
+        unsubscribeUrl: `${appUrl(env)}/u/${await unsubscribeToken(env, agency.id, to)}`,
+      }),
+    });
+
+  return json({ ok: true, to });
+}
+
+/**
+ * Freeze the list and queue the send.
+ *
+ * The recipients are written as rows here and nothing is emailed: the cron
+ * does the sending. That is what makes a send of any size survive a Worker
+ * that is cut off mid-flight, and it means this request answers immediately
+ * with a number the advisor can watch come down.
+ */
+export async function handleSendBroadcast(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  const row = await one(env, user, id);
+  if (!row) return notFound('No such message.');
+  if (row.status !== 'draft') return badRequest('This has already been sent.');
+
+  const rules = safeRules(row.rules_json);
+  if (!buildWhere(rules).length) return badRequest('This message has no list behind it.');
+
+  // Deliberately the advisor's own book rather than whatever scope they are
+  // viewing. An owner looking at "all advisors" is reading somebody else's
+  // clients, and a marketing email from the wrong person is worse than a
+  // report from the wrong person.
+  const out = await resolveSegment(env, db.selfScope(user), rules, { limit: 2000 });
+  if (!out.people.length) return badRequest('Nobody is on this list right now.');
+
+  const ts = now();
+  const seen = new Set();
+  const rows = [];
+  for (const p of out.people) {
+    const email = normalise(p.email);
+    if (!email || seen.has(email)) continue;
+    seen.add(email);
+    rows.push(env.DB.prepare(
+      `INSERT OR IGNORE INTO broadcast_recipients (id, broadcast_id, user_id, client_id, email, name, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'queued')`
+    ).bind(uid(), id, user.id, p.id, email, p.name || null));
+  }
+  if (!rows.length) return badRequest('Nobody on this list has an email address.');
+  await env.DB.batch(rows);
+
+  await env.DB.prepare(
+    `UPDATE broadcasts SET status = 'sending', total = ?, started_at = ?, updated_at = ?
+      WHERE id = ? AND user_id = ?`
+  ).bind(rows.length, ts, ts, id, user.id).run();
+
+  return json({ ok: true, queued: rows.length });
+}
+
+/** Stop a send that is part way through. The ones already gone have gone. */
+export async function handleCancelBroadcast(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  const res = await env.DB.prepare(
+    `UPDATE broadcasts SET status = 'cancelled', finished_at = ?, updated_at = ?
+      WHERE id = ? AND user_id = ? AND status = 'sending'`
+  ).bind(now(), now(), id, user.id).run();
+  if (!res.meta || !res.meta.changes) return badRequest('That message is not sending.');
+  await env.DB.prepare(
+    `UPDATE broadcast_recipients SET status = 'skipped', detail = 'send cancelled'
+      WHERE broadcast_id = ? AND user_id = ? AND status = 'queued'`
+  ).bind(id, user.id).run();
+  return json({ ok: true });
+}
+
+// ---------------------------------------------------------------------------
+// The cron's side
+// ---------------------------------------------------------------------------
+
+/**
+ * Send the next batch of whatever is queued.
+ *
+ * Runs as nobody, across every advisor, which is the same shape as the task
+ * digest: the scope lives in the rows, each of which was written by one
+ * advisor's own scoped query, not in this pass. A no-op when nothing is
+ * sending, so it costs one query on almost every tick.
+ */
+export async function sendQueuedBroadcasts(env, { perPass = PER_PASS } = {}) {
+  const live = await env.DB.prepare(
+    `SELECT id, user_id, agency_id, subject, body FROM broadcasts
+      WHERE status = 'sending' ORDER BY started_at LIMIT 1`
+  ).first();
+  if (!live) return { sent: 0 };
+
+  const { results } = await env.DB.prepare(
+    `SELECT id, email, name FROM broadcast_recipients
+      WHERE broadcast_id = ? AND status = 'queued' LIMIT ?`
+  ).bind(live.id, perPass).all();
+
+  const agency = live.agency_id
+    ? await env.DB.prepare('SELECT id, name, address FROM agencies WHERE id = ? LIMIT 1')
+        .bind(live.agency_id).first()
+    : null;
+
+  let sent = 0;
+  let failed = 0;
+  let skipped = 0;
+
+  for (const r of results || []) {
+    // Checked now, not when the list was frozen. Somebody who unsubscribed
+    // during the send is off it.
+    if (await isSuppressed(env, live.agency_id, r.email)) {
+      await mark(env, r.id, 'skipped', 'unsubscribed');
+      skipped += 1;
+      continue;
+    }
+
+    try {
+      await sendAutomationEmail(env, r.email, merge(live.subject, r).text,
+        merge(live.body, r).text, {
+          footer: marketingFooter({
+            agencyName: agency?.name || null,
+            agencyAddress: agency?.address || null,
+            unsubscribeUrl: `${appUrl(env)}/u/${await unsubscribeToken(env, live.agency_id, r.email)}`,
+          }),
+        });
+      await mark(env, r.id, 'sent', null);
+      sent += 1;
+    } catch (e) {
+      // A failure is recorded against the person and the pass carries on. One
+      // address Resend will not accept must not stop the other three hundred
+      // and ninety-nine.
+      await mark(env, r.id, 'failed', String(e.message || e).slice(0, 200));
+      failed += 1;
+    }
+  }
+
+  await env.DB.prepare(
+    `UPDATE broadcasts SET sent_count = sent_count + ?, failed_count = failed_count + ?,
+            skipped_count = skipped_count + ?, updated_at = ? WHERE id = ?`
+  ).bind(sent, failed, skipped, now(), live.id).run();
+
+  // Finished when nothing is left queued, which is asked rather than inferred
+  // from the counts: a row inserted by a retry would make the arithmetic lie.
+  const left = await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM broadcast_recipients
+      WHERE broadcast_id = ? AND status = 'queued'`
+  ).bind(live.id).first();
+  if (!left?.n) {
+    await env.DB.prepare(
+      `UPDATE broadcasts SET status = 'sent', finished_at = ?, updated_at = ? WHERE id = ?`
+    ).bind(now(), now(), live.id).run();
+  }
+
+  return { sent, failed, skipped, remaining: left?.n || 0 };
+}
+
+function mark(env, id, status, detail) {
+  return env.DB.prepare(
+    'UPDATE broadcast_recipients SET status = ?, detail = ?, sent_at = ? WHERE id = ?'
+  ).bind(status, detail, now(), id).run();
+}
