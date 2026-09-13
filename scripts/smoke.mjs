@@ -5738,6 +5738,35 @@ async function main() {
   check(edited.status === 400,
     'a message that has gone out cannot be edited afterwards', `status ${edited.status}`);
 
+  // --- the cron, which is the half that actually sends
+  //
+  // wrangler dev --test-scheduled exposes this. Without it the scheduled
+  // handler is the one part of the Worker nothing here ever executes, and the
+  // drain loop had never run anywhere at all.
+  //
+  // CI holds no Resend key, on purpose, so what is under test is the guard in
+  // front of the loop rather than the sending. That guard matters more than it
+  // sounds: without it the first recipient throws "email is not configured",
+  // so does every one after, and the pass writes four hundred real people down
+  // as addresses that do not work. Those rows cannot be retried.
+  const cron = await call(null, 'GET', '/__scheduled');
+  if (cron.status !== 200) {
+    skip('the cron', 'wrangler is not exposing /__scheduled, so the drain was not run');
+  } else {
+    // The scheduled handler defers its work, so give it a moment to land.
+    await new Promise((r) => setTimeout(r, 1500));
+    const afterCron = await call(advisor, 'GET', `/api/broadcasts/${castId}`);
+    check(afterCron.data?.emailConfigured === false,
+      'the portal knows whether it can send at all',
+      `${afterCron.data?.emailConfigured}`);
+    check((afterCron.data?.recipients || []).every((r) => r.status === 'queued'),
+      'with no mail key the queue waits rather than marking everybody failed',
+      (afterCron.data?.recipients || []).map((r) => `${r.status}:${r.detail || ''}`).join(', '));
+    check(afterCron.data?.broadcast?.status === 'sending',
+      'and the send is still a send, not a finished one that reached nobody',
+      afterCron.data?.broadcast?.status);
+  }
+
   const stop = await call(advisor, 'POST', `/api/broadcasts/${castId}/cancel`);
   check(stop.status === 200, 'a send in flight can be stopped', `status ${stop.status}`);
 

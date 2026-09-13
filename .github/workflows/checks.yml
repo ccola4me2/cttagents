@@ -73,7 +73,10 @@ jobs:
 
       - name: Start the Worker
         run: |
-          nohup npx wrangler dev --port 8787 --ip 127.0.0.1 > /tmp/dev.log 2>&1 &
+          # --test-scheduled exposes /__scheduled, so the smoke suite can run
+          # the cron rather than leaving the whole scheduled handler as the one
+          # part of this Worker nothing ever executes.
+          nohup npx wrangler dev --port 8787 --ip 127.0.0.1 --test-scheduled > /tmp/dev.log 2>&1 &
           for i in $(seq 1 90); do
             if curl -sf -o /dev/null http://127.0.0.1:8787/login; then
               echo "up after ${i}s"

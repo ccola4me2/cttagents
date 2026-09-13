@@ -88,6 +88,7 @@ const id = new URLSearchParams(location.search).get('id');
 const F = (k) => document.getElementById(k);
 let current = null;
 let timer = null;
+let mailOff = false;
 
 // --------------------------------------------------------------- the lists ---
 let segments = [];
@@ -106,6 +107,7 @@ if (id) {
   try {
     const d = await api(`/api/broadcasts/${encodeURIComponent(id)}`);
     current = d.broadcast;
+    mailOff = d.emailConfigured === false;
     F('name').value = current.name;
     F('subject').value = current.subject;
     F('body').value = current.body;
@@ -247,7 +249,10 @@ function drawSend() {
 
   if (current.status === 'sending') {
     const done = current.sent + current.failed + current.skipped;
-    box.innerHTML = `<p style="margin:0 0 .5rem;"><strong>${done}</strong> of
+    box.innerHTML = `${mailOff ? `<div class="notice notice-warn">This is waiting, not stuck.
+        The Worker has no mail key set, so nothing is being sent and nobody has been marked
+        as failed. It will carry on by itself once somebody sets one.</div>` : ''}
+      <p style="margin:0 0 .5rem;"><strong>${done}</strong> of
         ${current.total} handled. This carries on by itself, about three hundred an hour,
         so you can close the page.</p>
       <p class="muted" style="font-size:.82rem;">${current.sent} sent${
@@ -317,6 +322,7 @@ function paintResults(recipients) {
 async function reload() {
   const d = await api(`/api/broadcasts/${encodeURIComponent(current.id)}`);
   current = d.broadcast;
+  mailOff = d.emailConfigured === false;
   lockIfSent();
   drawSend();
   paintResults(d.recipients);

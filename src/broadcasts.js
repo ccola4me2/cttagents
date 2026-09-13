@@ -159,7 +159,14 @@ export async function handleGetBroadcast(request, env, id) {
       WHERE broadcast_id = ? AND user_id = ? ORDER BY status, name LIMIT 1000`
   ).bind(id, row.user_id).all();
 
-  return json({ broadcast: shape(row), recipients: results || [] });
+  // Said on the page rather than left as a send that never moves. An advisor
+  // watching "0 of 40 handled" has no way to tell a slow queue from a Worker
+  // with no mail key on it.
+  return json({
+    broadcast: shape(row),
+    recipients: results || [],
+    emailConfigured: Boolean(env.RESEND_API_KEY),
+  });
 }
 
 async function one(env, user, id) {
@@ -400,6 +407,17 @@ export async function handleCancelBroadcast(request, env, id) {
  * sending, so it costs one query on almost every tick.
  */
 export async function sendQueuedBroadcasts(env, { perPass = PER_PASS } = {}) {
+  // Asked before anything is claimed, and this is not a detail.
+  //
+  // With no key, sendAutomationEmail throws a PermanentError on the first
+  // recipient and on every one after it, which this loop would faithfully
+  // record as four hundred addresses that do not work. Those rows cannot be
+  // retried; the send would have to be built again from nothing, and the
+  // results table would be a page of lies about real people.
+  //
+  // A missing key is a thing to fix on the settings page. The queue waits.
+  if (!env.RESEND_API_KEY) return { sent: 0, waiting: 'email is not configured' };
+
   const live = await env.DB.prepare(
     `SELECT id, user_id, agency_id, subject, body FROM broadcasts
       WHERE status = 'sending' ORDER BY started_at LIMIT 1`
