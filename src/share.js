@@ -273,8 +273,9 @@ function itineraryBlock(trip) {
   byDay.sort((x, y) => x.n - y.n);
 
   const line = (i) => `<li class="itin-item">
-    <span class="itin-when">${i.start_time ? esc(sayTime(i.start_time)) : ''}${
-  i.end_time ? ` - ${esc(sayTime(i.end_time))}` : ''}</span>
+    <span class="itin-when">${i.start_time
+      ? `<span>${esc(sayTime(i.start_time))}${i.end_time ? ' -' : ''}</span>` : ''}${
+  i.end_time ? ` <span>${esc(sayTime(i.end_time))}</span>` : ''}</span>
     <span class="itin-what">
       <span class="itin-kind">${esc(KIND_WORD[i.kind] || 'Item')}</span>
       <strong>${esc(i.title)}</strong>
@@ -923,10 +924,24 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
   .itin-daylabel span{font-size:.8rem;color:var(--dim)}
   .itin-list{list-style:none;margin:0;padding:0}
   .itin-list.anytime{margin:0 0 1.4rem;padding-bottom:1rem;border-bottom:1px solid var(--line)}
-  .itin-item{display:grid;grid-template-columns:5.2rem 1fr auto;gap:.7rem;
+  /* Wide enough for a full range on one line: "10:00am - 11:00am" measures
+     123px at this size, so 8rem holds it with room to spare. Fixed rather than
+     max-content because each item is its own grid, and sizing to content makes
+     every row's title start somewhere different down a list people scan. */
+  .itin-item{display:grid;grid-template-columns:8rem 1fr auto;gap:.7rem;
     padding:.6rem 0;align-items:start}
+  /* Each time unbreakable, the range between them breakable.
+     It used to be one nowrap span in a fixed 4.2rem column, so
+     "10:00am - 11:00am" needed 123px, got 67px, and the 45px it could not fit
+     ran straight underneath the kind label: every itinerary item with a start
+     and an end time printed "ACTIVITY" on top of its own end time, on every
+     phone and on every printed copy. Wrapping instead of overflowing makes the
+     overlap impossible rather than dependent on how wide the column happens to
+     be. The dash rides with the start time so a wrapped line never opens on
+     one. */
   .itin-when{font-size:.82rem;color:var(--dim);font-variant-numeric:tabular-nums;
-    padding-top:.1rem;white-space:nowrap}
+    padding-top:.1rem}
+  .itin-when > span{white-space:nowrap}
   .itin-what{display:flex;flex-direction:column;gap:.15rem;min-width:0}
   .itin-kind{font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
     color:var(--teal)}
@@ -937,7 +952,10 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
   .itin-pic{width:84px;height:62px;object-fit:cover;border-radius:8px;flex:none}
   .itin-empty{margin:.2rem 0 0;font-size:.9rem;color:var(--dim)}
   @media (max-width:560px){
-    .itin-item{grid-template-columns:4.2rem 1fr}
+    /* Fixed again on a phone, where a full range in one column would leave
+       too little for the title. 5rem fits "10:00am -" on one line, so a range
+       breaks once and cleanly. */
+    .itin-item{grid-template-columns:5rem 1fr}
     .itin-pic{display:none}
   }
 
