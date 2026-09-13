@@ -7,32 +7,8 @@
 // real: every request lands here first, and protected HTML is only served
 // after the session check passes.
 
-import { redirect, notFound, json } from './util.js';
 import {
-  handleLogin, handleLogout, handleMe,
-  handleForgot, handleReset, handleChangePassword, handleUpdateProfile,
-  getCurrentUser, isAdmin,
-} from './auth.js';
-import {
-  handleListLeads, handleGetLead, handleCreateLead, handleUpdateLead, handleCreateLeadNote,
-  handleContactDetail, handleCreateTask, handleToggleTask,
-} from './leads.js';
-import {
-  handleListPipelines, handleListOpportunities,
-  handleCreateOpportunity, handleUpdateOpportunity,
-} from './pipeline.js';
-import {
-  handleListBookings, handleGetBooking, handleBookingRecord, handleCreateBooking,
-  handleUpdateBooking, handleQuickUpdate, handleDeleteBooking, handleWelcomed,
-} from './bookings.js';
-import { markReturnedTripsTravelled } from './db.js';
-import { mirrorCatalogStep } from './catalogmirror.js';
-import { remindTasks } from './taskmail.js';
-import { remindDuePayments } from './payremind.js';
-import { sendCallLists } from './calllist.js';
-import {
-  handleShareTrip, handleShareDocument, handleTripMessages, handleReadTripMessage,
-  renderTripPage, handleTripMessage, handleClientChoose, serveTripDocument,
+  redirect, notFound, json } from './util.js'; import {   handleLogin, handleLogout, handleMe, handleForgot, handleReset, handleChangePassword, handleUpdateProfile, getCurrentUser, isAdmin, } from './auth.js'; import {   handleListLeads, handleGetLead, handleCreateLead, handleUpdateLead, handleCreateLeadNote, handleContactDetail, handleCreateTask, handleToggleTask, } from './leads.js'; import {   handleListPipelines, handleListOpportunities, handleCreateOpportunity, handleUpdateOpportunity, } from './pipeline.js'; import {   handleListBookings, handleGetBooking, handleBookingRecord, handleCreateBooking, handleUpdateBooking, handleQuickUpdate, handleDeleteBooking, handleWelcomed, } from './bookings.js'; import { markReturnedTripsTravelled } from './db.js'; import { mirrorCatalogStep } from './catalogmirror.js'; import { remindTasks } from './taskmail.js'; import { remindDuePayments } from './payremind.js'; import { sendCallLists } from './calllist.js'; import {   handleShareTrip, handleShareDocument, handleTripMessages, handleReadTripMessage, renderTripPage, handleTripMessage, handleClientChoose, serveTripDocument, renderTripManifest,
 } from './share.js';
 import { handleReadConfirmation } from './confirm.js';
 import { migrationHint } from './schema-drift.js';
@@ -911,6 +887,13 @@ async function routePage(request, env, path) {
   if (tripChoose && request.method === 'POST') {
     return handleClientChoose(request, env, decodeURIComponent(tripChoose[1]));
   }
+  // Before the trip page match, which is one segment and would not catch it
+  // anyway; here so the two live together and neither is read as the other.
+  const tripManifest = path.match(/^\/t\/([^/]+)\/app\.webmanifest$/);
+  if (tripManifest) {
+    return renderTripManifest(request, env, decodeURIComponent(tripManifest[1]));
+  }
+
   const tripPage = path.match(/^\/t\/([^/]+)\/?$/);
   if (tripPage) {
     const tripCode = decodeURIComponent(tripPage[1]);

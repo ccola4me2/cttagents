@@ -6292,6 +6292,53 @@ async function main() {
   await call(admin, 'PUT', `/api/admin/advisors/${advisorId}/split`, { defaultSplitPct: '' });
   }
 
+  // A trip a client can keep on their phone. No app store, no login, no
+  // install: a manifest on the page they already have a link to.
+  {
+  step('The trip a client keeps on their home screen');
+
+  const kept = await call(advisor, 'POST', '/api/bookings', {
+    clientName: `Keeper ${stamp}`, supplier: 'Cunard', status: 'booked',
+    productName: 'Transatlantic', departDate: isoDay(60), returnDate: isoDay(67),
+  });
+  const keptId = kept.data?.booking?.id;
+  if (keptId) cleanup('the kept reservation',
+    () => call(advisor, 'DELETE', `/api/bookings/${keptId}`));
+
+  const shared = await call(advisor, 'POST', `/api/bookings/${keptId}/share`, {});
+  const shareCode = shared.data?.code || shared.data?.shareCode
+    || (shared.data?.url || '').split('/t/')[1];
+
+  if (!shareCode) {
+    skip('the trip manifest', `sharing answered ${shared.status}`);
+  } else {
+    const page = await call(null, 'GET', `/t/${shareCode}`);
+    check(page.status === 200 && page.raw.includes(`/t/${shareCode}/app.webmanifest`),
+      'the trip page offers itself to the phone', `status ${page.status}`);
+
+    const mf = await call(null, 'GET', `/t/${shareCode}/app.webmanifest`);
+    check(mf.status === 200 && mf.data, 'the manifest is served without a session',
+      `status ${mf.status}`);
+    check(mf.data?.start_url === `/t/${shareCode}` && mf.data?.scope === `/t/${shareCode}`,
+      'and opens that trip rather than the portal',
+      JSON.stringify({ start: mf.data?.start_url, scope: mf.data?.scope }));
+    check(mf.data?.display === 'standalone' && (mf.data?.icons || []).length === 1,
+      'with one icon at the size the file actually is',
+      JSON.stringify(mf.data?.icons));
+
+    // A manifest is fetched without the session the page was opened with, so
+    // it must carry nothing the share code does not already entitle somebody
+    // to. A price or a client name in it would be a leak with no way in.
+    const said = JSON.stringify(mf.data).toLowerCase();
+    check(!said.includes('keeper') && !/\$|cents|balance/.test(said),
+      'and says nothing the page does not', said.slice(0, 160));
+
+    const missing = await call(null, 'GET', '/t/not-a-real-code/app.webmanifest');
+    check(missing.status === 404, 'a manifest for a trip nobody shared is refused',
+      `status ${missing.status}`);
+  }
+  }
+
   // ---------------------------------------------------------------- tidy --
   step('Clean up');
   await runCleanups();
