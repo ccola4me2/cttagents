@@ -63,6 +63,12 @@ jobs:
       - name: Full saves agree about their columns
         run: npm run check:writes
 
+      # The same failure one layer up from the column checks: a box on a page
+      # whose name nothing on the server reads accepts what somebody types,
+      # saves without complaint and throws it away.
+      - name: Somebody reads every box
+        run: npm run check:forms
+
       # Offline, needs no server, and catches the cheapest class of bug, so it
       # goes first and fails fast.
       - name: Column lists against the schema
