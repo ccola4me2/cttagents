@@ -237,7 +237,7 @@ function drawSend() {
   if (current.status === 'sending') {
     const done = current.sent + current.failed + current.skipped;
     box.innerHTML = `<p style="margin:0 0 .5rem;"><strong>${done}</strong> of
-        ${current.total} handled. This carries on by itself, roughly five hundred an hour,
+        ${current.total} handled. This carries on by itself, about three hundred an hour,
         so you can close the page.</p>
       <p class="muted" style="font-size:.82rem;">${current.sent} sent${
         current.skipped ? `, ${current.skipped} unsubscribed` : ''}${
@@ -277,7 +277,12 @@ function drawSend() {
       // "Send to 412 people?" are different questions.
       if (!confirm(`Send "${F('subject').value}" to ${d.total} ${
         d.total === 1 ? 'person' : 'people'}? This cannot be taken back.`)) return;
-      await api(`/api/broadcasts/${encodeURIComponent(savedId)}/send`, { method: 'POST' });
+      const r = await api(`/api/broadcasts/${encodeURIComponent(savedId)}/send`, { method: 'POST' });
+      if (r.matched > r.queued) {
+        err.innerHTML = `<div class="notice notice-warn">${r.matched} people matched and
+          ${r.queued} were queued, which is as many as one send takes. Send this again when
+          it finishes and the rest will go.</div>`;
+      }
       await reload();
     } catch (e) { showError(err, e); }
   });

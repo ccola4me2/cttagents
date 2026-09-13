@@ -21,19 +21,35 @@
 // one thing nobody should be able to do from a screen like this is send four
 // hundred people a newsletter with no way out of it.
 
-import { json, badRequest, notFound, clean, cleanText, uid, now, readJson } from './util.js';
+import {
+  json, badRequest, notFound, clean, cleanText, uid, now, readJson, PermanentError,
+} from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 import { resolveSegment, buildWhere } from './segments.js';
 import { isSuppressed, unsubscribeToken, marketingFooter, normalise } from './suppression.js';
 import { sendAutomationEmail } from './email.js';
 
-// How many go out per cron tick. The cron runs every five minutes, so this is
-// roughly five hundred an hour: slower than Resend would allow and fast enough
-// for a book of any size a travel advisor actually has. Kept low on purpose,
-// because the cost of a batch that runs long is a Worker invocation killed
-// mid-send, and the cost of a batch that is small is waiting.
-const PER_PASS = 40;
+// How many go out per cron tick, and how far apart.
+//
+// Resend rate limits at two requests a second. Firing forty as fast as the
+// Worker can issue them is roughly five times that, so most of them come back
+// 429 and the send reports itself as a disaster. The gap below keeps it under
+// the limit on purpose, which makes a pass take about fifteen seconds of
+// waiting and almost no CPU.
+//
+// Twenty-five every five minutes is three hundred an hour. That is slower than
+// a mail service would do it and faster than any list a travel advisor
+// actually holds needs. The alternative is Resend's batch endpoint, which
+// sends a hundred in one request and rejects all hundred if one address in it
+// is malformed; per-person sending costs more requests and gives every person
+// their own outcome, which is what the results table is for.
+const PER_PASS = 25;
+const GAP_MS = 600;
+
+// A transient failure is retried on later passes. Without a ceiling, a Resend
+// outage becomes a row retried every five minutes for the rest of the year.
+const MAX_ATTEMPTS = 5;
 
 // Merge fields, and deliberately few. Every one of these is a column that is
 // either filled in or obviously blank on the client record, so a message can
@@ -346,7 +362,11 @@ export async function handleSendBroadcast(request, env, id) {
       WHERE id = ? AND user_id = ?`
   ).bind(rows.length, ts, ts, id, user.id).run();
 
-  return json({ ok: true, queued: rows.length });
+  // The resolver caps at two thousand, so a book bigger than that would
+  // otherwise queue two thousand people while the confirmation said the real
+  // number. Said out loud instead: the count that matters is what was queued,
+  // and anyone left out is still on the list for a second send.
+  return json({ ok: true, queued: rows.length, matched: out.total });
 }
 
 /** Stop a send that is part way through. The ones already gone have gone. */
@@ -385,8 +405,9 @@ export async function sendQueuedBroadcasts(env, { perPass = PER_PASS } = {}) {
   if (!live) return { sent: 0 };
 
   const { results } = await env.DB.prepare(
-    `SELECT id, email, name FROM broadcast_recipients
-      WHERE broadcast_id = ? AND status = 'queued' LIMIT ?`
+    `SELECT id, email, name, attempts FROM broadcast_recipients
+      WHERE broadcast_id = ? AND status = 'queued'
+      ORDER BY attempts, id LIMIT ?`
   ).bind(live.id, perPass).all();
 
   const agency = live.agency_id
@@ -397,12 +418,18 @@ export async function sendQueuedBroadcasts(env, { perPass = PER_PASS } = {}) {
   let sent = 0;
   let failed = 0;
   let skipped = 0;
+  let first = true;
 
   for (const r of results || []) {
+    // Paced, not fired. Two a second is Resend's limit and this stays under
+    // it; the wait is idle, so it costs time rather than anything billable.
+    if (!first) await new Promise((resolve) => setTimeout(resolve, GAP_MS));
+    first = false;
+
     // Checked now, not when the list was frozen. Somebody who unsubscribed
     // during the send is off it.
     if (await isSuppressed(env, live.agency_id, r.email)) {
-      await mark(env, r.id, 'skipped', 'unsubscribed');
+      await mark(env, r.id, 'skipped', 'unsubscribed', r.attempts || 0);
       skipped += 1;
       continue;
     }
@@ -416,14 +443,29 @@ export async function sendQueuedBroadcasts(env, { perPass = PER_PASS } = {}) {
             unsubscribeUrl: `${appUrl(env)}/u/${await unsubscribeToken(env, live.agency_id, r.email)}`,
           }),
         });
-      await mark(env, r.id, 'sent', null);
+      await mark(env, r.id, 'sent', null, (r.attempts || 0) + 1);
       sent += 1;
     } catch (e) {
-      // A failure is recorded against the person and the pass carries on. One
-      // address Resend will not accept must not stop the other three hundred
-      // and ninety-nine.
-      await mark(env, r.id, 'failed', String(e.message || e).slice(0, 200));
-      failed += 1;
+      const why = String(e.message || e).slice(0, 200);
+      const attempts = (r.attempts || 0) + 1;
+
+      // A rate limit or a Resend outage is "come back in a moment", and
+      // writing it down as "this address does not work" is how a whole send
+      // reports itself as a disaster. Those rows stay queued and the next pass
+      // takes them, up to a ceiling so an outage does not become a row retried
+      // forever.
+      //
+      // An address Resend will not accept, or an unset key, will fail exactly
+      // the same way on the fifth attempt as the first. Those are recorded
+      // against the person and the pass carries on: one bad address must not
+      // stop the other twenty-four.
+      const worthRetrying = !(e instanceof PermanentError) && attempts < MAX_ATTEMPTS;
+      if (worthRetrying) {
+        await retryLater(env, r.id, attempts, why);
+      } else {
+        await mark(env, r.id, 'failed', why, attempts);
+        failed += 1;
+      }
     }
   }
 
@@ -447,8 +489,16 @@ export async function sendQueuedBroadcasts(env, { perPass = PER_PASS } = {}) {
   return { sent, failed, skipped, remaining: left?.n || 0 };
 }
 
-function mark(env, id, status, detail) {
+function mark(env, id, status, detail, attempts = 0) {
   return env.DB.prepare(
-    'UPDATE broadcast_recipients SET status = ?, detail = ?, sent_at = ? WHERE id = ?'
-  ).bind(status, detail, now(), id).run();
+    `UPDATE broadcast_recipients SET status = ?, detail = ?, attempts = ?, sent_at = ?
+      WHERE id = ?`
+  ).bind(status, detail, attempts, now(), id).run();
+}
+
+/** Left queued on purpose, with the count that decides when to stop trying. */
+function retryLater(env, id, attempts, detail) {
+  return env.DB.prepare(
+    `UPDATE broadcast_recipients SET attempts = ?, detail = ? WHERE id = ?`
+  ).bind(attempts, `waiting to try again: ${detail}`, id).run();
 }
