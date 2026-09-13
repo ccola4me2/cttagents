@@ -182,6 +182,7 @@ const NAV = [
       { href: '/app/settings', label: 'Settings' },
       { href: '/app/membership', label: 'Membership' },
       { href: '/app/crm', label: 'CTT Tools' },
+      { href: '/app/manual', label: 'How this works' },
     ],
   },
 ];

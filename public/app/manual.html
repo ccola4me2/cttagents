@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How this works | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+<style>
+  /* A manual is read, not scanned, so it gets a reading width rather than the
+     full page. Everything else is the portal's own type and spacing. */
+  .manual { max-width: 46rem; }
+  .manual h2 { font-size: 1.15rem; margin: 2.4rem 0 .6rem; color: var(--navy-800); }
+  .manual h2:first-child { margin-top: 0; }
+  .manual h3 { font-size: .95rem; margin: 1.5rem 0 .35rem; color: var(--navy-800); }
+  .manual p, .manual li { color: var(--ink-600); line-height: 1.65; }
+  .manual p { margin: 0 0 .8rem; }
+  .manual ul { margin: 0 0 .9rem; padding-left: 1.1rem; }
+  .manual li { margin-bottom: .35rem; }
+  .manual .lede { font-size: 1rem; color: var(--navy-700); }
+  .manual code { background: var(--navy-50); padding: .1rem .3rem; border-radius: 4px;
+    font-size: .85em; }
+  .toc { position: sticky; top: 1.5rem; }
+  .toc a { display: block; padding: .3rem 0; font-size: .85rem; color: var(--ink-500);
+    text-decoration: none; }
+  .toc a:hover { color: var(--coral-500); }
+  .manual .aside { border-left: 3px solid var(--navy-100); padding: .1rem 0 .1rem 1rem;
+    margin: 0 0 1rem; }
+  /* Below the breakpoint .split stacks, which would put a table of contents
+     underneath the thing it is a table of contents for. */
+  @media (max-width: 1000px) { .toc { display: none; } }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>How this works</h1>
+        <p class="sub">The portal, explained once, in the order you actually use it.</p></div>
+    </header>
+    <div class="content">
+      <div class="split">
+        <div class="manual">
+
+<h2 id="what">What this is</h2>
+<p class="lede">A place to keep every reservation you have sold, chase the money on
+  time, and know what you are owed. It is the book of business that usually lives in a
+  spreadsheet, an inbox and somebody's memory.</p>
+<p>One thing it is not: <strong>it does not take money.</strong> Your client pays the
+  cruise line, the tour operator or the resort, the same as they always did. The portal
+  records what is owed and when, reminds you and them before the date, and tells you what
+  the vendor still owes you afterwards. Nothing here touches a card.</p>
+
+<h2 id="reservations">Taking a reservation</h2>
+<p>Everything starts on <a href="/app/reservations">Reservations</a>. A reservation is one
+  trip for one client with one vendor. A family of four on one booking is one reservation
+  with four travellers on it, not four reservations.</p>
+
+<h3>The status</h3>
+<ul>
+  <li><strong>Quoted</strong> is a price you have given that nobody has said yes to.</li>
+  <li><strong>Booked</strong> is confirmed with the vendor. This is what counts towards
+    your production.</li>
+  <li><strong>Travelled</strong> is set for you once the return date has passed, so you
+    never have to remember to do it.</li>
+  <li><strong>Cancelled</strong> keeps the record and takes it out of every total.</li>
+</ul>
+
+<h3>Travellers and passports</h3>
+<p>Start typing a traveller's name and the portal finds anybody already on your books and
+  fills in their passport name, date of birth and document details. It never types over
+  something you have already entered, so if you filled in the passport by hand and then
+  picked the client, the one you typed stands.</p>
+<p>The name a vendor matches documents on is the name on the passport, not what you call
+  them. That is why the client record keeps both.</p>
+
+<h3>Money owed, and the reminder that sits in front of it</h3>
+<p>Every final balance is <strong>two lines</strong>, and this is the one idea in the
+  portal worth understanding properly.</p>
+<ul>
+  <li>The <strong>vendor deadline</strong> is the real one. Miss it and the booking can be
+    cancelled.</li>
+  <li>The <strong>reminder</strong> sits a week in front of it. It is your own buffer, not
+    the vendor's date.</li>
+</ul>
+<p>They are the same money written down twice, so <strong>every total counts the vendor
+  deadline only.</strong> If both were counted, a $2,000 balance would read as $4,000.
+  When you post a payment, the reminder in front of it is adjusted or removed to match, so
+  you are never chased for money you have taken.</p>
+<div class="aside"><p>Posting a payment against the reminder line instead of the deadline
+  is a thing people do, and the portal quietly moves it to the right one rather than
+  recording it somewhere no total looks at.</p></div>
+
+<h3>Part payments</h3>
+<p>Post what actually arrived. The line becomes the amount received, and the remainder
+  becomes its own line on the same date, so the deadline is not lost with the part that
+  was paid. Nothing in the portal has to learn a new idea: a paid line is paid and a
+  scheduled line is due.</p>
+
+<h3>Reminding the client</h3>
+<p>You can send a payment reminder from the reservation whenever you like. You can also
+  turn on automatic ones in <a href="/app/settings">Settings</a>, which send three weeks
+  out, one week out, the day before, and once if the date passes unpaid. They go out over
+  your name, and a reply comes back to you. They are off until you turn them on, because
+  nobody should inherit email to their clients by default.</p>
+
+<h2 id="commission">Commission, and who keeps what</h2>
+<p>Commission is what the vendor pays. You can type it, or record a percentage and let the
+  portal work it out from the trip cost.</p>
+
+<h3>The number beside the money</h3>
+<p>Where a figure has a second, smaller number next to it, that is <strong>your
+  share</strong>. The larger one is the commission on the booking; the smaller one is what
+  you keep after the agency's share.</p>
+
+<h3>How the share is decided</h3>
+<p>Three answers, in order: a percentage written on that reservation, then your standing
+  agreement, then all of it.</p>
+<p>Your agreement can have two rates: one for business you generate and a lower one for
+  leads the agency hands you. A reservation marked as a company lead uses the second.</p>
+<p>Two things are yours whatever the split says: a <strong>tour conductor credit</strong>
+  and a <strong>vendor bonus</strong>. Those are earned by filling a group or hitting a
+  target rather than by the agency's terms with the vendor. Casino rates are the exception
+  and are split like anything else, because those run on the agency's licence.</p>
+
+<h3>No commission</h3>
+<p>Marking a reservation <strong>no commission</strong> means nobody earns: not you and not
+  the agency. It is not zero-for-you and full-for-them. Those reservations still count as
+  trips and as sales, and they are left out of every commission total, including
+  <a href="/app/complete">Fill in the gaps</a>, which will not ask you for a figure that
+  would contradict the status you set.</p>
+
+<h3>Getting paid</h3>
+<p><a href="/app/commissions">Commission owed</a> is what vendors have not yet paid. Mark
+  it invoiced when you bill it and paid when the money lands. You can record a statement
+  from a vendor and reconcile it against what the portal expected, which is how you find
+  the one booking they quietly paid short.</p>
+
+<h2 id="clients">Clients and prospects</h2>
+<p>A <strong>client</strong> is somebody who has booked. A <strong>prospect</strong> is
+  somebody CTT Tools knows about who has not. Both live on
+  <a href="/app/clients">Clients</a>, with a filter at the top that defaults to clients.</p>
+<p>They share one page on purpose. If prospects were hidden somewhere else you would type
+  a name the portal already knows and create a second copy of the same person. So even
+  when the filter says Clients, a search that matches a prospect says so and offers to
+  show them.</p>
+
+<h3>The record</h3>
+<p>Everything a vendor asks for at the worst possible moment: passport name, number,
+  issuing country and expiry, date of birth, address, known traveler and redress numbers,
+  and past-guest numbers for each cruise line. The passport expiry shows a warning when
+  there is less than six months left, which is what most cruise lines require at the
+  return date.</p>
+<p>Two fields worth filling in that are easy to skip. <strong>Goes by</strong> is what to
+  call them, and emails use it. <strong>Where they came from</strong> is the only field in
+  the portal that answers which of your marketing is working.</p>
+
+<h3>Households</h3>
+<p>Several clients at one address, kept together so you can see what the house is worth
+  and stop sending two of everything. You can build one from the Clients list or from
+  anybody's own record.</p>
+
+<h3>Client credits</h3>
+<p>Future cruise credits and vendor credits with an expiry, so the one somebody is holding
+  turns up on <a href="/app/hotlists">Who to call</a> before it runs out rather than after.</p>
+
+<h3>Importing</h3>
+<p><a href="/app/import-clients">Import clients</a> takes a spreadsheet or a CSV, including
+  a Cruise Planners client export as it comes. It shows you what it will do before it does
+  it. <a href="/app/import">Import reservations</a> does the same for a back-office export.</p>
+
+<h2 id="daily">The day's work</h2>
+<ul>
+  <li><a href="/app/tasks">To do</a>: tasks, due dates and reminders, including ones that
+    repeat and templates for the set of things every new booking needs.</li>
+  <li><a href="/app/hotlists">Who to call</a>: the calls nothing else is chasing you about.
+    Credits about to expire, passports about to, clients home from a trip, birthdays and
+    anniversaries coming round, and people who have travelled with you and have nothing
+    booked.</li>
+  <li><a href="/app/calendar">Calendar</a>: everything with a date on it in one place.</li>
+  <li><a href="/app/complete">Fill in the gaps</a>: reservations missing a cost, a
+    commission figure or a vendor deadline. A trip with no deadline cannot be chased and a
+    trip with no cost is missing from every total, so this is the shortest list worth
+    clearing.</li>
+  <li><a href="/app/inbox">Messages</a>: notes from clients on their own trip page.</li>
+</ul>
+
+<h2 id="selling">Finding the next booking</h2>
+
+<h3>Sales opportunities</h3>
+<p><a href="/app/pipeline">Sales opportunities</a> is every live reservation by stage, so
+  you can see what is sitting at quoted and needs a nudge. You see your own; an agency
+  owner can pick one advisor or all of them.</p>
+
+<h3>Lists</h3>
+<p><a href="/app/segments">Lists</a> answers "who should I write to" from what people have
+  actually booked, rather than from a tag somebody applied once. Sailing in the next sixty
+  days, home in the last thirty, nothing booked, quoted and never booked, sailed with a
+  particular line, a credit about to expire, a passport about to, a birthday or
+  anniversary coming up, came from a particular source, lives in a particular state.</p>
+<p>Tick the rules and the count and a sample update as you type. A saved list is saved as
+  the rules, not as the people, so "sailing in the next sixty days" still means that in
+  November.</p>
+
+<h3>Emails</h3>
+<p><a href="/app/broadcasts">Emails</a> sends one message to one list, once. Press
+  <em>Write to them</em> on a saved list and you arrive with it chosen.</p>
+<ul>
+  <li><code>{{first_name}}</code> uses what they go by where you have recorded one, and
+    <code>{{name}}</code> is their full name. The preview renders against a real client on
+    the list and names any field that comes back blank, so you find out before you send
+    rather than afterwards.</li>
+  <li>It goes out under your name, and a reply comes back to you.</li>
+  <li>Send yourself a test first. It carries the same From and reply-to a real one does.</li>
+  <li>The confirmation says the number out loud. "Send to 412 people?" is a different
+    question from "Send?"</li>
+  <li>The people are written down when you press send, so the record of who got it cannot
+    change afterwards. It goes out in batches over the following minutes, about three
+    hundred an hour, and you can close the page or stop it part way.</li>
+</ul>
+
+<h3>Who has opted out</h3>
+<p>Every message carries an unsubscribe link and your agency's postal address, and there is
+  no switch to turn that off. Somebody who opts out is dropped as the message goes out
+  rather than when the list was built, so an opt-out during a send is still honoured.</p>
+<p>The opt-out list is the agency's, so everybody sees the same one. You can add somebody
+  who asked you on the phone, and you can put somebody back who unsubscribed by accident
+  and then rang up about it. It shows on their client record too, so you know before you
+  write to them personally.</p>
+<p><strong>Anything about a trip somebody has booked is not affected.</strong> Quotes,
+  invoices, payment reminders and documents are sent separately and reach them whatever
+  the opt-out says.</p>
+
+<h3>Specials, forms and automations</h3>
+<ul>
+  <li><a href="/app/specials">Specials</a>: a deal with its own public page and a short
+    code you can post or email. Enquiries come back into the portal against that deal.</li>
+  <li><a href="/app/formbuilder">Forms</a>: a hosted form on its own address. A submission
+    is a lead here and a contact in CTT Tools.</li>
+  <li><a href="/app/automations">Automations</a>: when something happens, do something. A
+    form submitted, a reservation made, a final payment coming up, somebody home from a
+    trip, a client choosing an option on a quote. The action can be an email, a task, a
+    note, a tag, or handing the contact to a campaign you have already built in CTT
+    Tools.</li>
+</ul>
+
+<h2 id="money">Knowing where you stand</h2>
+<ul>
+  <li><a href="/app/payments">Payments Due</a>: every deadline across every reservation,
+    with what is late at the top.</li>
+  <li><a href="/app/reports">Production</a>: sales and commission by month, by vendor and
+    by advisor, this year against the same days last year.</li>
+  <li><a href="/app/goals">Targets</a>: what you are aiming at and whether you are on
+    course for it.</li>
+  <li><a href="/app/billing">Invoices</a> and <a href="/app/membership">Membership</a>:
+    what you pay the agency.</li>
+</ul>
+
+<h2 id="owner">If you run the agency</h2>
+<p>The admin pages are <a href="/admin">Advisors</a> and
+  <a href="/admin/agencies">the agency record</a>.</p>
+<ul>
+  <li><strong>Advisors.</strong> Nobody signs themselves up. Create the account and send
+    the link it gives you, which lets them choose their own password. Suspending is how an
+    account is ended; it stops a stale login working immediately.</li>
+  <li><strong>Splits.</strong> The standing agreement, and the lower rate for company
+    leads, are set here and only here. An advisor cannot set their own share by any route.</li>
+  <li><strong>The agency record.</strong> Name, address, phone, seller-of-travel
+    registration, logo and colours. The address is not decoration: marketing email is
+    supposed to carry a postal address and a spam filter reads a missing one as a bad
+    sign.</li>
+  <li><strong>Background jobs.</strong> The portal does a dozen things on a schedule.
+    This card says when each last ran and when it last ran <em>without failing</em>. Those
+    two being far apart is a job that has quietly stopped working, which is otherwise
+    invisible.</li>
+  <li><strong>Database.</strong> Whether the live database has had every change applied.
+    Worth a look after anything is released.</li>
+  <li><strong>Working as an advisor.</strong> An owner can stand in an advisor's shoes to
+    see what they see. It is offered on an advisor's record, never on your own.</li>
+</ul>
+<p>An owner sees the whole agency where a screen offers a scope picker, and can narrow it
+  to one advisor. Two things never widen: <strong>writes</strong> stay with the person who
+  owns the record, and <strong>a marketing email</strong> goes out as one person to that
+  person's own clients, whatever the picker on screen says.</p>
+
+<h2 id="stuck">Things that catch people out</h2>
+
+<h3>"It says past due and I have paid it"</h3>
+<p>Check which of the two lines you posted against. The reminder sits a week in front of
+  the vendor deadline and is the same money; posting against the reminder is moved to the
+  deadline for you, but a reminder left over from an older schedule can still look like a
+  balance. Opening the reservation shows both.</p>
+
+<h3>"The commission total does not match what I added up"</h3>
+<p>Most likely one of three things: a no-commission reservation, which is excluded on
+  purpose; a cancelled one, which is excluded from every total; or you are comparing the
+  commission on the booking with your share of it.</p>
+
+<h3>"I cannot find a client I know is in there"</h3>
+<p>The Clients page defaults to people who have booked. Search finds prospects too and says
+  so, or switch the filter at the top to Everyone.</p>
+
+<h3>"Nothing is being emailed"</h3>
+<p>An agency owner can check on the admin page whether a mail key is set and whether the
+  sending domain is verified. A send with no mail key waits rather than marking everybody
+  as failed, so nothing is lost while it is sorted out.</p>
+
+<p class="muted" style="margin-top:2.5rem;font-size:.85rem;">Something here wrong, or
+  missing? Tell your agency owner and it gets fixed in the portal rather than in a
+  document nobody reads.</p>
+
+        </div>
+        <div>
+          <section class="card toc">
+            <div class="card-head"><h2>On this page</h2></div>
+            <div class="card-pad">
+              <a href="#what">What this is</a>
+              <a href="#reservations">Taking a reservation</a>
+              <a href="#commission">Commission, and who keeps what</a>
+              <a href="#clients">Clients and prospects</a>
+              <a href="#daily">The day's work</a>
+              <a href="#selling">Finding the next booking</a>
+              <a href="#money">Knowing where you stand</a>
+              <a href="#owner">If you run the agency</a>
+              <a href="#stuck">Things that catch people out</a>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { mountShell } from '/js/app.js';
+await mountShell();
+</script>
+</body></html>
