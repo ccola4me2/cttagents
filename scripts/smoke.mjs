@@ -5943,6 +5943,20 @@ async function main() {
       'and the send is still a send, not a finished one that reached nobody',
       afterCron.data?.broadcast?.status);
 
+    // The admin page's connection check calls this, and the shape it gets
+    // when there is no CRM token is the shape Brent will see: this portal has
+    // never had a working one. A probe that threw instead of answering would
+    // leave that card spinning with nothing to say.
+    const probe = await call(admin, 'GET', '/api/admin/health?probe=1');
+    check(probe.status === 200, 'the connection check answers even with no CRM token',
+      `status ${probe.status}`);
+    check(probe.data?.ghl && typeof probe.data.ghl.tokenPresent === 'boolean',
+      'and says plainly whether a token is set',
+      JSON.stringify(probe.data?.ghl));
+    check(probe.data?.ghl?.tokenPresent === true || probe.data?.scopes === null,
+      'and does not invent areas it could not reach',
+      JSON.stringify(probe.data?.scopes));
+
     // And the pass wrote down what it did. Each cron job is wrapped in a catch
     // so one cannot stop the others, which means a job failing since March
     // looks exactly like a job with nothing to do. These rows are the only
