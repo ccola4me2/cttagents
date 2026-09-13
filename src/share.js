@@ -468,6 +468,22 @@ export async function renderTripPage(request, env, code) {
     .reduce((n, p) => n + (p.amount_cents || 0), 0);
   const total = b.gross_cents || 0;
   const owed = Math.max(0, total - paid + refunded);
+
+  // A quote and a booked trip are not the same page.
+  //
+  // The emailed statement has drawn this line since it was written: a client
+  // who has not booked has paid nothing and owes nothing, and showing them
+  // "Paid so far $0" with a balance and a payment schedule for a trip they have
+  // not agreed to reads as a demand. This page, which they visit far more often
+  // than they open the email, drew no line at all and showed the balance block
+  // to everybody with a price on file.
+  //
+  // Worse with options on the table: the client is being asked to choose
+  // between $9,480, $11,880 and $24,600, and underneath was a "Trip total" of
+  // $9,480 with a schedule attached to it, asserting an answer to the question
+  // being asked.
+  const booked = b.status === 'booked' || b.status === 'travelled';
+  const choosing = Boolean(b.options_open) && trip.options.length > 0;
   const today = new Date().toISOString().slice(0, 10);
 
   const facts = [
@@ -512,7 +528,7 @@ export async function renderTripPage(request, env, code) {
 
     ${optionsBlock(trip, advisor)}
 
-    ${total || trip.payments.length ? `<section class="card pad">
+    ${booked && (total || trip.payments.length) ? `<section class="card pad">
       <h2>What it costs</h2>
       <div class="totals">
         <div><p class="tlabel">Trip total</p><p class="tvalue">${esc(money(total))}</p></div>
@@ -536,6 +552,15 @@ export async function renderTripPage(request, env, code) {
       <p class="dim small">Payments go to ${esc(b.supplier || 'the supplier')}.
         ${esc(advisor)} takes care of each one with you as it falls due, and records it here,
         so this is where to look for what has been paid and what is still outstanding.</p>
+    </section>` : ''}
+
+    ${!booked && !choosing && total ? `<section class="card pad">
+      <h2>What it costs</h2>
+      <div class="totals">
+        <div><p class="tlabel">Price</p><p class="tvalue">${esc(money(total))}</p></div>
+      </div>
+      <p class="dim small">Nothing is booked and nothing is owed yet. Prices and space are not
+        held until it is. Say the word to ${esc(advisor)} and they will take it from there.</p>
     </section>` : ''}
 
     ${trip.documents.length ? `<section class="card pad">
