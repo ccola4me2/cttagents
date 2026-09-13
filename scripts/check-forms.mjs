@@ -69,6 +69,44 @@ for (const file of walk(join(ROOT, 'public'))) {
 }
 
 let problems = 0;
+
+// A honeypot hidden from eyes and from nobody else.
+//
+// The spam trap is a field called "Company website" inside <div class="hp">,
+// which the stylesheet moves to left:-9999px. That hides it from people looking
+// at the page. A screen reader still reads it out as an ordinary field, and
+// filling it in returns "Thanks." and files the enquiry nowhere: the visitor
+// who could not see the trap was the only one who could fall into it, and
+// neither end was told.
+//
+// Four copies of this markup existed and one of them had aria-hidden. The
+// difference is invisible in review and invisible on screen, which is what this
+// rule is for.
+// Server-rendered public pages and static pages both, because the four copies
+// were split across src/share.js, src/publicform.js and public/.
+let hidden = 0;
+const honeypotFiles = [
+  ...readdirSync(join(ROOT, 'src')).filter((f) => f.endsWith('.js')).map((f) => join(ROOT, 'src', f)),
+  ...walk(join(ROOT, 'public')),
+];
+for (const file of honeypotFiles) {
+  const src = readFileSync(file, 'utf8');
+  const re = /class=(["'])hp\1([^>]*)>/g;
+  for (let m; (m = re.exec(src));) {
+    hidden += 1;
+    if (/aria-hidden/.test(m[2])) continue;
+    problems += 1;
+    const line = src.slice(0, m.index).split('\n').length;
+    const where = `${relative(ROOT, file)}:${line}`;
+    console.log(`FAIL  honeypot visible to assistive tech`);
+    console.log(`        ${where}`);
+    console.log('        off-screen hides it from eyes only; a screen reader reads it out, '
+      + 'and filling it in discards the message silently');
+    annotate('Honeypot', `${where} -- a .hp honeypot without aria-hidden is read aloud `
+      + 'by screen readers, and anything typed into it is discarded without notice');
+  }
+}
+
 for (const [name, pages] of [...fields].sort()) {
   if (reads.has(name) || ALLOWED.has(name)) continue;
   problems += 1;
@@ -87,4 +125,5 @@ if (problems) {
   process.exit(1);
 }
 console.log(`check-forms: all ${fields.size} form fields are read by something `
-  + `(${ALLOWED.size} deliberately are not)`);
+  + `(${ALLOWED.size} deliberately are not), ${hidden} honeypot`
+  + `${hidden === 1 ? '' : 's'} hidden from assistive tech too`);
