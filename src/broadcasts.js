@@ -86,16 +86,12 @@ export function merge(body, row) {
 }
 
 /**
- * The agency behind an advisor, for the footer.
+ * The agency behind an advisor, for the footer and the suppression list.
  *
- * The address falls through rather than coming from one place, because it is
- * held in two and either is a real postal address. The agency's own comes
- * first: it is the one the clients are told about and the one an owner
- * maintains. The advisor's own is the fallback, since a footer with their
- * address is lawful and a footer with none is not.
- *
- * `addressFrom` says which it came from, so a screen can send somebody to the
- * page that actually holds the blank one instead of guessing.
+ * The address still falls through from the agency record to the advisor's own
+ * settings even though the footer no longer prints it, because putting the
+ * address back should be a one-line change in marketingFooter rather than a
+ * rebuild of how it is found.
  */
 async function agencyFor(env, user) {
   const ownAddress = user.agency_address || null;
@@ -103,7 +99,6 @@ async function agencyFor(env, user) {
     id: user.agency_id || null,
     name: user.agency_name || null,
     address: ownAddress,
-    addressFrom: ownAddress ? 'you' : null,
   };
   if (!user.agency_id) return mine;
 
@@ -116,7 +111,6 @@ async function agencyFor(env, user) {
       id: row.id,
       name: row.name || user.agency_name || null,
       address: row.address || ownAddress,
-      addressFrom: row.address ? 'agency' : (ownAddress ? 'you' : null),
     };
   } catch (e) {
     console.error('agencyFor', e);
@@ -319,18 +313,8 @@ export async function handlePreviewBroadcast(request, env) {
     optedOut: out.optedOut,
     footer: marketingFooter({
       agencyName: agency.name,
-      agencyAddress: agency.address,
       unsubscribeUrl: `${appUrl(env)}/u/preview`,
     }),
-    missingAddress: !agency.address,
-    // Which of the two places it came from, or where the blank one lives.
-    // Sending somebody to the wrong settings page is worse than saying
-    // nothing: they look, find the field already filled in, and send anyway.
-    addressFrom: agency.addressFrom,
-    // An associate cannot edit the agency record, so the fix for them is a
-    // conversation rather than a form.
-    canFixAgency: user.role === 'admin',
-    inAgency: Boolean(user.agency_id),
   });
 }
 
@@ -353,7 +337,6 @@ export async function handleTestBroadcast(request, env, id) {
       replyTo: to,
       footer: marketingFooter({
         agencyName: agency.name,
-        agencyAddress: agency.address,
         unsubscribeUrl: `${appUrl(env)}/u/${await unsubscribeToken(env, agency.id, to)}`,
       }),
     });
@@ -519,7 +502,6 @@ export async function sendQueuedBroadcasts(env, { perPass = PER_PASS } = {}) {
           replyTo,
           footer: marketingFooter({
             agencyName: agency?.name || null,
-            agencyAddress: agency?.address || null,
             unsubscribeUrl: `${appUrl(env)}/u/${await unsubscribeToken(env, live.agency_id, r.email)}`,
           }),
         });

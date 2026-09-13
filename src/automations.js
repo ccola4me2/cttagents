@@ -248,7 +248,6 @@ async function runStep(env, run, step, context) {
         }
         footer = marketingFooter({
           agencyName: agency?.name,
-          agencyAddress: agency?.address,
           unsubscribeUrl: `${appUrl(env)}/u/${await unsubscribeToken(env, agency?.id || null, to)}`,
         });
       }

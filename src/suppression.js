@@ -111,18 +111,21 @@ export async function unsuppress(env, agencyId, email) {
 }
 
 /**
- * The footer a marketing email has to carry.
+ * The footer a marketing email carries.
  *
- * A postal address and a way out, both of which the CAN-SPAM rules ask for and
- * both of which a spam filter reads as evidence this is a real sender. The
- * address is the agency's own; when there is not one recorded the email still
- * sends, because a missing address is a thing to fix on the settings page
- * rather than a reason a client hears nothing.
+ * The way out, and who it is from. No postal address: Brent asked for it left
+ * off on 2026-09-13, having been told that US commercial email is supposed to
+ * carry one and that its absence is read as a bad sign by the large mailbox
+ * providers. His agency, his decision.
+ *
+ * Putting it back is one line. `agencyAddress` is still on the agency record
+ * and on each advisor's own settings, and `agencyFor` in broadcasts.js still
+ * resolves it, so nothing needs rebuilding: add the parameter back and push
+ * it into `bits` below.
  */
-export function marketingFooter({ agencyName, agencyAddress, unsubscribeUrl }) {
+export function marketingFooter({ agencyName, unsubscribeUrl }) {
   const bits = [];
   if (agencyName) bits.push(escapeish(agencyName));
-  if (agencyAddress) bits.push(escapeish(String(agencyAddress).replace(/\s*\n\s*/g, ', ')));
   return `${bits.join(' &middot; ')}<br>
     <a href="${escapeish(unsubscribeUrl)}" style="color:#6b7a8c;">Unsubscribe</a>
     from emails like this. Messages about a trip you have booked are sent separately.`;
