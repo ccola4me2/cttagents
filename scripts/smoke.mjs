@@ -37,11 +37,31 @@ function ok(label) { checks++; console.log(`  ok    ${label}`); }
 // true and useless: finding the ten meant scrolling nine hundred lines, and in
 // CI it meant scrolling them in a viewer that only holds a slice at a time.
 const failed = [];
+/**
+ * Also shouted at GitHub, when this is running there.
+ *
+ * An Actions log is only readable by somebody signed in with access to the
+ * repository, and the thing that most often needs to read it is whatever is
+ * trying to work out why the push went red. Annotations are not: they hang off
+ * the run and the check-runs API hands them to anybody who can see a public
+ * repository. So every failure says itself twice, once for a person reading
+ * the log and once where it can be read without one.
+ *
+ * A workflow command has to be one line, so the newlines are escaped the way
+ * Actions asks for rather than being lost.
+ */
+function annotate(label, detail) {
+  if (!process.env.CI) return;
+  const one = (s) => String(s).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+  console.log(`::error title=Smoke::${one(label)}${detail === undefined ? '' : ` -- ${one(detail)}`}`);
+}
+
 function fail(label, detail) {
   checks++; failures++;
   failed.push(detail === undefined ? label : `${label}  (${detail})`);
   console.log(`  FAIL  ${label}`);
   if (detail !== undefined) console.log(`        ${detail}`);
+  annotate(label, detail);
 }
 function check(condition, label, detail) {
   condition ? ok(label) : fail(label, detail);
@@ -6030,6 +6050,9 @@ main()
   .catch((e) => {
     failures += 1;
     console.log(e instanceof Bail ? `\n${e.message}` : `\nSmoke test threw: ${e && e.stack || e}`);
+    // A throw ends the run without any check having failed, so nothing else
+    // would say what happened where it can be read.
+    annotate(e instanceof Bail ? 'Bailed out' : 'Threw', e && (e.stack || e.message) || String(e));
   })
   .finally(async () => {
     // Whatever happened above, do not leave test data in the database. The
