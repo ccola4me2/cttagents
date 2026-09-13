@@ -724,9 +724,24 @@ export async function sendHtml(env, { to, replyTo, subject, html }) {
   return { ok: true, subject };
 }
 
+/**
+ * What each kind of payment is called when a client is asked for it.
+ *
+ * The reminder used to be written for a final balance and sent for every kind,
+ * so a deposit chase went out with the subject "Final payment is due" and a
+ * body calling $1,900 "the balance" of a $9,480 trip. Wrong twice in one
+ * sentence, and the reading a client takes from it, that the trip costs $1,900,
+ * is the expensive one.
+ */
+const REMIND_WORD = {
+  deposit: { subject: 'Deposit', noun: 'deposit' },
+  installment: { subject: 'Payment', noun: 'payment' },
+  final: { subject: 'Final payment', noun: 'balance' },
+};
+
 export async function sendPaymentReminder(env, {
   to, replyTo, clientName, advisorName, agencyName,
-  amountCents, dueDate, hard, tripName, vendor, confirmation,
+  amountCents, dueDate, hard, tripName, vendor, confirmation, kind,
 }) {
   if (!env.RESEND_API_KEY) {
     throw new PermanentError('Email is not configured: the RESEND_API_KEY secret is not set on the Worker.');
@@ -741,16 +756,20 @@ export async function sendPaymentReminder(env, {
   });
 
   const trip = [tripName, vendor].filter(Boolean).join(' with ') || 'your trip';
+  const word = REMIND_WORD[kind] || REMIND_WORD.final;
   const subject = hard
-    ? `Final payment for ${trip} is due ${when}`
-    : `A reminder about your balance for ${trip}`;
+    ? `${word.subject} for ${trip} is due ${when}`
+    : `A reminder about your ${word.noun} for ${trip}`;
 
   const lines = [
     `Hello ${clientName || 'there'},`,
     hard
-      ? `This is a reminder that the balance of ${money(amountCents)} for ${trip} is due on ${when}. `
+      ? `This is a reminder that the ${word.noun} of ${money(amountCents)} for ${trip} is due on ${when}. `
         + `This date is set by the vendor, and the booking may be cancelled if it passes unpaid.`
-      : `Just a friendly note that the balance of ${money(amountCents)} for ${trip} will be due shortly. `
+      // No date on a soft reminder, on purpose. The date on a soft row is the
+      // advisor's own reminder a week early, not anything the vendor set, and
+      // giving a client a deadline nobody agreed to is worse than giving none.
+      : `Just a friendly note that the ${word.noun} of ${money(amountCents)} for ${trip} will be due shortly. `
         + `I like to give plenty of notice so nothing is rushed.`,
     confirmation ? `Your confirmation number is ${confirmation}.` : '',
     'If you have already sent this, please ignore this note. Otherwise reply here and I will take care of it.',
@@ -760,6 +779,16 @@ export async function sendPaymentReminder(env, {
   const html = layout(env, {
     heading: hard ? 'Payment due' : 'A gentle reminder',
     body: lines.map((p) => `<p style="margin:0 0 14px;">${escapeHtml(p).replace(/\n/g, '<br>')}</p>`).join(''),
+    // The rule at the top of this file, which this was the only client-facing
+    // message breaking: a client has no account in the portal, and a link to
+    // its login screen at the foot of a message from their travel agent is a
+    // small betrayal of who the message is from. Their advisor instead.
+    footer: [
+      escapeHtml(advisorName || ''),
+      agencyName ? escapeHtml(agencyName) : '',
+      replyTo ? `<a href="mailto:${escapeHtml(replyTo)}" style="color:#6b7a8c;">${
+        escapeHtml(replyTo)}</a>` : '',
+    ].filter(Boolean).join(' &middot; '),
   });
 
   const res = await fetch('https://api.resend.com/emails', {

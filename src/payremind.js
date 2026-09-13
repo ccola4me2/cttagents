@@ -63,7 +63,7 @@ export async function remindDuePayments(env, { at = now(), limit = 200 } = {}) {
   // client's email comes from the client record, so a booking with no client
   // attached simply has nobody to write to.
   const { results } = await env.DB.prepare(
-    `SELECT p.id, p.booking_id, p.user_id, p.amount_cents, p.due_date, p.payment_class,
+    `SELECT p.id, p.booking_id, p.user_id, p.amount_cents, p.due_date, p.payment_class, p.kind,
             p.auto_lead_sent, p.reminded_at,
             b.client_name, b.product_name, b.supplier, b.confirmation_number, b.client_id,
             c.email AS client_email, c.name AS client_record_name,
@@ -109,6 +109,7 @@ export async function remindDuePayments(env, { at = now(), limit = 200 } = {}) {
         amountCents: p.amount_cents,
         dueDate: p.due_date,
         hard: true,
+        kind: p.kind,
         tripName: p.product_name || '',
         vendor: p.supplier || '',
         confirmation: p.confirmation_number || '',

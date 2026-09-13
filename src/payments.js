@@ -249,6 +249,7 @@ export async function handlePaymentReminder(request, env, id) {
     amountCents: payment.amount_cents,
     dueDate: payment.due_date,
     hard: payment.payment_class === 'hard',
+    kind: payment.kind,
     tripName: booking.product_name || '',
     vendor: booking.supplier || '',
     confirmation: booking.confirmation_number || '',
