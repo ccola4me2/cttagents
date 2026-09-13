@@ -50,6 +50,19 @@ const failed = [];
  * A workflow command has to be one line, so the newlines are escaped the way
  * Actions asks for rather than being lost.
  */
+/**
+ * The shape of the run, not a failure.
+ *
+ * A suite that quietly shrinks is a suite reporting a number that means
+ * something different from run to run, and a section that skipped is invisible
+ * from outside the log. This puts the count and the skips where they can be
+ * read without one.
+ */
+function summarise(text) {
+  if (!process.env.CI) return;
+  console.log(`::notice title=Smoke::${String(text).replace(/%/g, '%25').replace(/\n/g, '%0A')}`);
+}
+
 function annotate(label, detail) {
   if (!process.env.CI) return;
   const one = (s) => String(s).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
@@ -6098,6 +6111,8 @@ main()
     if (failed.length) {
       console.log(`\nWhat failed:\n${failed.map((f) => `  - ${f}`).join('\n')}`);
     }
+    summarise(`${checks} checks, ${failures} failed`
+      + (skips.length ? `, skipped: ${skips.join('; ')}` : ', nothing skipped'));
     console.log(
       `\n${failures ? `${failures} of ${checks} checks failed.` : `All ${checks} checks passed.`}` +
       (skips.length ? ` ${skips.length} section${skips.length === 1 ? '' : 's'} skipped: ${
