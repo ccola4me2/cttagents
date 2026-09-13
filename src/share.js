@@ -347,12 +347,32 @@ function optionsBlock(trip, advisor) {
       .map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`;
   };
 
+  // Three prices in a column are three numbers. What the client is actually
+  // working out is what the next one up costs them, so the page says it: the
+  // cheapest is the baseline and every other carries the difference. Only when
+  // there is something to compare against, and only on a live proposal, since
+  // on a decided one the comparison is an argument nobody is having any more.
+  const priced = list.filter((o) => o.amount_cents > 0);
+  const floor = priced.length > 1 ? Math.min(...priced.map((o) => o.amount_cents)) : 0;
+
+  // Per head, where there is more than one head. A cruise is quoted for the
+  // cabin and thought about per person, and doing that sum is the client's
+  // first question every time.
+  const heads = Number(trip.booking.travellers) || 0;
+
   const card = (o) => `<div class="option${o.chosen ? ' on' : ''}${
     taken && !o.chosen ? ' past' : ''}">
     ${o.chosen ? '<span class="tick">Chosen</span>' : ''}
     ${o.image_url ? `<img class="opic" src="${esc(o.image_url)}" alt="" loading="lazy">` : ''}
     <p class="olabel">${esc(o.label)}</p>
     ${o.amount_cents ? `<p class="oamount">${esc(money(o.amount_cents))}</p>` : ''}
+    ${o.amount_cents && (floor || heads > 1) ? `<p class="ocompare">${[
+    heads > 1 ? `${esc(money(Math.round(o.amount_cents / heads)))} each for ${heads}` : '',
+    // Nothing against the cheapest. It is the one every other is "more" than,
+    // and the only card without a difference is legible as the baseline
+    // without being labelled one.
+    open && o.amount_cents > floor ? `${esc(money(o.amount_cents - floor))} more` : '',
+  ].filter(Boolean).join(' &middot; ')}</p>` : ''}
     ${o.detail ? `<p class="dim">${esc(o.detail)}</p>` : ''}
     ${o.inclusions ? inclusions(o.inclusions) : ''}
     ${open && !o.chosen
@@ -510,6 +530,8 @@ export async function renderTripPage(request, env, code) {
         <dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>
     </section>` : ''}
 
+    ${choosing ? optionsBlock(trip, advisor) : ''}
+
     ${trip.travellers.length ? `<section class="card pad">
       <h2>Who is travelling</h2>
       <ul class="plain">${trip.travellers.map((t) => `<li>${esc(t.name)}</li>`).join('')}</ul>
@@ -527,7 +549,7 @@ export async function renderTripPage(request, env, code) {
       </li>`).join('')}</ul>
     </section>` : ''}
 
-    ${optionsBlock(trip, advisor)}
+    ${choosing ? '' : optionsBlock(trip, advisor)}
 
     ${booked && (total || trip.payments.length) ? `<section class="card pad">
       <h2>What it costs</h2>
@@ -1018,7 +1040,14 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
   ul.plain li:last-child{border-bottom:0}
   /* 240, not 180. This is the page a client decides on, and at 180 a cabin
      photo, a price and four inclusions arrive as a thumbnail with a caption. */
-  .options{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:.9rem}
+  /* Three options is the ordinary shape of a proposal, and at 240px only two
+     fitted the 670px this grid gets: the third dropped to a row of its own,
+     360px below the pair it was meant to be compared with. A client scrolling
+     to find the third option is a client comparing two.
+     Wide enough to breathe, narrow enough that three sit together. */
+  .options{display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:.8rem}
+  /* The comparison under the price, quieter than the price itself. */
+  .ocompare{margin:.15rem 0 0;font-size:.78rem;color:var(--dim)}
   /* A column, so the button sits on the floor of every card whatever the text
      above it does. Three cards with different amounts to say were three
      buttons at three heights. */
@@ -1049,8 +1078,11 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
   /* The gap above the button comes from whatever sits above it, so the button
      itself can keep margin-top:auto and still not touch the text on the
      tallest card in a row. Margins do not collapse in a flex column. */
-  .option>.dim,.option>.oinc,.option>.oticks,.option>.oamount{margin-bottom:.9rem}
-  .option>.dim:last-child,.option>.oinc:last-child,
+  .option>.dim,.option>.oinc,.option>.oticks,.option>.oamount,
+  .option>.ocompare{margin-bottom:.9rem}
+  /* Except the price, which is the label for the line under it. */
+  .option>.oamount:has(+.ocompare){margin-bottom:0}
+  .option>.dim:last-child,.option>.oinc:last-child,.option>.ocompare:last-child,
   .option>.oticks:last-child,.option>.oamount:last-child{margin-bottom:0}
   .obtn:hover{background:var(--navy);color:#fff}
   .obtn:disabled{opacity:.55;cursor:not-allowed}
