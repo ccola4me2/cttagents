@@ -561,7 +561,7 @@ export async function renderTripPage(request, env, code) {
         <label for="body">Or leave a note and they will come back to you</label>
         <textarea id="body" name="body" rows="4" maxlength="2000"
           placeholder="Anything you want to ask or change."></textarea>
-        <div class="hp"><label>Company website<input name="company_website" tabindex="-1"
+        <div class="hp" aria-hidden="true"><label>Company website<input name="company_website" tabindex="-1"
           autocomplete="off"></label></div>
         <button type="submit">Send it</button>
         <p class="err" id="err" hidden></p>
