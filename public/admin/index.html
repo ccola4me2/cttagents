@@ -28,6 +28,10 @@
       <section class="card" id="sync">
         <div class="card-head"><h2>CRM data sync</h2>
           <div class="toolbar" style="margin:0;">
+            <!-- The sync table below says what each job did. It cannot say why
+                 a job never worked, because "never run" and "the token is
+                 rejected" look identical there. This asks CTT Tools directly. -->
+            <button class="btn btn-ghost btn-sm" id="ghl-check">Check the connection</button>
             <button class="btn btn-ghost btn-sm" id="sync-now">Sync now</button>
             <button class="btn btn-danger btn-sm" id="sync-full">Full resync</button>
           </div>
@@ -301,28 +305,16 @@ function drawJobs(j) {
       <td><strong>${esc(x.name)}</strong>${x.last_error
         ? `<div class="muted" style="font-size:.76rem;color:var(--red-600);">${
             esc(x.last_error)}</div>` : ''}</td>
-      <td>${esc(when(x.last_run_at))}${x.last_ms != null
+      <td>${esc(timeAgo(x.last_run_at))}${x.last_ms != null
         ? `<div class="muted" style="font-size:.74rem;">${x.last_ms} ms</div>` : ''}</td>
       <td${x.last_error ? ' style="color:var(--red-600);"' : ''}>${
-        x.last_ok_at ? esc(when(x.last_ok_at)) : 'never'}</td>
+        x.last_ok_at ? esc(timeAgo(x.last_ok_at)) : 'never'}</td>
       <td class="num">${x.runs}${x.failures
         ? `<div class="muted" style="font-size:.74rem;">${x.failures} failed</div>` : ''}</td>
     </tr>`).join('')}</tbody></table></div>
     ${failing.length ? `<p class="field-hint" style="margin-top:.6rem;">A job whose last run
       is recent and whose last good run is not has been failing quietly. Nothing else says
       so: each job is wrapped in a catch, on purpose, so one cannot stop the rest.</p>` : ''}`;
-}
-
-/** How long ago, which is the question being asked, rather than a timestamp. */
-function when(iso) {
-  if (!iso) return 'never';
-  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (!Number.isFinite(mins)) return iso;
-  if (mins < 2) return 'just now';
-  if (mins < 60) return `${mins} min ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 48) return `${hours} hr ago`;
-  return `${Math.round(hours / 24)} days ago`;
 }
 
 document.getElementById('mail-test').addEventListener('click', async (ev) => {
@@ -485,6 +477,59 @@ function renderSync(d) {
     and keep working when the upstream API is slow. A background job refreshes it every five minutes and
     picks up where it left off, so a large first import finishes across several runs.</p>`;
 }
+
+/**
+ * Ask CTT Tools whether this portal can actually reach it.
+ *
+ * Costs seven API calls, so it is a button rather than something the page does
+ * on every load. Each row is one area the portal genuinely uses, and a failure
+ * says which: a token with contacts and no conversations is a real and common
+ * state, and "the sync is broken" is not a useful way to describe it.
+ */
+async function checkGhl() {
+  const btn = document.getElementById('ghl-check');
+  btn.disabled = true;
+  const was = btn.textContent;
+  btn.textContent = 'Asking...';
+  try {
+    const d = await api('/api/admin/health?probe=1');
+    const g = d.ghl || {};
+    let html = mailRow('Token set', g.tokenPresent ? `yes, ${g.tokenLength} characters` : 'no',
+      g.tokenPresent ? 'green-600' : 'red-600')
+      + mailRow('Sub-account', g.defaultLocationId || 'not set',
+        g.defaultLocationId ? '' : 'red-600');
+
+    if (!g.tokenPresent) {
+      html += '<p class="field-hint" style="margin-top:.6rem;">Nothing can reach CTT Tools '
+        + 'until GHL_API_TOKEN is set on the Worker. The sync jobs will keep reporting a '
+        + 'failure until it is.</p>';
+    } else if (!d.scopes) {
+      html += '<p class="field-hint" style="margin-top:.6rem;">The token is set but this '
+        + 'portal could not ask what it can reach.</p>';
+    } else {
+      const areas = Object.entries(d.scopes);
+      const bad = areas.filter(([, v]) => !v.ok);
+      for (const [name, v] of areas) {
+        html += mailRow(name, v.ok ? 'reachable' : `${v.reason} (${v.status})`,
+          v.ok ? 'green-600' : 'red-600');
+      }
+      html += bad.length
+        ? `<p class="field-hint" style="margin-top:.6rem;">${bad.length} of ${areas.length}
+           refused. A 401 is the token itself; a 403 is a scope missing from it, which is
+           fixed where the token was issued rather than here.</p>`
+        : '<p class="field-hint" style="margin-top:.6rem;">Everything the portal uses is '
+          + 'reachable.</p>';
+    }
+    syncBody.innerHTML = html;
+  } catch (err) {
+    showError(syncBody, err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = was;
+  }
+}
+
+document.getElementById('ghl-check').addEventListener('click', checkGhl);
 
 async function loadSync() {
   syncBody.innerHTML = '<p class="spinner">Loading...</p>';
