@@ -33,6 +33,7 @@ import { requireUser } from './auth.js';
 import * as db from './db.js';
 import * as ghl from './ghl.js';
 import { fireTrigger } from './automations.js';
+import { ITEM_KINDS } from './itinerary.js';
 import { sendTripMessageEmail, sendOptionChosenEmail } from './email.js';
 
 const money = (cents) => (Number(cents) || 0) / 100 === 0 ? '$0'
@@ -212,14 +213,23 @@ async function loadTrip(env, code) {
 
 // What each kind of line looks like at a glance. The client is scanning for
 // "when is the flight", not reading a list of nouns.
+// The glyph against each line, in braces.
+//
+// \uXXXX takes exactly four hex digits, so '\u1F6CF' is '\u1F6C' followed by a
+// literal F: the client's itinerary showed a Greek capital omicron and the
+// letter F where a bed should be, and the same for transfer and meal. Three of
+// eight, on the page a client reads before they travel. Braces are the form
+// that holds a character above U+FFFF.
 const KIND_MARK = {
-  flight: '\u2708', cruise: '\u2693', hotel: '\u1F6CF', transfer: '\u1F698',
-  activity: '\u2600', meal: '\u1F374', free: '\u263A', note: '\u2139',
+  flight: '\u2708', cruise: '\u2693', hotel: '\u{1F6CF}', transfer: '\u{1F698}',
+  activity: '\u2600', meal: '\u{1F374}', free: '\u263A', note: '\u2139',
 };
-const KIND_WORD = {
-  flight: 'Flight', cruise: 'Cruise', hotel: 'Hotel', transfer: 'Transfer',
-  activity: 'Activity', meal: 'Meal', free: 'Free time', note: 'Note',
-};
+
+// The word against each line, taken from the list the advisor picks from
+// rather than written out again. They agreed, which is the problem rather than
+// the reassurance: a kind added on the advisor side and not here shows the
+// client the word "Item", and nothing fails.
+const KIND_WORD = Object.fromEntries(ITEM_KINDS.map((k) => [k.kind, k.label]));
 
 /** 09:30 as half past nine, because a client is reading, not filing. */
 function sayTime(hhmm) {
