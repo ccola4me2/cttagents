@@ -1,0 +1,16 @@
+-- The one the advisor would pick.
+--
+-- A proposal of three prices asks the client to weigh things they cannot see:
+-- which deck is quiet, which dining room is worth the difference, which of the
+-- two mid options is the one people come back happy from. The advisor knows.
+-- Until now the only way to say so was to write it into the detail line of one
+-- card, where it reads as sales copy rather than advice.
+--
+-- One per group, the same rule chosen already follows: an option belongs
+-- either to a component or to the trip itself, and a suggestion about cabins
+-- says nothing about insurance.
+--
+-- Not the same as chosen. This is the advisor's opinion before the client
+-- answers; chosen is the answer. A card can be both, and once it is, the
+-- answer is the thing worth saying.
+ALTER TABLE quote_options ADD COLUMN recommended INTEGER NOT NULL DEFAULT 0;

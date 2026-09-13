@@ -18,7 +18,7 @@ import * as ghl from './ghl.js';
 import { fireTrigger } from './automations.js';
 
 const COLUMNS = `
-  id, booking_id, user_id, label, detail, amount_cents, chosen, sort_order,
+  id, booking_id, user_id, label, detail, amount_cents, chosen, recommended, sort_order,
   image_url, inclusions, chosen_at, chosen_by, component_id, created_at, updated_at
 `;
 
@@ -90,9 +90,9 @@ export async function handleAddOption(request, env, bookingId) {
   const ts = now();
   await env.DB.prepare(
     `INSERT INTO quote_options
-       (id, booking_id, user_id, label, detail, amount_cents, chosen, sort_order,
+       (id, booking_id, user_id, label, detail, amount_cents, chosen, recommended, sort_order,
         image_url, inclusions, component_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?)`
   ).bind(id, bookingId, user.id, fields.label, fields.detail, fields.amountCents,
          fields.sortOrder, fields.imageUrl, fields.inclusions,
          await ownComponent(env, user.id, bookingId, fields.componentId), ts, ts).run();
@@ -126,6 +126,60 @@ export async function handleUpdateOption(request, env, id) {
          fields.imageUrl, fields.inclusions, componentId, now(), id, user.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Option not found.');
   return json({ ok: true });
+}
+
+/**
+ * The one the advisor would pick.
+ *
+ * Its own endpoint rather than a field on the edit form, because it is a
+ * one-of-many state and the form saves one card at a time: saving a card with
+ * a "recommended" tickbox would need the form to know about the other cards,
+ * and the day it got that wrong there would be two.
+ *
+ * Grouped exactly as choosing is. An option belongs either to a component or
+ * to the trip itself, and a suggestion about cabins says nothing about
+ * insurance. The predicate is written out here rather than borrowed from a
+ * helper for the reason the comment in handleChooseOption gives: check-scope
+ * refuses a write that names user_id and interpolates something.sql, and it is
+ * right to, because a grouping predicate and a viewing scope look identical at
+ * a glance and only one of them is a data fence.
+ */
+export async function handleRecommendOption(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const option = await env.DB.prepare(
+    `SELECT ${COLUMNS} FROM quote_options WHERE id = ? AND user_id = ?`
+  ).bind(id, user.id).first();
+  if (!option) return notFound('Option not found.');
+
+  const booking = await db.getBooking(env, option.booking_id, user.id);
+  if (!booking) return notFound('Reservation not found.');
+
+  const body = await readJson(request);
+  // Sent as false to take a suggestion back, which is the same button again.
+  const on = body.recommended === false ? 0 : 1;
+
+  const sameGroup = option.component_id ? 'component_id = ?' : 'component_id IS NULL';
+  const groupBinds = option.component_id ? [option.component_id] : [];
+
+  await env.DB.prepare(
+    `UPDATE quote_options SET recommended = 0, updated_at = ?
+      WHERE booking_id = ? AND user_id = ? AND ${sameGroup}`
+  ).bind(now(), option.booking_id, user.id, ...groupBinds).run();
+
+  if (on) {
+    await env.DB.prepare(
+      'UPDATE quote_options SET recommended = 1, updated_at = ? WHERE id = ? AND user_id = ?'
+    ).bind(now(), id, user.id).run();
+  }
+
+  await db.logActivity(env, user.id, 'option.recommend',
+    on ? `Suggested "${option.label}" on ${booking.client_name}'s quote`
+      : `Took back the suggestion on ${booking.client_name}'s quote`,
+    { bookingId: booking.id });
+
+  return json({ ok: true, recommended: on === 1 });
 }
 
 export async function handleDeleteOption(request, env, id) {

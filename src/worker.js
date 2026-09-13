@@ -34,7 +34,8 @@ import {
 } from './documents.js';
 import { handleStatement } from './statement.js';
 import {
-  handleAddOption, handleUpdateOption, handleDeleteOption, handleChooseOption, handleOpenOptions,
+  handleAddOption, handleUpdateOption, handleDeleteOption, handleChooseOption,
+  handleRecommendOption, handleOpenOptions,
 } from './options.js';
 import {
   handleListTiers, handleAddTier, handleUpdateTier, handleDeleteTier, handleApplyVendorTerms,
@@ -357,6 +358,7 @@ async function routeApi(request, env, path, method) {
   const optionsMatch = path.match(/^\/api\/bookings\/([^/]+)\/options$/);
   const optionMatch = path.match(/^\/api\/options\/([^/]+)$/);
   const chooseMatch = path.match(/^\/api\/options\/([^/]+)\/choose$/);
+  const recommendMatch = path.match(/^\/api\/options\/([^/]+)\/recommend$/);
   const tierMatch = path.match(/^\/api\/penalties\/([^/]+)$/);
   const applyTermsMatch = path.match(/^\/api\/bookings\/([^/]+)\/penalties\/apply$/);
   const priceLineMatch = path.match(/^\/api\/pricing\/([^/]+)$/);
@@ -483,6 +485,9 @@ async function routeApi(request, env, path, method) {
   // The two or three choices a quote offers, and which one the client took.
   if (optionsMatch && method === 'POST') return handleAddOption(request, env, optionsMatch[1]);
   if (chooseMatch && method === 'POST') return handleChooseOption(request, env, chooseMatch[1]);
+  if (recommendMatch && method === 'POST') {
+    return handleRecommendOption(request, env, recommendMatch[1]);
+  }
   if (optionMatch && method === 'PUT') return handleUpdateOption(request, env, optionMatch[1]);
   if (optionMatch && method === 'DELETE') return handleDeleteOption(request, env, optionMatch[1]);
 

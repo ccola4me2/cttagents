@@ -176,8 +176,8 @@ async function loadTrip(env, code) {
     // The id is needed now that the client can choose one, and the picture and
     // inclusions are what make three lines of text into a choice anybody
     // enjoys making.
-    env.DB.prepare(`SELECT id, label, detail, amount_cents, chosen, image_url, inclusions,
-                           chosen_at, chosen_by, component_id
+    env.DB.prepare(`SELECT id, label, detail, amount_cents, chosen, recommended,
+                           image_url, inclusions, chosen_at, chosen_by, component_id
                       FROM quote_options
                      WHERE booking_id = ? AND user_id = ? ORDER BY sort_order ASC`)
       .bind(booking.id, owner).all(),
@@ -360,9 +360,19 @@ function optionsBlock(trip, advisor) {
   // first question every time.
   const heads = Number(trip.booking.travellers) || 0;
 
+  // The advisor's own pick, in their own name, and only while the question is
+  // still open. Once the client has answered, the answer is the thing worth
+  // saying and a suggestion beside it is either redundant or an argument.
+  // First name only: "Brent suggests this" is a person, "Brent Beasley
+  // suggests this" is a letterhead, and the badge has 13rem to live in.
+  const firstName = String(advisor || '').trim().split(/\s+/)[0] || '';
+  const suggests = firstName ? `${firstName} suggests this` : 'Suggested';
+
   const card = (o) => `<div class="option${o.chosen ? ' on' : ''}${
+    o.recommended && open && !taken ? ' rec' : ''}${
     taken && !o.chosen ? ' past' : ''}">
-    ${o.chosen ? '<span class="tick">Chosen</span>' : ''}
+    ${o.chosen ? '<span class="tick">Chosen</span>'
+    : (o.recommended && open && !taken ? `<span class="tick rec">${esc(suggests)}</span>` : '')}
     ${o.image_url ? `<img class="opic" src="${esc(o.image_url)}" alt="" loading="lazy">` : ''}
     <p class="olabel">${esc(o.label)}</p>
     ${o.amount_cents ? `<p class="oamount">${esc(money(o.amount_cents))}</p>` : ''}
@@ -1054,6 +1064,11 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
   .option{border:1px solid var(--line);border-radius:11px;padding:1rem;position:relative;
     display:flex;flex-direction:column}
   .option.on{border-color:var(--navy);box-shadow:0 0 0 1px var(--navy)}
+  /* The suggested card is lifted, not shouted at: the same ring the chosen one
+     gets, in the accent rather than the heading colour, so it reads as a
+     pointer and not as a decision already taken. */
+  .option.rec{border-color:var(--teal);box-shadow:0 0 0 1px var(--teal)}
+  .tick.rec{background:var(--teal)}
   /* Once one is chosen the others are still worth reading and are no longer
      the answer. Dimmed rather than hidden: a client who changes their mind
      needs to see what they turned down. */

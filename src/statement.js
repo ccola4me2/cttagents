@@ -131,6 +131,10 @@ export function buildStatement({ booking, pricing, travellers, payments, ameniti
       ? (options || []).map((o) => ({
           label: o.label, detail: o.detail || '', amountCents: o.amount_cents || 0,
           chosen: Boolean(o.chosen),
+          // The advisor's own pick. Carried into the email as well as the
+          // page, because the email is what a good many clients read and an
+          // advisor who marks a suggestion expects it where they sent it.
+          recommended: Boolean(o.recommended),
         }))
       : [],
     // A quote carries no payment history because there is none. Empty arrays
@@ -234,6 +238,11 @@ export function renderStatement(env, s) {
 
   const quote = s.mode === 'quote';
 
+  // First name only, the same as on the trip page: "Brent suggests this" is a
+  // person and "Brent Beasley suggests this" is a letterhead.
+  const firstName = String(s.advisorName || '').trim().split(/\s+/)[0] || '';
+  const suggests = firstName ? `${firstName} suggests this` : 'suggested';
+
   // What a quote ends on: the one thing the client has to do next, and by
   // when. A quote that stops at a total leaves them to work out what happens
   // now, and the commonest answer to that is nothing.
@@ -271,7 +280,10 @@ export function renderStatement(env, s) {
       ? block('Your choices', s.options.map((o) => `<tr>
           <td style="padding:8px 0;color:#2f4459;">
             <strong>${escapeHtml(o.label)}</strong>${o.chosen
-              ? ' <span style="color:#12315e;font-size:12px;">&mdash; the one you chose</span>' : ''}
+              ? ' <span style="color:#12315e;font-size:12px;">&mdash; the one you chose</span>'
+              : (o.recommended
+                ? ` <span style="color:#12315e;font-size:12px;">&mdash; ${escapeHtml(suggests)}</span>`
+                : '')}
             ${o.detail ? `<div style="color:#5c7286;font-size:13px;">${escapeHtml(o.detail)}</div>` : ''}</td>
           <td style="padding:8px 0;text-align:right;white-space:nowrap;color:#2f4459;">${
             money(o.amountCents)}</td></tr>`).join(''))
