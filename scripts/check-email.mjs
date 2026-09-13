@@ -25,7 +25,7 @@
 //
 //   node scripts/check-email.mjs
 
-import { layout, plainText } from '../src/email.js';
+import { layout, plainText, linkify, escapeHtml } from '../src/email.js';
 import { marketingFooter } from '../src/suppression.js';
 import { annotate } from './lib/annotate.mjs';
 
@@ -53,6 +53,11 @@ const withAddress = marketingFooter({
   unsubscribeUrl: UNSUB,
 });
 
+// A link somebody pastes into the body, and the ways that can go wrong.
+const pasted = 'Book here: https://example.test/s/ALASKA26. Reply if you want it.';
+const linked = linkify(escapeHtml(pasted));
+const injection = linkify(escapeHtml('https://x.test/a"onmouseover="alert(1)'));
+
 const marketingText = plainText(marketing);
 const transactionalText = plainText(transactional);
 
@@ -74,6 +79,22 @@ const checks = [
   // renderer means somebody will read "Hello {{first_name}}".
   ['no unrendered merge field', !/\{\{/.test(marketing)],
   // The other half of the rule, and the one worth being strict about.
+  // A URL in the body is grey text unless something makes it a link, and the
+  // client whose mail reader does not linkify one by itself is always the one
+  // you most wanted to reach.
+  ['a pasted link becomes clickable',
+    linked.includes('<a href="https://example.test/s/ALASKA26"')],
+  ['and the sentence it sits in keeps its full stop outside the link',
+    linked.includes('</a>. Reply')],
+  ['and the text alternative does not print the address twice',
+    plainText(`<p>${linked}</p>`).includes('ALASKA26. Reply')
+      && !plainText(`<p>${linked}</p>`).includes('(https://example.test')],
+  // Escaping runs before linkifying, so a quote in a pasted URL cannot close
+  // the attribute it lands in. This is the assertion that matters most here:
+  // the body is text a person typed, and it ends up inside an href.
+  ['a quote in a pasted URL cannot break out of the attribute',
+    !/href="[^"]*"[^>]*on\w+=/i.test(injection) && injection.includes('&quot;')],
+
   ['a transactional email offers no way to unsubscribe',
     !/unsubscribe/i.test(transactionalText)],
   ['and carries no opt-out link', !/\/u\//.test(transactional)],
