@@ -102,6 +102,17 @@ export function layout(env, { heading, body, cta, footer, brand }) {
 export function plainText(html) {
   return String(html || '')
     .replace(/<(style|script)[\s\S]*?<\/\1>/gi, '')
+    // A newline in the source is not a line break. These templates are written
+    // across several lines for the sake of reading them, and HTML collapses
+    // that whitespace; this did not, so a name and the grey note after it
+    // arrived on separate lines in every plain-text alternative we send.
+    //
+    // Only whitespace that sits against a tag is collapsed. A newline in the
+    // middle of running text is one somebody typed, and the note a client
+    // leaves on their trip page is rendered pre-wrap precisely so those
+    // survive.
+    .replace(/\s*\n\s*(?=<)/g, ' ')
+    .replace(/(>)\s*\n\s*/g, '$1')
     .replace(/<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi,
       (_m, href, label) => {
         const words = label.replace(/<[^>]+>/g, '').trim();
@@ -407,8 +418,7 @@ export function sendTripMessageEmail(env, { to, firstName, clientName, tripName,
                   to it is no. An advisor who wants the address can copy it. -->
              <p style="margin:0 0 16px;padding:14px 16px;background:#f6f9fc;border-radius:8px;
                white-space:pre-wrap;">${escapeHtml(body)}</p>
-             <p style="margin:0;">The page cannot change anything, so nothing has happened to
-             the reservation.</p>`,
+             <p style="margin:0;">The page cannot change anything, so nothing has happened to the reservation.</p>`,
       cta: { label: 'Open the reservation', href },
     }),
   });
