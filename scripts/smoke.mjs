@@ -3173,6 +3173,41 @@ async function main() {
   // ----------------------------------------------------- the vendors hub --
   step('The vendor directory');
 
+  // A supplier-list refresh must not take an advisor's notes with it. Every
+  // other field in that statement is what the partner list says about a
+  // supplier and is worth refreshing; notes are the one field on the record
+  // that somebody typed, and the import was overwriting them with whatever
+  // the file carried, or blanking them when it carried nothing.
+  {
+    const supplier = `Refresh ${stamp}`;
+    const made = await call(advisor, 'POST', '/api/vendors/import', {
+      commit: true,
+      rows: [{ name: supplier, category: 'Cruise', partnerStatus: 'Preferred' }],
+    });
+    if (made.status === 200) {
+      const list = await call(advisor, 'GET', '/api/vendors');
+      const row = (list.data?.vendors || []).find((v) => v.name === supplier);
+      if (row) {
+        cleanup('the refreshed supplier', () => call(advisor, 'DELETE', `/api/vendors/${row.id}`));
+        await call(advisor, 'PUT', `/api/vendors/${row.id}`,
+          { name: supplier, category: 'Cruise', notes: 'Ring Maria, not the desk.' });
+        await call(advisor, 'POST', '/api/vendors/import', {
+          commit: true,
+          rows: [{ name: supplier, category: 'Cruise', partnerStatus: 'Preferred' }],
+        });
+        const again = await call(advisor, 'GET', '/api/vendors');
+        const after = (again.data?.vendors || []).find((v) => v.name === supplier);
+        check(after && after.notes === 'Ring Maria, not the desk.',
+          'a supplier list refresh leaves the notes somebody typed alone',
+          after && JSON.stringify(after.notes));
+      } else {
+        skip('the supplier refresh', 'the import did not produce a row to check');
+      }
+    } else {
+      skip('the supplier refresh', `the import answered ${made.status}`);
+    }
+  }
+
   const starred = await call(advisor, 'POST', `/api/vendors/${keep.id}/favourite`,
     { favourite: true });
   check(starred.status === 200, 'a vendor can be starred', `status ${starred.status}`);

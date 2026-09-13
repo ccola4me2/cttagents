@@ -553,18 +553,25 @@ export async function handleImportVendors(request, env) {
            partner_status = ?, travel_types = ?,
            budget_category = ?, commission_structure = ?, booking_instructions = ?,
            registration_instructions = ?, bdm_info = ?, bdm_name = ?, bdm_phone = ?,
-           bdm_email = ?, vendor_login = ?, notes = ?, phones_json = ?,
+           bdm_email = ?, vendor_login = ?, phones_json = ?,
            -- Filled where blank, never overwritten. An advisor who corrected a
            -- supplier's booking address should not lose it to the next import
            -- of a file that still has the old one.
            portal_url = COALESCE(portal_url, ?), website = COALESCE(website, ?),
+           -- Notes belong to whoever typed them. Everything else in this
+           -- statement is what the partner list says about a supplier and is
+           -- worth refreshing from it; notes are the one field on this record
+           -- that is the advisor's own, they are on the edit form, and a
+           -- supplier-list refresh was overwriting them with whatever the file
+           -- carried, or blanking them when it carried nothing.
+           notes = COALESCE(notes, ?),
            updated_at = ?
          WHERE id = ? AND user_id = ?`
       ).bind(v.category, v.categories?.length ? JSON.stringify(v.categories) : null,
              v.partnerStatus, v.travelTypes, v.budgetCategory,
              v.commissionStructure, v.bookingInstructions, v.registrationInstructions,
-             v.bdmInfo, v.bdmName, v.bdmPhone, v.bdmEmail, v.vendorLogin, v.notes,
-             v.phonesJson, v.portalUrl, v.website, ts, cur.id, user.id)
+             v.bdmInfo, v.bdmName, v.bdmPhone, v.bdmEmail, v.vendorLogin,
+             v.phonesJson, v.portalUrl, v.website, v.notes, ts, cur.id, user.id)
       : env.DB.prepare(
         `UPDATE vendors SET category = ?, categories_json = COALESCE(?, categories_json),
            favourite = ?, updated_at = ? WHERE id = ? AND user_id = ?`

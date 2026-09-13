@@ -56,6 +56,13 @@ jobs:
       - name: Payment totals against the soft twin
         run: npm run check:payments
 
+      # The other half of the column check. That one reads SELECT lists; this
+      # one asks whether two full-record saves of the same table agree, which
+      # is how nickname and source were settable when a client was created and
+      # silently dropped by every edit afterwards.
+      - name: Full saves agree about their columns
+        run: npm run check:writes
+
       # Offline, needs no server, and catches the cheapest class of bug, so it
       # goes first and fails fast.
       - name: Column lists against the schema
