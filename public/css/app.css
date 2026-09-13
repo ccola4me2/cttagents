@@ -244,9 +244,28 @@ textarea { min-height: 90px; resize: vertical; }
   background: var(--navy-900); color: var(--navy-200);
   display: flex; flex-direction: column; padding: 1.1rem .85rem;
   position: sticky; top: 0; height: 100vh;
+  /* The sidebar is exactly the height of the window, so anything past the
+     bottom of it used to be clipped with no way to reach it. The menu has
+     grown and the last few entries had simply stopped existing for anybody on
+     a laptop. */
+  overflow: hidden;
 }
 .sidebar .wordmark { padding: .2rem .5rem 1.4rem; }
-.sidebar nav { display: flex; flex-direction: column; gap: .12rem; }
+/* The menu scrolls; the logo and the footer do not. Scrolling the whole
+   sidebar would take "who you are" and "sign out" off the screen with it,
+   which are the two things somebody looks at the bottom of a sidebar for.
+   min-height:0 because a flex child will not shrink below its content
+   without it, which is the usual reason a rule like this does nothing. */
+.sidebar nav {
+  display: flex; flex-direction: column; gap: .12rem;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  /* Room for the scrollbar so the entries do not shift when it appears. */
+  margin-right: -.35rem; padding-right: .35rem;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.22) transparent;
+}
+.sidebar nav::-webkit-scrollbar { width: 6px; }
+.sidebar nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,.22); border-radius: 3px; }
+.sidebar nav::-webkit-scrollbar-track { background: transparent; }
 .sidebar nav a {
   display: flex; align-items: center; gap: .6rem;
   padding: .55rem .7rem; border-radius: 9px; text-decoration: none;
@@ -286,6 +305,11 @@ textarea { min-height: 90px; resize: vertical; }
   .sidebar nav {
     display: none; position: absolute; top: 56px; left: 0; right: 0; z-index: 30;
     background: var(--navy-900); padding: .6rem 1rem 1rem;
+    /* The desktop rule constrains the menu to the height of a sidebar that is
+       no longer full height here, so it is undone rather than inherited. It
+       still cannot run past the screen, so it keeps a scroll of its own. */
+    flex: none; min-height: 0; max-height: calc(100vh - 56px); overflow-y: auto;
+    margin-right: 0; padding-right: 1rem;
   }
   .sidebar.open nav { display: flex; }
   .sidebar-foot { display: none; }
