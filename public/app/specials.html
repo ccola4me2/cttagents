@@ -350,7 +350,10 @@ document.getElementById('tabs').addEventListener('click', (e) => {
 deleteBtn.addEventListener('click', async () => {
   if (!editingId) return;
   if (!confirm('Delete this deal? Any enquiries against it go too.')) return;
-  const out = await api(`/api/specials/${encodeURIComponent(editingId)}`, { method: 'DELETE' });
+  let out;
+  try {
+    out = await api(`/api/specials/${encodeURIComponent(editingId)}`, { method: 'DELETE' });
+  } catch (e) { showError(dlg.querySelector('.notice-error'), e); return; }
   dlg.close();
   errEl.innerHTML = `<div class="notice notice-ok">Deal deleted${
     out.enquiriesRemoved ? `, along with ${out.enquiriesRemoved} enquir${

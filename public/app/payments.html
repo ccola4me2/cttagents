@@ -351,7 +351,9 @@ document.querySelectorAll('[data-state]').forEach((b) => b.addEventListener('cli
 
 delBtn.addEventListener('click', async () => {
   if (!editingId || !confirm('Delete this payment?')) return;
-  await api(`/api/payments/${encodeURIComponent(editingId)}`, { method: 'DELETE' });
+  try {
+    await api(`/api/payments/${encodeURIComponent(editingId)}`, { method: 'DELETE' });
+  } catch (e) { showError(dlg.querySelector('.notice-error'), e); return; }
   dlg.close();
   await load();
 });

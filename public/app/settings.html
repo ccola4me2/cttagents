@@ -395,7 +395,10 @@ document.getElementById('tpl-seed').addEventListener('click', async (e) => {
 tplDelete.addEventListener('click', async () => {
   if (!tplEditing) return;
   if (!confirm('Delete this template? Tasks it already made are kept.')) return;
-  const d = await api(`/api/task-templates/${encodeURIComponent(tplEditing)}`, { method: 'DELETE' });
+  let d;
+  try {
+    d = await api(`/api/task-templates/${encodeURIComponent(tplEditing)}`, { method: 'DELETE' });
+  } catch (e) { showError(tplDlg.querySelector('.notice-error'), e); return; }
   tplDlg.close();
   drawTemplates(d.templates || []);
 });

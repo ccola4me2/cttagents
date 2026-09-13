@@ -2169,7 +2169,9 @@ function openTier(t) {
 document.querySelector('[data-close-tier]').addEventListener('click', () => tierDlg.close());
 document.getElementById('ti-delete').addEventListener('click', async () => {
   if (!editingTier || !confirm('Remove this tier?')) return;
-  await api(`/api/penalties/${encodeURIComponent(editingTier)}`, { method: 'DELETE' });
+  try {
+    await api(`/api/penalties/${encodeURIComponent(editingTier)}`, { method: 'DELETE' });
+  } catch (e) { showError(tierForm.querySelector('.notice-error'), e); return; }
   tierDlg.close();
   await load();
 });
@@ -2231,7 +2233,9 @@ document.querySelector('[data-close-component]').addEventListener('click', () =>
 document.getElementById('c-delete').addEventListener('click', async () => {
   if (!editingComponent) return;
   if (!confirm('Remove this vendor from the trip? What it cost stays on the reservation.')) return;
-  await api(`/api/components/${encodeURIComponent(editingComponent)}`, { method: 'DELETE' });
+  try {
+    await api(`/api/components/${encodeURIComponent(editingComponent)}`, { method: 'DELETE' });
+  } catch (e) { showError(componentForm.querySelector('.notice-error'), e); return; }
   componentDlg.close();
   await load();
 });
@@ -2278,7 +2282,9 @@ function openOption(o) {
 document.querySelector('[data-close-option]').addEventListener('click', () => optionDlg.close());
 document.getElementById('o-delete').addEventListener('click', async () => {
   if (!editingOption || !confirm('Remove this option?')) return;
-  await api(`/api/options/${encodeURIComponent(editingOption)}`, { method: 'DELETE' });
+  try {
+    await api(`/api/options/${encodeURIComponent(editingOption)}`, { method: 'DELETE' });
+  } catch (e) { showError(optionForm.querySelector('.notice-error'), e); return; }
   optionDlg.close();
   await load();
 });
@@ -2488,13 +2494,17 @@ document.querySelector('[data-close-amenity]').addEventListener('click', () => a
 
 document.getElementById('t-delete').addEventListener('click', async () => {
   if (!editingTraveller || !confirm('Remove this traveller?')) return;
-  await api(`/api/travellers/${encodeURIComponent(editingTraveller)}`, { method: 'DELETE' });
+  try {
+    await api(`/api/travellers/${encodeURIComponent(editingTraveller)}`, { method: 'DELETE' });
+  } catch (e) { showError(travellerForm.querySelector('.notice-error'), e); return; }
   travellerDlg.close();
   await load();
 });
 document.getElementById('a-delete').addEventListener('click', async () => {
   if (!editingAmenity || !confirm('Remove this amenity?')) return;
-  await api(`/api/amenities/${encodeURIComponent(editingAmenity)}`, { method: 'DELETE' });
+  try {
+    await api(`/api/amenities/${encodeURIComponent(editingAmenity)}`, { method: 'DELETE' });
+  } catch (e) { showError(amenityForm.querySelector('.notice-error'), e); return; }
   amenityDlg.close();
   await load();
 });

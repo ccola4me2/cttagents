@@ -342,7 +342,9 @@ document.getElementById('run-now').addEventListener('click', async (e) => {
 delBtn.addEventListener('click', async () => {
   if (!editingId) return;
   if (!confirm('Delete this automation? Anything currently mid-run is cancelled.')) return;
-  await api(`/api/automations/${encodeURIComponent(editingId)}`, { method: 'DELETE' });
+  try {
+    await api(`/api/automations/${encodeURIComponent(editingId)}`, { method: 'DELETE' });
+  } catch (e) { showError(dlg.querySelector('.notice-error'), e); return; }
   dlg.close();
   detail.hidden = true;
   await load();

@@ -471,7 +471,9 @@ document.getElementById('tabs').addEventListener('click', (e) => {
 deleteBtn.addEventListener('click', async () => {
   if (!editingId) return;
   if (!confirm('Delete this task?')) return;
-  await api(`/api/tasks/${encodeURIComponent(editingId)}`, { method: 'DELETE' });
+  try {
+    await api(`/api/tasks/${encodeURIComponent(editingId)}`, { method: 'DELETE' });
+  } catch (e) { showError(dlg.querySelector('.notice-error'), e); return; }
   dlg.close();
   await load();
 });

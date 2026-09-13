@@ -206,7 +206,9 @@ document.getElementById('tabs').addEventListener('click', (e) => {
 deleteBtn.addEventListener('click', async () => {
   if (!editingId) return;
   if (!confirm('Delete this credit?')) return;
-  await api(`/api/credits/${encodeURIComponent(editingId)}`, { method: 'DELETE' });
+  try {
+    await api(`/api/credits/${encodeURIComponent(editingId)}`, { method: 'DELETE' });
+  } catch (e) { showError(dlg.querySelector('.notice-error'), e); return; }
   dlg.close();
   await load();
 });

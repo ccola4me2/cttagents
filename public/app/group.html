@@ -428,7 +428,9 @@ onSubmit(regForm, (values) => save({
 
 deleteBtn.addEventListener('click', async () => {
   if (!confirm('Delete this group? The reservations made from it are kept.')) return;
-  await api(`/api/groups/${encodeURIComponent(groupId)}`, { method: 'DELETE' });
+  try {
+    await api(`/api/groups/${encodeURIComponent(groupId)}`, { method: 'DELETE' });
+  } catch (e) { showError(document.getElementById('err'), e); return; }
   location.href = '/app/groups';
 });
 

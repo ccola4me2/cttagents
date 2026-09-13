@@ -1003,7 +1003,10 @@ document.getElementById('customise').addEventListener('click', () => {
 });
 document.getElementById('done-customising').addEventListener('click', () => { customiser.hidden = true; });
 document.getElementById('reset-layout').addEventListener('click', async () => {
-  const res = await api('/api/prefs/dashboard', { method: 'DELETE' });
+  let res;
+  try {
+    res = await api('/api/prefs/dashboard', { method: 'DELETE' });
+  } catch (e) { showError(err, e); return; }
   layout = res.layout;
   drawCustomiser();
   drawPanels();
