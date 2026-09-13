@@ -306,6 +306,15 @@ const KEYWORDS = new Set([
   'await', 'new', 'delete', 'void', 'yield', 'do', 'else', 'try', 'finally',
   'in', 'of', 'case', 'throw', 'async', 'super', 'this', 'instanceof',
   'constructor', 'get', 'set', 'static',
+  // A declaration keyword is never the name of a function, so `var(` is never
+  // a call. It reaches this list because the stripper that removes template
+  // literals is not a parser: a nested one throws its pairing off, and a CSS
+  // custom property inside a page these modules build leaks through as
+  // `var(--navy-100)`. Whether it leaks depends on how many quotes happen to
+  // sit above it, so an unrelated edit elsewhere in the file can turn this on
+  // and off. Better to say the true thing about the language than to let a
+  // checker report an edit as a broken page.
+  'var', 'let', 'const',
 ]);
 
 /**
