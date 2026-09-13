@@ -147,6 +147,7 @@ const NAV = [
       { href: '/app/import-clients', label: 'Import clients' },
       { href: '/app/households', label: 'Households' },
       { href: '/app/pipeline', label: 'Sales opportunities' },
+      { href: '/app/segments', label: 'Lists' },
       // No separate CRM contacts entry. Clients now lists everyone the CRM
       // knows alongside everyone who has booked, and two menu items for one
       // set of people was how the same person ended up on the list twice.

@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lists | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Lists</h1>
+        <p class="sub">Who to write to, worked out from what they have booked.</p></div>
+      <span style="display:flex;align-items:center;gap:.6rem;">
+        <span id="scope"></span>
+        <button class="btn btn-ghost btn-sm" id="clear">Start again</button>
+      </span>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+
+      <div class="split">
+        <div>
+          <section class="card">
+            <div class="card-head"><h2>Who is on it</h2>
+              <span class="muted" id="count"></span></div>
+            <div class="card-pad" id="rules"><p class="spinner">Loading...</p></div>
+          </section>
+
+          <section class="card" style="margin-top:1.5rem;">
+            <div class="card-head"><h2>Who that is</h2>
+              <span class="muted" id="sample-note"></span></div>
+            <div id="people"><p class="spinner">Loading...</p></div>
+          </section>
+        </div>
+
+        <div>
+          <section class="card">
+            <div class="card-head"><h2>Save this list</h2></div>
+            <div class="card-pad">
+              <div class="field"><label for="seg-name">Name</label>
+                <input id="seg-name" maxlength="80" placeholder="Sailing this quarter">
+                <p class="field-hint">Saved as the rules, not as the people. "Sailing in the next
+                  sixty days" has to mean that in November too, so the list is worked out each
+                  time it is opened.</p></div>
+              <button class="btn btn-primary btn-sm" id="seg-save">Save</button>
+            </div>
+          </section>
+
+          <section class="card" style="margin-top:1.5rem;">
+            <div class="card-head"><h2>Saved lists</h2></div>
+            <div id="saved"><p class="spinner">Loading...</p></div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api, mountShell, esc, showError, mountScopePicker, advisorParam } from '/js/app.js';
+await mountShell();
+
+const err = document.getElementById('err');
+const rulesBox = document.getElementById('rules');
+let available = [];
+let chosen = [];          // [{ key, n, text }]
+let editingId = null;
+let timer = null;
+
+/**
+ * The rules come from the API so the page builds itself.
+ *
+ * A rule added on the server appears here without a second edit, which is the
+ * only way a list of questions like this stays in one place.
+ */
+try {
+  available = (await api('/api/segments/rules')).rules || [];
+} catch (e) { showError(err, e); }
+
+function drawRules() {
+  rulesBox.innerHTML = available.map((r) => {
+    const on = chosen.find((c) => c.key === r.key);
+    return `<div class="rule" style="padding:.55rem 0;border-bottom:1px solid var(--navy-50);">
+      <label style="display:flex;align-items:flex-start;gap:.6rem;font-weight:400;">
+        <input type="checkbox" data-rule="${esc(r.key)}" style="width:auto;margin-top:.25rem;"
+          ${on ? 'checked' : ''}>
+        <span style="min-width:0;flex:1;">
+          <span style="font-weight:600;color:var(--navy-800);">${esc(r.label)}</span>
+          <span class="muted" style="display:block;font-size:.8rem;">${esc(r.hint)}</span>
+          ${on && (r.n || r.text) ? `<span style="display:block;margin-top:.4rem;">
+            ${r.n ? `<input data-n="${esc(r.key)}" inputmode="numeric" value="${esc(String(on.n ?? r.n.value))}"
+              style="width:5.5rem;display:inline-block;"> <span class="muted"
+              style="font-size:.82rem;">${esc(r.n.label)}</span>` : ''}
+            ${r.text ? `<input data-text="${esc(r.key)}" value="${esc(on.text || '')}"
+              placeholder="${esc(r.text.label)}" style="max-width:16rem;display:inline-block;">` : ''}
+          </span>` : ''}
+        </span>
+      </label>
+    </div>`;
+  }).join('');
+
+  rulesBox.querySelectorAll('[data-rule]').forEach((box) => {
+    box.addEventListener('change', () => {
+      const def = available.find((r) => r.key === box.dataset.rule);
+      if (box.checked) chosen.push({ key: def.key, n: def.n?.value, text: def.text?.value || '' });
+      else chosen = chosen.filter((c) => c.key !== box.dataset.rule);
+      drawRules();
+      preview();
+    });
+  });
+
+  // Typed, so it waits for them to stop rather than asking the server per
+  // keystroke.
+  rulesBox.querySelectorAll('[data-n], [data-text]').forEach((input) => {
+    input.addEventListener('input', () => {
+      const key = input.dataset.n || input.dataset.text;
+      const row = chosen.find((c) => c.key === key);
+      if (!row) return;
+      if (input.dataset.n) row.n = input.value;
+      else row.text = input.value;
+      clearTimeout(timer);
+      timer = setTimeout(preview, 350);
+    });
+  });
+}
+
+async function preview() {
+  const countEl = document.getElementById('count');
+  const note = document.getElementById('sample-note');
+  const people = document.getElementById('people');
+  try {
+    const q = advisorParam() ? `?${advisorParam()}` : '';
+    const d = await api(`/api/segments/preview${q}`, { method: 'POST', body: { rules: chosen } });
+    mountScopePicker(document.getElementById('scope'), d, preview);
+
+    // "Everybody" is said out loud. A number with no rules behind it looks
+    // exactly like a segment and is the entire book, which is how somebody
+    // emails four hundred people meaning to email nine.
+    countEl.textContent = d.everybody
+      ? `${d.total} — everyone with an email address`
+      : `${d.total} ${d.total === 1 ? 'person' : 'people'}`;
+
+    if (d.everybody) {
+      note.textContent = '';
+      people.innerHTML = `<div class="card-pad"><p class="muted" style="margin:0;">
+        No rules chosen, so this is your whole book. Tick something on the left.</p></div>`;
+      return;
+    }
+
+    note.textContent = d.total > d.people.length
+      ? `first ${d.people.length} of ${d.total}` : '';
+
+    people.innerHTML = d.people.length
+      ? `<div class="table-wrap"><table>
+          <thead><tr><th>Name</th><th>Email</th><th>Where</th></tr></thead>
+          <tbody>${d.people.map((p) => `<tr>
+            <td><a class="name" href="/app/client?id=${esc(p.id)}">${esc(p.name)}</a>${
+              p.nickname ? `<div class="muted" style="font-size:.76rem;">goes by ${
+                esc(p.nickname)}</div>` : ''}</td>
+            <td>${esc(p.email)}</td>
+            <td>${esc([p.city, p.state].filter(Boolean).join(', ') || '-')}</td>
+          </tr>`).join('')}</tbody></table></div>`
+      : `<div class="empty"><h3>Nobody yet</h3>
+          <p>No client matches all of those at once. Loosen one of them, or widen the days.</p>
+          <p class="muted" style="font-size:.85rem;">Only clients with an email address are
+            counted, since a list is for writing to.</p></div>`;
+  } catch (e) { showError(err, e); }
+}
+
+// ------------------------------------------------------------------ saved ---
+
+async function drawSaved() {
+  const box = document.getElementById('saved');
+  try {
+    const { segments } = await api('/api/segments');
+    box.innerHTML = segments.length
+      ? `<ul class="rows">${segments.map((s) => `<li>
+          <div class="row-between">
+            <div><button type="button" class="name" data-open="${esc(s.id)}"
+              style="background:none;border:0;padding:0;font:inherit;cursor:pointer;color:inherit;"
+              >${esc(s.name)}</button>
+              <div class="muted" style="font-size:.78rem;">${s.rules.length} rule${
+                s.rules.length === 1 ? '' : 's'}</div></div>
+            <button class="btn btn-ghost btn-sm" data-drop="${esc(s.id)}">Remove</button>
+          </div></li>`).join('')}</ul>`
+      : '<div class="card-pad"><p class="muted" style="margin:0;">Nothing saved yet.</p></div>';
+
+    box.querySelectorAll('[data-open]').forEach((b) => b.addEventListener('click', () => {
+      const s = segments.find((x) => x.id === b.dataset.open);
+      chosen = s.rules.slice();
+      editingId = s.id;
+      document.getElementById('seg-name').value = s.name;
+      drawRules();
+      preview();
+    }));
+
+    box.querySelectorAll('[data-drop]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('Remove this list? The clients on it are not touched.')) return;
+      try {
+        await api(`/api/segments/${encodeURIComponent(b.dataset.drop)}`, { method: 'DELETE' });
+        if (editingId === b.dataset.drop) editingId = null;
+        await drawSaved();
+      } catch (e) { showError(err, e); }
+    }));
+  } catch (e) { showError(box, e); }
+}
+
+document.getElementById('seg-save').addEventListener('click', async () => {
+  const name = document.getElementById('seg-name').value.trim();
+  if (!name) { showError(err, new Error('Give the list a name first.')); return; }
+  try {
+    await api(editingId ? `/api/segments/${encodeURIComponent(editingId)}` : '/api/segments',
+      { method: editingId ? 'PUT' : 'POST', body: { name, rules: chosen } });
+    err.innerHTML = `<div class="notice notice-ok">Saved as ${esc(name)}.</div>`;
+    await drawSaved();
+  } catch (e) { showError(err, e); }
+});
+
+document.getElementById('clear').addEventListener('click', () => {
+  chosen = [];
+  editingId = null;
+  document.getElementById('seg-name').value = '';
+  err.innerHTML = '';
+  drawRules();
+  preview();
+});
+
+drawRules();
+await preview();
+await drawSaved();
+</script>
+</body></html>

@@ -38,6 +38,10 @@ import { handleReadConfirmation } from './confirm.js';
 import { migrationHint } from './schema-drift.js';
 import { renderUnsubscribe, handleUnsubscribe } from './suppression.js';
 import {
+  handleSegmentRules, handleSegmentPreview, handleListSegments,
+  handleSaveSegment, handleDeleteSegment,
+} from './segments.js';
+import {
   handleAddComponent, handleUpdateComponent, handleDeleteComponent,
 } from './components.js';
 import {
@@ -222,6 +226,7 @@ const PAGE_FILES = {
   '/app/clients': '/app/clients.html',
   '/app/import': '/app/import.html',
   '/app/import-clients': '/app/import-clients.html',
+  '/app/segments': '/app/segments.html',
   '/app/complete': '/app/complete.html',
   '/app/vendors': '/app/vendors.html',
   '/app/vendor': '/app/vendor.html',
@@ -339,6 +344,7 @@ async function routeApi(request, env, path, method) {
   const welcomedMatch = path.match(/^\/api\/bookings\/([^/]+)\/welcomed$/);
   const shareMatch = path.match(/^\/api\/bookings\/([^/]+)\/share$/);
   const unsubMatch = path.match(/^\/u\/([A-Za-z0-9._-]+)$/);
+  const segMatch = path.match(/^\/api\/segments\/([^/]+)$/);
   const tripMsgMatch = path.match(/^\/api\/bookings\/([^/]+)\/messages$/);
   const msgReadMatch = path.match(/^\/api\/trip-messages\/([^/]+)\/read$/);
   const docShareMatch = path.match(/^\/api\/documents\/([^/]+)\/share$/);
@@ -600,6 +606,16 @@ async function routeApi(request, env, path, method) {
   // Public, no session: whoever opens this is a client. GET asks, POST does
   // it, because a one-click link is fired by every scanner between the sender
   // and the reader.
+  // Before the single-segment match, which would read "rules" as an id.
+  if (path === '/api/segments/rules' && method === 'GET') return handleSegmentRules(request, env);
+  if (path === '/api/segments/preview' && method === 'POST') {
+    return handleSegmentPreview(request, env);
+  }
+  if (path === '/api/segments' && method === 'GET') return handleListSegments(request, env);
+  if (path === '/api/segments' && method === 'POST') return handleSaveSegment(request, env, null);
+  if (segMatch && method === 'PUT') return handleSaveSegment(request, env, segMatch[1]);
+  if (segMatch && method === 'DELETE') return handleDeleteSegment(request, env, segMatch[1]);
+
   if (unsubMatch && method === 'GET') return renderUnsubscribe(env, unsubMatch[1]);
   if (unsubMatch && method === 'POST') return handleUnsubscribe(env, unsubMatch[1]);
   if (tripMsgMatch && method === 'GET') return handleTripMessages(request, env, tripMsgMatch[1]);
