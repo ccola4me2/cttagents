@@ -336,6 +336,19 @@ async function routeRequest(request, env, ctx) {
   const path = url.pathname.replace(/\/{2,}/g, '/');
   const method = request.method.toUpperCase();
 
+  // The unsubscribe link, which is the one address in this Worker that is
+  // opened by a client rather than an advisor and has to work with no session
+  // at all. It lived inside routeApi, which only ever runs for /api/, so every
+  // marketing footer pointed at a static 404. Nothing else in there is
+  // reachable from outside /api/, and the smoke suite now asks.
+  //
+  // Two steps, not one: a one-click link is fired by every scanner and preview
+  // pane between the sender and the reader, so the GET asks and the POST does
+  // it.
+  const unsubMatch = path.match(/^\/u\/([A-Za-z0-9._-]+)$/);
+  if (unsubMatch && method === 'GET') return renderUnsubscribe(env, unsubMatch[1]);
+  if (unsubMatch && method === 'POST') return handleUnsubscribe(env, unsubMatch[1]);
+
   if (path.startsWith('/api/')) return routeApi(request, env, path, method);
 
   // Everything else is a page or a static file.
@@ -358,7 +371,6 @@ async function routeApi(request, env, path, method) {
   const statementMatch = path.match(/^\/api\/bookings\/([^/]+)\/statement$/);
   const welcomedMatch = path.match(/^\/api\/bookings\/([^/]+)\/welcomed$/);
   const shareMatch = path.match(/^\/api\/bookings\/([^/]+)\/share$/);
-  const unsubMatch = path.match(/^\/u\/([A-Za-z0-9._-]+)$/);
   const segMatch = path.match(/^\/api\/segments\/([^/]+)$/);
   const castMatch = path.match(/^\/api\/broadcasts\/([^/]+)$/);
   const castActMatch = path.match(/^\/api\/broadcasts\/([^/]+)\/(test|send|cancel)$/);
@@ -620,9 +632,6 @@ async function routeApi(request, env, path, method) {
   // Tasks: the advisor's own working list, not the CRM's.
   // Sharing a trip with the person it is for.
   if (shareMatch && method === 'POST') return handleShareTrip(request, env, shareMatch[1]);
-  // Public, no session: whoever opens this is a client. GET asks, POST does
-  // it, because a one-click link is fired by every scanner between the sender
-  // and the reader.
   // Before the single-segment match, which would read "rules" as an id.
   if (path === '/api/segments/rules' && method === 'GET') return handleSegmentRules(request, env);
   if (path === '/api/segments/preview' && method === 'POST') {
@@ -655,8 +664,6 @@ async function routeApi(request, env, path, method) {
     return handleRestoreSuppression(request, env);
   }
 
-  if (unsubMatch && method === 'GET') return renderUnsubscribe(env, unsubMatch[1]);
-  if (unsubMatch && method === 'POST') return handleUnsubscribe(env, unsubMatch[1]);
   if (tripMsgMatch && method === 'GET') return handleTripMessages(request, env, tripMsgMatch[1]);
   if (msgReadMatch && method === 'POST') return handleReadTripMessage(request, env, msgReadMatch[1]);
   if (docShareMatch && method === 'POST') return handleShareDocument(request, env, docShareMatch[1]);
