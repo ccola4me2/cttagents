@@ -327,7 +327,9 @@ function paintResults(recipients) {
   document.getElementById('results-body').innerHTML = `<div class="table-wrap"><table>
     <thead><tr><th>Name</th><th>Email</th><th>What happened</th></tr></thead>
     <tbody>${recipients.map((r) => `<tr>
-      <td>${esc(r.name || '-')}</td><td>${esc(r.email)}</td>
+      <td>${r.client_id
+        ? `<a class="name" href="/app/client?id=${esc(r.client_id)}">${esc(r.name || r.email)}</a>`
+        : esc(r.name || '-')}</td><td>${esc(r.email)}</td>
       <td>${esc(r.status)}${r.detail ? `<div class="muted" style="font-size:.76rem;">${
         esc(r.detail)}</div>` : ''}</td></tr>`).join('')}</tbody></table></div>`;
 }

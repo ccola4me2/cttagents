@@ -178,7 +178,7 @@ export async function handleGetBroadcast(request, env, id) {
   // part somebody comes back to weeks later, so it is kept per person rather
   // than as a tally.
   const { results } = await env.DB.prepare(
-    `SELECT name, email, status, detail, sent_at FROM broadcast_recipients
+    `SELECT client_id, name, email, status, detail, sent_at FROM broadcast_recipients
       WHERE broadcast_id = ? AND user_id = ? ORDER BY status, name LIMIT 1000`
   ).bind(id, row.user_id).all();
 

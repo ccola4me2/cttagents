@@ -200,7 +200,14 @@ async function drawSaved() {
               >${esc(s.name)}</button>
               <div class="muted" style="font-size:.78rem;">${s.rules.length} rule${
                 s.rules.length === 1 ? '' : 's'}</div></div>
-            <button class="btn btn-ghost btn-sm" data-drop="${esc(s.id)}">Remove</button>
+            <div style="display:flex;gap:.35rem;white-space:nowrap;">
+              <!-- The obvious next thing to do with a list, and until now it
+                   meant leaving this page, opening Emails and finding the same
+                   list again in a dropdown. -->
+              <a class="btn btn-ghost btn-sm"
+                href="/app/broadcast?list=${esc(s.id)}">Write to them</a>
+              <button class="btn btn-ghost btn-sm" data-drop="${esc(s.id)}">Remove</button>
+            </div>
           </div></li>`).join('')}</ul>`
       : '<div class="card-pad"><p class="muted" style="margin:0;">Nothing saved yet.</p></div>';
 
