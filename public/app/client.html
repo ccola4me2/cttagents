@@ -412,7 +412,8 @@ function drawContact(d) {
 
     const has = c.phone || c.email || c.notes || c.birthday || c.anniversary
       || legal || c.passport_number || addr || loyalty.length
-      || c.known_traveler || c.redress || c.gender || c.citizenship;
+      || c.known_traveler || c.redress || c.gender || c.citizenship
+      || c.nickname || c.source;
 
     // Said before the address rather than after it, because the point of
     // showing it at all is that somebody about to write to them reads it
@@ -429,6 +430,7 @@ function drawContact(d) {
 
     box.innerHTML = optOut + (has
       ? `<dl class="pairs">
+          ${c.nickname ? `<dt>Goes by</dt><dd>${esc(c.nickname)}</dd>` : ''}
           ${c.phone ? `<dt>Phone</dt><dd><a href="tel:${esc(c.phone)}">${esc(c.phone)}</a></dd>` : ''}
           ${c.email ? `<dt>Email</dt><dd><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></dd>` : ''}
           ${c.birthday ? `<dt>Birthday</dt><dd>${esc(dateFmt(c.birthday))}</dd>` : ''}
@@ -446,6 +448,7 @@ function drawContact(d) {
             .join('<br>')}</dd>` : ''}
           ${c.known_traveler ? `<dt>Known traveler</dt><dd>${esc(c.known_traveler)}</dd>` : ''}
           ${c.redress ? `<dt>Redress</dt><dd>${esc(c.redress)}</dd>` : ''}
+          ${c.source ? `<dt>Came from</dt><dd>${esc(c.source)}</dd>` : ''}
           ${c.notes ? `<dt>Notes</dt><dd>${esc(c.notes)}</dd>` : ''}
         </dl>`
       : '<p class="muted" style="margin:0;font-size:.86rem;">No phone or email on file yet.</p>');
@@ -471,6 +474,18 @@ function drawContact(d) {
     <div class="field"><label for="cname">Name</label>
       <input id="cname" name="name" maxlength="120" required value="${esc(c.name)}">
       <p class="field-hint">Renaming carries their reservations and credits along with them.</p></div>
+    <div class="field-row">
+      <div class="field"><label for="cnick">Goes by</label>
+        <input id="cnick" name="nickname" maxlength="80" value="${esc(c.nickname || '')}"
+          placeholder="Barb">
+        <p class="field-hint">What to call them, if it is not their first name. Emails use
+          it.</p></div>
+      <div class="field"><label for="csource">Where they came from</label>
+        <input id="csource" name="source" maxlength="80" value="${esc(c.source || '')}"
+          placeholder="Referral">
+        <p class="field-hint">Referral, Facebook, a repeat client. The only field that
+          answers which of your marketing is working.</p></div>
+    </div>
     <div class="field-row">
       <div class="field"><label for="cphone">Phone</label>
         <input id="cphone" name="phone" type="tel" maxlength="40" value="${esc(c.phone || '')}"></div>

@@ -374,9 +374,18 @@ export async function handleUpdateClient(request, env, id) {
   // existed, so renaming has to carry them along or the trips would be
   // orphaned from the person who took them.
   const travel = travelFields(body);
+  // nickname and source are set here as well as on the create.
+  //
+  // They were on one and not the other, which is the quiet half of that bug:
+  // the write succeeded, the field was simply never in the statement, and the
+  // value came back unchanged with nothing thrown. You could record what
+  // somebody goes by when you first added them and never correct it, and
+  // "where they came from" was the same, which is the only field that answers
+  // which of your marketing is working.
   const res = await env.DB.prepare(
     `UPDATE clients SET name = ?, email = ?, phone = ?, notes = ?,
-       birthday = ?, anniversary = ?, ${TRAVEL_SET}, updated_at = ?
+       birthday = ?, anniversary = ?, nickname = ?, source = ?,
+       ${TRAVEL_SET}, updated_at = ?
       WHERE id = ? AND user_id = ?`
   ).bind(name, clean(body.email, 160) || null, clean(body.phone, 40) || null,
          clean(body.notes, 4000) || null,
@@ -384,6 +393,7 @@ export async function handleUpdateClient(request, env, id) {
          // birthday, but the field is a date input and half of these arrive
          // from a passport, so there is no reason to throw the year away.
          cleanDate(body.birthday), cleanDate(body.anniversary),
+         travel.nickname, travel.source,
          ...travelBinds(travel),
          now(), id, user.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Client not found.');

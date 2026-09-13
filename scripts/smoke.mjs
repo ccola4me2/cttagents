@@ -5706,8 +5706,18 @@ async function main() {
   // mailing that opens "Hello Barbara" to somebody everybody calls Barb reads
   // as a mailing rather than as a note from their advisor.
   if (listedId) {
-    await call(advisor, 'PUT', `/api/clients/${listedId}`,
-      { name: listed, email: `listed-${stamp}@example.com`, nickname: 'Nick' });
+    // The round trip first. These two were settable when a client was created
+    // and silently dropped by the edit, which is the quiet failure: the write
+    // succeeded, the column was never in the statement, and the value came
+    // back unchanged with nothing thrown.
+    const named = await call(advisor, 'PUT', `/api/clients/${listedId}`, {
+      name: listed, email: `listed-${stamp}@example.com`,
+      nickname: 'Nick', source: 'Referral',
+    });
+    check(named.data?.client?.nickname === 'Nick' && named.data?.client?.source === 'Referral',
+      'what a client goes by, and where they came from, survive an edit',
+      JSON.stringify({ nickname: named.data?.client?.nickname, source: named.data?.client?.source }));
+
     const nicked = await call(advisor, 'POST', '/api/broadcasts/preview',
       { segmentId, subject: 'Hi', body: 'Hello {{first_name}}.' });
     check(nicked.data?.sample?.name !== listed || nicked.data?.body === 'Hello Nick.',
