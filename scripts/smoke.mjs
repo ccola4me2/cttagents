@@ -5680,6 +5680,97 @@ async function main() {
     'a list says how many match and how many have opted out',
     `${soon.data?.total} matching, ${soon.data?.optedOut} opted out`);
 
+  // The other nine rules. Two were driven above and the rest had never been
+  // executed anywhere, which for a feature whose whole job is deciding who
+  // gets an email is the wrong nine to leave to inspection.
+  //
+  // One person per rule, each of whom should be found by theirs and left out
+  // of the others. A rule that returns everybody looks exactly like a rule
+  // that works, so every check names somebody who must not be in the answer.
+  {
+    const cast = {};
+    const make = async (key, booking) => {
+      const res = await call(advisor, 'POST', '/api/bookings',
+        { clientName: `${key} ${stamp}`, ...booking });
+      if (res.data?.booking?.id) cleanup(`the ${key} reservation`,
+        () => call(advisor, 'DELETE', `/api/bookings/${res.data.booking.id}`));
+      const found = await call(advisor, 'GET',
+        `/api/clients?q=${encodeURIComponent(`${key} ${stamp}`)}`);
+      cast[key] = (found.data?.clients || []).find((c) => c.name === `${key} ${stamp}`)?.id;
+      return cast[key];
+    };
+
+    await make('Home', { supplier: 'Cunard', status: 'travelled',
+      departDate: isoDay(-20), returnDate: isoDay(-5) });
+    await make('Quote', { supplier: 'Cunard', status: 'quoted', departDate: isoDay(100) });
+    await make('Sailed', { supplier: 'Carnival Smoke Line', status: 'travelled',
+      departDate: isoDay(-300), returnDate: isoDay(-293) });
+    await make('Docs', { supplier: 'Cunard', status: 'booked',
+      departDate: isoDay(500), returnDate: isoDay(510) });
+    await make('Where', { supplier: 'Cunard', status: 'booked',
+      departDate: isoDay(500), returnDate: isoDay(510) });
+
+    // The detail each rule reads. A birthday is matched on day and month, so
+    // the year on the record is deliberately not this one.
+    const details = {
+      Home: { email: `home-${stamp}@example.com` },
+      Quote: { email: `quote-${stamp}@example.com` },
+      Sailed: { email: `sailed-${stamp}@example.com` },
+      Docs: { email: `docs-${stamp}@example.com`, passportExpiry: isoDay(100),
+        birthday: `1971-${isoDay(10).slice(5)}`, anniversary: `1996-${isoDay(10).slice(5)}` },
+      Where: { email: `where-${stamp}@example.com`, state: 'Nowhereshire',
+        source: `SmokeReferral${stamp}` },
+    };
+    for (const [key, body] of Object.entries(details)) {
+      if (cast[key]) {
+        await call(advisor, 'PUT', `/api/clients/${cast[key]}`,
+          { name: `${key} ${stamp}`, ...body });
+      }
+    }
+
+    const credit = await call(advisor, 'POST', '/api/credits', {
+      clientName: `Docs ${stamp}`, vendor: 'Cunard', amount: '250', expiresOn: isoDay(30),
+    });
+    if (credit.data?.credit?.id) cleanup('the rules credit',
+      () => call(advisor, 'DELETE', `/api/credits/${credit.data.credit.id}`));
+
+    const namesFor = async (rules) => {
+      const res = await call(advisor, 'POST', '/api/segments/preview', { rules });
+      return (res.data?.people || []).map((x) => x.name);
+    };
+    const rule = async (label, rules, present, absent) => {
+      const names = await namesFor(rules);
+      check(names.includes(`${present} ${stamp}`) && !names.includes(`${absent} ${stamp}`),
+        label, `found ${names.length}: ${names.slice(0, 6).join(', ')}`);
+    };
+
+    await rule('home in the last N days finds who is just back',
+      [{ key: 'home_within', n: 30 }], 'Home', 'Quote');
+    await rule('quoted and never booked finds the price that went quiet',
+      [{ key: 'quoted_not_booked' }], 'Quote', 'Home');
+    await rule('sailed with a supplier matches on the name as written',
+      [{ key: 'sailed_with', text: 'Carnival' }], 'Sailed', 'Quote');
+    await rule('a credit about to expire finds who is holding it',
+      [{ key: 'credit_expiring', n: 90 }], 'Docs', 'Quote');
+    await rule('a passport about to expire finds whose it is',
+      [{ key: 'passport_expiring', n: 180 }], 'Docs', 'Quote');
+    await rule('a birthday is matched on the day and month, not the year',
+      [{ key: 'birthday_within', n: 30 }], 'Docs', 'Quote');
+    await rule('an anniversary the same way',
+      [{ key: 'anniversary_within', n: 30 }], 'Docs', 'Quote');
+    await rule('where somebody came from',
+      [{ key: 'source_is', text: `SmokeReferral${stamp}` }], 'Where', 'Quote');
+    await rule('where somebody lives',
+      [{ key: 'in_state', text: 'Nowhereshire' }], 'Where', 'Quote');
+
+    // Rules combine with AND, which is what "and" means when somebody says
+    // "everyone with a passport running out who came from a referral".
+    const both = await namesFor([{ key: 'passport_expiring', n: 180 },
+      { key: 'in_state', text: 'Nowhereshire' }]);
+    check(!both.includes(`Docs ${stamp}`) && !both.includes(`Where ${stamp}`),
+      'two rules narrow rather than widen', `found ${both.length}`);
+  }
+
   const emptyRules = await call(advisor, 'POST', '/api/segments',
     { name: `Everyone ${stamp}`, rules: [] });
   check(emptyRules.status === 400,
