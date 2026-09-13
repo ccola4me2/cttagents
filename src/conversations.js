@@ -8,6 +8,7 @@ import { json, badRequest, clean, oneOf, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as ghl from './ghl.js';
 import { logActivity } from './db.js';
+import { escapeHtml, linkify } from './email.js';
 
 const SEND_TYPES = ['SMS', 'Email'];
 
@@ -64,17 +65,16 @@ export async function handleSendMessage(request, env) {
       message,
       subject: type === 'Email' ? subject : undefined,
       // GHL wants HTML for email; plain text is escaped into a simple body.
-      html: type === 'Email' ? `<p>${escapeHtml(message).replace(/\n/g, '<br>')}</p>` : undefined,
+      // Escaped first and only then linkified, so a quote in a pasted address
+      // cannot close the attribute it lands in. Same order as the broadcast
+      // body, for the same reason: this is text an advisor typed.
+      html: type === 'Email'
+        ? `<p>${linkify(escapeHtml(message)).replace(/\n/g, '<br>')}</p>`
+        : undefined,
     });
     await logActivity(env, user.id, 'message.send', `Sent ${type.toLowerCase()}`, { contactId });
     return json({ ok: true, ...sent }, 201);
   } catch (e) {
     return ghl.ghlErrorResponse(e);
   }
-}
-
-function escapeHtml(s) {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-  ));
 }

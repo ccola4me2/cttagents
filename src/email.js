@@ -402,6 +402,11 @@ export function sendTripMessageEmail(env, { to, firstName, clientName, tripName,
       body: `<p style="margin:0 0 12px;">Hi ${escapeHtml(firstName || 'there')},</p>
              <p style="margin:0 0 12px;">They left this on their trip page for
              <strong>${escapeHtml(tripName)}</strong>:</p>
+             <!-- Deliberately not linkified. This carries what a client typed on
+                  a public page, to their advisor. Escaping makes it safe to
+                  display; turning a stranger's URL into something clickable in
+                  the advisor's inbox is a different question, and the answer
+                  to it is no. An advisor who wants the address can copy it. -->
              <p style="margin:0 0 16px;padding:14px 16px;background:#f6f9fc;border-radius:8px;
                white-space:pre-wrap;">${escapeHtml(body)}</p>
              <p style="margin:0;">The page cannot change anything, so nothing has happened to
