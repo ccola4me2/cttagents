@@ -8,7 +8,7 @@
 // These pages are unauthenticated by design. Everything below assumes hostile
 // input.
 
-import { json, badRequest, notFound, uid, now, clean, cleanText, isValidEmail, normalizeEmail, sha256Hex, readJson } from './util.js';
+import { json, badRequest, notFound, uid, now, clean, cleanText, isValidEmail, normalizeEmail, sha256Hex, readJson, escapeHtml as esc } from './util.js';
 import * as ghl from './ghl.js';
 import { upsertContact } from './sync.js';
 import { hydrateForm } from './formbuilder.js';
@@ -35,12 +35,6 @@ async function brandForLocation(env, locationId) {
   } catch {
     return { ...DEFAULT_BRAND };
   }
-}
-
-function esc(s) {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-  ));
 }
 
 async function loadForm(env, slug) {

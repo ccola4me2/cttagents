@@ -26,17 +26,14 @@
 //     starts an argument. The total and the schedule are what a client needs.
 //   - Passport numbers. Travellers carry them; this shows names.
 
-import { json, badRequest, notFound, clean, cleanText, uid, now, sha256Hex, readJson }
-  from './util.js';
+import { json, badRequest, notFound, clean, cleanText, uid, now, sha256Hex, readJson,
+  escapeHtml as esc } from './util.js';
 import { brandForUser, DEFAULT_BRAND, HEX_COLOR } from './brand.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 import * as ghl from './ghl.js';
 import { fireTrigger } from './automations.js';
 import { sendTripMessageEmail, sendOptionChosenEmail } from './email.js';
-
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
-  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const money = (cents) => (Number(cents) || 0) / 100 === 0 ? '$0'
   : (Number(cents) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });

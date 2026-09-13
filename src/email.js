@@ -8,18 +8,16 @@
 // automation engine can record what happened, and distinguishes a failure
 // worth retrying from one that is not.
 
-import { PermanentError } from './util.js';
+import { PermanentError, escapeHtml } from './util.js';
 
 import { DEFAULT_BRAND, HEX_COLOR } from './brand.js';
 
 const BRAND_NAVY = '#12315e';
 const BRAND_TEAL = '#1a8fa3';
 
-export function escapeHtml(s) {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-  ));
-}
+// Re-exported so the modules that reach for it here keep working. It lives in
+// util.js now, with the reason written next to it.
+export { escapeHtml };
 
 function appUrl(env) {
   return (env.APP_URL || 'https://cttagents.com').replace(/\/$/, '');

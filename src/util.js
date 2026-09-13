@@ -151,6 +151,25 @@ function timingSafeEqual(a, b) {
 // ---------------------------------------------------------------------------
 // Validation and formatting
 // ---------------------------------------------------------------------------
+/**
+ * Text made safe to put inside HTML.
+ *
+ * One copy, here, because there were four: email.js, publicform.js, share.js
+ * and suppression.js each had their own, all five characters, all identical.
+ * Identical today is the problem rather than the reassurance. Every one of
+ * them renders into a page or a message that somebody outside this agency
+ * reads, and the failure mode is one of them being improved and the other
+ * three not.
+ *
+ * The five characters are the standard set: a quote is escaped because the
+ * output goes inside attributes as well as between tags.
+ */
+export function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
 export function isValidEmail(email) {
   return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254;
 }

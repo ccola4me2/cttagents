@@ -18,7 +18,7 @@
 // guessing wrong in one direction is a fine and in the other is a client who
 // never hears that their balance is due.
 
-import { uid, now, clean, sha256Hex, json, badRequest, readJson } from './util.js';
+import { uid, now, clean, sha256Hex, json, badRequest, readJson, escapeHtml } from './util.js';
 import { requireUser } from './auth.js';
 
 /** Lowercased and trimmed. Anything cleverer would suppress the wrong person. */
@@ -125,18 +125,10 @@ export async function unsuppress(env, agencyId, email) {
  */
 export function marketingFooter({ agencyName, unsubscribeUrl }) {
   const bits = [];
-  if (agencyName) bits.push(escapeish(agencyName));
+  if (agencyName) bits.push(escapeHtml(agencyName));
   return `${bits.join(' &middot; ')}<br>
-    <a href="${escapeish(unsubscribeUrl)}" style="color:#6b7a8c;">Unsubscribe</a>
+    <a href="${escapeHtml(unsubscribeUrl)}" style="color:#6b7a8c;">Unsubscribe</a>
     from emails like this. Messages about a trip you have booked are sent separately.`;
-}
-
-// Small and local: this file builds one string and importing the escaper from
-// email.js would make the two depend on each other for the sake of it.
-function escapeish(s) {
-  return String(s == null ? '' : s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 /**
@@ -153,7 +145,7 @@ function escapeish(s) {
 function page(title, body) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeish(title)}</title>
+<title>${escapeHtml(title)}</title>
 <style>
   body { margin:0; background:#f7fafb; color:#0f272f;
          font:16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
@@ -183,13 +175,13 @@ export async function renderUnsubscribe(env, token) {
   if (await isSuppressed(env, who.agencyId, who.email)) {
     return htmlResponse(page('Already unsubscribed', `
       <h1>You are already unsubscribed</h1>
-      <p><strong>${escapeish(who.email)}</strong> is off the marketing list. Messages about a
+      <p><strong>${escapeHtml(who.email)}</strong> is off the marketing list. Messages about a
         trip you have booked are sent separately and will still reach you.</p>`));
   }
 
   return htmlResponse(page('Unsubscribe', `
     <h1>Stop these emails?</h1>
-    <p>We will stop sending marketing email to <strong>${escapeish(who.email)}</strong>.</p>
+    <p>We will stop sending marketing email to <strong>${escapeHtml(who.email)}</strong>.</p>
     <p>Messages about a trip you have already booked, your payment dates and your documents,
       are sent separately and will still reach you.</p>
     <form method="post">
@@ -209,7 +201,7 @@ export async function handleUnsubscribe(env, token) {
 
   return htmlResponse(page('Unsubscribed', `
     <h1>Done</h1>
-    <p><strong>${escapeish(who.email)}</strong> will not receive any more marketing email
+    <p><strong>${escapeHtml(who.email)}</strong> will not receive any more marketing email
       from us.</p>
     <p>Anything about a trip you have booked still will. If you did not mean to do this, reply
       to any message from your advisor and they will put you back.</p>`));
