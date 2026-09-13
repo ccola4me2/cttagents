@@ -152,12 +152,23 @@ async function check() {
         ${esc(d.sample.name)}. Check it reads properly with the gap.</div>`);
     }
 
+    // Two numbers, because one of them is the one people think they are
+    // reading. "412 match" and "405 will get it" are both true and only the
+    // second answers "how many people am I emailing".
+    const reach = d.optedOut === null
+      ? '<span class="muted">how many have opted out could not be worked out</span>'
+      : (d.optedOut
+        ? `<strong>${d.total - d.optedOut}</strong> will get it: ${d.optedOut}
+           ${d.optedOut === 1 ? 'has' : 'have'} opted out of marketing email.`
+        : 'None of them have opted out.');
+
     box.innerHTML = `${warn.join('')}
-      <p style="margin:0 0 .75rem;"><strong>${d.total}</strong>
-        ${d.total === 1 ? 'person' : 'people'} on this list right now.</p>
-      <p class="muted" style="font-size:.82rem;margin:0 0 1rem;">Anyone who has unsubscribed
-        is dropped as the message goes out, not now, so somebody who opts out during the
-        send is still honoured.</p>
+      <p style="margin:0 0 .35rem;"><strong>${d.total}</strong>
+        ${d.total === 1 ? 'person' : 'people'} match this list right now.</p>
+      <p style="margin:0 0 .75rem;">${reach}</p>
+      <p class="muted" style="font-size:.82rem;margin:0 0 1rem;">The opted out are dropped as
+        the message goes out rather than now, so somebody who opts out during the send is
+        still honoured.</p>
       <div style="border:1px solid var(--navy-100);border-radius:10px;padding:1rem;">
         <p class="muted" style="font-size:.76rem;margin:0 0 .35rem;">As ${esc(d.sample.name)}
           would read it</p>
@@ -275,8 +286,9 @@ function drawSend() {
       } });
       // The count is said out loud in the confirmation, because "Send?" and
       // "Send to 412 people?" are different questions.
-      if (!confirm(`Send "${F('subject').value}" to ${d.total} ${
-        d.total === 1 ? 'person' : 'people'}? This cannot be taken back.`)) return;
+      const reaching = d.optedOut === null ? d.total : d.total - d.optedOut;
+      if (!confirm(`Send "${F('subject').value}" to ${reaching} ${
+        reaching === 1 ? 'person' : 'people'}? This cannot be taken back.`)) return;
       const r = await api(`/api/broadcasts/${encodeURIComponent(savedId)}/send`, { method: 'POST' });
       if (r.matched > r.queued) {
         err.innerHTML = `<div class="notice notice-warn">${r.matched} people matched and

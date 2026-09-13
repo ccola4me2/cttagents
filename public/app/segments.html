@@ -142,8 +142,9 @@ async function preview() {
     // exactly like a segment and is the entire book, which is how somebody
     // emails four hundred people meaning to email nine.
     countEl.textContent = d.everybody
-      ? `${d.total} — everyone with an email address`
-      : `${d.total} ${d.total === 1 ? 'person' : 'people'}`;
+      ? `${d.total} - everyone with an email address`
+      : `${d.total} ${d.total === 1 ? 'person' : 'people'}${
+          d.optedOut ? `, ${d.optedOut} opted out` : ''}`;
 
     if (d.everybody) {
       note.textContent = '';

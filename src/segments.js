@@ -178,8 +178,20 @@ export function buildWhere(rules) {
   return parts;
 }
 
-/** Everyone a set of rules describes, with an email, for this advisor's scope. */
-export async function resolveSegment(env, scope, rules, { limit = 500 } = {}) {
+/**
+ * Everyone a set of rules describes, with an email, for this advisor's scope.
+ *
+ * Pass an agencyId and it also counts how many of them have opted out, and
+ * leaves them out of the sample. A list of four hundred that will actually
+ * reach three hundred and ninety-three is two numbers, and showing only the
+ * first is how somebody is surprised by the results table afterwards.
+ *
+ * Note this counts and shows, it does not filter the total: "four hundred
+ * match, seven have opted out" says something true about the book. The send
+ * drops them for real, and does so at the moment it sends rather than here,
+ * so somebody who opts out mid-send is still honoured.
+ */
+export async function resolveSegment(env, scope, rules, { limit = 500, agencyId } = {}) {
   const scoped = db.scopeWhere(scope, 'c.user_id');
   const parts = buildWhere(rules);
 
@@ -200,7 +212,30 @@ export async function resolveSegment(env, scope, rules, { limit = 500 } = {}) {
     `SELECT COUNT(*) AS n FROM clients c WHERE ${scopedWhere.join(' AND ')}`
   ).bind(...scoped.binds).first();
 
-  return { people: results || [], total: count?.n || 0, rulesUsed: parts.length };
+  const out = { people: results || [], total: count?.n || 0, rulesUsed: parts.length };
+  if (agencyId === undefined) return out;
+
+  // Counted in SQL rather than by asking once per person: a list of four
+  // hundred would otherwise be four hundred queries to answer a number shown
+  // above a button.
+  //
+  // Best effort. A count that cannot be worked out is reported as unknown, not
+  // as zero, because zero reads as "nobody has opted out" and that is the one
+  // wrong answer here.
+  try {
+    const opted = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM clients c
+        WHERE ${scopedWhere.join(' AND ')}
+          AND EXISTS (SELECT 1 FROM email_suppression s
+                       WHERE s.email = LOWER(TRIM(c.email))
+                         AND (s.agency_id IS ? OR s.agency_id IS NULL))`
+    ).bind(...scoped.binds, agencyId || null).first();
+    out.optedOut = opted?.n || 0;
+  } catch (e) {
+    console.error('resolveSegment optedOut', e);
+    out.optedOut = null;
+  }
+  return out;
 }
 
 export async function handleSegmentRules(request, env) {
@@ -219,13 +254,18 @@ export async function handleSegmentPreview(request, env) {
 
   const body = await readJson(request);
   const scope = db.scopeFor(env, user, request);
-  const out = await resolveSegment(env, scope, body.rules, { limit: 25 });
+  const out = await resolveSegment(env, scope, body.rules,
+    { limit: 25, agencyId: user.agency_id });
 
   return json({
     ...out,
     // Named so the page can say "no rules, so this is everybody" rather than
     // showing a number that looks like a segment and is the whole book.
     everybody: out.rulesUsed === 0,
+    // How many of them have asked not to receive marketing email. Shown here
+    // as well as on the message itself, because the list is where somebody
+    // decides the list is big enough to be worth writing to.
+    optedOut: out.optedOut,
     scope: db.scopeLabel(scope, user),
     advisors: await db.advisorOptions(env, user),
   });

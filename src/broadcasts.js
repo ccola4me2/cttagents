@@ -262,14 +262,8 @@ export async function handlePreviewBroadcast(request, env) {
   if (rules === null) return badRequest('That list is not yours.');
 
   const agency = await agencyFor(env, user);
-  const out = await resolveSegment(env, db.selfScope(user), rules, { limit: 5 });
-
-  // Suppressed people are counted here as well as filtered at send, so the
-  // number on the screen is the number who will actually receive it.
-  let suppressed = 0;
-  for (const p of out.people) {
-    if (await isSuppressed(env, agency.id, p.email)) suppressed += 1;
-  }
+  const out = await resolveSegment(env, db.selfScope(user), rules,
+    { limit: 5, agencyId: agency.id });
 
   const sample = out.people[0] || { name: 'Sample Client', email: 'client@example.com' };
   const rendered = merge(body.body || '', sample);
@@ -284,7 +278,9 @@ export async function handlePreviewBroadcast(request, env) {
     // Named rather than counted: "birthday is blank for 3" is actionable and
     // "3 blanks" is not.
     blanks: [...new Set([...rendered.blanks, ...subject.blanks])],
-    suppressedInSample: suppressed,
+    // How many of them have opted out. Null when it could not be worked out,
+    // which the page says rather than rendering a confident zero.
+    optedOut: out.optedOut,
     footer: marketingFooter({
       agencyName: agency.name,
       agencyAddress: agency.address,
