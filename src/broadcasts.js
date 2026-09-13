@@ -56,7 +56,10 @@ const MAX_ATTEMPTS = 5;
 // be checked by looking at it. A token that silently renders empty is how
 // somebody emails four hundred people "Hi ,".
 const TOKENS = {
-  first_name: (r) => firstName(r.name),
+  // What they are actually called. "Goes by" is on the client record for
+  // precisely this, and a mailing that opens "Hello Barbara" to somebody
+  // everybody calls Barb reads as a mailing rather than as a note.
+  first_name: (r) => String(r.nickname || '').trim() || firstName(r.name),
   name: (r) => r.name || '',
 };
 
@@ -344,6 +347,10 @@ export async function handleTestBroadcast(request, env, id) {
 
   await sendAutomationEmail(env, to, `[Test] ${merge(row.subject, me).text}`,
     merge(row.body, me).text, {
+      // The same From and reply-to a real one carries, or the test is a test
+      // of something else.
+      fromName: me.name === 'You' ? null : me.name,
+      replyTo: to,
       footer: marketingFooter({
         agencyName: agency.name,
         agencyAddress: agency.address,
@@ -453,15 +460,38 @@ export async function sendQueuedBroadcasts(env, { perPass = PER_PASS } = {}) {
   if (!live) return { sent: 0 };
 
   const { results } = await env.DB.prepare(
-    `SELECT id, email, name, attempts FROM broadcast_recipients
-      WHERE broadcast_id = ? AND status = 'queued'
-      ORDER BY attempts, id LIMIT ?`
+    `SELECT r.id, r.email, r.attempts, r.name, c.nickname
+       FROM broadcast_recipients r
+       -- The owner is named on the join as well as implied by it. The
+       -- client_id was written by one advisor's own scoped query when they
+       -- pressed send, so this could only ever reach their client; saying so
+       -- means the statement is safe read on its own rather than safe because
+       -- of something that happened an hour earlier in another function.
+       LEFT JOIN clients c ON c.id = r.client_id AND c.user_id = r.user_id
+      WHERE r.broadcast_id = ? AND r.status = 'queued'
+      ORDER BY r.attempts, r.id LIMIT ?`
   ).bind(live.id, perPass).all();
 
   const agency = live.agency_id
     ? await env.DB.prepare('SELECT id, name, address FROM agencies WHERE id = ? LIMIT 1')
         .bind(live.agency_id).first()
     : null;
+
+  // Who it is from. Once per pass, not once per recipient.
+  //
+  // The address stays the verified one, because Resend will not send from a
+  // domain it has not verified and fails silently when asked to. The display
+  // name and the reply-to are the advisor's, which is the difference between
+  // a system notification and a message from the person the client booked
+  // with. A reply to a marketing email is the entire reason it was sent, and
+  // until now every one of them would have gone to noreply@.
+  const sender = await env.DB.prepare(
+    'SELECT first_name, last_name, email, notify_email FROM users WHERE id = ? LIMIT 1'
+  ).bind(live.user_id).first().catch(() => null);
+  const fromName = sender
+    ? `${sender.first_name || ''} ${sender.last_name || ''}`.trim() || null
+    : null;
+  const replyTo = sender ? (sender.notify_email || sender.email) : null;
 
   let sent = 0;
   let failed = 0;
@@ -485,6 +515,8 @@ export async function sendQueuedBroadcasts(env, { perPass = PER_PASS } = {}) {
     try {
       await sendAutomationEmail(env, r.email, merge(live.subject, r).text,
         merge(live.body, r).text, {
+          fromName,
+          replyTo,
           footer: marketingFooter({
             agencyName: agency?.name || null,
             agencyAddress: agency?.address || null,

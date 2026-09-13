@@ -41,9 +41,12 @@
 
               <div class="field"><label for="body">Message</label>
                 <textarea id="body" rows="14" maxlength="8000"></textarea>
-                <p class="field-hint">Plain text. <code>{{first_name}}</code> and
-                  <code>{{name}}</code> are filled in per person; anything blank is shown
-                  in the preview before you send, not discovered afterwards.</p></div>
+                <p class="field-hint">Plain text. <code>{{first_name}}</code> uses what
+                  they go by where you have recorded one, and <code>{{name}}</code> is their
+                  full name. Anything blank is shown in the preview before you send, not
+                  discovered afterwards.</p>
+                <p class="field-hint">It goes out under your name, and a reply comes back
+                  to you rather than to a no-reply address.</p></div>
 
               <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
                 <button class="btn btn-primary btn-sm" id="save">Save draft</button>

@@ -156,9 +156,6 @@ const ALLOWED = [
   // belonging to the one broadcast that pass just claimed. Scoping them to a
   // user would mean asking whose send it is on every row of it, which the
   // broadcast_id already answers.
-  ['SELECT id, email, name, attempts FROM broadcast_recipients',
-    'the next batch of one send, claimed by the cron; the owner is on the broadcast '
-    + 'row it came from'],
   ['UPDATE broadcast_recipients SET status = ?, detail = ?, attempts = ?, sent_at = ?',
     'the outcome of the one send that just happened, stamped on the row it happened to'],
   ['UPDATE broadcast_recipients SET attempts = ?, detail = ? WHERE id = ?',

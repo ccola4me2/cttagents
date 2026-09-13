@@ -564,7 +564,32 @@ export async function sendTestEmail(env, to) {
  * know a send failed so it can retry, where a signup email failing must never
  * break the signup.
  */
-export async function sendAutomationEmail(env, to, subject, body, { footer } = {}) {
+/**
+ * The From header, with somebody's name on it.
+ *
+ * The address never changes: it is the one whose domain is verified with
+ * Resend, and sending from an unverified domain fails without an error anybody
+ * sees. Only the display name moves, which is the half a client reads.
+ *
+ * That matters most on a marketing email. A note from "CTT Agent Portal" is a
+ * system notification and gets treated like one; the same note from the
+ * advisor the client booked with is a message from a person.
+ *
+ * The name is stripped of everything a header can be broken with. A display
+ * name is arbitrary text from a user record, and a newline in one is how a
+ * header gets a second recipient bolted on to it.
+ */
+export function fromAs(env, name) {
+  const configured = env.MAIL_FROM || 'CTT Agent Portal <noreply@cttagents.com>';
+  const clean = String(name || '').replace(/[<>"\r\n,;]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+  if (!clean) return configured;
+  const inBrackets = configured.match(/<([^>]+)>/);
+  const address = (inBrackets ? inBrackets[1] : configured).trim();
+  return `${clean} <${address}>`;
+}
+
+export async function sendAutomationEmail(env, to, subject, body,
+  { footer, replyTo, fromName } = {}) {
   // Neither of these improves by waiting five minutes and asking again.
   if (!env.RESEND_API_KEY) {
     throw new PermanentError('Email is not configured: the RESEND_API_KEY secret is not set on the Worker.');
@@ -583,8 +608,13 @@ export async function sendAutomationEmail(env, to, subject, body, { footer } = {
     method: 'POST',
     headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      from: env.MAIL_FROM || 'CTT Agent Portal <noreply@cttagents.com>',
+      from: fromAs(env, fromName),
       to: [to],
+      // Without this a client who replies is writing to noreply@, and the
+      // reply goes nowhere. On a marketing email that is the worst possible
+      // place to lose one: a reply to "are you sailing this winter" is the
+      // entire reason the email was sent.
+      ...(replyTo ? { reply_to: [replyTo] } : {}),
       subject,
       html,
       text: plainText(html),

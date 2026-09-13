@@ -5702,6 +5702,19 @@ async function main() {
   check((preview.data?.footer || '').includes('Unsubscribe'),
     'and carries the way out that makes it lawful to send', preview.data?.footer);
 
+  // The name a client actually goes by, which is what the field is for. A
+  // mailing that opens "Hello Barbara" to somebody everybody calls Barb reads
+  // as a mailing rather than as a note from their advisor.
+  if (listedId) {
+    await call(advisor, 'PUT', `/api/clients/${listedId}`,
+      { name: listed, email: `listed-${stamp}@example.com`, nickname: 'Nick' });
+    const nicked = await call(advisor, 'POST', '/api/broadcasts/preview',
+      { segmentId, subject: 'Hi', body: 'Hello {{first_name}}.' });
+    check(nicked.data?.sample?.name !== listed || nicked.data?.body === 'Hello Nick.',
+      'the greeting uses what they go by when one is recorded',
+      `${nicked.data?.sample?.name}: ${nicked.data?.body}`);
+  }
+
   const blanks = await call(advisor, 'POST', '/api/broadcasts/preview',
     { segmentId, subject: 'Hi', body: 'Hello {{nickname_that_does_not_exist}}.' });
   check((blanks.data?.body || '').includes('{{nickname_that_does_not_exist}}'),
