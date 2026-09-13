@@ -142,7 +142,31 @@ export function marketingFooter({ agencyName, unsubscribeUrl }) {
  * Plain HTML, no session, no styling shared with the portal: whoever opens
  * this is a client, not an advisor, and the page has one job.
  */
-function page(title, body) {
+/**
+ * The agency whose list this is, by name.
+ *
+ * The footer of the email says "Cruises Tours & Travel", and until now the page
+ * that footer links to said "us". On a portal that carries several agencies
+ * that is not a rough edge, it is the client being unable to tell whose list
+ * they just left. The name is one row away and the token already carries the
+ * agency, so there is nothing to thread through and nothing to trust.
+ *
+ * Null rather than a guess when there is no agency on the token or the lookup
+ * fails: the page drops back to "us", which is what it always said.
+ */
+async function agencyName(env, agencyId) {
+  if (!agencyId) return null;
+  try {
+    const row = await env.DB.prepare('SELECT name FROM agencies WHERE id = ? LIMIT 1')
+      .bind(agencyId).first();
+    return (row && row.name) || null;
+  } catch (e) {
+    console.error('agencyName', e);
+    return null;
+  }
+}
+
+function page(title, body, brand) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
@@ -157,7 +181,10 @@ function page(title, body) {
            background:#0f6270; color:#fff; padding:.75rem 1.5rem; }
   .quiet { background:none; color:#4b6169; padding:.75rem .4rem; }
   strong { color:#0f272f; }
-</style></head><body><div class="wrap"><div class="card">${body}</div></div></body></html>`;
+  .who { margin:0 0 1.25rem; font-size:.8rem; letter-spacing:.08em; text-transform:uppercase;
+         color:#6b7a8c; }
+</style></head><body><div class="wrap"><div class="card">${
+    brand ? `<p class="who">${escapeHtml(brand)}</p>` : ''}${body}</div></div></body></html>`;
 }
 
 const htmlResponse = (body, status = 200) =>
@@ -172,21 +199,25 @@ export async function renderUnsubscribe(env, token) {
         and ask to be taken off the list, and somebody will do it by hand.</p>`), 404);
   }
 
+  const brand = await agencyName(env, who.agencyId);
+
   if (await isSuppressed(env, who.agencyId, who.email)) {
     return htmlResponse(page('Already unsubscribed', `
       <h1>You are already unsubscribed</h1>
-      <p><strong>${escapeHtml(who.email)}</strong> is off the marketing list. Messages about a
-        trip you have booked are sent separately and will still reach you.</p>`));
+      <p><strong>${escapeHtml(who.email)}</strong> is off ${brand
+        ? `the ${escapeHtml(brand)} marketing list` : 'the marketing list'}. Messages about a
+        trip you have booked are sent separately and will still reach you.</p>`, brand));
   }
 
   return htmlResponse(page('Unsubscribe', `
     <h1>Stop these emails?</h1>
-    <p>We will stop sending marketing email to <strong>${escapeHtml(who.email)}</strong>.</p>
+    <p>${brand ? escapeHtml(brand) : 'We'} will stop sending marketing email to
+      <strong>${escapeHtml(who.email)}</strong>.</p>
     <p>Messages about a trip you have already booked, your payment dates and your documents,
       are sent separately and will still reach you.</p>
     <form method="post">
       <button type="submit">Yes, unsubscribe me</button>
-    </form>`));
+    </form>`, brand));
 }
 
 export async function handleUnsubscribe(env, token) {
@@ -199,12 +230,14 @@ export async function handleUnsubscribe(env, token) {
 
   await suppress(env, who.agencyId, who.email, { reason: 'unsubscribed', source: 'footer link' });
 
+  const brand = await agencyName(env, who.agencyId);
+
   return htmlResponse(page('Unsubscribed', `
     <h1>Done</h1>
     <p><strong>${escapeHtml(who.email)}</strong> will not receive any more marketing email
-      from us.</p>
+      from ${brand ? escapeHtml(brand) : 'us'}.</p>
     <p>Anything about a trip you have booked still will. If you did not mean to do this, reply
-      to any message from your advisor and they will put you back.</p>`));
+      to any message from your advisor and they will put you back.</p>`, brand));
 }
 
 // ---------------------------------------------------------------------------
