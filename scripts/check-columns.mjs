@@ -31,6 +31,7 @@ import { schemaFromMigrations } from './lib/schema.mjs';
 import { render, TARGET } from './gen-schema.mjs';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { annotate } from './lib/annotate.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -147,6 +148,9 @@ for (const list of lists) {
   }
 
   problems += 1;
+  annotate('Column list', `${list.file} ${list.name} -> ${list.table}: `
+    + [missing.length ? `missing ${missing.join(', ')}` : '',
+       unknown.length ? `not in the table: ${unknown.join(', ')}` : ''].filter(Boolean).join('; '));
   console.log(`FAIL  ${list.file} ${list.name} -> ${list.table}`);
   if (missing.length) {
     console.log(`        in the table, not in the list: ${missing.join(', ')}`);
@@ -166,6 +170,7 @@ let generated = '';
 try { generated = readFileSync(TARGET, 'utf8'); } catch { /* absent counts as stale */ }
 if (generated !== render(ROOT)) {
   problems += 1;
+  annotate('Column list', 'src/schema-expected.js is stale: run node scripts/gen-schema.mjs');
   console.log('FAIL  src/schema-expected.js is stale');
   console.log('        run: node scripts/gen-schema.mjs');
 } else {

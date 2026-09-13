@@ -18,6 +18,7 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { annotate } from './lib/annotate.mjs';
 
 const root = process.cwd();
 const HOLE = 'QQHOLEQQ';
@@ -148,6 +149,8 @@ for (const [key, where] of [...seen].sort()) {
   console.log(`FAIL  ${shown}`);
   console.log(`        called by ${[...where].sort().join(', ')}`);
   console.log('        nothing in worker.js answers this address');
+  annotate('Route', `${shown} is called by ${[...where].sort().join(', ')} `
+    + 'and nothing in worker.js answers it');
 }
 
 console.log('');

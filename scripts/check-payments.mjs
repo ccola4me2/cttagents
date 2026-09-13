@@ -21,6 +21,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { annotate } from './lib/annotate.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -95,6 +96,7 @@ if (problems.length) {
   for (const p of problems) {
     console.error(`  ${p.where}`);
     for (const s of p.sums) console.error(`      ${s}`);
+    annotate('Payment totals', `${p.where}: ${p.sums.join(' ')} does not name payment_class`);
   }
   process.exit(1);
 }

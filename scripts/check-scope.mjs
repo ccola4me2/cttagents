@@ -21,6 +21,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { annotate } from './lib/annotate.mjs';
 import { schemaFromMigrations } from './lib/schema.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -291,8 +292,11 @@ for (const file of files) {
       const excused = ALLOWED.find(([fragment]) => sql.includes(fragment));
       if (excused) continue;
       problems += 1;
-      console.log(`FAIL  src/${file}:${line}  writes to ${tables.join(', ')} ${
-        viaHelper ? 'through a scope helper, which can widen past the caller' : 'without naming user_id'}`);
+      const why = viaHelper
+        ? 'through a scope helper, which can widen past the caller' : 'without naming user_id';
+      annotate('Scope', `src/${file}:${line} writes to ${tables.join(', ')} ${why}: `
+        + sql.replace(/\s+/g, ' ').trim().slice(0, 140));
+      console.log(`FAIL  src/${file}:${line}  writes to ${tables.join(', ')} ${why}`);
       console.log(`        ${sql.replace(/\s+/g, ' ').trim().slice(0, 140)}`);
       continue;
     }
@@ -305,6 +309,8 @@ for (const file of files) {
     problems += 1;
     const named = tables.length ? tables.join(', ') : byLocation.join(', ');
     const kind = tables.length ? 'no user predicate' : 'no location predicate';
+    annotate('Scope', `src/${file}:${line} touches ${named} with ${kind}: `
+      + sql.replace(/\s+/g, ' ').trim().slice(0, 140));
     console.log(`FAIL  src/${file}:${line}  touches ${named} with ${kind}`);
     console.log(`        ${sql.replace(/\s+/g, ' ').trim().slice(0, 140)}`);
   }
@@ -317,6 +323,8 @@ for (const [table, cols] of SCHEMA) {
   if (!cols.has('user_id')) continue;
   if (OWNED.has(table) || LOCATION_OWNED.has(table) || EXEMPT.has(table)) continue;
   problems += 1;
+  annotate('Scope', `${table} has a user_id and is in none of the lists in check-scope: `
+    + 'add it to OWNED, or to EXEMPT with the reason it is reached another way');
   console.log(`FAIL  ${table} has a user_id and is in none of the lists in this checker`);
   console.log('        add it to OWNED, or to EXEMPT with the reason it is reached another way');
 }

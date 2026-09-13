@@ -43,6 +43,13 @@ jobs:
       - name: Migration numbers
         run: npm run check:migrations
 
+      # Cheap too, and guards the one class of bug the other checks are all
+      # blind to: a route in the wrong half of the router. Nothing calls the
+      # unsubscribe link from a page, so check-routes never asked, and it was
+      # a 404 for as long as it existed.
+      - name: Routes somewhere they can be reached
+        run: npm run check:wiring
+
       # Also filenames-and-text cheap, and guards a rule that has been broken
       # on five screens: a soft payment row is the same balance as its hard
       # twin, so a total that counts both counts the money twice.

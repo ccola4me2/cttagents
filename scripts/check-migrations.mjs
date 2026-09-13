@@ -22,6 +22,7 @@
 
 import { readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { annotate } from './lib/annotate.mjs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -67,7 +68,7 @@ export function migrationProblems(root = ROOT) {
 const problems = migrationProblems();
 if (problems.length) {
   console.error(`check-migrations: ${problems.length} problem${problems.length === 1 ? '' : 's'}\n`);
-  for (const p of problems) console.error(`  ${p}`);
+  for (const p of problems) { console.error(`  ${p}`); annotate('Migration numbers', p); }
   process.exit(1);
 }
 

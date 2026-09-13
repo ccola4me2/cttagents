@@ -22,6 +22,7 @@ import { readFileSync, readdirSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
+import { annotate } from './lib/annotate.mjs';
 
 // Which endpoint feeds which page.
 const PAGES = [
@@ -257,6 +258,7 @@ function checkPageSyntax() {
         broken += 1;
         const detail = String(e.stderr || e.message)
           .split('\n').find((l) => /SyntaxError/.test(l)) || 'did not parse';
+        annotate('Page script', `${relative(root, file)} script ${n} does not parse: ${detail.trim()}`);
         console.log(`FAIL  ${relative(root, file)} script ${n}`);
         console.log(`        ${detail.trim()}`);
         console.log('        the page will not run at all, whatever its contract says');
@@ -412,6 +414,8 @@ function checkCalls(root) {
 
       if (unknown.size) {
         missing += 1;
+        annotate('Page script', `${relative(root, file)} calls but never declares: `
+          + `${[...unknown].join(', ')}; the page throws on load`);
         console.log(`FAIL  ${relative(root, file)}`);
         console.log(`        calls but never declares: ${[...unknown].join(', ')}`);
         console.log('        the page throws on load, however well it parses');
@@ -546,6 +550,8 @@ async function main() {
       console.log(`        empty in this environment: ${[...empties].join(', ')}`);
     } else if (missing.length) {
       problems += missing.length;
+      annotate('Page contract', `${file} reads ${missing.map((f) => `.${f}`).join(', ')}, `
+        + 'and the response has no such field');
       console.log(`\nFAIL  ${file}`);
       for (const f of missing) console.log(`        reads .${f}, response has no such field`);
     } else {
