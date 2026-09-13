@@ -13,7 +13,8 @@
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main">
     <header class="topbar">
-      <div><h1>Clients</h1><p class="sub">Everyone you have booked, plus everyone CTT Tools knows about. One list.</p></div>
+      <div><h1>Clients</h1><p class="sub">Everyone you have booked. Prospects are
+        people CTT Tools knows who have not booked yet.</p></div>
       <span style="display:flex;align-items:center;gap:.6rem;">
         <span id="scope"></span>
         <a class="btn btn-sm" href="/app/import-clients">Import a list</a>
@@ -25,6 +26,11 @@
       <section id="stats" class="stat-grid"></section>
       <div class="toolbar">
         <input id="q" type="search" placeholder="Name, email or phone" style="min-width:240px;">
+        <select id="who" aria-label="Who to show" style="width:auto;">
+          <option value="clients">Clients</option>
+          <option value="prospects">Prospects</option>
+          <option value="all">Everyone</option>
+        </select>
         <label style="display:flex;align-items:center;gap:.4rem;font-weight:400;">
           <input type="checkbox" id="pinned-only" style="width:auto;"> Pinned only</label>
         <button class="btn btn-ghost btn-sm" id="clear-sort" hidden>Back to last name</button>
@@ -189,6 +195,20 @@ const panel = document.getElementById('panel');
 const err = document.getElementById('err');
 const q = document.getElementById('q');
 const pinnedOnly = document.getElementById('pinned-only');
+const whoFilter = document.getElementById('who');
+
+// Remembered, because it is a way of working rather than a one-off question.
+// Somebody who works from the prospect list should not have to say so on every
+// visit. Wrapped, since a browser with site data blocked throws on the read.
+try {
+  const saved = localStorage.getItem('clients-who');
+  if (saved === 'clients' || saved === 'prospects' || saved === 'all') whoFilter.value = saved;
+} catch { /* the default is fine */ }
+
+whoFilter.addEventListener('change', () => {
+  try { localStorage.setItem('clients-who', whoFilter.value); } catch { /* nothing to do */ }
+  load();
+});
 let timer = null;
 
 const short = (iso) => (iso ? dateFmt(iso).replace(/,? \d{4}$/, '') : '-');
@@ -309,6 +329,21 @@ function sortRows(list) {
 
 function render(d) {
   const s = d.stats;
+
+  // A prospect is somebody CTT Tools knows who has never booked. They are not
+  // clients and the page stopped calling them that. They are still on this
+  // page rather than one of their own, because the reason for merging the two
+  // lists has not gone away: an advisor who cannot see that the CRM already
+  // holds somebody types the name again and creates a second copy of a person.
+  //
+  // So: Clients by default, and a prospect still surfaces while searching even
+  // when the filter says clients, as a line offering to show them. Hiding them
+  // from a search is the one case where the old duplicate comes back.
+  const all = d.fromCrm || [];
+  const searching = Boolean(q.value.trim());
+  const prospects = whoFilter.value === 'clients' ? [] : all;
+  const clients = whoFilter.value === 'prospects' ? [] : sortRows(d.clients);
+  const alsoMatch = whoFilter.value === 'clients' && searching ? all.length : 0;
   document.getElementById('stats').innerHTML = `
     <div class="stat"><p class="label">Clients</p><p class="value">${s.total}</p>
       <p class="meta">${s.pinned} pinned</p></div>
@@ -317,21 +352,28 @@ function render(d) {
       <p class="meta">Travelled with you, nothing ahead</p></div>
     <div class="stat"><p class="label">Lifetime value</p><p class="value">${money(s.lifetimeCents)}</p>
       <p class="meta">Across everyone listed</p></div>
-    ${s.crmOnly ? `<div class="stat"><p class="label">In CTT Tools only</p>
+    ${s.crmOnly ? `<div class="stat"><p class="label">Prospects</p>
       <p class="value">${s.crmOnly}</p>
-      <p class="meta">Known to the CRM, never booked</p></div>` : ''}`;
+      <p class="meta">Known to CTT Tools, never booked</p></div>` : ''}`;
 
-  if (!d.clients.length && !(d.fromCrm || []).length) {
-    panel.innerHTML = `
-    <div class="empty"><h3>No clients yet</h3>
-      <p>Add one above, <a href="/app/import-clients">import a list</a>, or take a
-        reservation and the client record appears with it.</p></div>`;
+  if (!clients.length && !prospects.length && !alsoMatch) {
+    panel.innerHTML = whoFilter.value === 'prospects'
+      ? `<div class="empty"><h3>No prospects</h3>
+          <p>Everybody CTT Tools knows about has booked with you. Contacts arrive here
+            from the CRM; they become clients the moment one is used.</p></div>`
+      : `<div class="empty"><h3>No clients yet</h3>
+          <p>Add one above, <a href="/app/import-clients">import a list</a>, or take a
+            reservation and the client record appears with it.</p></div>`;
     return;
   }
 
-  const rows = sortRows(d.clients);
+  const rows = clients;
 
   panel.innerHTML = `
+    ${alsoMatch ? `<div class="notice notice-info">${alsoMatch}
+      ${alsoMatch === 1 ? 'prospect also matches' : 'prospects also match'} that search.
+      <button type="button" class="btn btn-ghost btn-sm" id="show-prospects">Show them</button>
+      </div>` : ''}
     ${d.truncated ? `<div class="notice notice-warn">Showing the first ${d.cap} only.
       Search to narrow it down; filtering what is on screen will not reach the rest.</div>` : ''}
     <div class="table-wrap"><table>
@@ -367,18 +409,27 @@ function render(d) {
       <td class="num">${c.trips}</td>
       <td class="num">${money(c.lifetime_cents)}</td>
     </tr>`).join('')}
-    ${(d.fromCrm || []).map((c) => `<tr class="crm-row">
+    ${prospects.map((c) => `<tr class="crm-row">
       <td></td><td></td>
       <td><span class="name">${esc(c.name)}</span>
-        <div class="muted" style="font-size:.76rem;">In CTT Tools, never booked</div></td>
+        <div class="muted" style="font-size:.76rem;">Prospect &middot; in CTT Tools,
+          never booked</div></td>
       <td>${[c.phone ? `<a href="tel:${esc(c.phone)}">${esc(c.phone)}</a>` : '',
              c.email ? `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>` : '']
             .filter(Boolean).join('<br>') || '<span class="muted">none on file</span>'}</td>
-      <td colspan="3"><span class="muted">Not a client yet</span></td>
+      <td colspan="3"><span class="muted">Nothing booked yet</span></td>
       <td class="num"><button class="btn btn-ghost btn-sm" data-adopt="${esc(c.contactId)}"
         data-name="${esc(c.name)}" data-email="${esc(c.email || '')}"
         data-phone="${esc(c.phone || '')}">Make a client</button></td>
     </tr>`).join('')}</tbody></table></div>`;
+
+  const showProspects = document.getElementById('show-prospects');
+  if (showProspects) showProspects.addEventListener('click', () => {
+    // The select visibly moves, so what it says and what is remembered agree.
+    whoFilter.value = 'all';
+    try { localStorage.setItem('clients-who', 'all'); } catch { /* nothing to do */ }
+    render(d);
+  });
 
   // One click turns a CRM contact into a client record. It carries the name,
   // email and phone across; everything else is filled in on their own page.
@@ -460,7 +511,12 @@ async function load() {
   try {
     const params = [];
     if (q.value.trim()) params.push(`q=${encodeURIComponent(q.value.trim())}`);
-    if (pinnedOnly.checked) params.push('pinned=1');
+    // Pinning is a thing you do to your own client records, so it has no
+    // meaning for a prospect and the server drops the CRM half when it is on.
+    // Disabled rather than silently ignored: a tick with no effect is worse
+    // than one that cannot be ticked.
+    pinnedOnly.disabled = whoFilter.value === 'prospects';
+    if (pinnedOnly.checked && !pinnedOnly.disabled) params.push('pinned=1');
     if (advisorParam()) params.push(advisorParam());
     const d = await api(`/api/clients${params.length ? '?' + params.join('&') : ''}`);
     mountScopePicker(document.getElementById('scope'), d, load);

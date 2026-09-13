@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Clients | CTT Agent Portal</title>
+<title>Prospects | CTT Agent Portal</title>
 <meta name="robots" content="noindex, nofollow">
 <link rel="icon" href="/logo-mark.png" type="image/png">
 <link rel="stylesheet" href="/css/app.css">
@@ -13,8 +13,10 @@
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main">
     <header class="topbar">
-      <div><h1>Clients</h1><p class="sub">Everyone in your book of business, prospects included.</p></div>
-      <button class="btn btn-primary btn-sm" id="add-lead">Add a lead</button>
+      <div><h1>Prospects</h1><p class="sub">Everyone CTT Tools holds. A prospect is
+        somebody who has not booked; once they do they are a client, and
+        <a href="/app/clients">Clients</a> is the page for those.</p></div>
+      <button class="btn btn-primary btn-sm" id="add-lead">Add a prospect</button>
     </header>
     <div class="content">
       <div class="toolbar">
@@ -22,14 +24,14 @@
         <button class="btn btn-ghost btn-sm" id="refresh">Refresh</button>
         <span class="muted" id="count"></span>
       </div>
-      <section class="card" id="panel"><p class="spinner">Loading leads...</p></section>
+      <section class="card" id="panel"><p class="spinner">Loading prospects...</p></section>
     </div>
   </div>
 </div>
 
 <dialog id="lead-dialog">
   <form id="lead-form" method="dialog">
-    <div class="card-head"><h2>Add a lead</h2>
+    <div class="card-head"><h2>Add a prospect</h2>
       <button class="icon-btn" type="button" data-close aria-label="Close">&times;</button></div>
     <div class="dialog-body">
       <div class="notice notice-error" hidden></div>
@@ -44,7 +46,7 @@
     </div>
     <div class="dialog-foot">
       <button class="btn btn-ghost" type="button" data-close>Cancel</button>
-      <button class="btn btn-primary" type="submit">Add lead</button>
+      <button class="btn btn-primary" type="submit">Add prospect</button>
     </div>
   </form>
 </dialog>
@@ -65,7 +67,7 @@ function render(contacts, total, syncing) {
     // as having no contacts, and saying so avoids a false alarm.
     panel.innerHTML = syncing
       ? '<div class="empty"><h3>Importing your contacts</h3><p>The first import is still running. This page fills in as it goes, usually within a few minutes.</p></div>'
-      : '<div class="empty"><h3>No leads yet</h3><p>Contacts you add here go straight into CTT Tools.</p></div>';
+      : '<div class="empty"><h3>No prospects yet</h3><p>Contacts you add here go straight into CTT Tools.</p></div>';
     return;
   }
   panel.innerHTML = `<div class="table-wrap"><table>
@@ -92,7 +94,7 @@ let controller = null;
 async function load() {
   if (controller) controller.abort();
   controller = new AbortController();
-  panel.innerHTML = '<p class="spinner">Loading leads...</p>';
+  panel.innerHTML = '<p class="spinner">Loading prospects...</p>';
   try {
     const q = search.value.trim();
     const data = await api(`/api/leads${q ? `?q=${encodeURIComponent(q)}` : ''}`, { signal: controller.signal });
