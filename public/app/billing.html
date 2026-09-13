@@ -83,7 +83,7 @@
 </dialog>
 
 <script type="module">
-import { api, mountShell, esc, money, timeAgo, showError, onSubmit } from '/js/app.js';
+import { api, mountShell, esc, money, timeAgo, showError, onSubmit, dateFmt } from '/js/app.js';
 await mountShell();
 
 const panelInv = document.getElementById('invoices');
@@ -144,7 +144,10 @@ function render(d) {
               : esc(i.contactName || '-')}
             <div class="muted">${esc(i.contactEmail || '')}</div></td>
           <td><span class="badge ${INV_TONE[i.status] || 'badge-navy'}">${esc(i.status.replace(/_/g, ' ') || 'unknown')}</span></td>
-          <td>${i.dueDate ? esc(timeAgo(i.dueDate)) : '<span class="muted">-</span>'}</td>
+          <!-- A date, not "in two weeks". This column is headed Due and is the one
+               figure somebody copies into a diary; every other deadline in the
+               portal is shown the same way. -->
+          <td>${i.dueDate ? esc(dateFmt(i.dueDate)) : '<span class="muted">-</span>'}</td>
           <td class="num">${money(i.totalCents)}</td>
           <td class="num">${money(i.paidCents)}</td></tr>`).join('')}</tbody></table></div>`
     : '<div class="empty"><h3>No invoices yet</h3><p>Invoices raised in CTT Tools appear here.</p></div>';
