@@ -52,10 +52,17 @@ const filter = document.getElementById('filter');
 const savedNote = document.getElementById('saved');
 let all = [];
 
+// A reservation marked no commission is not missing one. Zero is the answer,
+// arrived at on purpose, and listing it here asks somebody to fill in a number
+// that would contradict the status they set. It was the whole of "Missing
+// anything" for a trip that had nothing missing at all.
+const NO_COMMISSION = 'none';
+const noCommission = (b) => b.commission_status === NO_COMMISSION;
+
 const missing = (b) => ({
   date: !b.final_payment_due,
   money: !b.gross_cents,
-  commission: !b.commission_cents,
+  commission: !b.commission_cents && !noCommission(b),
 });
 const needsSomething = (b) => {
   const m = missing(b);
@@ -90,8 +97,9 @@ function render() {
       <p class="meta">Nothing can warn you about these</p></div>
     <div class="stat"><p class="label">No trip cost</p><p class="value">${counts.money}</p>
       <p class="meta">Missing from every total</p></div>
-    <div class="stat"><p class="label">No commission</p><p class="value">${counts.commission}</p>
-      <p class="meta">Missing from what you are owed</p></div>
+    <div class="stat"><p class="label">No commission figure</p><p class="value">${counts.commission}</p>
+      <p class="meta">Missing from what you are owed. Trips marked no commission
+        are not counted here.</p></div>
     <div class="stat"><p class="label">Complete</p>
       <p class="value">${mine.length - mine.filter(needsSomething).length}</p>
       <p class="meta">of ${mine.length} reservations</p></div>`;
@@ -116,9 +124,11 @@ function render() {
       <td class="num"><input inputmode="decimal" data-field="gross" placeholder="0.00"
             value="${b.gross_cents ? (b.gross_cents / 100).toFixed(2) : ''}"
             class="${b.gross_cents ? '' : 'wanted'}"></td>
-      <td class="num"><input inputmode="decimal" data-field="commission" placeholder="0.00"
+      <td class="num">${noCommission(b)
+        ? '<span class="muted">No commission</span>'
+        : `<input inputmode="decimal" data-field="commission" placeholder="0.00"
             value="${b.commission_cents ? (b.commission_cents / 100).toFixed(2) : ''}"
-            class="${b.commission_cents ? '' : 'wanted'}"></td>
+            class="${b.commission_cents ? '' : 'wanted'}">`}</td>
     </tr>`).join('')}</tbody></table></div>`;
 
   panel.querySelectorAll('[data-field]').forEach((input) => {
