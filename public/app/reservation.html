@@ -681,48 +681,6 @@ const selectOptions = (list, current) => (list || [])
  * the form and the validator cannot disagree about what a status may be. The
  * old dialog kept its own copies and drifted from them twice.
  */
-/**
- * The client box suggests people already on the books.
- *
- * Typing a name that is already in the system creates a second client record
- * with the same name, and then their history is split across two: half the
- * trips on one, half on the other, and a lifetime value that is wrong on both.
- * Suggesting what is already there is how that stops happening.
- *
- * A datalist rather than a custom dropdown: it is the browser's own control,
- * it works with the keyboard for free, and it does not stop anybody typing a
- * name that is genuinely new.
- */
-function suggestClients(input, listId) {
-  const list = document.createElement('datalist');
-  list.id = listId;
-  input.setAttribute('list', listId);
-  input.setAttribute('autocomplete', 'off');
-  input.after(list);
-
-  let timer;
-  let last = '';
-  input.addEventListener('input', () => {
-    const q = input.value.trim();
-    // Two letters, because one matches most of the book and suggesting all of
-    // it is the same as suggesting nothing.
-    if (q.length < 2 || q === last) return;
-    clearTimeout(timer);
-    timer = setTimeout(async () => {
-      last = q;
-      let found;
-      try {
-        found = await api(`/api/clients?q=${encodeURIComponent(q)}&limit=8`);
-      } catch { return; }
-      list.innerHTML = (found.clients || []).map((c) => {
-        // What is shown beside the name is what tells two Smiths apart.
-        const hint = [c.email, c.trips ? `${c.trips} trip${c.trips === 1 ? '' : 's'}` : '']
-          .filter(Boolean).join(' · ');
-        return `<option value="${esc(c.name)}"${hint ? ` label="${esc(hint)}"` : ''}></option>`;
-      }).join('');
-    }, 250);
-  });
-}
 
 function drawDetail() {
   const b = d.booking;
@@ -802,11 +760,23 @@ function drawDetail() {
      </dl>`,
   ].join('');
 
+  // The same box the rest of the portal uses, rather than the datalist this
+  // page kept.
+  //
+  // The shared one exists because a datalist is the control that looks right
+  // and is not: Chrome ignores the label on an option, so the email and trip
+  // count that tell two Smiths apart never showed here, the browser decided
+  // what matched, and when nothing did it rendered nothing, which reads
+  // exactly like a search that never ran.
+  //
   // Once. drawDetail runs on every load, and attaching again would stack a
-  // listener per save and leave a pile of datalists sharing one id.
+  // listener per save.
   const clientBox = document.querySelector('#detail-form [name="clientName"]');
-  if (!ro && clientBox && !clientBox.hasAttribute('list')) {
-    suggestClients(clientBox, 'client-suggestions');
+  if (!ro && clientBox && !clientBox.dataset.suggesting) {
+    clientBox.dataset.suggesting = '1';
+    mountClientSuggest(clientBox, {
+      emptyText: 'Nobody by that name yet. Keep typing to book for somebody new.',
+    });
   }
   document.getElementById('detail-foot').hidden = ro;
   document.getElementById('detail-state').textContent = ro ? 'Read only' : '';

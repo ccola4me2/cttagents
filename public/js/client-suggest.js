@@ -72,11 +72,22 @@ export function mountClientSuggest(input, { onChoose, emptyText, mineOnly } = {}
     input.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  /**
+   * We looked and found nobody, or we could not look.
+   *
+   * This file exists because those two must not render the same way: the
+   * whole point of the box is to stop somebody typing a name the system
+   * already holds, and a search that failed silently is read as a name nobody
+   * has. So a failure says so, in the same place an empty result would.
+   */
+  function note(text) {
+    box.innerHTML = `<p class="suggest-empty">${esc(text)}</p>`;
+    box.hidden = false;
+  }
+
   function draw() {
     if (!rows.length) {
-      box.innerHTML = `<p class="suggest-empty">${
-        esc(emptyText || 'Nobody by that name yet. Keep typing to add them.')}</p>`;
-      box.hidden = false;
+      note(emptyText || 'Nobody by that name yet. Keep typing to add them.');
       return;
     }
     box.innerHTML = rows.map((c, i) => {
@@ -118,7 +129,10 @@ export function mountClientSuggest(input, { onChoose, emptyText, mineOnly } = {}
         // four identical rows, one per advisor, with nothing to tell them apart.
         found = await api(`/api/clients?q=${encodeURIComponent(q)}&limit=8`
           + (mineOnly ? `&advisor=${encodeURIComponent(mineOnly)}` : ''));
-      } catch { close(); return; }
+      } catch {
+        note('Could not check just now. Type the name if you are sure they are new.');
+        return;
+      }
       // People already booked here first, then people the CRM knows who have
       // never been booked. Without the second group the first booking for an
       // existing contact means typing a name the system already holds, and
