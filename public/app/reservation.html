@@ -1728,7 +1728,19 @@ async function statement() {
     return;
   }
 
+  // The schedule and the balance disagreeing is not a reason to stop the send,
+  // so it is said here rather than in problem. The client's copy explains the
+  // difference in their own terms either way; this is the half that lets the
+  // advisor make it go away instead.
+  const gap = s.mode === 'statement' && s.due && s.due.length ? (s.unscheduledCents || 0) : 0;
+
   body.innerHTML = `
+    ${gap ? `<div class="notice notice-warn">${gap > 0
+      ? `The scheduled payments come to ${money(Math.abs(gap))} less than the balance. Fine if that
+         is insurance or a fee the client pays direct, otherwise a payment is missing.`
+      : `The scheduled payments come to ${money(Math.abs(gap))} more than the balance, which usually
+         means the price changed after the schedule was set.`
+      } Their copy says so in plain words.</div>` : ''}
     ${p.alreadySent ? `<div class="notice notice-${changed ? 'warn' : 'info'}">Already sent ${
       esc(timeAgo(p.alreadySent))}${p.sentCount > 1 ? `, ${p.sentCount} times in all` : ''}.${
       changed ? ' The reservation has changed since, so the copy they are holding is out of date.'
