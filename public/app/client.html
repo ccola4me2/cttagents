@@ -53,6 +53,14 @@
             <div class="card-head"><h2>Vendors used</h2></div>
             <div class="card-pad" id="vendors"></div>
           </section>
+          <!-- What they have already been sent. Without it the marketing lives
+               entirely on its own screen and the person about to ring somebody
+               has no way to know they were emailed on Tuesday. -->
+          <section class="card" style="margin-top:1.5rem;" id="emails-card" hidden>
+            <div class="card-head"><h2>Emails sent</h2>
+              <a class="btn btn-ghost btn-sm" href="/app/broadcasts">All emails</a></div>
+            <div id="emails"></div>
+          </section>
         </div>
       </div>
     </div>
@@ -339,6 +347,19 @@ function render(d) {
           <strong>${money(cr.amount_cents)}</strong></div></li>`;
       }).join('')}</ul>`
     : '<p class="wempty" style="text-align:left;padding:.9rem 1rem;">No credits on file.</p>';
+
+  const emails = d.emails || [];
+  document.getElementById('emails-card').hidden = !emails.length;
+  if (emails.length) {
+    // "Sent" is the ordinary case and saying it on every row buries the two
+    // that did not arrive, so only the exceptions are labelled.
+    const outcome = (m) => (m.status === 'sent' ? '' : ` &middot; ${esc(
+      m.status === 'skipped' ? 'not sent: unsubscribed' : `not sent: ${m.detail || m.status}`)}`);
+    document.getElementById('emails').innerHTML = `<ul class="rows">${emails.map((m) => `<li>
+      <div class="t">${esc(m.subject || m.name)}</div>
+      <div class="m">${esc(m.sent_at ? dateFmt(m.sent_at) : 'queued')}${outcome(m)}</div>
+    </li>`).join('')}</ul>`;
+  }
 
   document.getElementById('tasks').innerHTML = d.tasks.length
     ? `<ul class="rows task-rows">${d.tasks.map((t) => `<li class="${t.done_at ? 'done' : ''}">

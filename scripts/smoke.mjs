@@ -5808,6 +5808,16 @@ async function main() {
     'nothing is marked sent before the cron has sent it',
     (frozen.data?.recipients || []).map((r) => r.status).join(', '));
 
+  // And it shows on the client's own record, which is where somebody about to
+  // ring them looks. Marketing that lives only on the marketing screen may as
+  // well not have happened as far as a phone call is concerned.
+  if (listedId) {
+    const record = await call(advisor, 'GET', `/api/client?id=${listedId}`);
+    check((record.data?.emails || []).some((m) => m.name === `Autumn ${stamp}`),
+      'a client record shows the marketing they have been sent',
+      JSON.stringify((record.data?.emails || []).map((m) => m.name)));
+  }
+
   const edited = await call(advisor, 'PUT', `/api/broadcasts/${castId}`, {
     name: `Autumn ${stamp}`, subject: 'Something else entirely', body: 'Changed.', segmentId,
   });

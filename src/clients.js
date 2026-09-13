@@ -116,7 +116,7 @@ export async function handleClientRecord(request, env) {
   const tScope = db.scopeWhere(scope, 't.user_id');
   const today = new Date().toISOString().slice(0, 10);
 
-  const [bookings, credits, tasks, household, unsubscribed] = await Promise.all([
+  const [bookings, credits, tasks, household, unsubscribed, mail] = await Promise.all([
     env.DB.prepare(
       `SELECT b.id, b.client_name, b.supplier, b.product_name, b.product_type, b.destination,
               b.confirmation_number, b.depart_date, b.return_date, b.status,
@@ -150,6 +150,24 @@ export async function handleClientRecord(request, env) {
     // only inside the sender, because an advisor who cannot see it will write
     // to them personally and wonder why they never hear back.
     suppressionFor(env, user.agency_id, client.email),
+
+    // What has already been sent to them, and what happened to it.
+    //
+    // Without this the marketing lives entirely on its own screen, and the
+    // person about to ring a client has no way to know they were emailed on
+    // Tuesday. "I sent you a note about Alaska last week" is the whole
+    // difference between a call that starts cold and one that does not.
+    //
+    // Best effort: a client record that cannot load its mail is still a
+    // client record worth reading, and this table is newer than the page.
+    env.DB.prepare(
+      `SELECT b.name, b.subject, r.status, r.detail, r.sent_at
+         FROM broadcast_recipients r
+         JOIN broadcasts b ON b.id = r.broadcast_id AND b.user_id = r.user_id
+        WHERE r.client_id = ? AND r.user_id = ?
+        ORDER BY r.sent_at DESC, b.created_at DESC
+        LIMIT 20`
+    ).bind(client.id, client.user_id).all().catch(() => ({ results: [] })),
   ]);
 
   const rows = bookings.results || [];
@@ -176,6 +194,9 @@ export async function handleClientRecord(request, env) {
     credits: credits.results || [],
     tasks: tasks.results || [],
     editable: client.user_id === user.id,
+    // The marketing they have been sent, newest first. Empty rather than
+    // absent when there is none, so the page has one shape to render.
+    emails: mail.results || [],
     // Flat rather than a nested row, and always present. A field that is
     // sometimes an object and sometimes null is a field every reader has to
     // guard, and the contract checker cannot see inside the null one at all.
