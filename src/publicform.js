@@ -217,7 +217,14 @@ export async function renderGroupPage(request, env, code) {
     '<label for="phone">Mobile</label><input id="phone" name="phone" type="tel" maxlength="40">',
     '<label for="party_size">How many of you</label><input id="party_size" name="party_size" type="number" min="1" max="99">',
     '<label for="notes">Anything you want us to know</label><textarea id="notes" name="notes" maxlength="1000"></textarea>',
-    '<div class="hp"><label>Company website<input name="company_website" tabindex="-1" autocomplete="off"></label></div>',
+    // Honeypot. aria-hidden as well as off-screen, the same as the builder form
+    // above: position:absolute;left:-9999px hides it from eyes and from nobody
+    // else, so a screen reader read "Company website" as an ordinary field on
+    // this page, and filling it in returns "Thanks" and files the registration
+    // nowhere. The one visitor who could not see the trap was the one who fell
+    // into it, and the failure is silent at both ends.
+    '<div class="hp" aria-hidden="true"><label>Company website'
+      + '<input name="company_website" tabindex="-1" autocomplete="off"></label></div>',
     '<button type="submit">Put me down</button>',
     '<p class="err" id="err" hidden></p>',
     '</form>',
@@ -388,7 +395,8 @@ export async function renderSpecialPage(request, env, code) {
     '<label for="phone">Mobile</label><input id="phone" name="phone" type="tel" maxlength="40">',
     '<label for="party_size">How many travelling</label><input id="party_size" name="party_size" type="number" min="1" max="99">',
     '<label for="notes">Anything you want us to know</label><textarea id="notes" name="notes" maxlength="1000"></textarea>',
-    '<div class="hp"><label>Company website<input name="company_website" tabindex="-1" autocomplete="off"></label></div>',
+    '<div class="hp" aria-hidden="true"><label>Company website'
+      + '<input name="company_website" tabindex="-1" autocomplete="off"></label></div>',
     `<button type="submit">${gone ? 'Send it over' : 'Ask about this deal'}</button>`,
     '<p class="err" id="err" hidden></p>',
     '</form>',
