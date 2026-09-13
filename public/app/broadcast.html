@@ -83,7 +83,7 @@
 </div>
 
 <script type="module">
-import { api, mountShell, esc, dateFmt, showError } from '/js/app.js';
+import { api, mountShell, esc, dateFmt, showError, timeAgo } from '/js/app.js';
 await mountShell();
 
 const err = document.getElementById('err');
@@ -288,7 +288,7 @@ function drawSend() {
       current.skipped ? `, ${current.skipped} skipped as unsubscribed` : ''}${
       current.failed ? `, ${current.failed} failed` : ''}.</p>
       <p class="muted" style="font-size:.82rem;margin:.4rem 0 0;">${
-        esc(dateFmt(current.finishedAt || current.startedAt))}</p>`;
+        esc(timeAgo(current.finishedAt || current.startedAt))}</p>`;
     return;
   }
 

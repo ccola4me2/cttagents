@@ -58,11 +58,38 @@ export function money(cents) {
   });
 }
 
+/**
+ * A date column, as a person reads it.
+ *
+ * Date-only strings are parsed as local midnight rather than as UTC, which is
+ * what stops "2026-03-14" rendering as the 13th for anybody west of Greenwich.
+ *
+ * It also takes a real instant now: a unix second count, or an ISO string with
+ * a time on it. It used to glue T00:00:00 onto whatever it was handed, so a
+ * timestamp produced an unparseable date and the raw value was printed to the
+ * screen. The portal stores stamps as unix seconds and renders them with
+ * timeAgo; this is the safety net for the next person who reaches for the
+ * function whose name sounds right.
+ */
 export function dateFmt(iso) {
-  if (!iso) return '';
-  const d = new Date(`${iso}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  // 0 is not a date here. A stamp of zero means unset in every table this
+  // reads from, and the epoch is a worse answer than nothing.
+  if (iso === null || iso === undefined || iso === '' || iso === 0) return '';
+  const asDay = { month: 'short', day: 'numeric', year: 'numeric' };
+
+  if (typeof iso === 'number' || /^\d{10,}$/.test(String(iso))) {
+    const d = new Date(Number(iso) * 1000);
+    return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleDateString('en-US', asDay);
+  }
+
+  const text = String(iso);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const d = new Date(`${text}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? text : d.toLocaleDateString('en-US', asDay);
+  }
+
+  const d = new Date(text);
+  return Number.isNaN(d.getTime()) ? text : d.toLocaleDateString('en-US', asDay);
 }
 
 /** Unix seconds or an ISO string to "3 days ago". */

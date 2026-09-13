@@ -49,7 +49,7 @@
 </div>
 
 <script type="module">
-import { api, mountShell, esc, dateFmt, showError } from '/js/app.js';
+import { api, mountShell, esc, dateFmt, showError, timeAgo } from '/js/app.js';
 await mountShell();
 
 const err = document.getElementById('err');
@@ -94,7 +94,7 @@ async function draw() {
           <span class="badge ${esc((LABEL[b.status] || [])[1] || 'badge-navy')}"
             >${esc((LABEL[b.status] || [])[0] || b.status)}</span>
           <div class="muted" style="font-size:.76rem;margin-top:.3rem;">${
-            esc(dateFmt(b.finishedAt || b.startedAt || b.createdAt))}</div>
+            esc(timeAgo(b.finishedAt || b.startedAt || b.createdAt))}</div>
         </div>
       </div></li>`).join('')}</ul>`;
   } catch (e) { showError(box, e); }
@@ -113,7 +113,7 @@ async function drawSuppressions() {
               <span class="t">${esc(s.client_name || s.email)}</span>
               ${s.client_name ? `<div class="m">${esc(s.email)}</div>` : ''}
               <div class="m">${esc(s.source || s.reason || 'unsubscribed')} &middot; ${
-                esc(dateFmt(s.created_at))}</div>
+                esc(timeAgo(s.created_at))}</div>
             </div>
             <button class="btn btn-ghost btn-sm" data-back="${esc(s.email)}">Put back</button>
           </div></li>`).join('')}</ul>`

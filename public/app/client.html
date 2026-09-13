@@ -142,7 +142,7 @@
 </dialog>
 
 <script type="module">
-import { api, mountShell, esc, money, dateFmt, daysUntil, showError, onSubmit } from '/js/app.js';
+import { api, mountShell, esc, money, dateFmt, daysUntil, showError, onSubmit, timeAgo } from '/js/app.js';
 await mountShell();
 
 const params = new URLSearchParams(location.search);
@@ -357,7 +357,7 @@ function render(d) {
       m.status === 'skipped' ? 'not sent: unsubscribed' : `not sent: ${m.detail || m.status}`)}`);
     document.getElementById('emails').innerHTML = `<ul class="rows">${emails.map((m) => `<li>
       <div class="t">${esc(m.subject || m.name)}</div>
-      <div class="m">${esc(m.sent_at ? dateFmt(m.sent_at) : 'queued')}${outcome(m)}</div>
+      <div class="m">${esc(m.sent_at ? timeAgo(m.sent_at) : 'queued')}${outcome(m)}</div>
     </li>`).join('')}</ul>`;
   }
 
@@ -442,7 +442,7 @@ function drawContact(d) {
     // who was going to type something personal.
     const optOut = d.unsubscribed ? `<div class="notice notice-warn" style="margin:0 0 1rem;">
       <strong>${esc(c.name)} has asked not to receive marketing email.</strong>
-      ${esc(d.unsubscribedAt ? `Recorded ${dateFmt(d.unsubscribedAt)}` : '')}${
+      ${esc(d.unsubscribedAt ? `Recorded ${timeAgo(d.unsubscribedAt)}` : '')}${
         d.unsubscribedHow ? ` &middot; ${esc(d.unsubscribedHow)}` : ''}.
       Anything about a trip they have booked still reaches them.
       <button class="btn btn-ghost btn-sm" id="restore-email"
