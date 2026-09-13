@@ -82,7 +82,12 @@ export function buildStatement({ booking, pricing, travellers, payments, ameniti
 
     if (total > 0 && owing === 0 && paidCents > 0) return 'Paid in full. Thank you.';
     if (nextDue) {
-      const what = nextDue.kind === 'deposit' ? 'Deposit' : 'Balance';
+      // Only the row that clears the account is the balance. A split final and
+      // a schedule left behind by a price change both put a smaller figure
+      // here, and calling either one the balance tells the client they are
+      // square when they are not.
+      const clears = (nextDue.amount_cents || 0) === owing;
+      const what = nextDue.kind === 'deposit' ? 'Deposit' : (clears ? 'Balance' : 'Payment');
       return `${paidCents > 0 ? `${money(paidCents)} received. ` : ''}${what} of ${
         money(nextDue.amount_cents || 0)} due by ${day(nextDue.due_date)}.`;
     }
@@ -143,6 +148,13 @@ export function buildStatement({ booking, pricing, travellers, payments, ameniti
     // else booked in still has a balance, and it is the balance that matters.
     balanceCents: mode === 'quote' ? 0 : Math.max(0, tripCents - paidCents),
     scheduledCents: mode === 'quote' ? 0 : sum(due),
+    // What is owed less what is on a date. Rarely zero: insurance the client
+    // pays direct, a price change after the vendor set the schedule, or a
+    // final that has not been entered yet all leave a gap. The client's copy
+    // used to total the schedule with this balance and let the column come out
+    // wrong, which reads as an arithmetic mistake on an invoice.
+    unscheduledCents: mode === 'quote'
+      ? 0 : Math.max(0, tripCents - paidCents) - sum(due),
     // What the vendor granted them, without saying who paid for it.
     amenities: (amenities || [])
       .filter((a) => a.status === 'confirmed' || a.status === 'applied')
@@ -267,9 +279,24 @@ export function renderStatement(env, s) {
         ? rows(s.lines, { strike: true }) + totalRow('Trip total', s.tripCents, true)
         : totalRow('Trip total', s.tripCents, true)),
     quote ? '' : block('Received, thank you', rows(s.posted)),
-    quote ? '' : block('Still to come', s.due.length
-      ? rows(s.due) + totalRow('Balance', s.balanceCents, true)
-      : totalRow('Balance', s.balanceCents, true)),
+    // Nothing is still to come on a trip that is paid for. A block under that
+    // heading holding a single zero is the one thing a client who has just
+    // settled up does not need to read.
+    quote || (!s.due.length && !s.balanceCents)
+      ? ''
+      : block('Still to come', s.due.length
+        ? rows(s.due) + totalRow('Balance', s.balanceCents, true)
+        : totalRow('Balance', s.balanceCents, true)),
+    // Said in words rather than added as a row, because the difference is not
+    // a charge and inventing a line item for it would be a third number to
+    // argue with. The balance is the one that is owed either way.
+    !quote && s.due.length && s.unscheduledCents
+      ? `<p style="margin:8px 0 0;font-size:13px;color:#5c7286;">${escapeHtml(s.unscheduledCents > 0
+          ? `Not all of that balance is on a payment date yet. ${money(s.unscheduledCents)} of it `
+            + 'is still to be scheduled, and I will let you know when it is.'
+          : `Your balance is lower than the payment${s.due.length > 1 ? 's' : ''} scheduled above. `
+            + 'The balance is what is owed, and I am having the schedule corrected.')}</p>`
+      : '',
     quote ? hold : '',
     // Where the money stands, worked out rather than ticked.
     !quote && s.standing
