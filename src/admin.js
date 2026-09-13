@@ -16,6 +16,7 @@ import { remindTasks } from './taskmail.js';
 import { remindDuePayments } from './payremind.js';
 import { sendCallLists } from './calllist.js';
 import { schemaDrift } from './schema-drift.js';
+import { jobHealth } from './cronlog.js';
 import { mirrorCatalogStep, mirrorStatus } from './catalogmirror.js';
 
 const STATUSES = ['pending', 'active', 'suspended'];
@@ -466,6 +467,10 @@ export async function handleHealth(request, env) {
 
   const schema = dbOk ? await schemaDrift(env) : null;
 
+  // What the cron has been doing. Cheap, one query, and the only place the
+  // answer to "are the reminders still going out" exists at all.
+  const jobs = dbOk ? await jobHealth(env) : { jobs: [], ok: false, error: 'no database' };
+
   let scopes = null;
   let capabilities = null;
   const resend = wantEmail ? await checkResend(env) : null;
@@ -490,6 +495,9 @@ export async function handleHealth(request, env) {
       resend,
     },
     db: { ok: dbOk, users: userCount },
+    // When each scheduled job last ran, and when it last ran without throwing.
+    // Those two being far apart is a job that has been failing quietly.
+    jobs,
     // Whether the database has had every migration applied. Migrations here
     // are run by hand, so this is the one fact about the system that the
     // repository cannot tell you.

@@ -5778,6 +5778,27 @@ async function main() {
     check(afterCron.data?.broadcast?.status === 'sending',
       'and the send is still a send, not a finished one that reached nobody',
       afterCron.data?.broadcast?.status);
+
+    // And the pass wrote down what it did. Each cron job is wrapped in a catch
+    // so one cannot stop the others, which means a job failing since March
+    // looks exactly like a job with nothing to do. These rows are the only
+    // place that difference exists.
+    const health = await call(admin, 'GET', '/api/admin/health');
+    const jobs = health.data?.jobs;
+    const byName = new Map((jobs?.jobs || []).map((x) => [x.name, x]));
+    check(jobs?.ok === true && byName.size > 0,
+      'the cron writes down what each job did',
+      jobs?.error || `${byName.size} jobs recorded`);
+    for (const name of ['broadcasts', 'task reminders', 'payment reminders',
+      'mark trips travelled', 'purge sessions']) {
+      check(byName.has(name), `and ${name} is one of them`,
+        [...byName.keys()].join(', '));
+    }
+    // This one returned early rather than throwing, so it has a good run to
+    // its name. A job that only ever appears as "ran" is the failure case.
+    check(byName.get('broadcasts')?.last_ok_at,
+      'a job that did its work without throwing records that it worked',
+      JSON.stringify(byName.get('broadcasts')));
   }
 
   const stop = await call(advisor, 'POST', `/api/broadcasts/${castId}/cancel`);

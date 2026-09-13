@@ -36,6 +36,7 @@ import {
 } from './share.js';
 import { handleReadConfirmation } from './confirm.js';
 import { migrationHint } from './schema-drift.js';
+import { runJob, jobHealth } from './cronlog.js';
 import {
   renderUnsubscribe, handleUnsubscribe, handleListSuppressions,
   handleAddSuppression, handleRestoreSuppression,
@@ -278,56 +279,59 @@ export default {
   // Keeps the local CRM copy current and drops expired sessions. Both are
   // resumable or cheap, so an idle run costs almost nothing.
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(purgeExpiredSessions(env).catch((e) => console.error('purge', e)));
-    ctx.waitUntil(purgeOldRuns(env).catch((e) => console.error('purge runs', e)));
-    ctx.waitUntil(
-      runSync(env, locationFor(env, null)).catch((e) => console.error('sync', e))
-    );
-    // Look for time based triggers, then advance whatever is due. Order
-    // matters: scanning first means a payment that just came into range is
-    // acted on in the same pass rather than waiting five more minutes.
+    // Every job goes through runJob, which records when it last ran and when
+    // it last ran without throwing. The catch each of these used to carry was
+    // right and incomplete: one broken job must not stop the other eleven, and
+    // nobody reads a Worker's console, so a job failing since March looked
+    // exactly like a job with nothing to do.
+    const job = (name, fn) => ctx.waitUntil(runJob(env, name, fn));
+
+    job('purge sessions', () => purgeExpiredSessions(env));
+    job('purge automation runs', () => purgeOldRuns(env));
+    job('crm sync', () => runSync(env, locationFor(env, null)));
+
     // The catalog import is a no-op once the current monthly snapshot is fully
     // imported, so running it on every tick costs one request a day and the
     // catalog is never more than five minutes behind a new snapshot.
-    ctx.waitUntil(
-      importCatalogStep(env, { maxPages: 8 }).catch((e) => console.error('catalog import', e))
-    );
+    job('catalog import', () => importCatalogStep(env, { maxPages: 8 }));
+
     // Without a feed key of its own, the catalog is mirrored from the copy
     // CruiseShoppers already holds. A finished pass costs one request, so this
     // is cheap on the ticks where there is nothing to do.
-    ctx.waitUntil(
-      mirrorCatalogStep(env, { maxShips: 8 }).catch((e) => console.error('catalog mirror', e))
-    );
+    job('catalog mirror', () => mirrorCatalogStep(env, { maxShips: 8 }));
+
     // A trip whose return date has passed has been travelled. Nothing else
     // ever set that status, so the reports said nobody had been anywhere.
-    ctx.waitUntil(
-      markReturnedTripsTravelled(env, { today: new Date().toISOString().slice(0, 10) })
-        .catch((e) => console.error('lifecycle', e))
-    );
+    job('mark trips travelled', () => markReturnedTripsTravelled(env,
+      { today: new Date().toISOString().slice(0, 10) }));
+
     // What is due today and what is late, once a day. A no-op before the hour
     // and for any task already told about, so running it every five minutes
     // costs one query on almost every tick.
-    ctx.waitUntil(remindTasks(env).catch((e) => console.error('task reminders', e)));
+    job('task reminders', () => remindTasks(env));
+
     // And the client side of the same idea: the money is due on a date, and
     // the advisor pressing send is the part that does not scale. Only for
     // advisors who turned it on, and only on real vendor deadlines.
-    ctx.waitUntil(
-      remindDuePayments(env).catch((e) => console.error('payment reminders', e))
-    );
+    job('payment reminders', () => remindDuePayments(env));
+
     // And once a week, the calls nothing else is chasing anybody about. A
     // no-op on six days in seven, so this costs one query on almost every tick.
-    ctx.waitUntil(sendCallLists(env).catch((e) => console.error('call lists', e)));
-    // A broadcast is queued as rows and drained here, forty at a time. A no-op
-    // when nothing is sending, which is almost every tick.
-    ctx.waitUntil(
-      sendQueuedBroadcasts(env).catch((e) => console.error('broadcasts', e))
-    );
-    ctx.waitUntil(
-      scanTimeTriggers(env, locationFor(env, null))
-        .catch((e) => console.error('time triggers', e))
-        .then(() => processDueRuns(env))
-        .catch((e) => console.error('automations', e))
-    );
+    job('call lists', () => sendCallLists(env));
+
+    // A broadcast is queued as rows and drained here, a batch at a time. A
+    // no-op when nothing is sending, which is almost every tick.
+    job('broadcasts', () => sendQueuedBroadcasts(env));
+
+    // Look for time based triggers, then advance whatever is due. Order
+    // matters inside this one: scanning first means a payment that just came
+    // into range is acted on in the same pass rather than waiting five more
+    // minutes. One job rather than two, because the second half is pointless
+    // without the first.
+    job('automations', async () => {
+      await scanTimeTriggers(env, locationFor(env, null));
+      await processDueRuns(env);
+    });
   },
 };
 
