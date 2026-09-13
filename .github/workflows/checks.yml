@@ -69,6 +69,13 @@ jobs:
       - name: Somebody reads every box
         run: npm run check:forms
 
+      # The one artifact that leaves this repository: the message a client
+      # opens. Renders a marketing email and a transactional one and checks
+      # that the first carries a way out in both halves of itself and the
+      # second carries none at all.
+      - name: What a rendered email says
+        run: npm run check:email
+
       # Offline, needs no server, and catches the cheapest class of bug, so it
       # goes first and fails fast.
       - name: Column lists against the schema
