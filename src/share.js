@@ -28,7 +28,7 @@
 
 import { json, badRequest, notFound, clean, cleanText, uid, now, sha256Hex, readJson,
   escapeHtml as esc } from './util.js';
-import { brandForUser, DEFAULT_BRAND, HEX_COLOR } from './brand.js';
+import { brandForUser, DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 import * as ghl from './ghl.js';
@@ -397,7 +397,7 @@ export async function renderTripManifest(request, env, code) {
   const b = trip.booking;
   const brand = await brandForUser(env, b.user_id);
   const name = b.itinerary || b.product_name || 'Your trip';
-  const accent = HEX_COLOR.test(brand.color || '') ? brand.color : DEFAULT_BRAND.color;
+  const accent = readableOnWhite(brand.color) ? brand.color : DEFAULT_BRAND.color;
 
   return new Response(JSON.stringify({
     name: `${name} | ${brand.name}`,
@@ -885,7 +885,7 @@ document.getElementById('say').addEventListener('submit', async (e) => {
  */
 function page(title, body, brand, code) {
   const b = brand || DEFAULT_BRAND;
-  const accent = HEX_COLOR.test(b.color || '') ? b.color : DEFAULT_BRAND.color;
+  const accent = readableOnWhite(b.color) ? b.color : DEFAULT_BRAND.color;
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">

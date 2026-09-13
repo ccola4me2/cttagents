@@ -30,6 +30,35 @@ export const DEFAULT_BRAND = {
 // unmistakably a colour does not go in.
 export const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
+/**
+ * Dark enough to read, and to be read on.
+ *
+ * The agency's colour is not a decoration. On a client's trip page it paints
+ * every heading, the departure and return dates, the cabin, the confirmation
+ * number, and a badge that writes white text on top of it. On the join page it
+ * paints the header band and every field label. Nothing has ever checked that
+ * somebody can see any of it.
+ *
+ * So an agency owner who types a pale brand colour, and a gold or a sky blue is
+ * an ordinary thing for a travel agency to have, publishes a trip page whose
+ * dates and cabin number are not legible and whose badge is white on cream.
+ * Their clients get it, and nobody in the agency is looking at that page.
+ *
+ * The test is the WCAG AA contrast ratio against white, 4.5:1, which is what
+ * the rest of both palettes is built to. A colour that fails keeps the portal's
+ * own, and the agency still gets its name, its logo and its tagline on every
+ * page: unbranded and readable beats branded and not.
+ */
+export function readableOnWhite(hex) {
+  if (!HEX_COLOR.test(hex || '')) return false;
+  const h = hex.slice(1);
+  const lum = [0, 2, 4]
+    .map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
+    .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+    .reduce((n, c, i) => n + c * [0.2126, 0.7152, 0.0722][i], 0);
+  return 1.05 / (lum + 0.05) >= 4.5;
+}
+
 export async function getAgency(env, id) {
   if (!id) return null;
   return env.DB.prepare(`SELECT ${AGENCY_COLUMNS} FROM agencies WHERE id = ?`).bind(id).first();
@@ -54,7 +83,7 @@ export function brandOf(agency) {
     name: agency.name || DEFAULT_BRAND.name,
     tagline: agency.tagline || DEFAULT_BRAND.tagline,
     logoUrl: agency.logo_url || null,
-    color: HEX_COLOR.test(agency.brand_color || '') ? agency.brand_color : DEFAULT_BRAND.color,
+    color: readableOnWhite(agency.brand_color) ? agency.brand_color : DEFAULT_BRAND.color,
   };
 }
 

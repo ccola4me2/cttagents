@@ -10,7 +10,7 @@
 
 import { PermanentError, escapeHtml } from './util.js';
 
-import { DEFAULT_BRAND, HEX_COLOR } from './brand.js';
+import { DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand.js';
 
 const BRAND_NAVY = '#12315e';
 const BRAND_TEAL = '#1a8fa3';
@@ -40,7 +40,7 @@ function appUrl(env) {
 export function layout(env, { heading, body, cta, footer, brand }) {
   const url = appUrl(env);
   const b = brand || DEFAULT_BRAND;
-  const head = HEX_COLOR.test(b.color || '') ? b.color : BRAND_NAVY;
+  const head = readableOnWhite(b.color) ? b.color : BRAND_NAVY;
   // The wordmark is letter-spaced, which reads as a logo on a short name and
   // as a ransom note on a long one.
   const spacing = String(b.name).length > 18 ? '.06em' : '.22em';

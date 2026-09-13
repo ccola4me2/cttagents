@@ -14,7 +14,7 @@ import { upsertContact } from './sync.js';
 import { hydrateForm } from './formbuilder.js';
 import { fireTrigger } from './automations.js';
 import { sendSignupNoticeEmail } from './email.js';
-import { brandForUser, brandOf, DEFAULT_BRAND, HEX_COLOR } from './brand.js';
+import { brandForUser, brandOf, DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand.js';
 
 /**
  * The agency behind a hosted form.
@@ -632,7 +632,7 @@ export async function handlePublicSubmit(request, env, slug) {
  */
 function page(title, body, brand) {
   const b = brand || DEFAULT_BRAND;
-  const accent = HEX_COLOR.test(b.color || '') ? b.color : DEFAULT_BRAND.color;
+  const accent = readableOnWhite(b.color) ? b.color : DEFAULT_BRAND.color;
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">

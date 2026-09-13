@@ -43,7 +43,7 @@
           <p class="field-hint">Wherever it already lives on their own site.</p></div>
         <div class="field"><label for="brandColor">Brand colour</label>
           <input id="brandColor" name="brandColor" maxlength="7" placeholder="#12315e">
-          <p class="field-hint">Six hex digits after a hash.</p></div>
+          <p class="field-hint" id="colourHint">Six hex digits after a hash.</p></div>
       </div>
       <div class="field-row">
         <div class="field"><label for="phone">Phone</label>
@@ -240,5 +240,36 @@ async function load() {
 }
 
 await load();
+
+// A colour too pale to read is refused on the pages that use it, and refusing
+// something without saying so is how somebody finds out from a client. The
+// test is the one in brand.js: WCAG AA, 4.5:1 against white. It paints every
+// heading, the trip dates and the cabin number on a client's trip page, and a
+// badge that writes white on top of it.
+const colourField = document.getElementById('brandColor');
+const colourHint = document.getElementById('colourHint');
+if (colourField && colourHint) {
+  const readable = (hex) => {
+    const h = String(hex || '').trim().replace(/^#/, '');
+    if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
+    const lum = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
+      .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+      .reduce((n, c, i) => n + c * [0.2126, 0.7152, 0.0722][i], 0);
+    return 1.05 / (lum + 0.05) >= 4.5;
+  };
+  const sayColour = () => {
+    const ok = readable(colourField.value);
+    if (ok === false) {
+      colourHint.textContent = 'Too light to read as text. Their pages will keep the '
+        + 'default colour and still show their name and logo. Pick something darker.';
+      colourHint.style.color = 'var(--red-600)';
+    } else {
+      colourHint.textContent = 'Six hex digits after a hash.';
+      colourHint.style.color = '';
+    }
+  };
+  colourField.addEventListener('input', sayColour);
+  colourField.addEventListener('change', sayColour);
+}
 </script>
 </body></html>
