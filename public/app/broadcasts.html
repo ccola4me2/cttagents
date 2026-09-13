@@ -25,6 +25,25 @@
         not affected by an unsubscribe.
       </div>
       <section class="card"><div id="list"><p class="spinner">Loading...</p></div></section>
+
+      <section class="card" style="margin-top:1.5rem;">
+        <div class="card-head"><h2>Who has opted out</h2>
+          <span class="muted" id="supp-count"></span></div>
+        <div class="card-pad">
+          <p class="muted" style="margin:0 0 .9rem;font-size:.86rem;">
+            The list is the agency's, so everybody here sees the same one and an address is
+            on it once whoever it belongs to. Marketing email skips these as it goes out.
+            Anything about a trip they have booked still reaches them.</p>
+          <div class="row-between" style="gap:.5rem;">
+            <input id="supp-add" type="email" maxlength="160" style="flex:1;min-width:14rem;"
+              placeholder="someone@example.com">
+            <button class="btn btn-ghost btn-sm" id="supp-go">They asked me to stop</button>
+          </div>
+          <p class="field-hint">For when somebody says it on the phone. Recording it here is
+            the difference between honouring it and remembering it.</p>
+        </div>
+        <div id="supp"><p class="spinner">Loading...</p></div>
+      </section>
     </div>
   </div>
 </div>
@@ -81,7 +100,50 @@ async function draw() {
   } catch (e) { showError(box, e); }
 }
 
+async function drawSuppressions() {
+  const box = document.getElementById('supp');
+  try {
+    const { suppressions } = await api('/api/suppressions');
+    document.getElementById('supp-count').textContent = suppressions.length
+      ? `${suppressions.length}` : '';
+    box.innerHTML = suppressions.length
+      ? `<ul class="rows">${suppressions.map((s) => `<li>
+          <div class="row-between">
+            <div style="min-width:0;">
+              <span class="t">${esc(s.client_name || s.email)}</span>
+              ${s.client_name ? `<div class="m">${esc(s.email)}</div>` : ''}
+              <div class="m">${esc(s.source || s.reason || 'unsubscribed')} &middot; ${
+                esc(dateFmt(s.created_at))}</div>
+            </div>
+            <button class="btn btn-ghost btn-sm" data-back="${esc(s.email)}">Put back</button>
+          </div></li>`).join('')}</ul>`
+      : `<div class="card-pad"><p class="muted" style="margin:0;">Nobody has opted out.</p></div>`;
+
+    box.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', async () => {
+      // Asked, because this is somebody's stated wish and the button is next
+      // to a list of them.
+      if (!confirm(`Put ${b.dataset.back} back on the marketing list? Do this when they have `
+        + 'said so, not to try again.')) return;
+      try {
+        await api('/api/suppressions/restore', { method: 'POST', body: { email: b.dataset.back } });
+        await drawSuppressions();
+      } catch (e) { showError(err, e); }
+    }));
+  } catch (e) { showError(box, e); }
+}
+
+document.getElementById('supp-go').addEventListener('click', async () => {
+  const email = document.getElementById('supp-add').value.trim();
+  if (!email) return;
+  try {
+    await api('/api/suppressions', { method: 'POST', body: { email } });
+    document.getElementById('supp-add').value = '';
+    await drawSuppressions();
+  } catch (e) { showError(err, e); }
+});
+
 await draw();
+await drawSuppressions();
 
 // A send drains on the cron, so an open page would otherwise sit on a stale
 // number until somebody reloaded. Only while something is actually sending.

@@ -18,7 +18,8 @@
 // guessing wrong in one direction is a fine and in the other is a client who
 // never hears that their balance is due.
 
-import { uid, now, clean, sha256Hex } from './util.js';
+import { uid, now, clean, sha256Hex, json, badRequest, readJson } from './util.js';
+import { requireUser } from './auth.js';
 
 /** Lowercased and trimmed. Anything cleverer would suppress the wrong person. */
 export function normalise(email) {
@@ -209,4 +210,81 @@ export async function handleUnsubscribe(env, token) {
       from us.</p>
     <p>Anything about a trip you have booked still will. If you did not mean to do this, reply
       to any message from your advisor and they will put you back.</p>`));
+}
+
+// ---------------------------------------------------------------------------
+// What an advisor can see and do about it
+// ---------------------------------------------------------------------------
+//
+// Until now this list could only be written to, by a client clicking a link.
+// That is the wrong half to build first and it is the half that is easy: an
+// advisor who cannot see that somebody opted out will write to them personally
+// wondering why they never reply, and an advisor with no way to undo it has to
+// ring somebody at Cloudflare when a client unsubscribes by accident and then
+// rings up about it.
+//
+// The list is the agency's, the same as the sending identity is, so everybody
+// in the agency sees it and may undo an entry. That is wider than one advisor's
+// book on purpose: an address is on it once, whoever it belongs to, and an
+// entry nobody can reach is worse than one several people can.
+
+/** One person's entry, or null. Used on the client record. */
+export async function suppressionFor(env, agencyId, email) {
+  const who = normalise(email);
+  if (!who) return null;
+  try {
+    return await env.DB.prepare(
+      `SELECT email, reason, source, note, created_at FROM email_suppression
+        WHERE email = ? AND (agency_id IS ? OR agency_id IS NULL) LIMIT 1`
+    ).bind(who, agencyId || null).first();
+  } catch (e) {
+    console.error('suppressionFor', e);
+    return null;
+  }
+}
+
+export async function handleListSuppressions(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  const url = new URL(request.url);
+  const q = normalise(url.searchParams.get('q'));
+
+  const { results } = await env.DB.prepare(
+    `SELECT s.email, s.reason, s.source, s.note, s.created_at,
+            (SELECT c.name FROM clients c
+              WHERE LOWER(TRIM(c.email)) = s.email AND c.user_id = ? LIMIT 1) AS client_name
+       FROM email_suppression s
+      WHERE (s.agency_id IS ? OR s.agency_id IS NULL)
+        AND (? = '' OR s.email LIKE ?)
+      ORDER BY s.created_at DESC LIMIT 500`
+  ).bind(user.id, user.agency_id || null, q, `%${q}%`).all();
+
+  return json({ suppressions: results || [] });
+}
+
+export async function handleAddSuppression(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  const body = await readJson(request);
+  const email = normalise(body.email);
+  if (!email) return badRequest('Which address?');
+  // "They told me on the phone" is the ordinary way this happens and it has to
+  // be recordable, or it lives in somebody's memory until the next send.
+  await suppress(env, user.agency_id || null, email, {
+    reason: clean(body.reason, 40) || 'asked us to stop',
+    source: 'added by their advisor',
+    note: clean(body.note, 200),
+  });
+  return json({ ok: true });
+}
+
+export async function handleRestoreSuppression(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  const body = await readJson(request);
+  const email = normalise(body.email);
+  if (!email) return badRequest('Which address?');
+  const done = await unsuppress(env, user.agency_id || null, email);
+  if (!done) return badRequest('That address is not on the list.');
+  return json({ ok: true });
 }

@@ -414,7 +414,20 @@ function drawContact(d) {
       || legal || c.passport_number || addr || loyalty.length
       || c.known_traveler || c.redress || c.gender || c.citizenship;
 
-    box.innerHTML = has
+    // Said before the address rather than after it, because the point of
+    // showing it at all is that somebody about to write to them reads it
+    // first. A marketing send drops them on its own; this is for the advisor
+    // who was going to type something personal.
+    const optOut = d.unsubscribed ? `<div class="notice notice-warn" style="margin:0 0 1rem;">
+      <strong>${esc(c.name)} has asked not to receive marketing email.</strong>
+      ${esc(d.unsubscribedAt ? `Recorded ${dateFmt(d.unsubscribedAt)}` : '')}${
+        d.unsubscribedHow ? ` &middot; ${esc(d.unsubscribedHow)}` : ''}.
+      Anything about a trip they have booked still reaches them.
+      <button class="btn btn-ghost btn-sm" id="restore-email"
+        style="margin-top:.6rem;">Put them back on the list</button>
+    </div>` : '';
+
+    box.innerHTML = optOut + (has
       ? `<dl class="pairs">
           ${c.phone ? `<dt>Phone</dt><dd><a href="tel:${esc(c.phone)}">${esc(c.phone)}</a></dd>` : ''}
           ${c.email ? `<dt>Email</dt><dd><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></dd>` : ''}
@@ -435,9 +448,20 @@ function drawContact(d) {
           ${c.redress ? `<dt>Redress</dt><dd>${esc(c.redress)}</dd>` : ''}
           ${c.notes ? `<dt>Notes</dt><dd>${esc(c.notes)}</dd>` : ''}
         </dl>`
-      : '<p class="muted" style="margin:0;font-size:.86rem;">No phone or email on file yet.</p>';
+      : '<p class="muted" style="margin:0;font-size:.86rem;">No phone or email on file yet.</p>');
     const edit = document.getElementById('edit-contact');
     if (edit) edit.addEventListener('click', () => { editing = true; drawContact(d); });
+
+    const restore = document.getElementById('restore-email');
+    if (restore) restore.addEventListener('click', async () => {
+      if (!confirm(`Put ${c.email} back on the marketing list? Do this when they have said `
+        + 'so, not to try again.')) return;
+      restore.disabled = true;
+      try {
+        await api('/api/suppressions/restore', { method: 'POST', body: { email: c.email } });
+        await load();
+      } catch (e) { showError(err, e); restore.disabled = false; }
+    });
     return;
   }
 

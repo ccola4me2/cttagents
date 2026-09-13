@@ -36,7 +36,10 @@ import {
 } from './share.js';
 import { handleReadConfirmation } from './confirm.js';
 import { migrationHint } from './schema-drift.js';
-import { renderUnsubscribe, handleUnsubscribe } from './suppression.js';
+import {
+  renderUnsubscribe, handleUnsubscribe, handleListSuppressions,
+  handleAddSuppression, handleRestoreSuppression,
+} from './suppression.js';
 import {
   handleSegmentRules, handleSegmentPreview, handleListSegments,
   handleSaveSegment, handleDeleteSegment,
@@ -645,6 +648,12 @@ async function routeApi(request, env, path, method) {
   if (castMatch && method === 'GET') return handleGetBroadcast(request, env, castMatch[1]);
   if (castMatch && method === 'PUT') return handleSaveBroadcast(request, env, castMatch[1]);
   if (castMatch && method === 'DELETE') return handleDeleteBroadcast(request, env, castMatch[1]);
+
+  if (path === '/api/suppressions' && method === 'GET') return handleListSuppressions(request, env);
+  if (path === '/api/suppressions' && method === 'POST') return handleAddSuppression(request, env);
+  if (path === '/api/suppressions/restore' && method === 'POST') {
+    return handleRestoreSuppression(request, env);
+  }
 
   if (unsubMatch && method === 'GET') return renderUnsubscribe(env, unsubMatch[1]);
   if (unsubMatch && method === 'POST') return handleUnsubscribe(env, unsubMatch[1]);
