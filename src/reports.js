@@ -432,7 +432,11 @@ async function noticesFor(env, user, scope) {
       tone: 'warn',
       title: `${undated.n} booked trip${undated.n === 1 ? '' : 's'} with no final payment date`,
       detail: 'Nothing can warn you about a deadline that was never recorded.',
-      href: '/app/reservations', label: 'Open reservations',
+      // Fill in the gaps, not the full reservation list. It is the screen
+      // built for this exact question: the trips missing a date, with the date
+      // typed straight into the row. Sending somebody to a list of everything
+      // makes them find the ones this notice already counted.
+      href: '/app/complete', label: 'Fill in the gaps',
     });
   }
 
@@ -449,8 +453,18 @@ async function noticesFor(env, user, scope) {
     out.push({
       tone: 'warn',
       title: 'Email is not configured',
-      detail: 'Approvals, resets and automation emails cannot be sent until RESEND_API_KEY is set.',
-      href: '/app/settings', label: 'Settings',
+      // Everything that stops, not a sample of it. The list used to end at
+      // automations, which reads as "some background thing is off" rather than
+      // "no client will hear from this portal about a payment".
+      detail: 'Nothing can be emailed until RESEND_API_KEY is set on the Worker: not advisor '
+        + 'invites or password resets, not payment reminders to clients, not quotes or '
+        + 'statements, and not automations. A message waiting to go out stays queued rather '
+        + 'than failing, so nothing is lost in the meantime.',
+      // The admin page, not Settings. The key is a Worker secret and is not on
+      // any page of the portal, so Settings was sending whoever read this to
+      // the one screen that cannot help. Admin at least says whether Resend
+      // accepts the key and whether the sending domain is verified.
+      href: '/admin/', label: 'Check email',
     });
   }
 

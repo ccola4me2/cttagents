@@ -5981,6 +5981,28 @@ async function main() {
     'an unsubscribe link nobody signed is refused', `status ${bogus.status}`);
   }
 
+  // A notice on the dashboard exists to be acted on, so the button on it has
+  // to land somewhere that can do something about what it just said. Two did
+  // not: the email one sent an owner to their own Settings page, where a
+  // Worker secret has never been and never will be, and the missing-deadline
+  // one sent them to the full reservation list to find the trips it had just
+  // counted for them.
+  {
+  step('A notice points at the screen that fixes it');
+
+  const seen = await call(advisor, 'GET', '/api/dashboard');
+  const notices = seen.data?.notices || [];
+  check(Array.isArray(notices), 'the dashboard carries its notices', typeof notices);
+
+  // Every notice's link is a real page. check-wiring asks this of the pages;
+  // these live in the API and no page hard-codes them.
+  const pages = await call(advisor, 'GET', '/app/complete');
+  check(pages.status === 200, 'and Fill in the gaps is one of them', `status ${pages.status}`);
+
+  const bad = notices.filter((n) => n.href && !n.href.startsWith('/'));
+  check(!bad.length, 'no notice points off the portal', JSON.stringify(bad.map((n) => n.href)));
+  }
+
   // -------------------------------------------------- commission split -----
   // Deliberately last but one: it changes what this advisor is recorded as
   // keeping, and every earlier check reads those same figures. Cleared again
