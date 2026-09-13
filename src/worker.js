@@ -336,19 +336,6 @@ async function routeRequest(request, env, ctx) {
   const path = url.pathname.replace(/\/{2,}/g, '/');
   const method = request.method.toUpperCase();
 
-  // The unsubscribe link, which is the one address in this Worker that is
-  // opened by a client rather than an advisor and has to work with no session
-  // at all. It lived inside routeApi, which only ever runs for /api/, so every
-  // marketing footer pointed at a static 404. Nothing else in there is
-  // reachable from outside /api/, and the smoke suite now asks.
-  //
-  // Two steps, not one: a one-click link is fired by every scanner and preview
-  // pane between the sender and the reader, so the GET asks and the POST does
-  // it.
-  const unsubMatch = path.match(/^\/u\/([A-Za-z0-9._-]+)$/);
-  if (unsubMatch && method === 'GET') return renderUnsubscribe(env, unsubMatch[1]);
-  if (unsubMatch && method === 'POST') return handleUnsubscribe(env, unsubMatch[1]);
-
   if (path.startsWith('/api/')) return routeApi(request, env, path, method);
 
   // Everything else is a page or a static file.
@@ -888,6 +875,21 @@ async function routePage(request, env, path) {
   // Hosted forms are public: no session, no gate. They are how leads arrive.
   const hosted = path.match(/^\/f\/([^/]+)\/?$/);
   if (hosted) return renderPublicForm(request, env, decodeURIComponent(hosted[1]));
+
+  // Unsubscribe, which is where every marketing footer points. Here with the
+  // rest of what a client opens, rather than in routeApi where it spent its
+  // whole life answering a static 404: routeApi only runs for /api/, so the
+  // route was never reached. check-wiring asks now.
+  //
+  // Two steps, not one. A one-click link is fired by every scanner and preview
+  // pane between the sender and the reader, so the GET asks and the POST does
+  // it.
+  const unsub = path.match(/^\/u\/([A-Za-z0-9._-]+)$/);
+  if (unsub) {
+    return request.method === 'POST'
+      ? handleUnsubscribe(env, unsub[1])
+      : renderUnsubscribe(env, unsub[1]);
+  }
 
   // A client's own trip, on a code that is not the booking id. Read only: it
   // answers "what is booked, what have I paid, what is due", which otherwise

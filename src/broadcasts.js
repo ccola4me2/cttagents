@@ -82,22 +82,42 @@ export function merge(body, row) {
   return { text, blanks: [...blanks] };
 }
 
-/** The agency behind an advisor, for the footer. */
+/**
+ * The agency behind an advisor, for the footer.
+ *
+ * The address falls through rather than coming from one place, because it is
+ * held in two and either is a real postal address. The agency's own comes
+ * first: it is the one the clients are told about and the one an owner
+ * maintains. The advisor's own is the fallback, since a footer with their
+ * address is lawful and a footer with none is not.
+ *
+ * `addressFrom` says which it came from, so a screen can send somebody to the
+ * page that actually holds the blank one instead of guessing.
+ */
 async function agencyFor(env, user) {
-  if (!user.agency_id) {
-    // No agency row, so the footer falls back to what the user record holds.
-    // A missing address is a thing to fix on the settings page, not a reason
-    // the send stops.
-    return { id: null, name: user.agency_name || null, address: user.agency_address || null };
-  }
+  const ownAddress = user.agency_address || null;
+  const mine = {
+    id: user.agency_id || null,
+    name: user.agency_name || null,
+    address: ownAddress,
+    addressFrom: ownAddress ? 'you' : null,
+  };
+  if (!user.agency_id) return mine;
+
   try {
     const row = await env.DB.prepare(
       'SELECT id, name, address FROM agencies WHERE id = ? LIMIT 1'
     ).bind(user.agency_id).first();
-    return row || { id: user.agency_id, name: user.agency_name || null, address: null };
+    if (!row) return mine;
+    return {
+      id: row.id,
+      name: row.name || user.agency_name || null,
+      address: row.address || ownAddress,
+      addressFrom: row.address ? 'agency' : (ownAddress ? 'you' : null),
+    };
   } catch (e) {
     console.error('agencyFor', e);
-    return { id: user.agency_id, name: user.agency_name || null, address: null };
+    return mine;
   }
 }
 
@@ -300,6 +320,14 @@ export async function handlePreviewBroadcast(request, env) {
       unsubscribeUrl: `${appUrl(env)}/u/preview`,
     }),
     missingAddress: !agency.address,
+    // Which of the two places it came from, or where the blank one lives.
+    // Sending somebody to the wrong settings page is worse than saying
+    // nothing: they look, find the field already filled in, and send anyway.
+    addressFrom: agency.addressFrom,
+    // An associate cannot edit the agency record, so the fix for them is a
+    // conversation rather than a form.
+    canFixAgency: user.role === 'admin',
+    inAgency: Boolean(user.agency_id),
   });
 }
 

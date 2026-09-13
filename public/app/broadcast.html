@@ -144,9 +144,19 @@ async function check() {
 
     const warn = [];
     if (d.missingAddress) {
-      warn.push(`<div class="notice notice-warn">Your agency has no postal address on
-        <a href="/app/settings">Settings</a>. Marketing email is supposed to carry one, and
-        spam filters read a missing address as a bad sign. The send still works.</div>`);
+      // Named precisely, because the address lives in two places and sending
+      // somebody to the wrong one is worse than saying nothing: they open it,
+      // find a filled-in field, and send anyway.
+      const where = !d.inAgency
+        ? 'on <a href="/app/settings">your settings</a>'
+        : (d.canFixAgency
+          ? 'on <a href="/admin/agencies">the agency record</a>, or your own on '
+            + '<a href="/app/settings">your settings</a>'
+          : 'on the agency record, which your agency owner maintains. Your own address '
+            + 'on <a href="/app/settings">your settings</a> would be used instead');
+      warn.push(`<div class="notice notice-warn">There is no postal address to put in the
+        footer. Marketing email is supposed to carry one, and a spam filter reads a missing
+        address as a bad sign. Add one ${where}. The send still works without it.</div>`);
     }
     if (d.blanks.length) {
       warn.push(`<div class="notice notice-warn">Nothing behind
