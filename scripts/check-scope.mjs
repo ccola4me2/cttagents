@@ -43,6 +43,10 @@ const OWNED = new Set([
   'group_registrations', 'task_items', 'task_templates', 'trip_messages',
   'hotlist_actions', 'specials', 'special_leads', 'households', 'form_templates',
   'advisor_billing',
+  // A saved list is one advisor's question about their own book. The rules
+  // it holds are run inside that advisor's scope, so the list itself is
+  // theirs the same way a saved search would be.
+  'segments',
   'itinerary_items', 'itinerary_library',
 ]);
 
