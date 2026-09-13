@@ -5524,6 +5524,216 @@ async function main() {
     'a traveller with no date of birth is not guessed at');
   }
 
+  // ------------------------------------------------------- lists and email -
+  // Three features that only work as one: a list decides who, the suppression
+  // list decides who not, and a broadcast does the writing. None of it had
+  // ever run outside my own head.
+  //
+  // The sending itself is not driven here. It happens on the cron and needs a
+  // Resend key, which CI has no business holding; what is driven is everything
+  // up to and including the queue, which is where all the decisions are.
+  {
+  step('Who to write to, and writing to them');
+
+  const listed = `Listed ${stamp}`;
+  const quiet = `Quiet ${stamp}`;
+
+  const sailing = await call(advisor, 'POST', '/api/bookings', {
+    clientName: listed, supplier: 'Princess Cruises', status: 'booked',
+    departDate: isoDay(20), returnDate: isoDay(27), gross: '5000', commission: '500',
+  });
+  if (sailing.data?.booking?.id) cleanup('the listed reservation', () =>
+    call(advisor, 'DELETE', `/api/bookings/${sailing.data.booking.id}`));
+
+  // Somebody who travelled and has nothing ahead of them, so every rule below
+  // has a person it must leave out as well as one it must find. A list that
+  // returns everybody looks exactly like a list that works.
+  const lapsed = await call(advisor, 'POST', '/api/bookings', {
+    clientName: quiet, supplier: 'Holland America', status: 'travelled',
+    departDate: isoDay(-200), returnDate: isoDay(-190), gross: '3000', commission: '300',
+  });
+  if (lapsed.data?.booking?.id) cleanup('the lapsed reservation', () =>
+    call(advisor, 'DELETE', `/api/bookings/${lapsed.data.booking.id}`));
+
+  // A list is for writing to, so only clients with an address are on one.
+  // Recorded here rather than assumed, because a booking does not ask for it.
+  const idFor = async (name) => {
+    const res = await call(advisor, 'GET', `/api/clients?q=${encodeURIComponent(name)}`);
+    return (res.data?.clients || []).find((c) => c.name === name)?.id;
+  };
+  const listedId = await idFor(listed);
+  const quietId = await idFor(quiet);
+  if (listedId) {
+    await call(advisor, 'PUT', `/api/clients/${listedId}`,
+      { name: listed, email: `listed-${stamp}@example.com` });
+  }
+  if (quietId) {
+    await call(advisor, 'PUT', `/api/clients/${quietId}`,
+      { name: quiet, email: `quiet-${stamp}@example.com` });
+  }
+  check(listedId && quietId, 'two clients to build a list out of',
+    `${listedId ? 'one' : 'no'} sailing, ${quietId ? 'one' : 'no'} lapsed`);
+
+  const rules = await call(advisor, 'GET', '/api/segments/rules');
+  const ruleKeys = (rules.data?.rules || []).map((r) => r.key);
+  check(rules.status === 200 && ruleKeys.includes('sailing_within')
+    && ruleKeys.includes('nothing_booked'),
+    'the rules a list can be built from come from the server', ruleKeys.join(', '));
+
+  // No rules is the whole book, and it says so rather than showing a number
+  // that looks like a segment.
+  const everybody = await call(advisor, 'POST', '/api/segments/preview', { rules: [] });
+  check(everybody.data?.everybody === true,
+    'no rules is announced as everybody, not shown as a count',
+    JSON.stringify(everybody.data?.everybody));
+
+  const soon = await call(advisor, 'POST', '/api/segments/preview',
+    { rules: [{ key: 'sailing_within', n: 60 }] });
+  const soonNames = (soon.data?.people || []).map((p) => p.name);
+  check(soon.data?.everybody === false && soonNames.includes(listed),
+    'a rule about sailing soon finds the person sailing soon', soonNames.join(', '));
+  check(!soonNames.includes(quiet),
+    'and leaves out the one with nothing booked', soonNames.join(', '));
+
+  // The opposite rule, so a pass is not just "the query returned everybody".
+  const idle = await call(advisor, 'POST', '/api/segments/preview',
+    { rules: [{ key: 'nothing_booked' }] });
+  const idleNames = (idle.data?.people || []).map((p) => p.name);
+  check(idleNames.includes(quiet) && !idleNames.includes(listed),
+    'and the rule for nobody booked finds the other one', idleNames.join(', '));
+
+  // The numbers the page puts above a button.
+  check(typeof soon.data?.total === 'number' && soon.data.optedOut === 0,
+    'a list says how many match and how many have opted out',
+    `${soon.data?.total} matching, ${soon.data?.optedOut} opted out`);
+
+  const emptyRules = await call(advisor, 'POST', '/api/segments',
+    { name: `Everyone ${stamp}`, rules: [] });
+  check(emptyRules.status === 400,
+    'a list with no rules is refused when it is named, not when it is used',
+    `status ${emptyRules.status}`);
+
+  const saved = await call(advisor, 'POST', '/api/segments',
+    { name: `Sailing soon ${stamp}`, rules: [{ key: 'sailing_within', n: 60 }] });
+  const segmentId = saved.data?.id;
+  check(saved.status === 201 && segmentId, 'a list can be saved by name', `status ${saved.status}`);
+  if (segmentId) cleanup('the saved list', () =>
+    call(advisor, 'DELETE', `/api/segments/${segmentId}`));
+
+  const mine = await call(advisor, 'GET', '/api/segments');
+  const back = (mine.data?.segments || []).find((x) => x.id === segmentId);
+  check(back && back.rules.length === 1 && back.rules[0].key === 'sailing_within',
+    'and comes back as the rules rather than as the people',
+    back && JSON.stringify(back.rules));
+
+  // The Lists page is a view, so an owner looking at "all advisors" sees the
+  // agency there, and says so. A message is not a view: it goes out as one
+  // person, so who it reaches is that person's own book whatever the picker
+  // says. The two would quietly become one permission if the send borrowed
+  // the viewing scope, and an owner would email an associate's clients as
+  // themselves.
+  const ownersSend = await call(admin, 'POST', '/api/broadcasts/preview',
+    { rules: [{ key: 'sailing_within', n: 60 }] });
+  check(ownersSend.status === 200 && ownersSend.data?.sample?.name !== listed,
+    'a message an owner sends reaches their own book, not the agency\'s',
+    JSON.stringify(ownersSend.data?.sample));
+
+  // --- the message itself
+
+  const noList = await call(advisor, 'POST', '/api/broadcasts',
+    { name: `No list ${stamp}`, subject: 'Hello', body: 'Hello', rules: [] });
+  check(noList.status === 400, 'a message with no list behind it is refused',
+    `status ${noList.status}`);
+
+  const draft = await call(advisor, 'POST', '/api/broadcasts', {
+    name: `Autumn ${stamp}`, subject: 'A word before you sail, {{first_name}}',
+    body: 'Hello {{first_name}}, one thing before you go.', segmentId,
+  });
+  const castId = draft.data?.id;
+  check(draft.status === 201 && castId, 'a message can be saved as a draft',
+    `status ${draft.status}`);
+  if (castId) cleanup('the draft message', () => call(advisor, 'DELETE', `/api/broadcasts/${castId}`));
+
+  const preview = await call(advisor, 'POST', '/api/broadcasts/preview', {
+    segmentId, subject: 'A word before you sail, {{first_name}}',
+    body: 'Hello {{first_name}}, one thing before you go.',
+  });
+  // Compared against the sample the server actually chose rather than against
+  // a name guessed here: by this point in the suite the advisor has a book,
+  // and whoever sorts first is not for this section to predict.
+  const sampleFirst = String(preview.data?.sample?.name || '').split(' ')[0];
+  check(preview.status === 200
+    && preview.data?.body === `Hello ${sampleFirst}, one thing before you go.`,
+    'the preview fills the merge fields in against a real client',
+    preview.data?.body);
+  check((preview.data?.footer || '').includes('Unsubscribe'),
+    'and carries the way out that makes it lawful to send', preview.data?.footer);
+
+  const blanks = await call(advisor, 'POST', '/api/broadcasts/preview',
+    { segmentId, subject: 'Hi', body: 'Hello {{nickname_that_does_not_exist}}.' });
+  check((blanks.data?.body || '').includes('{{nickname_that_does_not_exist}}'),
+    'a token nothing knows about is left alone rather than blanked',
+    blanks.data?.body);
+
+  // --- somebody opts out
+
+  const optOut = `listed-${stamp}@example.com`;
+  const suppressed = await call(advisor, 'POST', '/api/suppressions', { email: optOut });
+  check(suppressed.status === 200, 'an advisor can record that somebody asked to stop',
+    `status ${suppressed.status}`);
+  cleanup('the opt out', () => call(advisor, 'POST', '/api/suppressions/restore', { email: optOut }));
+
+  const optedList = await call(advisor, 'GET', '/api/suppressions');
+  check((optedList.data?.suppressions || []).some((x) => x.email === optOut),
+    'and see them on the list afterwards',
+    (optedList.data?.suppressions || []).length + ' on the list');
+
+  const after = await call(advisor, 'POST', '/api/segments/preview',
+    { rules: [{ key: 'sailing_within', n: 60 }] });
+  check(after.data?.optedOut === (soon.data?.optedOut || 0) + 1,
+    'the list then counts one more of them as opted out',
+    `${soon.data?.optedOut} then ${after.data?.optedOut}`);
+  check(after.data?.total === soon.data?.total,
+    'while still counting them as matching, because they do',
+    `${after.data?.total} vs ${soon.data?.total}`);
+
+  // --- sending
+
+  const send = await call(advisor, 'POST', `/api/broadcasts/${castId}/send`);
+  check(send.status === 200 && send.data?.queued >= 1,
+    'sending freezes the people it is going to', JSON.stringify(send.data));
+
+  const frozen = await call(advisor, 'GET', `/api/broadcasts/${castId}`);
+  check(frozen.data?.broadcast?.status === 'sending'
+    && (frozen.data?.recipients || []).length === send.data?.queued,
+    'and writes one row per person, all of them waiting',
+    `${(frozen.data?.recipients || []).length} rows, status ${frozen.data?.broadcast?.status}`);
+  check((frozen.data?.recipients || []).every((r) => r.status === 'queued'),
+    'nothing is marked sent before the cron has sent it',
+    (frozen.data?.recipients || []).map((r) => r.status).join(', '));
+
+  const edited = await call(advisor, 'PUT', `/api/broadcasts/${castId}`, {
+    name: `Autumn ${stamp}`, subject: 'Something else entirely', body: 'Changed.', segmentId,
+  });
+  check(edited.status === 400,
+    'a message that has gone out cannot be edited afterwards', `status ${edited.status}`);
+
+  const stop = await call(advisor, 'POST', `/api/broadcasts/${castId}/cancel`);
+  check(stop.status === 200, 'a send in flight can be stopped', `status ${stop.status}`);
+
+  const stopped = await call(advisor, 'GET', `/api/broadcasts/${castId}`);
+  check(stopped.data?.broadcast?.status === 'cancelled'
+    && (stopped.data?.recipients || []).every((r) => r.status === 'skipped'),
+    'and everyone still waiting is left alone',
+    (stopped.data?.recipients || []).map((r) => r.status).join(', '));
+
+  // --- the link in the footer
+
+  const bogus = await call(null, 'GET', '/u/not-a-real-token');
+  check(bogus.status === 404 && /not one of ours/i.test(bogus.raw || ''),
+    'an unsubscribe link nobody signed is refused', `status ${bogus.status}`);
+  }
+
   // -------------------------------------------------- commission split -----
   // Deliberately last but one: it changes what this advisor is recorded as
   // keeping, and every earlier check reads those same figures. Cleared again

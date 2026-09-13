@@ -234,11 +234,17 @@ export async function handleSaveBroadcast(request, env, id = null) {
 export async function handleDeleteBroadcast(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+  // A draft, or a send that was stopped before anything went out. A message
+  // that reached even one person is the record of that, and removing it would
+  // make the portal quietly disagree with somebody's inbox. A send cancelled
+  // two seconds after it was started by mistake is not a record of anything,
+  // and being stuck with it forever is its own small bug.
   const res = await env.DB.prepare(
-    `DELETE FROM broadcasts WHERE id = ? AND user_id = ? AND status = 'draft'`
+    `DELETE FROM broadcasts WHERE id = ? AND user_id = ?
+       AND (status = 'draft' OR (status = 'cancelled' AND sent_count = 0))`
   ).bind(id, user.id).run();
   if (!res.meta || !res.meta.changes) {
-    return badRequest('Only a draft can be removed. A sent message is the record of a send.');
+    return badRequest('This went out to somebody, so it stays as the record of that.');
   }
   await env.DB.prepare(
     'DELETE FROM broadcast_recipients WHERE broadcast_id = ? AND user_id = ?'

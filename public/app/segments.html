@@ -36,6 +36,7 @@
               <span class="muted" id="sample-note"></span></div>
             <div id="people"><p class="spinner">Loading...</p></div>
           </section>
+          <div id="scope-note"></div>
         </div>
 
         <div>
@@ -67,6 +68,7 @@ await mountShell();
 
 const err = document.getElementById('err');
 const rulesBox = document.getElementById('rules');
+const scopeNote = document.getElementById('scope-note');
 let available = [];
 let chosen = [];          // [{ key, n, text }]
 let editingId = null;
@@ -148,6 +150,7 @@ async function preview() {
 
     if (d.everybody) {
       note.textContent = '';
+      scopeNote.innerHTML = '';
       people.innerHTML = `<div class="card-pad"><p class="muted" style="margin:0;">
         No rules chosen, so this is your whole book. Tick something on the left.</p></div>`;
       return;
@@ -155,6 +158,16 @@ async function preview() {
 
     note.textContent = d.total > d.people.length
       ? `first ${d.people.length} of ${d.total}` : '';
+
+    // A list is a view and a message is not. An owner reading the agency here
+    // is asking a fair question about the book; a message goes out as one
+    // person, so it reaches that person's own clients whatever this picker
+    // says. Without this line the two screens disagree about the same list and
+    // neither explains why.
+    const mine = d.scope && !d.scope.all && d.scope.advisorId === d.scope.viewerId;
+    scopeNote.innerHTML = mine ? '' : `<div class="notice notice-info" style="margin-top:1rem;">
+      You are looking at ${esc(d.scope?.label || 'more than your own')}. A message sent to
+      this list still goes to your own clients only, because it goes out as you.</div>`;
 
     people.innerHTML = d.people.length
       ? `<div class="table-wrap"><table>
