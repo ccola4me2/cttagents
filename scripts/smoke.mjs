@@ -3178,33 +3178,38 @@ async function main() {
   // supplier and is worth refreshing; notes are the one field on the record
   // that somebody typed, and the import was overwriting them with whatever
   // the file carried, or blanking them when it carried nothing.
+  //
+  // Driven as the owner, because importing a directory writes several hundred
+  // rows and is admin only.
   {
     const supplier = `Refresh ${stamp}`;
-    const made = await call(advisor, 'POST', '/api/vendors/import', {
-      commit: true,
-      rows: [{ name: supplier, category: 'Cruise', partnerStatus: 'Preferred' }],
-    });
-    if (made.status === 200) {
-      const list = await call(advisor, 'GET', '/api/vendors');
-      const row = (list.data?.vendors || []).find((v) => v.name === supplier);
-      if (row) {
-        cleanup('the refreshed supplier', () => call(advisor, 'DELETE', `/api/vendors/${row.id}`));
-        await call(advisor, 'PUT', `/api/vendors/${row.id}`,
-          { name: supplier, category: 'Cruise', notes: 'Ring Maria, not the desk.' });
-        await call(advisor, 'POST', '/api/vendors/import', {
-          commit: true,
-          rows: [{ name: supplier, category: 'Cruise', partnerStatus: 'Preferred' }],
-        });
-        const again = await call(advisor, 'GET', '/api/vendors');
-        const after = (again.data?.vendors || []).find((v) => v.name === supplier);
-        check(after && after.notes === 'Ring Maria, not the desk.',
-          'a supplier list refresh leaves the notes somebody typed alone',
-          after && JSON.stringify(after.notes));
-      } else {
-        skip('the supplier refresh', 'the import did not produce a row to check');
-      }
+    const row = { name: supplier, category: 'Cruise Lines', status: 'Preferred' };
+    const made = await call(admin, 'POST', '/api/vendors/import', { commit: true, rows: [row] });
+
+    const find = async () => {
+      const list = await call(admin, 'GET', '/api/vendors');
+      return (list.data?.vendors || []).find((v) => v.name === supplier);
+    };
+    const imported = made.status === 200 ? await find() : null;
+
+    if (!imported) {
+      skip('the supplier refresh',
+        `the import answered ${made.status} and left no row to check`);
     } else {
-      skip('the supplier refresh', `the import answered ${made.status}`);
+      cleanup('the refreshed supplier', () => call(admin, 'DELETE', `/api/vendors/${imported.id}`));
+
+      const typed = 'Ring Maria, not the desk.';
+      await call(admin, 'PUT', `/api/vendors/${imported.id}`,
+        { name: supplier, category: 'Cruise Lines', notes: typed });
+      await call(admin, 'POST', '/api/vendors/import', { commit: true, rows: [row] });
+
+      const after = await find();
+      check(after && after.notes === typed,
+        'a supplier list refresh leaves the notes somebody typed alone',
+        after && JSON.stringify(after.notes));
+      check(after && after.partner_status === 'Preferred',
+        'and still refreshes what the partner list is the record for',
+        after && after.partner_status);
     }
   }
 
