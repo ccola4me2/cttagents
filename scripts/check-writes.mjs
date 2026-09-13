@@ -27,7 +27,13 @@ import { fileURLToPath } from 'node:url';
 import { annotate } from './lib/annotate.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const FULL_RECORD = 8;
+// Six, not eight. Eight was chosen to keep a targeted stamp out of the
+// comparison and it also hid the worst instance of the bug this exists for:
+// Trip Vara's client edit saved six fields out of twenty-six, so the statement
+// that lost the most was the one under the threshold. Six costs nothing -- the
+// findings are identical on both repositories at four, six and eight -- and it
+// sees that one.
+const FULL_RECORD = 6;
 
 // Statements that leave a column out on purpose, and why. Matched on
 // "table:column" plus a fragment of the statement, so an entry excuses one
