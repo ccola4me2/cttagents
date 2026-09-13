@@ -23,7 +23,7 @@ import { requireAdmin } from './auth.js';
 import * as db from './db.js';
 import * as ghl from './ghl.js';
 import {
-  AGENCY_COLUMNS as COLUMNS, HEX_COLOR as HEX, getAgency, getAgencyBySlug, brandOf,
+  AGENCY_COLUMNS as COLUMNS, HEX_COLOR as HEX, getAgency,
 } from './brand.js';
 
 function slugify(name) {
@@ -280,13 +280,4 @@ export async function handleProvisionAgency(request, env, id) {
     `Made the sub-account for ${agency.name}`, { id, locationId: made.id });
 
   return json({ ok: true, locationId: made.id, agency: await getAgency(env, id) }, 201);
-}
-
-/** What a join page shows before anybody has typed anything. */
-export async function handleJoinInfo(request, env, slug) {
-  const agency = await getAgencyBySlug(env, slug);
-  if (!agency || !agency.join_open) return notFound('That agency is not taking signups.');
-  // The name and the branding only. This answers to anybody with the link, so
-  // it says what the page has to show and not one field more.
-  return json({ agency: { name: agency.name, slug: agency.slug }, brand: brandOf(agency) });
 }

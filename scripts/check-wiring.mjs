@@ -20,6 +20,10 @@
 //     Clients page offered "Open households", the API and the table were both
 //     there, and the page and its route were not, so a household could be made
 //     and never looked at again.
+//   - a request handler nothing anywhere refers to. Either it is a feature
+//     with no address, which is the same bug from the other end, or it is a
+//     leftover from a fork that will read to the next person as a feature that
+//     exists.
 //
 //   node scripts/check-wiring.mjs
 
@@ -142,6 +146,32 @@ for (const [href, where] of [...dead].sort()) {
 }
 
 // ---------------------------------------------------------------------------
+// Every handler is reachable from somewhere
+// ---------------------------------------------------------------------------
+
+// A handler named in no other file has no address. That is either a feature
+// with no way in, or a leftover from the fork, and the second reads to the
+// next person exactly like the first.
+const srcDir = join(ROOT, 'src');
+const modules = new Map();
+for (const file of readdirSync(srcDir).filter((f) => f.endsWith('.js'))) {
+  modules.set(file, readFileSync(join(srcDir, file), 'utf8'));
+}
+for (const [file, code] of modules) {
+  for (const m of code.matchAll(/export\s+(?:async\s+)?function\s+(handle[A-Za-z0-9_]*)/g)) {
+    const name = m[1];
+    let used = false;
+    for (const [other, text] of modules) {
+      if (other !== file && text.includes(name)) { used = true; break; }
+    }
+    if (!used) {
+      problems.push(`src/${file} exports ${name} and nothing else in src/ names it, `
+        + 'so no address reaches it');
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 if (problems.length) {
   console.error(`check-wiring: ${problems.length} route${problems.length === 1 ? '' : 's'} `
@@ -154,4 +184,5 @@ if (problems.length) {
 }
 
 console.log(`check-wiring: every routeApi address is under /api/, all ${pages} page `
-  + 'routes point at a file that exists, and every link on a page goes somewhere');
+  + 'routes point at a file that exists, every link on a page goes somewhere, and '
+  + 'every handler is reachable');
