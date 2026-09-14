@@ -77,6 +77,20 @@ jobs:
       - name: Every lookup has something behind it
         run: npm run check:dom
 
+      # The other portal, so a fix that crossed the fork and a fix that crossed
+      # half of it can be told apart. Both repositories are public, so this
+      # needs no token. If it ever cannot be fetched the check says it skipped
+      # rather than passing quietly.
+      - name: The other portal
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          repository: ccola4me2/trip-vara-website
+          path: sibling
+
+      - name: A fix that crossed the fork, or half of one
+        run: npm run check:fork -- sibling
+
       # The one artifact that leaves this repository: the message a client
       # opens. Renders a marketing email and a transactional one and checks
       # that the first carries a way out in both halves of itself and the
