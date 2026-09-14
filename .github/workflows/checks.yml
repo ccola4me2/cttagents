@@ -69,6 +69,14 @@ jobs:
       - name: Somebody reads every box
         run: npm run check:forms
 
+      # The other direction, and the one that takes a page down rather than
+      # losing a field: a script reaching for an element the markup does not
+      # have gets null, and the .addEventListener on the next line throws while
+      # the module is still evaluating. trip-vara's Clients page shipped that
+      # way, with the whole household flow in script and none of it in markup.
+      - name: Every lookup has something behind it
+        run: npm run check:dom
+
       # The one artifact that leaves this repository: the message a client
       # opens. Renders a marketing email and a transactional one and checks
       # that the first carries a way out in both halves of itself and the
