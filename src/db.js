@@ -10,7 +10,7 @@ import { SPLIT_PCT_SQL, ADVISOR_SHARE_SQL, UNSPLIT_SQL, EARNED_SQL } from './spl
 
 const USER_COLUMNS = `
   id, email, first_name, last_name, phone, agency_name, role, status,
-  ghl_location_id, ghl_user_id, created_at, updated_at, last_login_at,
+  created_at, updated_at, last_login_at,
   approved_at, approved_by, default_split_pct, lead_split_pct,
   agency_address, seller_of_travel,
   notify_email, auto_remind_clients, weekly_call_list, call_list_sent_at,
@@ -52,8 +52,8 @@ export async function createUser(env, fields) {
   await env.DB.prepare(
     `INSERT INTO users
        (id, email, password_hash, first_name, last_name, phone, agency_name,
-        role, status, ghl_location_id, ghl_user_id, created_at, updated_at, agency_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        role, status, created_at, updated_at, agency_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     id,
     fields.email,
@@ -64,8 +64,6 @@ export async function createUser(env, fields) {
     fields.agencyName || null,
     fields.role || 'advisor',
     fields.status || 'pending',
-    fields.ghlLocationId || null,
-    fields.ghlUserId || null,
     ts,
     ts,
     fields.agencyId || null
@@ -138,13 +136,6 @@ export async function setUserStatus(env, id, status, approvedBy = null) {
 }
 
 /** Bind an advisor to their own tenant partition. Admin only. */
-export async function setUserGhl(env, id, { agencyId, ghlUserId }) {
-  await env.DB.prepare(
-    'UPDATE users SET ghl_location_id = ?, ghl_user_id = ?, updated_at = ? WHERE id = ?'
-  ).bind(agencyId || null, ghlUserId || null, now(), id).run();
-  return getUserById(env, id);
-}
-
 /**
  * An advisor's standing share of the commission they bill.
  *

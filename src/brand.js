@@ -10,7 +10,7 @@
 // and import this.
 
 export const AGENCY_COLUMNS = `
-  id, name, slug, ghl_location_id, address, phone, email, website,
+  id, name, slug, address, phone, email, website,
   seller_of_travel, logo_url, brand_color, tagline, join_open,
   created_at, updated_at
 `;

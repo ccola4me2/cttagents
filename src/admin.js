@@ -147,9 +147,6 @@ export async function handleCreateAdvisor(request, env) {
 
   const user = await db.createUser(env, {
     agencyId,
-    // Their agency's CRM sub-account, so a new advisor lands in the right one
-    // without anybody remembering to set it.
-    ghlLocationId: agency ? agency.ghl_location_id : null,
     email,
     // Random and thrown away. The account cannot be signed into until the
     // invite sets a real one, which is the point: no default password exists
@@ -281,24 +278,6 @@ export async function handleSetAdvisorStatus(request, env, userId) {
 
   await db.logActivity(env, admin.id, 'admin.status',
     `Set ${updated.email} to ${status}`, { userId, status });
-  return json({ ok: true, user: publicUser(updated) });
-}
-
-export async function handleSetAdvisorGhl(request, env, userId) {
-  const { user: admin, response } = await requireAdmin(request, env);
-  if (response) return response;
-  const reach = await reachable(env, admin, userId);
-  if (reach.error) return reach.error;
-
-  const body = await readJson(request);
-  const updated = await db.setUserGhl(env, userId, {
-    locationId: clean(body.ghlLocationId, 64),
-    ghlUserId: clean(body.ghlUserId, 64),
-  });
-  if (!updated) return notFound('Advisor not found.');
-
-  await db.logActivity(env, admin.id, 'admin.ghl',
-    `Bound ${updated.email} to location ${updated.ghl_location_id || 'default'}`, { userId });
   return json({ ok: true, user: publicUser(updated) });
 }
 

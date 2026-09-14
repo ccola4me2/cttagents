@@ -110,11 +110,6 @@ RESET_TTL_MINUTES = "60"
 
 # GoHighLevel. The agency default sub-account every advisor falls back to when
 # they have no sub-account of their own recorded in D1.
-# The tenant every advisor's automations and forms are partitioned under,
-# unless their own user row names a different one. The name is historical: the
-# value came from the CRM that used to sit behind this portal, and the rows
-# still carry it. See src/tenant.js for why it was not renamed.
-GHL_DEFAULT_LOCATION_ID = "JxDfISzvUbtcobLNDHl3"
 
 # Payment reminders, task digests, the broadcast queue and the automation
 # runner. Every 5 minutes; each job no-ops cheaply when it has nothing to do.

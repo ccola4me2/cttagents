@@ -59,11 +59,6 @@
       </div>
       <div class="field"><label for="address">Address</label>
         <textarea id="address" name="address" maxlength="300"></textarea></div>
-      <div class="field" id="ghl-field"><label for="ghlLocationId">Automation partition</label>
-        <input id="ghlLocationId" name="ghlLocationId" maxlength="64">
-        <p class="field-hint">Left over from the old CRM, and still the key that decides which
-          advisors an automation or a form reaches. New advisors inherit it. It does not decide
-          who can see whose records: the agency does that.</p></div>
       <label style="display:flex;align-items:flex-start;gap:.6rem;font-weight:400;">
         <input type="checkbox" id="joinOpen" name="joinOpen" style="width:auto;flex:none;margin-top:.25rem;">
         <span><strong style="color:var(--navy-800);">The join link is open</strong>
@@ -160,7 +155,7 @@ function openEdit(a) {
   set('name', a.name); set('tagline', a.tagline); set('logoUrl', a.logo_url);
   set('brandColor', a.brand_color); set('phone', a.phone); set('email', a.email);
   set('website', a.website); set('sellerOfTravel', a.seller_of_travel);
-  set('address', a.address); set('ghlLocationId', a.ghl_location_id);
+  set('address', a.address);
   form.elements.joinOpen.checked = Boolean(a.join_open);
   dlg.showModal();
 }

@@ -59,7 +59,6 @@ function parse(body) {
   return {
     fields: {
       name,
-      ghlLocationId: clean(body.ghlLocationId, 64) || null,
       address: cleanText(body.address, 300),
       phone: clean(body.phone, 40),
       email: clean(body.email, 254),
@@ -90,7 +89,7 @@ export async function handleListAgencies(request, env) {
   const binds = user.platform_owner ? [] : [user.agency_id || ''];
 
   const { results } = await env.DB.prepare(
-    `SELECT a.id, a.name, a.slug, a.ghl_location_id, a.address, a.phone, a.email,
+    `SELECT a.id, a.name, a.slug, a.address, a.phone, a.email,
             a.website, a.seller_of_travel, a.logo_url, a.brand_color, a.tagline,
             a.join_open, a.created_at, a.updated_at,
             ${HEADCOUNT}, ${ACTIVE}, ${WAITING}
@@ -119,10 +118,10 @@ export async function handleCreateAgency(request, env) {
   const slug = await freeSlug(env, fields.name);
   const ts = now();
   await env.DB.prepare(
-    `INSERT INTO agencies (id, name, slug, ghl_location_id, address, phone, email, website,
+    `INSERT INTO agencies (id, name, slug, address, phone, email, website,
        seller_of_travel, logo_url, brand_color, tagline, join_open, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).bind(id, fields.name, slug, fields.ghlLocationId, fields.address, fields.phone,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).bind(id, fields.name, slug, fields.address, fields.phone,
          fields.email, fields.website, fields.sellerOfTravel, fields.logoUrl,
          fields.brandColor, fields.tagline, fields.joinOpen, ts, ts).run();
 
@@ -150,11 +149,11 @@ export async function handleUpdateAgency(request, env, id) {
   const slug = before.name === fields.name ? before.slug : await freeSlug(env, fields.name, id);
 
   await env.DB.prepare(
-    `UPDATE agencies SET name = ?, slug = ?, ghl_location_id = ?, address = ?, phone = ?,
+    `UPDATE agencies SET name = ?, slug = ?, address = ?, phone = ?,
        email = ?, website = ?, seller_of_travel = ?, logo_url = ?, brand_color = ?,
        tagline = ?, join_open = ?, updated_at = ?
      WHERE id = ?`
-  ).bind(fields.name, slug, fields.ghlLocationId, fields.address, fields.phone,
+  ).bind(fields.name, slug, fields.address, fields.phone,
          fields.email, fields.website, fields.sellerOfTravel, fields.logoUrl,
          fields.brandColor, fields.tagline, fields.joinOpen, now(), id).run();
 

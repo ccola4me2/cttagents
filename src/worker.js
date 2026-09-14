@@ -321,7 +321,6 @@ import {
 import {
   handleListAdvisors,
   handleSetAdvisorStatus,
-  handleSetAdvisorGhl,
   handleSetAdvisorSplit,
   handleCreateAdvisor,
   handleReissueInvite,
@@ -560,7 +559,7 @@ async function routeApi(request, env, path, method) {
   const payRemindMatch = path.match(/^\/api\/payments\/([^/]+)\/remind$/);
   const scheduleMatch = path.match(/^\/api\/bookings\/([^/]+)\/schedule$/);
   const bookingStatusMatch = path.match(/^\/api\/bookings\/([^/]+)\/status$/);
-  const advisorMatch = path.match(/^\/api\/admin\/advisors\/([^/]+)\/(status|ghl|split|invite)$/);
+  const advisorMatch = path.match(/^\/api\/admin\/advisors\/([^/]+)\/(status|split|invite)$/);
   const actMatch = path.match(/^\/api\/admin\/act\/([^/]+)$/);
   const bookingSplitMatch = path.match(/^\/api\/admin\/bookings\/([^/]+)\/split$/);
   const myTaskMatch = path.match(/^\/api\/tasks\/([^/]+)$/);
@@ -976,9 +975,6 @@ async function routeApi(request, env, path, method) {
     const id = decodeURIComponent(advisorMatch[1]);
     if (advisorMatch[2] === 'status') return handleSetAdvisorStatus(request, env, id);
     if (advisorMatch[2] === 'split') return handleSetAdvisorSplit(request, env, id);
-    // Named rather than trailing, so PUT .../invite falls through to a 404
-    // instead of being quietly treated as a GoHighLevel change.
-    if (advisorMatch[2] === 'ghl') return handleSetAdvisorGhl(request, env, id);
   }
 
   return notFound('No such endpoint.');

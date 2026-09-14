@@ -123,24 +123,6 @@
   </form>
 </dialog>
 
-<dialog id="bind-dlg">
-  <form id="bind-form" method="dialog">
-    <div class="card-head"><h2>Automation partition</h2>
-      <button class="btn btn-ghost btn-sm" type="button" data-close-bind>Close</button></div>
-    <div class="card-pad">
-      <div class="notice notice-error" hidden></div>
-      <div class="field"><label for="bd-loc">Partition key</label>
-        <input id="bd-loc" name="ghlLocationId">
-        <p class="field-hint">Left over from the old CRM, and still the key that decides which
-          advisors an automation or a form reaches. Blank puts them in the shared partition
-          with everybody else who has none. It does not decide who can see whose records.</p></div>
-    </div>
-    <div class="card-foot">
-      <button class="btn btn-primary" type="submit">Save</button>
-    </div>
-  </form>
-</dialog>
-
 <script type="module">
 import { api, mountShell, esc, timeAgo, showError } from '/js/app.js';
 await mountShell({ admin: true });
@@ -337,7 +319,7 @@ function render(users, counts) {
   }
 
   panel.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>Advisor</th><th>Agency</th><th>Status</th><th>Keeps</th><th>Automations</th>
+    <thead><tr><th>Advisor</th><th>Agency</th><th>Status</th><th>Keeps</th>
       <th>Last seen</th><th></th></tr></thead>
     <tbody>${users.map((u) => `<tr>
       <td><span class="name">${esc(u.name)}</span><div class="muted">${esc(u.email)}</div>
@@ -354,11 +336,6 @@ function render(users, counts) {
           data-pct="${u.defaultSplitPct === null ? '' : esc(String(u.defaultSplitPct))}"
           data-lead="${u.leadSplitPct === null ? '' : esc(String(u.leadSplitPct))}"
           data-who="${esc(u.name || u.email)}">Split</button></div></td>
-      <td>${u.ghlLocationId
-          ? `<code style="font-size:.75rem;">${esc(u.ghlLocationId)}</code>`
-          : '<span class="muted">Shared default</span>'}
-        <div><button class="btn btn-ghost btn-sm" data-bind="${esc(u.id)}"
-          data-loc="${esc(u.ghlLocationId || '')}" data-usr="${esc(u.ghlUserId || '')}">Bind</button></div></td>
       <td><span class="muted">${esc(u.lastLoginAt ? timeAgo(u.lastLoginAt) : 'never')}</span>
         ${u.approvedAt ? `<div class="muted" style="font-size:.72rem;">approved ${
           esc(timeAgo(u.approvedAt))}</div>` : ''}</td>
@@ -410,15 +387,6 @@ function render(users, counts) {
     splitDlg.showModal();
   }));
 
-  // One dialog, for the same reason as the split above: the second of two
-  // chained prompts is one the browser may never show.
-  panel.querySelectorAll('[data-bind]').forEach((btn) => btn.addEventListener('click', () => {
-    bindFor = btn.dataset.bind;
-    bindForm.elements.ghlLocationId.value = btn.dataset.loc || '';
-    bindUserId = btn.dataset.usr || '';
-    bindForm.querySelector('.notice-error').hidden = true;
-    bindDlg.showModal();
-  }));
 }
 
 async function load() {
@@ -435,11 +403,6 @@ async function load() {
     fillActAs(data.users);
   } catch (err) { showError(panel, err); }
 }
-// --- CRM sync -------------------------------------------------------------
-const syncBody = document.getElementById('sync-body');
-const SYNC_TONE = { complete: 'badge-green', running: 'badge-amber', error: 'badge-red', idle: 'badge-navy' };
-
-
 // ----------------------------------------------------------------- add
 // The invite link is shown rather than only emailed. Email is best effort and
 // does nothing at all until Resend is configured, so a link that exists only
@@ -505,39 +468,6 @@ addForm.addEventListener('submit', async (e) => {
   }
 });
 
-// -------------------------------------------------------------- work as
-// Pick an advisor and the portal becomes theirs: their clients, their
-// reservations, their CRM. For the booking somebody phoned in to the office,
-// or the record an advisor cannot fix themselves. A banner sits across every
-// page until you stop, and the switch is logged against you.
-const bindDlg = document.getElementById('bind-dlg');
-const bindForm = document.getElementById('bind-form');
-let bindFor = null;
-// Carried through the save untouched. Nothing reads it any more, so it has no
-// field of its own, but sending an empty one would wipe what is stored.
-let bindUserId = '';
-
-document.querySelector('[data-close-bind]').addEventListener('click', () => bindDlg.close());
-bindForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const err = bindForm.querySelector('.notice-error');
-  err.hidden = true;
-  try {
-    await api(`/api/admin/advisors/${encodeURIComponent(bindFor)}/ghl`, {
-      method: 'PUT',
-      body: {
-        ghlLocationId: bindForm.elements.ghlLocationId.value,
-        ghlUserId: bindUserId,
-      },
-    });
-    bindDlg.close();
-    await load();
-  } catch (e2) {
-    err.textContent = e2.message || 'Could not save that.';
-    err.hidden = false;
-  }
-});
-
 const splitDlg = document.getElementById('split-dlg');
 const splitForm = document.getElementById('split-form');
 let splitFor = null;
@@ -563,6 +493,11 @@ splitForm.addEventListener('submit', async (e) => {
   }
 });
 
+// -------------------------------------------------------------- work as
+// Pick an advisor and the portal becomes theirs: their clients, their
+// reservations, their book. For the booking somebody phoned in to the office,
+// or the record an advisor cannot fix themselves. A banner sits across every
+// page until you stop, and the switch is logged against you.
 const actas = document.getElementById('actas');
 
 function fillActAs(users) {

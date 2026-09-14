@@ -40,8 +40,6 @@ function publicUser(u) {
     agencyName: u.agency_name,
     role: u.role,
     status: u.status,
-    ghlLocationId: u.ghl_location_id,
-    ghlUserId: u.ghl_user_id,
     // Null, not 100. No agreement recorded is a different fact from an
     // agreement that the advisor keeps everything, and the admin screen has to
     // be able to tell them apart to show a blank field rather than a number
