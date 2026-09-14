@@ -547,6 +547,14 @@ export async function handleDeletePayment(request, env, id) {
  * twice is the difference between the schedule being kept up and being
  * ignored. Skips anything already scheduled so it is safe to run twice.
  */
+/**
+ * How far ahead of the vendor's deadline this portal chases.
+ *
+ * The soft twin of a final payment. Not a vendor rule and not negotiable with
+ * one: it is how long the agency wants before the deadline to get the money in.
+ */
+export const SOFT_DAYS = 10;
+
 export async function handleGenerateSchedule(request, env, bookingId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
@@ -570,21 +578,26 @@ export async function handleGenerateSchedule(request, env, bookingId) {
 
   const balance = (booking.gross_cents || 0) - (booking.deposit_cents || 0);
   if (balance > 0 && booking.final_payment_due && !have.has('final')) {
-    // The vendor's date, and a soft reminder a week ahead of it. The reminder
-    // is the whole point: chasing on the deadline itself is already too late.
+    // The vendor's date, and a soft reminder ten days ahead of it.
+    //
+    // The reminder is the whole point: chasing on the deadline itself is
+    // already too late. Ten rather than the seven this used to be, because a
+    // client who has to move money needs longer than a weekend, and a cruise
+    // final that misses its date is a cancelled reservation rather than a late
+    // invoice. Brent's own rule, 2026-09-14.
     created.push(await db.createPayment(env, user.id, {
       bookingId, kind: 'final', paymentClass: 'hard', amountCents: balance,
       dueDate: booking.final_payment_due, paidDate: null,
       notes: 'Vendor deadline, generated from the reservation',
     }));
 
-    const softDate = new Date(Date.parse(`${booking.final_payment_due}T00:00:00`) - 7 * 86400000)
+    const softDate = new Date(Date.parse(`${booking.final_payment_due}T00:00:00`) - SOFT_DAYS * 86400000)
       .toISOString().slice(0, 10);
     if (softDate > isoDay(0)) {
       created.push(await db.createPayment(env, user.id, {
         bookingId, kind: 'final', paymentClass: 'soft', amountCents: balance,
         dueDate: softDate, paidDate: null,
-        notes: 'Internal reminder, one week before the vendor deadline',
+        notes: `Internal reminder, ${SOFT_DAYS} days before the vendor deadline`,
       }));
     }
   }
