@@ -257,32 +257,6 @@
   <li><a href="/app/membership">Membership</a>: what you pay the agency.</li>
 </ul>
 
-<h2 id="owner">If you run the agency</h2>
-<p>The admin pages are <a href="/admin">Advisors</a> and
-  <a href="/admin/agencies">the agency record</a>.</p>
-<ul>
-  <li><strong>Advisors.</strong> Nobody signs themselves up. Create the account and send
-    the link it gives you, which lets them choose their own password. Suspending is how an
-    account is ended; it stops a stale login working immediately.</li>
-  <li><strong>Splits.</strong> The standing agreement, and the lower rate for company
-    leads, are set here and only here. An advisor cannot set their own share by any route.</li>
-  <li><strong>The agency record.</strong> Name, address, phone, seller-of-travel
-    registration, logo and colours. These are what a client sees on a quote, a statement,
-    a deal page and a group page.</li>
-  <li><strong>Background jobs.</strong> The portal does a dozen things on a schedule.
-    This card says when each last ran and when it last ran <em>without failing</em>. Those
-    two being far apart is a job that has quietly stopped working, which is otherwise
-    invisible.</li>
-  <li><strong>Database.</strong> Whether the live database has had every change applied.
-    Worth a look after anything is released.</li>
-  <li><strong>Working as an advisor.</strong> An owner can stand in an advisor's shoes to
-    see what they see. It is offered on an advisor's record, never on your own.</li>
-</ul>
-<p>An owner sees the whole agency where a screen offers a scope picker, and can narrow it
-  to one advisor. Two things never widen: <strong>writes</strong> stay with the person who
-  owns the record, and <strong>a marketing email</strong> goes out as one person to that
-  person's own clients, whatever the picker on screen says.</p>
-
 <h2 id="stuck">Things that catch people out</h2>
 
 <h3>"It says past due and I have paid it"</h3>
@@ -301,9 +275,14 @@
   so, or switch the filter at the top to Everyone.</p>
 
 <h3>"Nothing is being emailed"</h3>
-<p>An agency owner can check on the admin page whether a mail key is set and whether the
-  sending domain is verified. A send with no mail key waits rather than marking everybody
-  as failed, so nothing is lost while it is sorted out.</p>
+<p>This is almost always the agency's mail setup rather than anything you did, and it is not
+  something you can see or fix from here. Ask your agency owner to check the admin page.
+  Nothing is lost while it is sorted out: a send with no mail key waits rather than marking
+  everybody as failed, so it goes out once the setup is right.</p>
+
+<p class="aside" id="owner-note" hidden>You run this agency, so there is a second half to
+  this manual: <a href="/admin/manual">running the agency</a> covers advisors, splits, the
+  agency record and how to tell whether the portal's scheduled work is still running.</p>
 
 <p class="muted" style="margin-top:2.5rem;font-size:.85rem;">Something here wrong, or
   missing? Tell your agency owner and it gets fixed in the portal rather than in a
@@ -321,7 +300,6 @@
               <a href="#daily">The day's work</a>
               <a href="#selling">Finding the next booking</a>
               <a href="#money">Knowing where you stand</a>
-              <a href="#owner">If you run the agency</a>
               <a href="#stuck">Things that catch people out</a>
             </div>
           </section>
@@ -333,6 +311,7 @@
 
 <script type="module">
 import { mountShell } from '/js/app.js';
-await mountShell();
+const user = await mountShell();
+if (user && user.role === 'admin') document.getElementById('owner-note').hidden = false;
 </script>
 </body></html>

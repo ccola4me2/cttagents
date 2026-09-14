@@ -135,6 +135,7 @@ const I = {
   chart: 'M5 20V10m7 10V4m7 16v-7',
   gear: 'M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm8-3.5a8 8 0 0 1-.1 1.2l2 1.6-2 3.4-2.4-1a8 8 0 0 1-2 1.2l-.4 2.6h-4l-.4-2.6a8 8 0 0 1-2-1.2l-2.4 1-2-3.4 2-1.6A8 8 0 0 1 4 12a8 8 0 0 1 .1-1.2l-2-1.6 2-3.4 2.4 1a8 8 0 0 1 2-1.2L11 3h4l.4 2.6a8 8 0 0 1 2 1.2l2.4-1 2 3.4-2 1.6c.06.4.1.8.1 1.2Z',
   shield: 'M12 3l8 4v5c0 4.5-3.2 8.3-8 9-4.8-.7-8-4.5-8-9V7l8-4Z',
+  book: 'M4 5.5A1.5 1.5 0 0 1 5.5 4H11v15H5.5A1.5 1.5 0 0 1 4 17.5Zm16 0A1.5 1.5 0 0 0 18.5 4H13v15h5.5a1.5 1.5 0 0 0 1.5-1.5Z',
   back: 'M10 19l-7-7 7-7M3 12h18',
   chevron: 'm6 9 6 6 6-6',
   handshake: 'M7 11.5 4 8.5l3-2.5h4l2 1.5 2-1.5h4l3 2.5-3 3-1.5-1.2-3.2 3.4a1.6 1.6 0 0 1-2.3 0l-.6-.6-.9.8a1.5 1.5 0 0 1-2.1-2.1M7 11.5l2 2',
@@ -206,6 +207,7 @@ const NAV = [
 const ADMIN_NAV = [
   { href: '/admin/', label: 'Advisors', icon: I.people },
   { href: '/admin/agencies', label: 'Agency', icon: I.handshake },
+  { href: '/admin/manual', label: 'Running the agency', icon: I.book },
   { href: '/app/', label: 'Back to portal', icon: I.back },
 ];
 

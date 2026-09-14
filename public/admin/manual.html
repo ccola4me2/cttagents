@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Running the agency | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+<style>
+  /* Same reading width and type as the advisor manual. The two pages are one
+     manual split by who it is for, so they should not look like two products. */
+  .manual { max-width: 46rem; }
+  .manual h2 { font-size: 1.15rem; margin: 2.4rem 0 .6rem; color: var(--navy-800); }
+  .manual h2:first-child { margin-top: 0; }
+  .manual h3 { font-size: .95rem; margin: 1.5rem 0 .35rem; color: var(--navy-800); }
+  .manual p, .manual li { color: var(--ink-600); line-height: 1.65; }
+  .manual p { margin: 0 0 .8rem; }
+  .manual ul { margin: 0 0 .9rem; padding-left: 1.1rem; }
+  .manual li { margin-bottom: .35rem; }
+  .manual .lede { font-size: 1rem; color: var(--navy-700); }
+  .manual code { background: var(--navy-50); padding: .1rem .3rem; border-radius: 4px;
+    font-size: .85em; }
+  .toc { position: sticky; top: 1.5rem; }
+  .toc a { display: block; padding: .3rem 0; font-size: .85rem; color: var(--ink-500);
+    text-decoration: none; }
+  .toc a:hover { color: var(--coral-500); }
+  @media (max-width: 1000px) { .toc { display: none; } }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Running the agency</h1>
+        <p class="sub">The parts of the portal only an owner can see.</p></div>
+      <div class="toolbar" style="margin:0;">
+        <a class="btn btn-ghost btn-sm" href="/app/manual">The advisor manual</a>
+      </div>
+    </header>
+    <div class="content">
+      <div class="split">
+        <div class="manual">
+
+<p class="lede">Everything an advisor needs is in <a href="/app/manual">their own manual</a>,
+  and you see that portal too. This page is the other half: the settings that decide what
+  every advisor can do, what a client sees with the agency's name on it, and how to tell
+  whether the portal is still doing its work when nobody is watching.</p>
+
+<h2 id="pages">The admin pages</h2>
+<p>There are two, and they are both in the menu on the left: <a href="/admin/">Advisors</a>
+  and <a href="/admin/agencies">the agency record</a>. Everything below lives on one of them.</p>
+
+<h2 id="advisors">Advisors</h2>
+<ul>
+  <li><strong>Nobody signs themselves up.</strong> Create the account and send the link it
+    gives you, which lets them choose their own password. You never see or set that
+    password, which is the point of it.</li>
+  <li><strong>Suspending is how an account is ended.</strong> It stops a stale login working
+    immediately. Deleting is not offered, because their reservations, commission and client
+    records are the agency's and have to stay readable after they have gone.</li>
+  <li><strong>Working as an advisor.</strong> You can stand in an advisor's shoes to see
+    exactly what they see, which is the fastest way to answer "it does not show me that".
+    It is offered on an advisor's record and never on your own. While it is on, a banner
+    runs across every screen: the one way this goes wrong is forgetting, and filing a
+    reservation under the wrong advisor.</li>
+</ul>
+
+<h2 id="splits">Splits, and why they are only here</h2>
+<p>The standing agreement, and the lower rate for company-supplied leads, are set on the
+  advisor's record and <strong>only</strong> there. An advisor cannot set their own share by
+  any route: not on a reservation, not on an import, not through the API. That was true the
+  hard way, and the three ways round it are closed and stay closed.</p>
+<p><strong>A change to the standing agreement is not dated.</strong> Commission is worked out
+  from the rate on the advisor's record at the moment the figure is read, so lowering a split
+  today changes what every past reservation says the advisor keeps, including ones already
+  paid out. The exception is a reservation with a rate written on it directly, which holds
+  whatever the record later says. If a new agreement starts on a date, write the old rate onto
+  the reservations that were sold under it before you change the record.</p>
+
+<h2 id="agency">The agency record</h2>
+<p>Name, address, phone, seller-of-travel registration, logo and colours. These are not
+  decoration: they are what a client sees on a quote, a statement, a deal page and a group
+  page, and the registration number is there because in several states it has to be.</p>
+<p>The brand colour is checked for contrast before it is used on white. A colour too pale to
+  read is kept for the places it works and swapped for a readable one where it would be
+  text, rather than shipping a page the client has to squint at.</p>
+
+<h2 id="running">Is it still running</h2>
+<ul>
+  <li><strong>Background jobs.</strong> The portal does a dozen things on a schedule:
+    payment reminders, call lists, digests, the lifecycle sweep. The card says when each
+    last ran and when it last ran <em>without failing</em>. Those two dates being far apart
+    is a job that has quietly stopped working, which is otherwise invisible, because a
+    reminder nobody gets looks exactly like a reminder nobody needed.</li>
+  <li><strong>Database.</strong> Whether the live database has had every change applied.
+    Changes ship in the code and are applied to the database by hand, so the two can drift.
+    When they do, the page that reads the missing column returns an error and this card
+    names the file to run. Worth a look after anything is released.</li>
+  <li><strong>Mail.</strong> Whether a mail key is set and whether the sending domain is
+    verified. A sending service will not send from a domain it has not verified, and it
+    fails without an error anybody sees. A send with no mail key waits rather than marking
+    everybody as failed, so nothing is lost while it is sorted out.</li>
+</ul>
+
+<h2 id="scope">What you can see, and what you cannot do</h2>
+<p>You see the whole agency wherever a screen offers a scope picker, and you can narrow it
+  to one advisor. Two things never widen, whatever the picker says:</p>
+<ul>
+  <li><strong>Writes</strong> stay with the person who owns the record. Seeing an advisor's
+    reservation is not the same as editing it as yourself.</li>
+  <li><strong>A marketing email</strong> goes out as one person, to that person's own
+    clients. There is no button that mails the whole agency's book in one go, on purpose:
+    a client gave their address to their advisor, not to the agency's list.</li>
+</ul>
+
+<p class="muted" style="margin-top:2.5rem;font-size:.85rem;">Something here wrong, or
+  missing? It gets fixed in the portal rather than in a document nobody reads.</p>
+
+        </div>
+        <div>
+          <section class="card toc">
+            <div class="card-head"><h2>On this page</h2></div>
+            <div class="card-pad">
+              <a href="#pages">The admin pages</a>
+              <a href="#advisors">Advisors</a>
+              <a href="#splits">Splits</a>
+              <a href="#agency">The agency record</a>
+              <a href="#running">Is it still running</a>
+              <a href="#scope">What you can see</a>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { mountShell } from '/js/app.js';
+await mountShell({ admin: true });
+</script>
+</body></html>

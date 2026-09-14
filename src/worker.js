@@ -405,6 +405,7 @@ const PAGE_FILES = {
   '/app/bookings': '/app/reservations.html',
   '/app/reports': '/app/reports.html',
   '/app/settings': '/app/settings.html',
+  '/admin/manual': '/admin/manual.html',
   '/admin': '/admin/index.html',
   '/admin/': '/admin/index.html',
 };
