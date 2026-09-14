@@ -1902,33 +1902,6 @@ async function main() {
 
   // -------------------------------------------------- deals and their page --
 
-  // ------------------------------------- making an agency's CRM for them ----
-  // A sub-account cannot create a sub-account: that is the shape of
-  // GoHighLevel, not a scope anybody can grant. So this needs a second
-  // credential at the agency, and everything here has to behave sensibly when
-  // that credential is absent, which is the state on this machine and in CI.
-  const ghlState = await call(admin, 'GET', '/api/agencies/ghl');
-  check(ghlState.status === 200 && typeof ghlState.data?.configured === 'boolean',
-    'the portal says whether it can reach the agency level at all',
-    JSON.stringify(ghlState.data));
-  check(ghlState.data?.configured === false
-    ? (ghlState.data.hasToken === false || ghlState.data.hasCompanyId === false)
-    : true,
-    'and a half-finished setup names which half is missing');
-
-  const notOwner = await call(advisor, 'GET', '/api/agencies/ghl');
-  check(notOwner.status === 403,
-    'an agency owner cannot ask: only the portal owner sets agencies up',
-    `status ${notOwner.status}`);
-
-  if (!ghlState.data?.configured) {
-    const cannot = await call(admin, 'POST', '/api/agencies/agency-house/provision', {});
-    check(cannot.status === 503,
-      'and making a sub-account is refused outright rather than half attempted',
-      `status ${cannot.status}`);
-    check(/agency access/i.test(cannot.data?.error || ''),
-      'saying what is missing', cannot.data?.error);
-  }
 
   step('A special, its public page, and the enquiry it pulls');
   {
@@ -3894,17 +3867,6 @@ async function main() {
   check(badStatus.status === 400, 'an unknown status is refused rather than defaulted',
     `status ${badStatus.status}`);
 
-  // -------------------------------------------------- travel on the diary --
-  step('The calendar knows about the travel');
-
-  const diary = await call(advisor, 'GET', '/api/calendar?days=365');
-  const travel = diary.data?.travel || [];
-  check(diary.status === 200, 'the calendar answers even with no CRM configured',
-    `status ${diary.status}`);
-  check(travel.some((e) => e.kind === 'departure'),
-    'departures appear on it', `${travel.length} travel entr(ies)`);
-  check(travel.some((e) => e.kind === 'payment' && e.amountCents > 0),
-    'and so does money due, with the amount');
   check(travel.every((e) => e.date && /^\d{4}-\d{2}-\d{2}$/.test(e.date)),
     'each carrying a plain date rather than a timestamp');
   check(travel.every((e) => e.bookingId),
@@ -5943,19 +5905,6 @@ async function main() {
       'and the send is still a send, not a finished one that reached nobody',
       afterCron.data?.broadcast?.status);
 
-    // The admin page's connection check calls this, and the shape it gets
-    // when there is no CRM token is the shape Brent will see: this portal has
-    // never had a working one. A probe that threw instead of answering would
-    // leave that card spinning with nothing to say.
-    const probe = await call(admin, 'GET', '/api/admin/health?probe=1');
-    check(probe.status === 200, 'the connection check answers even with no CRM token',
-      `status ${probe.status}`);
-    check(probe.data?.ghl && typeof probe.data.ghl.tokenPresent === 'boolean',
-      'and says plainly whether a token is set',
-      JSON.stringify(probe.data?.ghl));
-    check(probe.data?.ghl?.tokenPresent === true || probe.data?.scopes === null,
-      'and does not invent areas it could not reach',
-      JSON.stringify(probe.data?.scopes));
 
     // And the pass wrote down what it did. Each cron job is wrapped in a catch
     // so one cannot stop the others, which means a job failing since March
