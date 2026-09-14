@@ -14,7 +14,7 @@
   <div class="main">
     <header class="topbar">
       <div><h1>Lead forms</h1><p class="sub">Your own forms, hosted on your domain. Every
-        submission is a lead here and a contact in the CRM.</p></div>
+        submission lands on your lead board with the form it came from on it.</p></div>
       <div class="toolbar" style="margin:0;padding:0;">
         <select id="report-days" aria-label="Period" style="width:auto;">
           <option value="30">Last 30 days</option>
@@ -117,9 +117,9 @@ function drawReport(r) {
   document.getElementById('stats').innerHTML = `
     <div class="stat"><p class="label">Leads in</p><p class="value">${t.submissions}</p>
       <p class="meta">Last ${r.days} days</p></div>
-    <div class="stat"><p class="label">Reached the CRM</p><p class="value">${t.reachedCrm}</p>
+    <div class="stat"><p class="label">On the lead board</p><p class="value">${t.reachedCrm}</p>
       <p class="meta">${t.strandedHere
-        ? `${t.strandedHere} stopped here and nobody was told`
+        ? `${t.strandedHere} came in without a name to file them under`
         : 'Every one of them'}</p></div>
     <div class="stat"><p class="label">Live forms</p><p class="value">${t.activeForms}</p>
       <p class="meta">Of ${t.forms} built</p></div>

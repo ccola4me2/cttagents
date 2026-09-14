@@ -682,8 +682,10 @@ export async function handleFormsReport(request, env) {
     byMonth[key] = (byMonth[key] || 0) + 1;
   }
 
-  // A lead that never reached the CRM is one nobody is following up, which is
-  // worth its own number rather than being buried in a total.
+  // A submission with no name on it never became a lead, so it is not on the
+  // board and nobody is following it up. Worth its own number rather than being
+  // buried in a total. The column is still called contact_id and now holds the
+  // client id: see the note in publicform.js about names that did not move.
   const reachedCrm = submissions.filter((s) => s.contactId).length;
 
   return json({

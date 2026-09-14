@@ -13,7 +13,7 @@
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main">
     <header class="topbar">
-      <div><h1>Advisors</h1><p class="sub">Add advisors, bind them to a CTT Tools account, and set what they keep.</p></div>
+      <div><h1>Advisors</h1><p class="sub">Add advisors, set what they keep, and see who is waiting.</p></div>
       <select id="actas" aria-label="Work as an advisor" style="width:auto;">
         <option value="">Work as an advisor...</option>
       </select>
@@ -125,16 +125,15 @@
 
 <dialog id="bind-dlg">
   <form id="bind-form" method="dialog">
-    <div class="card-head"><h2>CTT Tools account</h2>
+    <div class="card-head"><h2>Automation partition</h2>
       <button class="btn btn-ghost btn-sm" type="button" data-close-bind>Close</button></div>
     <div class="card-pad">
       <div class="notice notice-error" hidden></div>
-      <div class="field"><label for="bd-loc">Location id</label>
+      <div class="field"><label for="bd-loc">Partition key</label>
         <input id="bd-loc" name="ghlLocationId">
-        <p class="field-hint">Blank uses the agency's shared sub-account.</p></div>
-      <div class="field"><label for="bd-usr">User id</label>
-        <input id="bd-usr" name="ghlUserId">
-        <p class="field-hint">Optional. Attributes records in the CRM to them.</p></div>
+        <p class="field-hint">Left over from the old CRM, and still the key that decides which
+          advisors an automation or a form reaches. Blank puts them in the shared partition
+          with everybody else who has none. It does not decide who can see whose records.</p></div>
     </div>
     <div class="card-foot">
       <button class="btn btn-primary" type="submit">Save</button>
@@ -338,7 +337,7 @@ function render(users, counts) {
   }
 
   panel.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>Advisor</th><th>Agency</th><th>Status</th><th>Keeps</th><th>Tools account</th>
+    <thead><tr><th>Advisor</th><th>Agency</th><th>Status</th><th>Keeps</th><th>Automations</th>
       <th>Last seen</th><th></th></tr></thead>
     <tbody>${users.map((u) => `<tr>
       <td><span class="name">${esc(u.name)}</span><div class="muted">${esc(u.email)}</div>
@@ -416,7 +415,7 @@ function render(users, counts) {
   panel.querySelectorAll('[data-bind]').forEach((btn) => btn.addEventListener('click', () => {
     bindFor = btn.dataset.bind;
     bindForm.elements.ghlLocationId.value = btn.dataset.loc || '';
-    bindForm.elements.ghlUserId.value = btn.dataset.usr || '';
+    bindUserId = btn.dataset.usr || '';
     bindForm.querySelector('.notice-error').hidden = true;
     bindDlg.showModal();
   }));
@@ -514,6 +513,9 @@ addForm.addEventListener('submit', async (e) => {
 const bindDlg = document.getElementById('bind-dlg');
 const bindForm = document.getElementById('bind-form');
 let bindFor = null;
+// Carried through the save untouched. Nothing reads it any more, so it has no
+// field of its own, but sending an empty one would wipe what is stored.
+let bindUserId = '';
 
 document.querySelector('[data-close-bind]').addEventListener('click', () => bindDlg.close());
 bindForm.addEventListener('submit', async (e) => {
@@ -525,7 +527,7 @@ bindForm.addEventListener('submit', async (e) => {
       method: 'PUT',
       body: {
         ghlLocationId: bindForm.elements.ghlLocationId.value,
-        ghlUserId: bindForm.elements.ghlUserId.value,
+        ghlUserId: bindUserId,
       },
     });
     bindDlg.close();

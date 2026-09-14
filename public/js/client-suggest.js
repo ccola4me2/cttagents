@@ -95,7 +95,7 @@ export function mountClientSuggest(input, { onChoose, emptyText, mineOnly } = {}
       const hint = [
         c.email,
         c.trips ? `${c.trips} trip${c.trips === 1 ? '' : 's'}` : '',
-        c.source === 'crm' ? 'in the CRM, not yet booked' : '',
+        c.source === 'crm' ? 'from the old CRM, never booked' : '',
       ].filter(Boolean).join(' · ');
       return `<button type="button" class="suggest-row${i === cursor ? ' on' : ''}" data-i="${i}">
         <span class="nm">${esc(c.name)}</span>

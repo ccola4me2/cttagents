@@ -411,9 +411,9 @@ onSubmit(form, async (values) => {
   // reservations and is a better guess than a trip with no passengers.
   if (!names.length && values.clientName) names.push(values.clientName.trim());
 
-  // Picked somebody the CRM already knows: carry their contact id through, so
-  // the reservation is joined to the person the agency has been talking to
-  // rather than to a new record with the same name on it.
+  // Picked one of the contacts carried over from the old CRM: carry their id
+  // through, so the reservation is joined to the person the agency has been
+  // talking to rather than to a new record with the same name on it.
   const known = crmByName.get(values.clientName?.trim());
   if (known?.contactId) values.ghlContactId = known.contactId;
 

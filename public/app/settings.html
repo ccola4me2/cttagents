@@ -118,12 +118,6 @@
           <div id="tpl-list"><p class="spinner">Loading...</p></div>
         </div>
       </section>
-      <section class="card">
-        <div class="card-head"><h2>Tenant</h2></div>
-        <div class="card-pad">
-          <p id="ghl-info" class="muted">Loading...</p>
-        </div>
-      </section>
     </div>
   </div>
 </div>
@@ -201,10 +195,6 @@ pf.elements.agencyAddress.value = user.agencyAddress || '';
 pf.elements.sellerOfTravel.value = user.sellerOfTravel || '';
 pf.elements.notifyEmail.value = user.notifyEmail || '';
 pf.elements.notifyEmail.placeholder = user.email || '';
-
-document.getElementById('ghl-info').innerHTML = user.ghlLocationId
-  ? `Your records sit under <code>${esc(user.ghlLocationId)}</code>.`
-  : 'Using the shared partition. An administrator can move you to your own.';
 
 onSubmit(pf, async (values) => {
   // The reminder switch is not in this form. It saves on the tick, so sending
