@@ -1389,6 +1389,31 @@ function depositHint(b, price) {
   });
 }
 
+/**
+ * The rate, when there is one.
+ *
+ * There is not always one. A comped cabin on a casino rate has nothing a vendor
+ * pays a percentage on, so the commissionable part is nought and the true rate
+ * is undefined: the hundred dollars is a flat amount, not a share of anything.
+ *
+ * This used to print "- of the commissionable part, 61% of everything" on
+ * exactly that reservation. The dash was right and the rest was noise: 61% is
+ * a flat fee divided by the taxes the client paid, which looks like a rate,
+ * reads like a rate, and is not one. A number that invites the wrong reading is
+ * worse than no number.
+ */
+function rateLine(s) {
+  if (s.truePct !== null) {
+    return `${s.truePct}%<span class="muted">of the commissionable part${
+      s.effectivePct === null ? '' : `, ${s.effectivePct}% of everything`}</span>`;
+  }
+  if (!s.commissionCents) {
+    return '<span class="muted">No commission on this reservation.</span>';
+  }
+  return `<span class="muted">Not a rate. ${money(s.commissionCents)} flat, with nothing here a
+    vendor pays a percentage on, which is how a comped cabin is paid.</span>`;
+}
+
 /** What the breakdown means once it is saved. */
 function drawPriceSummary() {
   const s = d.priceSummary;
@@ -1406,9 +1431,7 @@ function drawPriceSummary() {
     <dt>Commissionable</dt><dd>${money(s.commissionableCents)}
       <span class="muted">the part a vendor pays on</span></dd>
     <dt>Commission</dt><dd>${money(s.commissionCents)}</dd>
-    <dt>Rate</dt><dd>${s.truePct === null ? '-' : s.truePct + '%'}
-      <span class="muted">of the commissionable part${
-        s.effectivePct === null ? '' : `, ${s.effectivePct}% of everything`}</span></dd>
+    <dt>Rate</dt><dd>${rateLine(s)}</dd>
     ${s.expectedCents === null ? '' : `<dt>Vendor's rate</dt><dd>${money(s.expectedCents)} expected at ${
       esc(String(d.vendorRate))}%
       ${variance === 0 ? '<span class="badge badge-green">matches</span>'
