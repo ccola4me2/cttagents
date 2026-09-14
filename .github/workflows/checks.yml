@@ -91,9 +91,10 @@ jobs:
       - name: A fix that crossed the fork, or half of one
         run: npm run check:fork -- sibling
 
-      # A house rule nothing else could keep. Both dashes, both spellings,
-      # everywhere the portal writes its own words. The two files that read an
-      # em dash out of a pasted vendor confirmation are excused by name.
+      # A house rule nothing else could keep. The em dash, in both spellings,
+      # everywhere the portal writes its own words. An en dash between two
+      # dates is a range and is fine. The two files that read an em dash out of
+      # a pasted vendor confirmation are excused by name.
       - name: No em dashes anywhere
         run: npm run check:dashes
 

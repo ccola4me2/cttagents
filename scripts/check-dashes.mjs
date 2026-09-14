@@ -8,9 +8,13 @@
 // by remembering is a rule that lasts until the next person, which is why it
 // is here rather than in somebody's head.
 //
-// Both dashes are caught, and both spellings of each: the character and the
-// HTML entity. A hyphen, a colon, a comma or the middot this portal already
-// uses as its separator all say the same thing and are all easier to type.
+// Both spellings are caught, the character and the HTML entity. A hyphen, a
+// colon, a comma or the middot this portal already uses as its separator all
+// say the same thing and are all easier to type.
+//
+// The em dash only. An en dash between two dates or two numbers is a range and
+// is fine, and failing "Mon-Fri" written properly would be a rule nobody asked
+// for standing in the way of one somebody did.
 //
 // Two files match on purpose and are excused by name. Both are reading an em
 // dash out of somebody else's text rather than writing one: a pasted vendor
@@ -36,13 +40,10 @@ const ALLOWED = new Map([
 // Built from character codes, not written out. This file is read by the rule
 // it carries, and a table of literal dashes would fail it.
 const EM = String.fromCharCode(0x2014);
-const EN = String.fromCharCode(0x2013);
 const entity = (name) => `&${name};`;
 const DASHES = [
   [EM, 'an em dash'],
-  [EN, 'an en dash'],
   [entity('mdash'), 'an em dash, written as an entity'],
-  [entity('ndash'), 'an en dash, written as an entity'],
 ];
 
 function walk(dir) {
@@ -89,5 +90,5 @@ if (problems) {
   console.log(`\n${problems} line${problems === 1 ? '' : 's'} with a dash this portal does not use.`);
   process.exit(1);
 }
-console.log(`check-dashes: ${checked} files, no em or en dashes`
+console.log(`check-dashes: ${checked} files, no em dashes`
   + `${excused ? `, ${excused} line${excused === 1 ? '' : 's'} excused as reading rather than writing` : ''}.`);
