@@ -275,7 +275,7 @@ async function noticesFor(env, user, scope) {
   const isOwner = user.role === 'admin';
 
   const scoped = db.scopeWhere(scope, 'b.user_id');
-  const [failed, pending, undated, pastDue] = await Promise.all([
+  const [failed, pending, undated, unscheduled, pastDue] = await Promise.all([
     env.DB.prepare(
       `SELECT COUNT(*) AS n, MAX(r.last_error) AS last_error
          FROM automation_runs r JOIN automations a ON a.id = r.automation_id
@@ -293,6 +293,28 @@ async function noticesFor(env, user, scope) {
       `SELECT COUNT(*) AS n FROM bookings b
         WHERE ${scoped.sql} AND b.status = 'booked' AND b.final_payment_due IS NULL`
     ).bind(...scoped.binds).first().catch(() => null),
+
+    // The quieter one. A date is recorded, so nothing here complains, but the
+    // trip cost sits on no payment row at all: not posted as taken, not due on
+    // any date. The reservation page has named this number for a long time,
+    // under the words "Nothing will chase what is not on the schedule", and it
+    // was true one reservation at a time. Nobody opens every reservation to
+    // find the two with an empty schedule.
+    //
+    // Hard rows only, paid or not. A soft row is this portal's reminder to
+    // chase the same money, so counting it would hide a real gap.
+    env.DB.prepare(
+      `SELECT COUNT(*) AS n, COALESCE(SUM(gap), 0) AS cents FROM (
+         SELECT COALESCE(b.gross_cents, 0) - COALESCE((
+                  SELECT SUM(p.amount_cents) FROM booking_payments p
+                   WHERE p.booking_id = b.id AND p.payment_class = 'hard'), 0) AS gap
+           FROM bookings b
+          WHERE ${scoped.sql} AND b.status = 'booked'
+            AND COALESCE(b.gross_cents, 0) > 0
+            -- A trip that has already left is not waiting on a schedule.
+            AND COALESCE(b.depart_date, '9999-12-31') >= ?
+       ) WHERE gap > 0`
+    ).bind(...scoped.binds, isoDay(0)).first().catch(() => null),
 
     env.DB.prepare(
       `SELECT COUNT(*) AS n FROM booking_payments p
@@ -371,6 +393,21 @@ async function noticesFor(env, user, scope) {
       title: `Commission unpaid on ${staleCommission.n} trip${staleCommission.n === 1 ? '' : 's'} home over 90 days`,
       detail: 'Money the agency has earned and not been paid. Vendors do not chase themselves.',
       href: '/app/commissions', label: 'Open commission',
+    });
+  }
+
+  if (unscheduled && unscheduled.n) {
+    const cents = Number(unscheduled.cents || 0);
+    out.push({
+      tone: 'warn',
+      title: `${unscheduled.n} booked trip${unscheduled.n === 1 ? '' : 's'} with money on no payment schedule`,
+      // The amount, because the count alone reads like paperwork. It is the
+      // money nothing in this portal is watching.
+      detail: `$${(cents / 100).toLocaleString('en-US', {
+        minimumFractionDigits: 2, maximumFractionDigits: 2,
+      })} of trip cost that is neither posted as taken nor due on any date. `
+        + 'Nothing chases what is not on the schedule.',
+      href: '/app/complete', label: 'Build the schedules',
     });
   }
 

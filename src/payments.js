@@ -565,6 +565,12 @@ export async function handleGenerateSchedule(request, env, bookingId) {
   // Self scope: this reads in order to write, so it must not widen for an owner.
   const existing = await db.listPayments(env, db.selfScope(user), { bookingId });
   const have = new Set(existing.map((p) => p.kind));
+  // What the schedule already accounts for, taken or still to come. Hard rows
+  // only, like every other total here: a soft row is this portal's reminder to
+  // chase the same money, not a second amount owed.
+  let covered = existing
+    .filter((p) => p.payment_class === 'hard')
+    .reduce((n, p) => n + (p.amount_cents || 0), 0);
   const created = [];
 
   if (booking.deposit_cents > 0 && booking.deposit_due && !have.has('deposit')) {
@@ -574,9 +580,19 @@ export async function handleGenerateSchedule(request, env, bookingId) {
       dueDate: booking.deposit_due, paidDate: null,
       notes: 'Vendor deadline, generated from the reservation',
     }));
+    covered += booking.deposit_cents;
   }
 
-  const balance = (booking.gross_cents || 0) - (booking.deposit_cents || 0);
+  // Whatever the schedule does not cover yet, put on the vendor's final date.
+  //
+  // Gross minus the deposit field is what this used to be, and it was wrong in
+  // the case that matters most. Inside ninety days of departure a cruise is
+  // paid in full at booking, so the whole trip cost sits in the deposit field,
+  // and gross minus deposit came to nought. No row was written, the button
+  // answered "add a deposit amount and payment dates" although both were
+  // already there, and the schedule stayed empty on the largest reservations
+  // in the book. An empty schedule is the one thing nothing can chase.
+  const balance = (booking.gross_cents || 0) - covered;
   if (balance > 0 && booking.final_payment_due && !have.has('final')) {
     // The vendor's date, and a soft reminder ten days ahead of it.
     //
@@ -603,12 +619,26 @@ export async function handleGenerateSchedule(request, env, bookingId) {
   }
 
   if (!created.length) {
-    return json({
-      ok: true, created: [],
-      message: have.size
-        ? 'This booking already has a schedule.'
-        : 'Add a deposit amount and payment dates to the booking first.',
-    });
+    // Say which of the three reasons it was. "Nothing happened" sent people
+    // back to the reservation to look for a field that was already filled in.
+    const short = (booking.gross_cents || 0) - covered;
+    const money = (cents) => `$${(cents / 100).toLocaleString('en-US', {
+      minimumFractionDigits: 2, maximumFractionDigits: 2,
+    })}`;
+    let message;
+    if (!booking.gross_cents) {
+      message = 'Add the trip cost first. There is no amount to build a schedule from.';
+    } else if (short <= 0) {
+      message = 'The schedule already covers the whole trip cost.';
+    } else if (have.has('final')) {
+      message = `${money(short)} of the trip cost is on no payment row, and the final `
+        + 'payment is already scheduled. Add that amount by hand, or correct the '
+        + 'amounts that are there.';
+    } else {
+      message = `Add a deposit date or a final payment date, and this will put the `
+        + `remaining ${money(short)} on the schedule.`;
+    }
+    return json({ ok: true, created: [], message });
   }
 
   await db.logActivity(env, user.id, 'payment.schedule',

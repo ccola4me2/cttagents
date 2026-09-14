@@ -289,7 +289,7 @@ function itineraryBlock(trip) {
     ${i.image_url ? `<img class="itin-pic" src="${esc(i.image_url)}" alt="" loading="lazy">` : ''}
   </li>`;
 
-  return `<section class="card pad">
+  return `<section class="card pad itin">
     <h2>Your itinerary</h2>
     ${anytime.length ? `<ul class="itin-list anytime">${anytime.map(line).join('')}</ul>` : ''}
     ${byDay.map((d) => `<div class="itin-day">
@@ -632,14 +632,13 @@ export async function renderTripPage(request, env, code) {
     </div>
 
     <footer class="foot" data-url="${esc(`${appUrl(env)}/t/${b.share_code}`)}">
-      <!-- Only on paper. A printed itinerary that does not say who to ring is
-           a printed itinerary somebody throws away at the airport. -->
-      <div class="printonly">
-        <p><strong>${esc(advisor)}</strong>${
-  b.agency_name ? ` &middot; ${esc(b.agency_name)}` : ''}</p>
-        <p>${[b.notify_email || b.advisor_email, b.advisor_phone]
-    .filter(Boolean).map(esc).join(' &middot; ')}</p>
-      </div>
+      <!-- Who to ring, on paper as well as on screen, is the Questions card a
+           few inches above: the advisor, the agency, the email and the phone,
+           and it prints. This footer used to repeat all four in a printonly
+           block, so a printed proposal named the advisor twice, the agency
+           three times, and pushed the last inch of the itinerary onto a sheet
+           of its own. What is left is the agency's name and, on paper, the
+           address of the live page. -->
       ${b.agency_name ? `<p>${esc(b.agency_name)}</p>` : ''}
       ${b.seller_of_travel ? `<p class="dim">${esc(b.seller_of_travel)}</p>` : ''}
     </footer>
@@ -994,7 +993,6 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
   .printbar button{border:1px solid var(--navy);background:#fff;color:var(--navy);font:inherit;
     font-size:.85rem;font-weight:650;padding:.5rem 1.1rem;border-radius:999px;cursor:pointer}
   .printbar button:hover{background:var(--navy);color:#fff}
-  .printonly{display:none}
   .small{font-size:.8rem}
   /* Where an itinerary line says a place, offer to open it in whatever maps
      app the reader already uses. A link rather than an embedded map: an embed
@@ -1012,17 +1010,26 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
     body{background:#fff;padding:0;font-size:11pt}
     .wrap{max-width:none}
     .printbar,.hp,form#say,#say,.obtn,#choose-said,.itin-map{display:none !important}
-    .printonly{display:block}
     .card{border:0;box-shadow:none;padding:0;margin:0 0 12pt;break-inside:avoid}
     .card.pad{padding:0}
     h1{font-size:20pt;margin:0 0 4pt}
     h2{font-size:13pt;margin:0 0 6pt;border-bottom:1px solid #ccc;padding-bottom:3pt}
     a{color:#000;text-decoration:none}
+    /* A week of days is taller than a sheet of paper, so the card itself has
+       to be allowed to break. Left with the blanket rule on .card, Chrome kept
+       the whole itinerary together by pushing it to the next page, and printed
+       a sheet with two names on it and nothing else. The days below are what
+       must not split, and they say so themselves. */
+    .card.itin{break-inside:auto;page-break-inside:auto}
     .itin-day{break-inside:avoid;page-break-inside:avoid}
     .itin-item{break-inside:avoid;page-break-inside:avoid}
     .itin-pic,.opic{display:none}
     .option{break-inside:avoid;border:1px solid #ccc}
     .brand img{width:28px;height:28px}
+    /* Two lines, and they belong together: left free to break, the address
+       went over on its own and the proposal ended on a sheet of paper
+       carrying one sentence. */
+    .foot{break-inside:avoid;page-break-inside:avoid}
     /* The address of the live page, so a printed copy can find its way back
        to the one that is up to date. */
     .foot::after{content:"Your live trip page: " attr(data-url);display:block;

@@ -20,7 +20,8 @@
       <div id="err"></div>
       <section id="stats" class="stat-grid"></section>
       <div class="notice notice-info">
-        A trip with no final payment date cannot be chased, and one with no cost cannot be counted.
+        A trip with no final payment date cannot be chased, one with no cost cannot be counted,
+        and one with no payment schedule has nothing to chase it with.
         Type straight into the table: each change saves when you leave the box.
       </div>
       <section class="card" id="catalog-card" hidden style="margin-bottom:1.25rem;">
@@ -34,6 +35,7 @@
           <option value="date">Missing a final payment date</option>
           <option value="money">Missing the trip cost</option>
           <option value="commission">Missing commission</option>
+          <option value="schedule">Missing a payment schedule</option>
         </select>
         <span id="saved" class="muted"></span>
       </div>
@@ -59,14 +61,30 @@ let all = [];
 const NO_COMMISSION = 'none';
 const noCommission = (b) => b.commission_status === NO_COMMISSION;
 
+// Trip cost that is on no payment row at all: neither taken nor planned.
+//
+// The reservation page has shown this number for a long time, under the words
+// "Nothing will chase what is not on the schedule", and it was true one
+// reservation at a time. Nobody opens six reservations to find the two with an
+// empty schedule, so the quiet ones stayed quiet. Hard rows only, paid or not,
+// because a soft row is this portal's reminder to chase the same money.
+const unscheduled = (b) => Math.max(0, (b.gross_cents || 0)
+  - Number(b.owing_cents || 0) - Number(b.paid_cents || 0));
+
+// Only on a reservation that is actually booked. A quote has no schedule
+// because nobody has bought anything yet, and saying so on every quote would
+// bury the two that matter.
+const BOOKED = 'booked';
+
 const missing = (b) => ({
   date: !b.final_payment_due,
   money: !b.gross_cents,
   commission: !b.commission_cents && !noCommission(b),
+  schedule: b.status === BOOKED && b.gross_cents > 0 && unscheduled(b) > 0,
 });
 const needsSomething = (b) => {
   const m = missing(b);
-  return m.date || m.money || m.commission;
+  return m.date || m.money || m.commission || m.schedule;
 };
 
 function note(text, bad) {
@@ -83,6 +101,7 @@ function render() {
     if (filter.value === 'date') return m.date;
     if (filter.value === 'money') return m.money;
     if (filter.value === 'commission') return m.commission;
+    if (filter.value === 'schedule') return m.schedule;
     return needsSomething(b);
   });
 
@@ -90,7 +109,10 @@ function render() {
     date: mine.filter((b) => missing(b).date).length,
     money: mine.filter((b) => missing(b).money).length,
     commission: mine.filter((b) => missing(b).commission).length,
+    schedule: mine.filter((b) => missing(b).schedule).length,
   };
+  const unscheduledTotal = mine.filter((b) => missing(b).schedule)
+    .reduce((n, b) => n + unscheduled(b), 0);
   document.getElementById('stats').innerHTML = `
     <div class="stat"><p class="label">No final payment date</p>
       <p class="value" style="${counts.date ? 'color:var(--red-600);' : ''}">${counts.date}</p>
@@ -100,6 +122,11 @@ function render() {
     <div class="stat"><p class="label">No commission figure</p><p class="value">${counts.commission}</p>
       <p class="meta">Missing from what you are owed. Trips marked no commission
         are not counted here.</p></div>
+    <div class="stat"><p class="label">Not on a payment schedule</p>
+      <p class="value" style="${counts.schedule ? 'color:var(--amber-600);' : ''}">${counts.schedule}</p>
+      <p class="meta">${counts.schedule
+        ? `${money(unscheduledTotal)} of trip cost that nothing will chase`
+        : 'Every booked trip is scheduled'}</p></div>
     <div class="stat"><p class="label">Complete</p>
       <p class="value">${mine.length - mine.filter(needsSomething).length}</p>
       <p class="meta">of ${mine.length} reservations</p></div>`;
@@ -112,7 +139,8 @@ function render() {
 
   panel.innerHTML = `<div class="table-wrap"><table class="grid">
     <thead><tr><th>Client</th><th>Vendor</th><th>Departing</th><th>Returning</th>
-      <th>Final payment</th><th class="num">Trip cost</th><th class="num">Commission</th></tr></thead>
+      <th>Final payment</th><th class="num">Trip cost</th><th class="num">Commission</th>
+      <th class="num">Schedule</th></tr></thead>
     <tbody>${rows.map((b) => `<tr data-id="${esc(b.id)}">
       <td><a class="name" href="/app/reservation?id=${esc(b.id)}">${esc(b.client_name)}</a>
         <div class="muted">${esc(b.confirmation_number || '')}</div></td>
@@ -129,7 +157,42 @@ function render() {
         : `<input inputmode="decimal" data-field="commission" placeholder="0.00"
             value="${b.commission_cents ? (b.commission_cents / 100).toFixed(2) : ''}"
             class="${b.commission_cents ? '' : 'wanted'}">`}</td>
+      <td class="num">${missing(b).schedule
+        ? `<span class="badge badge-amber">${esc(money(unscheduled(b)))} unscheduled</span>
+           <div><button type="button" class="btn btn-ghost btn-sm" data-build="${esc(b.id)}"
+             >Build schedule</button></div>`
+        : b.status === BOOKED && b.gross_cents > 0
+          ? '<span class="muted">scheduled</span>'
+          : '<span class="muted">-</span>'}</td>
     </tr>`).join('')}</tbody></table></div>`;
+
+  // Building a schedule is the one thing on this page that is not a field, so
+  // it is a button rather than a box. It writes the vendor's own deadlines
+  // into the payment rows; it never marks anything paid and never emails
+  // anybody. A payment the client has already made is posted afterwards, on
+  // the reservation, by whoever knows it happened.
+  panel.querySelectorAll('[data-build]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        const res = await api(`/api/bookings/${encodeURIComponent(btn.dataset.build)}/schedule`,
+          { method: 'POST', body: {} });
+        if (res.created && res.created.length) {
+          const fresh = await api('/api/bookings');
+          all = fresh.bookings;
+          note(`Scheduled ${res.created.filter((p) => p.payment_class === 'hard').length}`);
+          err.innerHTML = '';
+          render();
+          return;
+        }
+        // Nothing was written, and the reason is the useful part.
+        err.innerHTML = `<div class="notice notice-warn">${esc(res.message
+          || 'Nothing to schedule on that reservation.')}</div>`;
+      } catch (e) {
+        showError(err, e);
+      } finally { btn.disabled = false; }
+    });
+  });
 
   panel.querySelectorAll('[data-field]').forEach((input) => {
     let original = input.value;

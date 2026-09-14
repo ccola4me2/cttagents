@@ -449,11 +449,19 @@ const ADVISOR_NAME =
  * reminder nobody needs any more is not the vendor waiting. The count comes
  * back as well as the total, because no schedule at all and a schedule with
  * nothing left on it are different facts and nought would tell them apart.
+ *
+ * What is posted comes back too, so a list can work out the quiet number the
+ * reservation page already shows: the trip cost that is on no payment row at
+ * all, neither taken nor planned. Nothing chases that, because there is
+ * nothing there to chase.
  */
 const OWING_SQL = `
   COALESCE((SELECT SUM(p.amount_cents) FROM booking_payments p
              WHERE p.booking_id = b.id AND p.payment_class = 'hard'
                AND p.paid_date IS NULL), 0) AS owing_cents,
+  COALESCE((SELECT SUM(p.amount_cents) FROM booking_payments p
+             WHERE p.booking_id = b.id AND p.payment_class = 'hard'
+               AND p.paid_date IS NOT NULL), 0) AS paid_cents,
   (SELECT COUNT(*) FROM booking_payments p
      WHERE p.booking_id = b.id AND p.payment_class = 'hard') AS hard_rows`;
 
