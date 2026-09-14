@@ -157,8 +157,21 @@ function drawList(data) {
 }
 
 /** Drag to move, with a per-card select so touch and keyboard also work. */
-select.addEventListener('change', () => load(select.value));
-document.getElementById('refresh').addEventListener('click', () => load(select.value || undefined));
+async function load() {
+  panel.innerHTML = '<p class="spinner">Loading the board...</p>';
+  try {
+    const params = [];
+    if (advisorParam()) params.push(advisorParam());
+    const data = await api(`/api/opportunities${params.length ? `?${params.join('&')}` : ''}`);
+    mountScopePicker(document.getElementById('scope'), data, () => load());
+    render(data);
+  } catch (err) {
+    summary.hidden = true;
+    showError(panel, err);
+  }
+}
+
+document.getElementById('refresh').addEventListener('click', () => load());
 await load();
 </script>
 </body></html>

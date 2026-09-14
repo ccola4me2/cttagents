@@ -502,7 +502,6 @@ async function routeRequest(request, env, ctx) {
 // ---------------------------------------------------------------------------
 async function routeApi(request, env, path, method) {
   // /api/leads/<id>/notes and /api/leads/<id>
-  const oppMatch = path.match(/^\/api\/opportunities\/([^/]+)$/);
   const bookingMatch = path.match(/^\/api\/bookings\/([^/]+)$/);
   const recordMatch = path.match(/^\/api\/bookings\/([^/]+)\/record$/);
   const quickMatch = path.match(/^\/api\/bookings\/([^/]+)\/quick$/);
@@ -562,7 +561,6 @@ async function routeApi(request, env, path, method) {
   const itinOrderMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary\/reorder$/);
   const optionsOpenMatch = path.match(/^\/api\/bookings\/([^/]+)\/options-open$/);
   const libMatch = path.match(/^\/api\/itinerary-library\/([^/]+)$/);
-  const provisionMatch = path.match(/^\/api\/agencies\/([^/]+)\/provision$/);
   const houseMatch = path.match(/^\/api\/households\/([^/]+)$/);
   const houseMemberMatch = path.match(/^\/api\/households\/([^/]+)\/members$/);
   const houseDropMatch = path.match(/^\/api\/households\/([^/]+)\/members\/([^/]+)$/);
@@ -598,12 +596,7 @@ async function routeApi(request, env, path, method) {
   // ---- leads ------------------------------------------------------------
 
   // ---- pipeline ---------------------------------------------------------
-  if (path === '/api/pipelines' && method === 'GET') return handleListPipelines(request, env);
   if (path === '/api/opportunities' && method === 'GET') return handleListOpportunities(request, env);
-  if (path === '/api/opportunities' && method === 'POST') return handleCreateOpportunity(request, env);
-  if (oppMatch && method === 'PUT') {
-    return handleUpdateOpportunity(request, env, decodeURIComponent(oppMatch[1]));
-  }
 
   // ---- bookings ---------------------------------------------------------
   if (path === '/api/bookings' && method === 'GET') return handleListBookings(request, env);
@@ -922,18 +915,12 @@ async function routeApi(request, env, path, method) {
   // Agencies: who is on this portal, and what each of them looks like.
   // Whether the portal can reach the agency level at all, and what it could
   // copy. Before the single-segment match, which would otherwise swallow it.
-  if (path === '/api/agencies/ghl' && method === 'GET') return handleAgencyGhlStatus(request, env);
-  if (provisionMatch && method === 'POST') {
-    return handleProvisionAgency(request, env, provisionMatch[1]);
-  }
   if (path === '/api/agencies' && method === 'GET') return handleListAgencies(request, env);
   if (path === '/api/agencies' && method === 'POST') return handleCreateAgency(request, env);
   if (agencyMatch && method === 'PUT') return handleUpdateAgency(request, env, agencyMatch[1]);
   if (advisorAgencyMatch && method === 'PUT') {
     return handleSetAdvisorAgency(request, env, advisorAgencyMatch[1]);
   }
-  if (path === '/api/admin/sync' && method === 'GET') return handleSyncStatus(request, env);
-  if (path === '/api/admin/sync' && method === 'POST') return handleRunSync(request, env);
   if (path === '/api/admin/lifecycle' && method === 'POST') return handleRunLifecycle(request, env);
   if (path === '/api/admin/advisors' && method === 'GET') return handleListAdvisors(request, env);
   // The only way an account comes into being. Nobody signs themselves up.
