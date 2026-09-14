@@ -151,7 +151,7 @@ async function loadTrip(env, code) {
   const booking = await env.DB.prepare(
     `SELECT b.*, u.first_name, u.last_name, u.email AS advisor_email,
             u.notify_email, u.phone AS advisor_phone, u.agency_name,
-            u.agency_address, u.seller_of_travel, u.agency_id
+            u.seller_of_travel, u.agency_id
        FROM bookings b JOIN users u ON u.id = b.user_id
       WHERE b.share_code = ?`
   ).bind(code).first();
@@ -641,7 +641,6 @@ export async function renderTripPage(request, env, code) {
     .filter(Boolean).map(esc).join(' &middot; ')}</p>
       </div>
       ${b.agency_name ? `<p>${esc(b.agency_name)}</p>` : ''}
-      ${b.agency_address ? `<p class="dim">${esc(b.agency_address)}</p>` : ''}
       ${b.seller_of_travel ? `<p class="dim">${esc(b.seller_of_travel)}</p>` : ''}
     </footer>
     ${SAY_SCRIPT}
