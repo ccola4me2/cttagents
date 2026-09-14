@@ -245,6 +245,7 @@ export async function handlePaymentReminder(request, env, id) {
     clientName: (client && client.name) || booking.client_name,
     advisorName: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email,
     agencyName: user.agency_name || '',
+    advisorPhone: user.phone || '',
     amountCents: payment.amount_cents,
     dueDate: payment.due_date,
     hard: payment.payment_class === 'hard',

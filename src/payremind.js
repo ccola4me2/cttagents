@@ -69,7 +69,7 @@ export async function remindDuePayments(env, { at = now(), limit = 200 } = {}) {
             b.client_name, b.product_name, b.supplier, b.confirmation_number, b.client_id,
             c.email AS client_email, c.name AS client_record_name,
             u.first_name, u.last_name, u.email AS advisor_email, u.notify_email,
-            u.agency_name
+            u.agency_name, u.phone AS advisor_phone
        FROM booking_payments p
        JOIN bookings b ON b.id = p.booking_id
        JOIN users u ON u.id = p.user_id
@@ -107,6 +107,7 @@ export async function remindDuePayments(env, { at = now(), limit = 200 } = {}) {
         clientName: p.client_record_name || p.client_name,
         advisorName,
         agencyName: p.agency_name || '',
+        advisorPhone: p.advisor_phone || '',
         amountCents: p.amount_cents,
         dueDate: p.due_date,
         hard: true,

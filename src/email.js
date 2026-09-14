@@ -740,7 +740,7 @@ const REMIND_WORD = {
 };
 
 export async function sendPaymentReminder(env, {
-  to, replyTo, clientName, advisorName, agencyName,
+  to, replyTo, clientName, advisorName, agencyName, advisorPhone,
   amountCents, dueDate, hard, tripName, vendor, confirmation, kind,
 }) {
   if (!env.RESEND_API_KEY) {
@@ -788,6 +788,12 @@ export async function sendPaymentReminder(env, {
       agencyName ? escapeHtml(agencyName) : '',
       replyTo ? `<a href="mailto:${escapeHtml(replyTo)}" style="color:#6b7a8c;">${
         escapeHtml(replyTo)}</a>` : '',
+      // A number to ring. This message tells a client their booking may be
+      // cancelled if a date passes, and the only way back was to reply to an
+      // email and wait. The proposal and the invoice both carry the phone;
+      // the most urgent thing the portal sends did not.
+      advisorPhone ? `<a href="tel:${escapeHtml(advisorPhone)}" style="color:#6b7a8c;">${
+        escapeHtml(advisorPhone)}</a>` : '',
     ].filter(Boolean).join(' &middot; '),
   });
 
