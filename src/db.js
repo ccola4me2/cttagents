@@ -568,11 +568,18 @@ export async function setBookingSplit(env, id, { advisorSplitPct, leadSource }) 
  * Four places create a reservation and a fifth creates one from a deal, and a
  * rule that every one of them has to remember is a rule one of them will not.
  * Read straight off the advisor's row in the same statement, it cannot be
- * forgotten and cannot disagree with itself. See 0074_agreed_split.sql.
+ * forgotten and cannot disagree with itself.
+ *
+ * Copied as it stands, nulls included. No agreement recorded is not an
+ * agreement that the advisor keeps everything: freezing it as 100 would mean an
+ * advisor who sells before their agreement is written down keeps the lot on
+ * those trips for ever, silently, and that is the usual order of an onboarding.
+ * A null here falls through to the advisor's record, which is where an
+ * agreement that has not been reached yet belongs. See 0074_agreed_split.sql.
  */
 const AGREED_SPLIT_SQL = `
-  (SELECT COALESCE(u.default_split_pct, 100) FROM users u WHERE u.id = ?),
-  (SELECT COALESCE(u.lead_split_pct, u.default_split_pct, 100) FROM users u WHERE u.id = ?)`;
+  (SELECT u.default_split_pct FROM users u WHERE u.id = ?),
+  (SELECT u.lead_split_pct FROM users u WHERE u.id = ?)`;
 
 export async function createBooking(env, userId, f) {
   const ts = now();

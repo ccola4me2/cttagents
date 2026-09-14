@@ -30,14 +30,17 @@ ALTER TABLE bookings ADD COLUMN agreed_lead_split_pct REAL;
 -- currently reads; it does not restate it. From here a change to an advisor's
 -- record reaches new reservations only.
 --
--- COALESCE to 100 rather than leaving null: no agreement recorded means the
--- advisor keeps what they earned, and that is as much a fact about March as
--- any other rate. A deliberate 0, which is a house account, survives because
--- COALESCE only replaces null.
+-- Copied as it stands, nulls included. No agreement recorded is not an
+-- agreement that the advisor keeps everything, and freezing it as 100 would
+-- mean an advisor who sold before their agreement was written down keeps the
+-- lot on those trips for ever, silently. That is the usual order of an
+-- onboarding: the account is made, the advisor starts, the split is recorded
+-- afterwards. A null here falls through to the advisor's record, which is
+-- where an agreement nobody has reached yet belongs.
+--
+-- A deliberate 0, which is a house account, is not a null and survives.
 UPDATE bookings
-   SET agreed_split_pct = COALESCE(
-         (SELECT u.default_split_pct FROM users u WHERE u.id = bookings.user_id), 100),
-       agreed_lead_split_pct = COALESCE(
-         (SELECT COALESCE(u.lead_split_pct, u.default_split_pct)
-            FROM users u WHERE u.id = bookings.user_id), 100)
- WHERE agreed_split_pct IS NULL;
+   SET agreed_split_pct =
+         (SELECT u.default_split_pct FROM users u WHERE u.id = bookings.user_id),
+       agreed_lead_split_pct =
+         (SELECT u.lead_split_pct FROM users u WHERE u.id = bookings.user_id);
