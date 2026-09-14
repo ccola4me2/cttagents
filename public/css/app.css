@@ -217,14 +217,21 @@ textarea { min-height: 90px; resize: vertical; }
  * Drawn into the background rather than wrapped in an element, because these
  * inputs sit in table cells and grids whose layout is already settled, and one
  * of them has a sibling its own page looks up by walking the parent. Padding
- * makes room; the glyph never moves and cannot be typed over. */
+ * makes room; the glyph never moves and cannot be typed over.
+ *
+ * In ink rather than the pale navy it used to be. At --navy-400 on white it was
+ * technically present and practically invisible: Brent read his own deposit box
+ * as having no currency sign at all, which is the only test that counts. */
 .money {
   padding-left: 1.15rem;
-  background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='16'%3E%3Ctext x='0' y='12' font-family='-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif' font-size='12' fill='%235f8bb8'%3E%24%3C/text%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='16'%3E%3Ctext x='0' y='12' font-family='-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif' font-size='12' fill='%235c7286'%3E%24%3C/text%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: .45rem center;
 }
-.money:disabled, .money[readonly] { background-image: none; padding-left: .6rem; }
+/* A box you cannot type in still holds money, and a figure with no sign in
+   front of it is the thing being complained about. It stays, lighter, so a
+   read-only reservation reads as money rather than as a number. */
+.money:disabled, .money[readonly] { background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='16'%3E%3Ctext x='0' y='12' font-family='-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif' font-size='12' fill='%238395a5'%3E%24%3C/text%3E%3C/svg%3E"); }
 
 /* The two figures the grid exists to produce, under the per-passenger line. */
 .price-grid tfoot tr.grand th {
