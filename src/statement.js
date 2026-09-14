@@ -52,7 +52,7 @@ export function buildStatement({ booking, pricing, travellers, payments, ameniti
   const tripCents = lines.length ? brokenDown : (booking.gross_cents || 0);
 
   // Hard rows only. A soft row is the advisor's private reminder to chase the
-  // same money a week early; showing a client two dates for one payment reads
+  // same money ten days early; showing a client two dates for one payment reads
   // as two payments, and showing them a date the vendor never set is worse.
   const hard = (payments || []).filter((p) => p.payment_class === 'hard');
   const posted = hard.filter((p) => p.paid_date).map((p) => ({
@@ -90,6 +90,22 @@ export function buildStatement({ booking, pricing, travellers, payments, ameniti
       const what = nextDue.kind === 'deposit' ? 'Deposit' : (clears ? 'Balance' : 'Payment');
       return `${paidCents > 0 ? `${money(paidCents)} received. ` : ''}${what} of ${
         money(nextDue.amount_cents || 0)} due by ${day(nextDue.due_date)}.`;
+    }
+    // Nothing on a date, but the reservation carries the vendor's own deadline.
+    //
+    // This is the commonest reservation in the book and it was the one the
+    // document said least about: a trip booked inside ninety days is paid in
+    // full at once, so the whole fare sits in the deposit field and nobody
+    // ever built a schedule. The client was sent an invoice naming a balance
+    // and no date at all, which reads as no hurry. The date is the vendor's,
+    // it is on the reservation, and it is the one sentence this document
+    // exists to carry.
+    if (owing > 0 && booking.final_payment_due) {
+      const had = paidCents > 0 ? `${money(paidCents)} received. ` : '';
+      const when = day(booking.final_payment_due);
+      return booking.final_payment_due < new Date().toISOString().slice(0, 10)
+        ? `${had}Balance of ${money(owing)}, which was due by ${when}.`
+        : `${had}Balance of ${money(owing)} due by ${when}.`;
     }
     if (paidCents > 0 && owing > 0) return `${money(paidCents)} received. ${money(owing)} still to pay.`;
     if (paidCents > 0) return `${money(paidCents)} received. Thank you.`;
