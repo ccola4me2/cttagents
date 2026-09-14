@@ -66,7 +66,7 @@ const PAGES = [
   ['public/app/formbuilder.html', ['/api/myforms', 'detail:/api/myforms/{formId}', '/api/myforms/report']],
   ['public/app/automations.html', ['/api/automations', 'detail:/api/automations/{automationId}', '/api/campaigns']],
   ['public/app/broadcasts.html', ['/api/broadcasts', '/api/suppressions']],
-  ['public/admin/index.html', ['/api/admin/advisors', '/api/admin/sync']],
+  ['public/admin/index.html', ['/api/admin/advisors', '/api/admin/health']],
 ];
 
 // Property names that belong to the DOM, JS builtins or local objects rather
