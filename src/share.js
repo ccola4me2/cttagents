@@ -522,7 +522,7 @@ export async function renderTripPage(request, env, code) {
   // was while they are on it is the portal not paying attention, and asking
   // somebody who has not gone yet is worse.
   const home = tripIsOver(b, today);
-  const review = home ? await reviewFor(env, b.id) : null;
+  const review = home ? await reviewFor(env, b.id, b.user_id) : null;
 
   const facts = [
     ['Departs', sayDate(b.depart_date)],

@@ -42,6 +42,10 @@ const OWNED = new Set([
   'amenities', 'tasks', 'client_credits', 'clients', 'travel_groups', 'vendors',
   'goals', 'user_prefs', 'commission_statements', 'commission_receipts',
   'group_registrations', 'task_items', 'task_templates', 'trip_messages',
+  // Written from the client's own trip page and read behind the fence, which
+  // is trip_messages again: the share code decides the trip, and every
+  // statement names the advisor it belongs to anyway.
+  'reviews',
   'hotlist_actions', 'specials', 'special_leads', 'households', 'form_templates',
   'advisor_billing',
   // A saved list is one advisor's question about their own book. The rules

@@ -48,9 +48,18 @@ export function tripIsOver(booking, today) {
   return Boolean(back) && back < today;
 }
 
-/** The review on a trip, or null. Public paths read it to fill the form back in. */
-export async function reviewFor(env, bookingId) {
-  return env.DB.prepare('SELECT * FROM reviews WHERE booking_id = ?').bind(bookingId).first();
+/**
+ * The review on a trip, or null. Public paths read it to fill the form back in.
+ *
+ * Names the owner as well as the booking. The booking id already decides which
+ * review this is, so the owner is redundant in the sense that it cannot change
+ * the answer, which is exactly why it belongs here: a statement that says whose
+ * rows it wants can be read once and believed. The same reasoning loadTrip
+ * gives a few files over.
+ */
+export async function reviewFor(env, bookingId, userId) {
+  return env.DB.prepare('SELECT * FROM reviews WHERE booking_id = ? AND user_id = ?')
+    .bind(bookingId, userId).first();
 }
 
 /**
@@ -84,13 +93,13 @@ export async function submitReview(env, request, booking, body) {
   const out = { ok: true, reviewed: false, referred: null };
 
   if (rating || text) {
-    const existing = await reviewFor(env, booking.id);
+    const existing = await reviewFor(env, booking.id, booking.user_id);
     if (existing) {
       await env.DB.prepare(
         `UPDATE reviews SET rating = ?, body = ?, author_name = ?, consent_public = ?,
-           submitted_at = ?, ip_hash = ?, updated_at = ? WHERE id = ?`
+           submitted_at = ?, ip_hash = ?, updated_at = ? WHERE id = ? AND user_id = ?`
       ).bind(rating, text || null, clean(body.authorName, 120) || null,
-             body.consentPublic ? 1 : 0, ts, ipHash, ts, existing.id).run();
+             body.consentPublic ? 1 : 0, ts, ipHash, ts, existing.id, booking.user_id).run();
     } else {
       await env.DB.prepare(
         `INSERT INTO reviews (id, booking_id, user_id, client_id, rating, body,
@@ -181,7 +190,7 @@ export async function handleAskReview(request, env, bookingId) {
   if (!to) return badRequest('That client has no email address on file.');
 
   const ts = now();
-  const existing = await reviewFor(env, booking.id);
+  const existing = await reviewFor(env, booking.id, user.id);
   const appUrl = (env.APP_URL || 'https://cttagents.com').replace(/\/$/, '');
 
   try {
@@ -202,8 +211,9 @@ export async function handleAskReview(request, env, bookingId) {
   // Stamped after the send, so a bounced address does not read as asked.
   if (existing) {
     await env.DB.prepare(
-      'UPDATE reviews SET asked_at = ?, asked_count = asked_count + 1, updated_at = ? WHERE id = ?'
-    ).bind(ts, ts, existing.id).run();
+      `UPDATE reviews SET asked_at = ?, asked_count = asked_count + 1, updated_at = ?
+        WHERE id = ? AND user_id = ?`
+    ).bind(ts, ts, existing.id, user.id).run();
   } else {
     await env.DB.prepare(
       `INSERT INTO reviews (id, booking_id, user_id, client_id, asked_at, asked_count,
