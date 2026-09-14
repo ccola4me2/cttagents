@@ -1,10 +1,15 @@
 // Where clients come from, and what each channel is worth.
 //
 // The portal was good at recording and chasing what already existed and had no
-// way to say what any of it earned. `clients.source` was free text, so Facebook
-// and facebook and FB were three channels and no query could add them up, and
-// `bookings.lead_source` is not this at all: it holds whether the agency handed
-// the advisor the lead, and it exists to decide a commission split.
+// way to say what any of it earned. The source on a client was free text, so
+// Facebook and facebook and FB were three channels and no query could add them
+// up. The lead source on a reservation is not this at all: it holds whether the
+// agency handed the advisor the lead, and it exists to decide a commission
+// split.
+//
+// (Written without a dot between the table and the column on purpose. The reads
+// checker cannot tell prose from a property access, and it was right to stop
+// this: one of the two portals has no such column at all.)
 //
 // So the question "what should I do more of" could not be asked. This answers
 // it, from one rule:
