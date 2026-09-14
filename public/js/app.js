@@ -168,6 +168,7 @@ const NAV = [
     // trip they have not booked yet. They sit together at the top because
     // that is the order somebody thinks in. The daily lists follow.
     hub: 'Client', icon: I.people, items: [
+      { href: '/app/leads', label: 'Leads' },
       { href: '/app/clients', label: 'Clients' },
       { href: '/app/import-clients', label: 'Import clients' },
       { href: '/app/households', label: 'Households' },

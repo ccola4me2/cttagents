@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leads | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+<style>
+  .opp .n { font-size:.75rem; color: var(--ink-400); margin-top:.35rem; }
+  .opp .n.due { color: var(--red-600); font-weight:600; }
+  .opp .w { font-size:.75rem; color: var(--ink-400); margin-top:.3rem; }
+  .board-col.cold { background: transparent; border:1px dashed var(--navy-100); }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Leads</h1>
+        <p class="sub">People who got in touch and have not booked. Drag a card to move it.</p></div>
+      <div class="toolbar" style="margin:0;">
+        <span id="scope"></span>
+        <input id="q" type="search" placeholder="Search" style="width:11rem;">
+        <select id="view" aria-label="How to show them" style="width:auto;">
+          <option value="board">Board</option>
+          <option value="list">List</option>
+        </select>
+        <button class="btn btn-primary btn-sm" id="add">Somebody called</button>
+      </div>
+    </header>
+    <div class="content">
+      <div class="notice notice-error" id="err" hidden></div>
+      <section id="summary" class="stat-grid" hidden></section>
+      <section id="panel"><p class="spinner">Loading...</p></section>
+    </div>
+  </div>
+</div>
+
+<dialog id="dlg">
+  <form id="form" method="dialog">
+    <div class="card-head"><h2 id="dlg-title">Somebody called</h2>
+      <button class="btn btn-ghost btn-sm" type="button" data-close>Close</button></div>
+    <div class="dialog-body">
+      <div class="notice notice-error" id="dlg-err" hidden></div>
+      <div class="field"><label for="name">Their name</label>
+        <input id="name" name="name" required maxlength="120" placeholder="Edward Welch">
+        <p class="field-hint">If they are already on your book this adds to that person
+          rather than making a second copy of them.</p></div>
+      <div class="field-row">
+        <div class="field"><label for="phone">Phone</label>
+          <input id="phone" name="phone" type="tel" maxlength="40"></div>
+        <div class="field"><label for="email">Email</label>
+          <input id="email" name="email" type="email" maxlength="254"></div>
+      </div>
+      <div class="field"><label for="askedAbout">What they asked about</label>
+        <textarea id="askedAbout" name="askedAbout" maxlength="500"
+          placeholder="Alaska next summer, two of them, never cruised before"></textarea></div>
+      <div class="field-row">
+        <div class="field"><label for="source">How they found you</label>
+          <input id="source" name="source" maxlength="120" placeholder="Referral, website, Facebook"></div>
+        <div class="field"><label for="stage">Stage</label>
+          <select id="stage" name="stage"></select></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="nextStep">Next step</label>
+          <input id="nextStep" name="nextStep" maxlength="160" placeholder="Ring back with two options"></div>
+        <div class="field"><label for="nextStepOn">By when</label>
+          <input id="nextStepOn" name="nextStepOn" type="date"></div>
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn btn-ghost" type="button" id="off" hidden>Take off the board</button>
+      <button class="btn btn-primary" type="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module">
+import { api, mountShell, esc, dateFmt, timeAgo, showError, onSubmit,
+  mountScopePicker, advisorParam } from '/js/app.js';
+await mountShell();
+
+const panel = document.getElementById('panel');
+const summary = document.getElementById('summary');
+const err = document.getElementById('err');
+const dlg = document.getElementById('dlg');
+const q = document.getElementById('q');
+const view = document.getElementById('view');
+let data = null;
+let editing = null;
+
+try {
+  const saved = localStorage.getItem('leads-view');
+  if (saved === 'board' || saved === 'list') view.value = saved;
+} catch { /* the default is fine */ }
+
+// Filled from the response. The server decides what the columns are and a
+// second copy here is a second thing to keep in step.
+function fillStages() {
+  document.getElementById('stage').innerHTML = (data.stages || [])
+    .map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+}
+
+function reach(l) {
+  return [l.phone ? `<a href="tel:${esc(l.phone)}">${esc(l.phone)}</a>` : '',
+          l.email ? `<a href="mailto:${esc(l.email)}">${esc(l.email)}</a>` : '']
+    .filter(Boolean).join(' &middot; ');
+}
+
+function card(l) {
+  const late = l.nextStepOn && l.nextStepOn <= data.today;
+  return `<article class="opp" draggable="true" data-id="${esc(l.id)}">
+    <div class="t">${esc(l.name)}</div>
+    ${l.askedAbout ? `<div class="c">${esc(l.askedAbout)}</div>` : ''}
+    ${l.nextStep ? `<div class="n${late ? ' due' : ''}">${esc(l.nextStep)}${
+      l.nextStepOn ? ` &middot; ${esc(dateFmt(l.nextStepOn))}` : ''}</div>`
+      : '<div class="n due">No next step</div>'}
+    <div class="w">${esc(l.source || 'source not recorded')} &middot; ${esc(timeAgo(l.since))}</div>
+  </article>`;
+}
+
+function renderSummary() {
+  summary.hidden = false;
+  summary.innerHTML = `
+    <div class="stat"><p class="label">Live leads</p><p class="value">${data.total}</p>
+      <p class="meta">in touch, not booked</p></div>
+    <div class="stat"><p class="label">Owed a call</p>
+      <p class="value" style="${data.nudge ? 'color:var(--red-600);' : ''}">${data.nudge}</p>
+      <p class="meta">follow-up due or past</p></div>
+    <div class="stat"><p class="label">Nothing planned</p>
+      <p class="value" style="${data.untouched ? 'color:var(--red-600);' : ''}">${data.untouched}</p>
+      <p class="meta">new and no next step</p></div>
+    <div class="stat"><p class="label">Became clients</p><p class="value">${data.converted}</p>
+      <p class="meta">booked since getting in touch</p></div>`;
+}
+
+function render() {
+  fillStages();
+  renderSummary();
+  panel.innerHTML = view.value === 'list' ? list() : board();
+  wire();
+}
+
+function board() {
+  return `<div class="board">${data.stages.map((s) => `
+    <div class="board-col${s.id === 'lost' ? ' cold' : ''}" data-stage="${esc(s.id)}">
+      <h3>${esc(s.name)}</h3>
+      <p class="col-meta">${s.count}</p>
+      ${s.leads.map(card).join('')
+        || '<p class="muted" style="font-size:.78rem;">Nobody here.</p>'}
+    </div>`).join('')}</div>`;
+}
+
+// A board answers "who have I got". A list answers "who do I ring first", which
+// is the question once there are sixty of them and the columns stop helping.
+function list() {
+  const rows = data.stages.flatMap((s) => s.leads.map((l) => ({ ...l, stageName: s.name })));
+  if (!rows.length) {
+    return `<div class="empty"><h3>No live leads</h3>
+      <p>Somebody who calls goes on here, and a form submission arrives on it by itself.</p></div>`;
+  }
+  return `<div class="table-wrap"><table class="grid">
+    <thead><tr><th>Name</th><th>How to reach them</th><th>Asked about</th>
+      <th>Next step</th><th>Stage</th><th></th></tr></thead>
+    <tbody>${rows.map((l) => {
+      const late = l.nextStepOn && l.nextStepOn <= data.today;
+      return `<tr>
+        <td><a class="name" href="/app/client?id=${esc(l.id)}">${esc(l.name)}</a>
+          <div class="muted" style="font-size:.74rem;">${esc(l.source || 'source not recorded')}</div></td>
+        <td>${reach(l) || '<span class="muted">nothing on file</span>'}</td>
+        <td class="muted">${esc(l.askedAbout || '')}</td>
+        <td${late ? ' style="color:var(--red-600);font-weight:600;"' : ''}>${
+          l.nextStep ? `${esc(l.nextStep)}${l.nextStepOn ? ` &middot; ${esc(dateFmt(l.nextStepOn))}` : ''}`
+            : '<span style="color:var(--red-600);">nothing planned</span>'}</td>
+        <td>${esc(l.stageName)}</td>
+        <td class="num"><button class="btn btn-ghost btn-sm" data-edit="${esc(l.id)}">Open</button></td>
+      </tr>`;
+    }).join('')}</tbody></table></div>`;
+}
+
+const find = (id) => data.stages.flatMap((s) => s.leads).find((l) => l.id === id);
+
+function wire() {
+  panel.querySelectorAll('[data-edit]').forEach((b) =>
+    b.addEventListener('click', () => open(find(b.dataset.edit))));
+  panel.querySelectorAll('.opp').forEach((el) => {
+    el.addEventListener('click', () => open(find(el.dataset.id)));
+    el.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/plain', el.dataset.id);
+      el.classList.add('dragging');
+    });
+    el.addEventListener('dragend', () => el.classList.remove('dragging'));
+  });
+  panel.querySelectorAll('.board-col').forEach((col) => {
+    col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('drop-target'); });
+    col.addEventListener('dragleave', () => col.classList.remove('drop-target'));
+    col.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      col.classList.remove('drop-target');
+      const id = e.dataTransfer.getData('text/plain');
+      if (!id || !col.dataset.stage) return;
+      try {
+        await api(`/api/leads/${encodeURIComponent(id)}/stage`,
+          { method: 'POST', body: { stage: col.dataset.stage } });
+        await load();
+      } catch (e2) { showError(err, e2); }
+    });
+  });
+}
+
+function open(l) {
+  editing = l || null;
+  document.getElementById('dlg-err').hidden = true;
+  document.getElementById('dlg-title').textContent = l ? l.name : 'Somebody called';
+  document.getElementById('off').hidden = !l;
+  const f = document.getElementById('form');
+  fillStages();
+  f.elements.name.value = l ? l.name : '';
+  f.elements.phone.value = l ? l.phone : '';
+  f.elements.email.value = l ? l.email : '';
+  f.elements.askedAbout.value = l ? l.askedAbout : '';
+  f.elements.source.value = l ? l.source : '';
+  f.elements.stage.value = l ? l.stage : 'new';
+  f.elements.nextStep.value = l ? l.nextStep : '';
+  f.elements.nextStepOn.value = l ? l.nextStepOn : '';
+  dlg.showModal();
+}
+
+document.querySelectorAll('[data-close]').forEach((b) =>
+  b.addEventListener('click', () => dlg.close()));
+document.getElementById('add').addEventListener('click', () => open(null));
+
+onSubmit(document.getElementById('form'), async (values) => {
+  if (editing) {
+    await api(`/api/leads/${encodeURIComponent(editing.id)}`, { method: 'PUT', body: values });
+  } else {
+    await api('/api/leads', { method: 'POST', body: values });
+  }
+  dlg.close();
+  await load();
+});
+
+document.getElementById('off').addEventListener('click', async () => {
+  if (!editing) return;
+  const btn = document.getElementById('off');
+  btn.disabled = true;
+  try {
+    await api(`/api/leads/${encodeURIComponent(editing.id)}`, { method: 'DELETE' });
+    dlg.close();
+    await load();
+  } catch (e) {
+    showError(document.getElementById('dlg-err'), e);
+  } finally { btn.disabled = false; }
+});
+
+view.addEventListener('change', () => {
+  try { localStorage.setItem('leads-view', view.value); } catch { /* nothing to do */ }
+  render();
+});
+
+async function load() {
+  try {
+    const params = [];
+    if (q.value.trim()) params.push(`q=${encodeURIComponent(q.value.trim())}`);
+    if (advisorParam()) params.push(advisorParam());
+    data = await api(`/api/leads${params.length ? `?${params.join('&')}` : ''}`);
+    mountScopePicker(document.getElementById('scope'), data, load);
+    render();
+  } catch (e) {
+    summary.hidden = true;
+    showError(panel, e);
+  }
+}
+
+let t;
+q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 250); });
+await load();
+</script>
+</body></html>

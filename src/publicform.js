@@ -582,14 +582,24 @@ export async function handlePublicSubmit(request, env, slug) {
       clientIsNew = !before;
       clientId = await db.resolveClient(env, row.created_by, name);
       if (clientId) {
+        // On the lead board as well as on the book. A lead that lands in a
+        // table nobody opens is a lead nobody rings: the board is where the
+        // advisor looks, so this is what makes the form worth having.
+        // Only a new person gets a stage. Somebody already being worked is not
+        // dragged back to New because they filled in a form again.
         await env.DB.prepare(
           `UPDATE clients
               SET email = COALESCE(NULLIF(email, ''), ?),
                   phone = COALESCE(NULLIF(phone, ''), ?),
                   source = COALESCE(NULLIF(source, ''), ?),
+                  lead_stage = COALESCE(lead_stage, ?),
+                  lead_at = COALESCE(lead_at, ?),
+                  lead_asked_about = COALESCE(NULLIF(lead_asked_about, ''), ?),
                   updated_at = ?
             WHERE id = ? AND user_id = ?`
         ).bind(email || null, phone || null, `Form: ${form.name}`.slice(0, 120),
+               clientIsNew ? 'new' : null, now(),
+               `From the ${form.name} form`.slice(0, 500),
                now(), clientId, row.created_by).run();
         await env.DB.prepare('UPDATE form_submissions SET contact_id = ? WHERE id = ?')
           .bind(clientId, submissionId).run();

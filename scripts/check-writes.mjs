@@ -53,6 +53,51 @@ const ALLOWED = [
     + 'the star every time a supplier was edited, which is how it got one'],
 ];
 
+// The five lead columns belong to the lead board and to nothing else. The
+// client form has no controls for them, so writing them from it would clear
+// somebody's stage and their next call every time a passport number was saved:
+// the same bug the vendor star entry above exists for.
+for (const column of ['lead_stage', 'lead_at', 'lead_asked_about',
+  'lead_next_step', 'lead_next_step_on']) {
+  ALLOWED.push([`clients:${column}`, 'SET name = ?, email = ?, phone = ?, notes = ?',
+    'the client edit form has no lead fields; the lead board owns them']);
+  ALLOWED.push([`clients:${column}`, 'INSERT INTO clients',
+    'a client made by taking a booking was never a lead, so it has no stage']);
+  ALLOWED.push([`clients:${column}`, 'UPDATE clients SET email = ?, phone = ?, notes = ?',
+    'the create path, which fills in blanks on somebody already on the books. Somebody '
+    + 'being worked as a lead must not be reset by a reservation naming them']);
+}
+
+// And the other way. A lead is a name and a way to reach them; the dialog that
+// takes one has no passport, address or loyalty fields. Writing them from it
+// would empty the travel record of a returning client the moment they rang
+// about a second trip.
+for (const column of ['address1', 'address2', 'anniversary', 'birthday', 'citizenship',
+  'city', 'country', 'gender', 'ghl_contact_id', 'known_traveler', 'legal_first',
+  'legal_last', 'legal_middle', 'loyalty_json', 'nickname', 'notes', 'passport_country',
+  'passport_expiry', 'passport_issued', 'passport_number', 'postcode', 'redress', 'state']) {
+  ALLOWED.push([`clients:${column}`, "SET email = COALESCE(NULLIF(email, ''), ?)",
+    'the lead dialog holds a name and a way to reach somebody, and nothing about travel']);
+  ALLOWED.push([`clients:${column}`, 'SET name = ?, email = ?, phone = ?, source = ?, lead_stage = ?',
+    'the lead dialog holds a name and a way to reach somebody, and nothing about travel']);
+}
+
+// Two more on the lead writes, for the reasons the client create path already
+// gives: it is reached by name, and when somebody first got in touch is not
+// something a later edit should move.
+ALLOWED.push(['clients:name', "SET email = COALESCE(NULLIF(email, ''), ?)",
+  'reached by name, so renaming from it would rename the person it just matched']);
+ALLOWED.push(['clients:lead_at', 'SET name = ?, email = ?, phone = ?, source = ?, lead_stage = ?',
+  'when somebody first got in touch is a fact, and editing their phone number is not it']);
+
+// A form knows what somebody asked about. It does not know when to ring them,
+// and inventing a follow-up date nobody chose is worse than leaving it for the
+// advisor to set on the board.
+for (const column of ['lead_next_step', 'lead_next_step_on']) {
+  ALLOWED.push([`clients:${column}`, "SET email = COALESCE(NULLIF(email, ''), ?)",
+    'a form submission has no follow-up date; the advisor sets one on the board']);
+}
+
 // The partner list is what a supplier's own record says about them, and the
 // edit form does not show any of it. Listed as a group because the reason is
 // one reason rather than six.
