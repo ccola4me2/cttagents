@@ -90,7 +90,8 @@ function render(data) {
       <p class="value">${money(s.commissionCents - s.commissionPaidCents)}</p>
       <p class="meta">Commission earned, not yet paid ${everyone ? 'out' : 'to you'}</p></div>
     <div class="stat"><p class="label">Collection rate</p>
-      <p class="value">${data.collectionRate === null ? '—' : data.collectionRate + '%'}</p>
+      <p class="value">${data.collectionRate === null
+        ? '<span class="muted">nothing due yet</span>' : data.collectionRate + '%'}</p>
       <p class="meta">Of payments already due, how much was posted in time</p></div>
     <div class="stat"><p class="label">Past due date</p>
       <p class="value" style="${pay.pastDueCents ? 'color:var(--red-600);' : ''}">${money(pay.pastDueCents || 0)}</p>

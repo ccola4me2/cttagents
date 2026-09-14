@@ -159,7 +159,7 @@ async function loadTrip(env, code) {
 
   // Every one names the owner as well as the booking. The share code already
   // decided which trip this is, so the owner is redundant in the sense that it
-  // cannot change the answer — and that is exactly why it belongs here: a
+  // cannot change the answer, and that is exactly why it belongs here: a
   // query on a public page that says whose rows it wants can be read once and
   // believed, and one that does not has to be traced back to the lookup above.
   const owner = booking.user_id;

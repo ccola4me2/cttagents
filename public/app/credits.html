@@ -156,7 +156,7 @@ function fillReservations(selected) {
   document.getElementById('bookingId').innerHTML =
     '<option value="">Not applied yet</option>' +
     reservations.map((b) => `<option value="${esc(b.id)}"${b.id === selected ? ' selected' : ''}>
-      ${esc(b.client_name)}${b.supplier ? ' — ' + esc(b.supplier) : ''}</option>`).join('');
+      ${esc(b.client_name)}${b.supplier ? ' · ' + esc(b.supplier) : ''}</option>`).join('');
 }
 
 function openCreate() {

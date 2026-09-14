@@ -91,6 +91,12 @@ jobs:
       - name: A fix that crossed the fork, or half of one
         run: npm run check:fork -- sibling
 
+      # A house rule nothing else could keep. Both dashes, both spellings,
+      # everywhere the portal writes its own words. The two files that read an
+      # em dash out of a pasted vendor confirmation are excused by name.
+      - name: No em dashes anywhere
+        run: npm run check:dashes
+
       # The one artifact that leaves this repository: the message a client
       # opens. Renders a marketing email and a transactional one and checks
       # that the first carries a way out in both halves of itself and the

@@ -324,7 +324,7 @@ function openDialog(p) {
     '<option value="">Not recorded</option>' + orderedTypes(data && data.paymentTypes)
       .map((t) => `<option value="${esc(t)}">${esc(PAY_TYPE[t] || t)}</option>`).join('');
   document.getElementById('bookingId').innerHTML = bookings.length
-    ? bookings.map((b) => `<option value="${esc(b.id)}">${esc(b.client_name)} — ${esc(b.product_name || b.supplier || 'reservation')}</option>`).join('')
+    ? bookings.map((b) => `<option value="${esc(b.id)}">${esc(b.client_name)} · ${esc(b.product_name || b.supplier || 'reservation')}</option>`).join('')
     : '<option value="">No reservations yet</option>';
   if (p) {
     form.elements.bookingId.value = p.booking_id;

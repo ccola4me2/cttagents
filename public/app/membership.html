@@ -79,11 +79,11 @@ function render(d) {
     const usd = (c) => `$${(c / 100).toFixed(2)}`;
     quote = `<div class="notice notice-info" style="margin:1rem 0 0;">
       <p style="margin:0 0 .5rem;"><strong>What you pay today</strong></p>
-      <p style="margin:0 0 .3rem;">Annual Program Fee &mdash; ${esc(usd(q.programCents))}
+      <p style="margin:0 0 .3rem;">Annual Program Fee: ${esc(usd(q.programCents))}
         programme plus ${esc(usd(q.eoCents))} errors &amp; omissions cover for
         ${q.monthsOfCover} month${q.monthsOfCover === 1 ? '' : 's'} to 1 October:
         <strong>${esc(usd(q.annualDueCents))}</strong></p>
-      <p style="margin:0 0 .5rem;">CRM &amp; platform &mdash; the rest of this month,
+      <p style="margin:0 0 .5rem;">CRM &amp; platform: the rest of this month,
         worked out by the day, then ${esc(usd(q.monthlyCents))} on the 1st.</p>
       <p class="muted" style="margin:0;font-size:.82rem;">
         After that: ${esc(usd(q.monthlyCents))} on the 1st of each month, and

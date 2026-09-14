@@ -296,9 +296,9 @@ export function renderStatement(env, s) {
       ? block('Your choices', s.options.map((o) => `<tr>
           <td style="padding:8px 0;color:#2f4459;">
             <strong>${escapeHtml(o.label)}</strong>${o.chosen
-              ? ' <span style="color:#12315e;font-size:12px;">&mdash; the one you chose</span>'
+              ? ' <span style="color:#12315e;font-size:12px;">&middot; the one you chose</span>'
               : (o.recommended
-                ? ` <span style="color:#12315e;font-size:12px;">&mdash; ${escapeHtml(suggests)}</span>`
+                ? ` <span style="color:#12315e;font-size:12px;">&middot; ${escapeHtml(suggests)}</span>`
                 : '')}
             ${o.detail ? `<div style="color:#5c7286;font-size:13px;">${escapeHtml(o.detail)}</div>` : ''}</td>
           <td style="padding:8px 0;text-align:right;white-space:nowrap;color:#2f4459;">${
