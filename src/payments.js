@@ -13,7 +13,6 @@ import { json, badRequest, notFound, uid, now, clean, cleanDate, toCents, oneOf,
 import { requireUser } from './auth.js';
 import { sendPaymentReminder } from './email.js';
 import * as db from './db.js';
-import * as ghl from './ghl.js';
 
 const KINDS = ['deposit', 'installment', 'final', 'refund'];
 const CLASSES = ['hard', 'soft'];

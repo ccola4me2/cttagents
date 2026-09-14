@@ -94,7 +94,7 @@ async function showSubs(id) {
               <div style="text-align:right;">
                 <div class="when">${esc(timeAgo(s.createdAt))}</div>
                 ${s.contactId ? `<a class="btn btn-ghost btn-sm" style="margin-top:.35rem;"
-                   href="/app/contact?id=${encodeURIComponent(s.contactId)}">Open contact</a>` : ''}
+                   href="/app/client?id=${encodeURIComponent(s.contactId)}">Open client</a>` : ''}
               </div></div>
             <dl class="kv" style="margin-top:.7rem;">${Object.entries(s.data)
               .map(([k, v]) => `<dt>${esc(k.replace(/_/g, ' '))}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
@@ -148,7 +148,7 @@ function drawReport(r) {
             <td class="muted" style="max-width:22rem;">${esc(said)}</td>
             <td class="muted">${esc(timeAgo(s.createdAt))}</td>
             <td>${s.contactId
-              ? `<a class="muted" href="/app/contact?id=${encodeURIComponent(s.contactId)}">open</a>`
+              ? `<a class="muted" href="/app/client?id=${encodeURIComponent(s.contactId)}">open</a>`
               : '<span class="badge badge-amber">not sent</span>'}</td>
             <td class="num"><button class="btn btn-ghost btn-sm"
               data-quote="${esc(s.id)}">Start a reservation</button></td>

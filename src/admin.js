@@ -5,9 +5,8 @@ import {
   json, badRequest, notFound, clean, readJson, forbidden, parseCookies,
   isValidEmail, normalizeEmail, randomToken, sha256Hex, hashPassword,
 } from './util.js';
-import * as ghl from './ghl.js';
-import { listSyncState, runSync, resetSync } from './sync.js';
 import { requireAdmin, requireUser, publicUser, realUserOf, SESSION_COOKIE } from './auth.js';
+import { tenantFor } from './tenant.js';
 import * as db from './db.js';
 import { getAgency } from './brand.js';
 import { COMPANY_LEAD } from './split.js';
@@ -471,23 +470,9 @@ export async function handleHealth(request, env) {
   // answer to "are the reminders still going out" exists at all.
   const jobs = dbOk ? await jobHealth(env) : { jobs: [], ok: false, error: 'no database' };
 
-  let scopes = null;
-  let capabilities = null;
   const resend = wantEmail ? await checkResend(env) : null;
-  if (ghl.ghlConfigured(env)) {
-    const loc = env.GHL_DEFAULT_LOCATION_ID || '';
-    if (wantScopes) scopes = await ghl.probeScopes(env, loc);
-    if (wantFull) capabilities = await ghl.probeCapabilities(env, loc);
-  }
 
   return json({
-    ghl: {
-      tokenPresent: Boolean(env.GHL_API_TOKEN),
-      tokenLength: env.GHL_API_TOKEN ? String(env.GHL_API_TOKEN).length : 0,
-      defaultLocationId: env.GHL_DEFAULT_LOCATION_ID || null,
-      apiBase: env.GHL_API_BASE || null,
-      apiVersion: env.GHL_API_VERSION || null,
-    },
     email: {
       resendKeyPresent: Boolean(env.RESEND_API_KEY),
       mailFrom: env.MAIL_FROM || null,
@@ -503,10 +488,6 @@ export async function handleHealth(request, env) {
     // repository cannot tell you.
     schema,
     appUrl: env.APP_URL || null,
-    // Which GHL areas this token can actually reach. Skipped unless asked for,
-    // since it costs one API call per area.
-    scopes,
-    capabilities,
     // Names of every binding and var the Worker can actually see. Values are
     // never included; this is here to catch a secret saved under the wrong
     // name or in the build environment instead of the runtime one.
@@ -582,26 +563,3 @@ export async function handleTestEmail(request, env) {
   return json(result, result.ok ? 200 : 502);
 }
 
-/** Admin only. Sync status for the default location. */
-export async function handleSyncStatus(request, env) {
-  const { user, response } = await requireAdmin(request, env);
-  if (response) return response;
-  const locationId = ghl.locationFor(env, user);
-  return json({
-    locationId,
-    jobs: await listSyncState(env, locationId),
-    counts: await db.crmCounts(env, locationId),
-  });
-}
-
-/** Admin only. Runs a sync pass now. force=true restarts from scratch. */
-export async function handleRunSync(request, env) {
-  const { user, response } = await requireAdmin(request, env);
-  if (response) return response;
-  const body = await readJson(request);
-  const locationId = ghl.locationFor(env, user);
-  const result = await runSync(env, locationId, { force: Boolean(body.force) });
-  await db.logActivity(env, user.id, 'admin.sync',
-    body.force ? 'Started a full resync' : 'Ran a sync pass', result);
-  return json({ ok: true, result, jobs: await listSyncState(env, locationId) });
-}

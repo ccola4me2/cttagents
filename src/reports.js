@@ -5,6 +5,7 @@
 // failing the whole dashboard, because the D1 half is still useful on its own.
 
 import { json, now } from './util.js';
+import { tenantFor } from './tenant.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 import { readLayout, PANELS } from './prefs.js';
@@ -15,7 +16,6 @@ import { listCredits } from './credits.js';
 import { migrationHint } from './schema-drift.js';
 import { goalProgress } from './goals.js';
 import { BUCKETS } from './commissions.js';
-import * as ghl from './ghl.js';
 
 function isoDay(offsetDays = 0) {
   const d = new Date(Date.now() + offsetDays * 86400000);
@@ -85,47 +85,9 @@ export async function handleDashboard(request, env) {
     db.currentReservations(env, scope, { view: 'returned', today }),
   ]);
 
-  // Live pipeline, best effort. A CRM outage should cost one widget, not the
-  // whole dashboard.
-  let pipeline = null;
-  let ghlStatus = 'ok';
-  if (!ghl.ghlConfigured(env)) {
-    ghlStatus = 'not_configured';
-  } else {
-    try {
-      const locationId = ghl.locationFor(env, user);
-      const pipelines = await db.localPipelines(env, locationId);
-      if (pipelines.length) {
-        const first = pipelines[0];
-        const opps = await db.localOpportunities(env, locationId, {
-          pipelineId: first.id, status: 'open',
-        });
-        // Grouped by stage, the way Sales Opportunities reads in CP Maxx.
-        const byStage = first.stages.map((st) => {
-          const items = opps.filter((o) => o.stageId === st.id);
-          return { name: st.name, count: items.length,
-                   value: items.reduce((n, o) => n + o.monetaryValue, 0) };
-        }).filter((st) => st.count > 0);
-        pipeline = {
-          name: first.name,
-          openCount: opps.length,
-          openValue: opps.reduce((n, o) => n + o.monetaryValue, 0),
-          stages: byStage,
-          closed: await db.localOpportunityOutcomes(
-            env, locationId, new Date(Date.now() - 365 * 86400000).toISOString()),
-        };
-      } else {
-        pipeline = {
-          name: null, openCount: 0, openValue: 0, stages: [],
-          closed: await db.localOpportunityOutcomes(
-            env, locationId, new Date(Date.now() - 365 * 86400000).toISOString()),
-        };
-      }
-    } catch (e) {
-      ghlStatus = 'error';
-      console.error('dashboard pipeline', e);
-    }
-  }
+  // The CRM pipeline widget is gone with the CRM. The dashboard still has the
+  // reservation board, which is the same question answered from the book of
+  // business rather than from a copy of it.
 
   return json({
     user: { name: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email },
@@ -135,8 +97,6 @@ export async function handleDashboard(request, env) {
     activity,
     reservations: { added: recentAdded, modified: recentModified },
     current: { upcoming, traveling, returned },
-    pipeline,
-    ghlStatus,
     today,
     scope: db.scopeLabel(scope, user),
     advisors: await db.advisorOptions(env, user),
@@ -202,21 +162,8 @@ export async function handleMonth(request, env) {
   const scope = db.scopeFor(env, user, request);
   const events = await db.calendarMonth(env, scope, { from, to });
 
-  // Appointments live in the CRM rather than in this database, so they are
-  // fetched rather than joined, and fetched last. Everything above is the
-  // portal's own and is worth showing on its own: a CRM that is slow or down
-  // costs this panel its appointments, not its month.
-  const appointments = await monthAppointments(env, user, from, to).catch(() => []);
-  if (appointments.length) {
-    events.push(...appointments);
-    events.sort((x, y) => {
-      if (x.date !== y.date) return x.date < y.date ? -1 : 1;
-      if (x.at && y.at) return x.at < y.at ? -1 : x.at > y.at ? 1 : 0;
-      if (x.at) return -1;
-      if (y.at) return 1;
-      return 0;
-    });
-  }
+  // The month used to end with the CRM calendar's appointments merged in.
+  // There is no calendar now, and everything above is the portal's own.
 
   return json({
     month, from, to, today: isoDay(0),
@@ -225,43 +172,6 @@ export async function handleMonth(request, env) {
   });
 }
 
-/**
- * The month's appointments, as calendar events.
- *
- * Returns nothing rather than throwing when the CRM is unset or unwell. The
- * caller has already built a usable month out of departures, deadlines and
- * tasks, and losing the appointments off the end of it is a smaller failure
- * than losing the panel.
- */
-async function monthAppointments(env, user, from, to) {
-  if (!ghl.ghlConfigured(env)) return [];
-  const locationId = ghl.locationFor(env, user);
-  const calendars = await ghl.listCalendars(env, locationId);
-  const active = (calendars || []).filter((c) => c.isActive);
-  if (!active.length) return [];
-
-  const startTime = Date.parse(`${from}T00:00:00Z`);
-  const endTime = Date.parse(`${to}T23:59:59Z`);
-
-  const perCalendar = await Promise.all(active.map((c) =>
-    ghl.listAppointments(env, locationId, { calendarId: c.id, startTime, endTime })
-      .then((list) => (list || []).map((e) => ({ ...e, calendarName: c.name })))
-      .catch(() => [])));
-
-  return perCalendar.flat().flatMap((e) => {
-    const ms = Date.parse(e.startTime || '');
-    if (!Number.isFinite(ms)) return [];
-    const when = new Date(ms);
-    return [{
-      date: when.toISOString().slice(0, 10),
-      at: when.toISOString().slice(11, 16),
-      kind: 'appointment',
-      title: e.title || e.contactName || 'Appointment',
-      detail: e.calendarName || 'appointment',
-      href: '/app/calendar',
-    }];
-  });
-}
 
 export async function handleProduction(request, env) {
   const { user, response } = await requireUser(request, env);
@@ -334,7 +244,7 @@ async function noticesFor(env, user, scope) {
          FROM automation_runs r JOIN automations a ON a.id = r.automation_id
         WHERE a.location_id = ? AND r.status = 'failed'
           AND r.updated_at > ?`
-    ).bind(ghl.locationFor(env, user), now() - 7 * 86400).first().catch(() => null),
+    ).bind(tenantFor(env, user), now() - 7 * 86400).first().catch(() => null),
 
     isOwner
       ? env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE status = 'pending'").first().catch(() => null)

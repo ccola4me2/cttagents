@@ -12,9 +12,9 @@
 // lost when the losing options are deleted.
 
 import { json, badRequest, notFound, clean, cleanText, toCents, uid, now, readJson } from './util.js';
+import { tenantFor } from './tenant.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
-import * as ghl from './ghl.js';
 import { fireTrigger } from './automations.js';
 
 const COLUMNS = `
@@ -278,7 +278,7 @@ export async function handleChooseOption(request, env, id) {
   }
 
   if (chosen) {
-    await fireTrigger(env, ghl.locationFor(env, user), 'option.chosen', {
+    await fireTrigger(env, tenantFor(env, user), 'option.chosen', {
       bookingId: booking.id,
       contactId: booking.ghl_contact_id || null,
       name: booking.client_name,

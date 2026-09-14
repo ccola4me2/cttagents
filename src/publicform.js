@@ -9,8 +9,7 @@
 // input.
 
 import { json, badRequest, notFound, uid, now, clean, cleanText, isValidEmail, normalizeEmail, sha256Hex, readJson, escapeHtml as esc } from './util.js';
-import * as ghl from './ghl.js';
-import { upsertContact } from './sync.js';
+import * as db from './db.js';
 import { hydrateForm } from './formbuilder.js';
 import { fireTrigger } from './automations.js';
 import { sendSignupNoticeEmail } from './email.js';
@@ -557,28 +556,46 @@ export async function handlePublicSubmit(request, env, slug) {
   ).bind(submissionId, form.id, row.location_id, null, name || null, email || null,
          phone || null, JSON.stringify(data), `form:${form.slug}`, ipHash, now()).run();
 
-  // Push the contact upstream so messaging and automations still see it. Best
-  // effort on purpose: losing a lead because the CRM was rate limiting would
-  // be far worse than a contact arriving a few minutes late.
-  let contactId = null;
-  if (email || phone) {
+  // The lead becomes a client record, as a prospect.
+  //
+  // It used to be pushed to GoHighLevel as a contact, and the submission row
+  // below was the only local trace. With the CRM gone the advisor's Clients
+  // list is where people live, and a lead that lands in form_submissions and
+  // nowhere else is a lead nobody sees: the page that mattered never showed it.
+  //
+  // Matched on name against that advisor's own book, the same way a reservation
+  // resolves a client, so a form filled in by somebody already known adds to
+  // the person rather than making a second copy of them. Email, phone and
+  // source are filled in only where the record has nothing, because a form is
+  // a worse source of truth than an advisor who typed it.
+  //
+  // Best effort, deliberately. Losing a lead because a write failed would be
+  // far worse than a lead arriving without a client record attached, and the
+  // submission itself is already saved above.
+  let clientId = null;
+  let clientIsNew = false;
+  if (name) {
     try {
-      const parts = (name || '').split(/\s+/);
-      const contact = await ghl.createContact(env, row.location_id, {
-        firstName: parts[0] || undefined,
-        lastName: parts.slice(1).join(' ') || undefined,
-        email: email || undefined,
-        phone: phone || undefined,
-        source: `CTT form: ${form.name}`,
-      });
-      if (contact && contact.id) {
-        contactId = contact.id;
-        await upsertContact(env, row.location_id, contact);
+      const before = await env.DB.prepare(
+        'SELECT id FROM clients WHERE user_id = ? AND name = ?'
+      ).bind(row.created_by, name).first();
+      clientIsNew = !before;
+      clientId = await db.resolveClient(env, row.created_by, name);
+      if (clientId) {
+        await env.DB.prepare(
+          `UPDATE clients
+              SET email = COALESCE(NULLIF(email, ''), ?),
+                  phone = COALESCE(NULLIF(phone, ''), ?),
+                  source = COALESCE(NULLIF(source, ''), ?),
+                  updated_at = ?
+            WHERE id = ? AND user_id = ?`
+        ).bind(email || null, phone || null, `Form: ${form.name}`.slice(0, 120),
+               now(), clientId, row.created_by).run();
         await env.DB.prepare('UPDATE form_submissions SET contact_id = ? WHERE id = ?')
-          .bind(contact.id, submissionId).run();
+          .bind(clientId, submissionId).run();
       }
     } catch (e) {
-      console.error('form contact push', e);
+      console.error('form client', e);
     }
   }
 
@@ -587,15 +604,15 @@ export async function handlePublicSubmit(request, env, slug) {
   // submission.
   const context = {
     formId: form.id, formName: form.name, formSlug: form.slug,
-    contactId: contactId || null, name, email, phone, ...data,
+    contactId: clientId || null, name, email, phone, ...data,
   };
   await fireTrigger(env, row.location_id, 'form.submitted', context);
 
-  // A form submission that produced a new contact is also a new contact, and
-  // someone building a "welcome new contact" automation reasonably expects it
-  // to cover leads that arrive by form. Only fires when a contact was actually
-  // created, so it never double-fires for an anonymous submission.
-  if (contactId) {
+  // A form submission from somebody new is also a new contact, and anybody
+  // building a "welcome new contact" automation reasonably expects it to cover
+  // leads that arrive by form. Only when the client record was actually made,
+  // so a form filled in twice by the same person does not welcome them twice.
+  if (clientIsNew) {
     await fireTrigger(env, row.location_id, 'contact.created', context);
   }
 

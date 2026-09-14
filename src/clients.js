@@ -12,10 +12,10 @@
 // reason to.
 
 import { json, badRequest, notFound, clean, cleanDate, oneOf, uid, now, readJson } from './util.js';
+import { tenantFor } from './tenant.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 import { suppressionFor } from './suppression.js';
-import * as ghl from './ghl.js';
 import { householdFor } from './households.js';
 
 export async function handleListClients(request, env) {
@@ -45,20 +45,21 @@ export async function handleListClients(request, env) {
   // coming from the CRM, and become client records the moment one is used.
   //
   // Read from the synced copy rather than GoHighLevel itself: a typeahead
-  // fires on every keystroke, and that is not a thing to do to an API.
+  // People carried over from the CRM that used to sit behind this portal.
   //
-  // Shown whether or not somebody is searching. They used to appear only once
-  // a query was typed, which meant the Clients page and the CRM were two
-  // lists of the same people and you had to know somebody's name before the
-  // portal would admit it knew them. One list, with the people who have never
-  // booked marked as such.
+  // The CRM is gone; its contacts are not. They were mirrored into D1 while it
+  // was connected and those rows are still here, so the Clients page still
+  // lists everybody it ever knew, with the ones who have never booked marked
+  // as such. Read only now: nothing refreshes them and nothing ever will, and
+  // they become editable people the moment somebody books one.
+  //
   // Not while pinned-only is on. That filter means "the handful I have
-  // starred", and filling the rest of the screen with contacts nobody starred
-  // is the opposite of what was asked for.
+  // starred", and filling the rest of the screen with the rest is the opposite
+  // of what was asked for.
   let fromCrm = [];
   if (!pinnedOnly) {
     const known = await db.clientKeys(env, scope);
-    const { contacts } = await db.localContacts(env, ghl.locationFor(env, user), {
+    const { contacts } = await db.localContacts(env, tenantFor(env, user), {
       query: query || undefined,
       // Enough to be useful without turning the page into the CRM. Searching
       // narrows it, which is the way somebody finds one in particular.

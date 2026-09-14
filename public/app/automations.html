@@ -24,17 +24,6 @@
       <section class="card" id="panel"><p class="spinner">Loading...</p></section>
       <section class="card" id="detail" hidden></section>
 
-      <section class="card" id="ghl-card" style="margin-top:1.25rem;" hidden>
-        <div class="card-head"><h2>Sequences in CTT Tools</h2>
-          <span class="muted" id="ghl-count"></span></div>
-        <div class="card-pad">
-          <p class="field-hint" style="margin-top:0;">The drip campaigns and workflows you built
-            over there. They are not edited here: an automation on this page can hand a client to
-            one of them, which is how a travel moment starts a sequence somebody has already
-            written.</p>
-          <div id="ghl-list"></div>
-        </div>
-      </section>
     </div>
   </div>
 </div>
@@ -68,9 +57,6 @@
         <select id="add-type" aria-label="Step type">
           <option value="send_email">Send an email</option>
           <option value="wait">Wait</option>
-          <option value="send_sms">Send a text</option>
-          <option value="add_tag">Add a tag</option>
-          <option value="add_note">Add a note</option>
           <option value="create_task">Create a task for me</option>
           <option value="notify_team">Notify the team</option>
         </select>
@@ -146,12 +132,6 @@ function stepRow(s = { action: 'send_email' }) {
         unsubscribed and carry a footer with your address and a way out. Leave it clear for a
         note about the trip they have booked, which always sends.</p>`;
     }
-  } else if (s.action === 'send_sms') {
-    bodyHtml = `<textarea class="s-body" placeholder="Hi {{first_name}}, ...">${esc(s.body || '')}</textarea>`;
-  } else if (s.action === 'add_tag') {
-    bodyHtml = `<input class="s-tag" placeholder="Tag name" value="${esc(s.tag || '')}">`;
-  } else if (s.action === 'add_note') {
-    bodyHtml = `<textarea class="s-body" placeholder="Note to add to the contact">${esc(s.body || '')}</textarea>`;
   } else if (s.action === 'create_task') {
     bodyHtml = `<div class="field-row" style="margin:0;">
       <div class="field" style="margin:0;"><input class="s-title" placeholder="Call them about the quote" value="${esc(s.title || '')}"></div>
@@ -167,9 +147,12 @@ function stepRow(s = { action: 'send_email' }) {
 
 function labelFor(a) {
   return {
-    wait: 'Wait', send_email: 'Send an email', send_sms: 'Send a text',
-    add_tag: 'Add a tag', add_note: 'Add a note', create_task: 'Create a task',
+    wait: 'Wait', send_email: 'Send an email', create_task: 'Create a task',
     notify_team: 'Notify the team',
+    // Steps that were saved before the CRM went. They are skipped when a run
+    // reaches them, and a step nobody can read is worse than one they can.
+    send_sms: 'Send a text (retired)', add_tag: 'Add a tag (retired)',
+    add_note: 'Add a note (retired)', add_to_workflow: 'Hand to a workflow (retired)',
   }[a] || a;
 }
 
@@ -185,8 +168,6 @@ function readSteps() {
         marketing: Boolean(box && box.checked),
       };
     }
-    if (action === 'send_sms' || action === 'add_note') return { action, body: v('.s-body') };
-    if (action === 'add_tag') return { action, tag: v('.s-tag') };
     if (action === 'create_task') return { action, title: v('.s-title'), dueInDays: Number(v('.s-due')) };
     return { action };
   });
@@ -365,47 +346,7 @@ async function load() {
   catch (err) { showError(document.getElementById('err'), err); panel.innerHTML = ''; }
 }
 
-/**
- * What already exists in GoHighLevel, listed rather than rebuilt.
- *
- * Loaded after the automations and never blocking them: this reaches another
- * system, and a page about this portal's own automations should not wait on
- * somebody else's API, nor disappear when it is down.
- */
-async function loadSequences() {
-  let d;
-  try { d = await api('/api/campaigns'); } catch { return; }
-
-  const card = document.getElementById('ghl-card');
-  const rows = [
-    ...(d.workflows || []).map((w) => ({ ...w, kind: 'Workflow' })),
-    ...(d.campaigns || []).map((c) => ({ ...c, kind: 'Campaign' })),
-  ];
-
-  // Shown even with nothing in it when the CRM is connected, because "you have
-  // none" is worth knowing; hidden entirely when it is not connected, since
-  // that is already said elsewhere on the dashboard.
-  if (!d.configured && !rows.length) return;
-  card.hidden = false;
-
-  document.getElementById('ghl-count').textContent = rows.length
-    ? `${rows.length} to hand a client to` : '';
-
-  const failed = [d.workflowsError && `workflows: ${d.workflowsError}`,
-    d.campaignsError && `campaigns: ${d.campaignsError}`].filter(Boolean);
-
-  document.getElementById('ghl-list').innerHTML =
-    (failed.length ? `<div class="notice notice-info">${esc(failed.join(' · '))}</div>` : '')
-    + (rows.length
-      ? `<ul class="rows">${rows.map((r) => `<li><div class="row-between">
-          <span><span class="t">${esc(r.name || r.id || 'Unnamed')}</span>
-            <span class="m">${esc(r.kind)}${r.status ? ` · ${esc(r.status)}` : ''}</span></span>
-          <span class="muted" style="font-size:.72rem;">${esc(r.id || '')}</span>
-        </div></li>`).join('')}</ul>`
-      : '<p class="wempty">Nothing built over there yet.</p>');
-}
 
 await load();
-await loadSequences();
 </script>
 </body></html>

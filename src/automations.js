@@ -20,7 +20,7 @@
 //   to fail by an automation that is misconfigured.
 
 import { uid, now, clean, oneOf, PermanentError } from './util.js';
-import * as ghl from './ghl.js';
+import { tenantFor } from './tenant.js';
 import { sendAutomationEmail } from './email.js';
 import { isSuppressed, unsubscribeToken, marketingFooter } from './suppression.js';
 
@@ -41,18 +41,26 @@ export const TRIGGERS = [
 ];
 
 export const ACTIONS = [
-  'wait', 'send_email', 'send_sms', 'add_tag', 'add_note', 'create_task', 'notify_team',
-  // Hand the contact to a drip campaign that already exists in GoHighLevel.
-  //
-  // The campaigns Brent has built there are not going to be rebuilt here, and
-  // GoHighLevel's API does not offer a way to read a workflow's steps even if
-  // they were. What it does offer is enrolling a contact, which is the half
-  // that matters: this portal knows the travel moment (a reservation made, a
-  // final payment looming, a client home from a trip) and GoHighLevel knows
-  // what to say. Triggering the existing campaign beats reimplementing it
-  // badly.
-  'add_to_workflow',
+  'wait', 'send_email', 'create_task', 'notify_team',
 ];
+
+// Actions that existed when the CRM did.
+//
+// send_sms needed a phone number and a messaging provider, add_tag and
+// add_note wrote onto a CRM contact, and add_to_workflow handed somebody to a
+// drip campaign built in the CRM. None of those have anywhere to go now.
+//
+// Named rather than deleted, because automations already saved carry these
+// steps and will be run again. An unknown action is skipped with "unknown
+// action", which reads like a bug in the portal; this reads like what
+// happened, and the run carries on to the steps that still work.
+const RETIRED = {
+  send_sms: 'sending SMS needed the CRM',
+  add_tag: 'contact tags lived in the CRM',
+  add_note: 'contact notes lived in the CRM',
+  add_to_workflow: 'workflows lived in the CRM',
+};
+
 
 const MAX_RUNS_PER_PASS = 25;
 const MAX_STEPS_PER_PASS = 20;
@@ -79,22 +87,10 @@ export function parseSteps(raw) {
       // with a postal address and a way out. Defaulting to transactional
       // keeps every automation written before this behaving as it did.
       step.marketing = Boolean(s.marketing);
-    } else if (action === 'send_sms') {
-      step.body = clean(s.body, 800);
-      if (!step.body) continue;
-    } else if (action === 'add_tag') {
-      step.tag = clean(s.tag, 80);
-      if (!step.tag) continue;
-    } else if (action === 'add_note') {
-      step.body = clean(s.body, 2000);
-      if (!step.body) continue;
     } else if (action === 'create_task') {
       step.title = clean(s.title, 160);
       step.dueInDays = Math.max(0, Math.min(Number(s.dueInDays) || 1, 365));
       if (!step.title) continue;
-    } else if (action === 'add_to_workflow') {
-      step.workflowId = clean(s.workflowId, 64);
-      step.workflowName = clean(s.workflowName, 120);
     } else if (action === 'notify_team') {
       step.subject = clean(s.subject, 200) || 'Automation notification';
       step.body = clean(s.body, 4000);
@@ -113,6 +109,9 @@ export function hydrateAutomation(row) {
   try { cfg = row.trigger_config_json ? JSON.parse(row.trigger_config_json) : {}; } catch { cfg = {}; }
   return {
     id: row.id,
+    // Who the automation belongs to. A step that makes a task has to make it
+    // for somebody, and the owner is the only answer that is always right.
+    ownerId: row.created_by || null,
     name: row.name,
     description: row.description || '',
     triggerType: row.trigger_type,
@@ -173,7 +172,7 @@ export async function fireTrigger(env, locationId, triggerType, context = {}, { 
            VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'pending', ?, ?, ?, ?)`
         ).bind(uid(), a.id, locationId, context.contactId || null,
                context.email || null, context.name || null,
-               JSON.stringify(context), ts, key, ts, ts).run();
+               JSON.stringify({ ...context, ownerId: a.ownerId }), ts, key, ts, ts).run();
       } catch (e) {
         if (key && /UNIQUE|constraint/i.test(String(e.message || e))) continue;
         throw e;
@@ -256,40 +255,25 @@ async function runStep(env, run, step, context) {
         { footer });
       return { status: 'ok', detail: `emailed ${to}${step.marketing ? ', with an opt out' : ''}` };
     }
-    case 'send_sms': {
-      if (!context.contactId) return { status: 'skipped', detail: 'no contact to message' };
-      await ghl.sendMessage(env, {
-        contactId: context.contactId,
-        type: 'SMS',
-        message: fill(step.body, context),
-      });
-      return { status: 'ok', detail: 'sms sent' };
-    }
-    case 'add_tag': {
-      if (!context.contactId) return { status: 'skipped', detail: 'no contact' };
-      const current = await ghl.getContact(env, context.contactId).catch(() => null);
-      const tags = new Set([...(current?.tags || []), fill(step.tag, context)]);
-      await ghl.updateContact(env, context.contactId, { tags: [...tags] });
-      return { status: 'ok', detail: `tagged ${step.tag}` };
-    }
-    case 'add_note': {
-      if (!context.contactId) return { status: 'skipped', detail: 'no contact' };
-      await ghl.createContactNote(env, context.contactId, fill(step.body, context));
-      return { status: 'ok', detail: 'note added' };
-    }
+    // The advisor's own to-do list, not a contact task in a CRM that is gone.
+    // This is the one retired action with a real home to move to, and the home
+    // is better: a task made here shows up on /app/tasks, in the morning
+    // digest, and in the overdue count, alongside every task made by hand.
     case 'create_task': {
-      if (!context.contactId) return { status: 'skipped', detail: 'no contact' };
-      const due = new Date(Date.now() + (step.dueInDays || 0) * 86400000).toISOString();
-      await ghl.createContactTask(env, context.contactId, {
-        title: fill(step.title, context), dueDate: due,
-      });
-      return { status: 'ok', detail: 'task created' };
-    }
-    case 'add_to_workflow': {
-      if (!context.contactId) return { status: 'skipped', detail: 'no contact to enrol' };
-      if (!step.workflowId) return { status: 'skipped', detail: 'no workflow chosen' };
-      await ghl.addContactToWorkflow(env, context.contactId, step.workflowId);
-      return { status: 'ok', detail: `enrolled in ${step.workflowName || step.workflowId}` };
+      if (!context.ownerId) return { status: 'skipped', detail: 'no owner for the task' };
+      const title = fill(step.title, context);
+      if (!title) return { status: 'skipped', detail: 'no title' };
+      const due = new Date(Date.now() + (step.dueInDays || 0) * 86400000)
+        .toISOString().slice(0, 10);
+      const ts = now();
+      await env.DB.prepare(
+        `INSERT INTO tasks (id, user_id, title, notes, due_date, priority, kind,
+           booking_id, client_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'normal', 'follow_up', ?, ?, ?, ?)`
+      ).bind(uid(), context.ownerId, title.slice(0, 160),
+             `Made by an automation.`, due,
+             context.bookingId || null, context.clientId || null, ts, ts).run();
+      return { status: 'ok', detail: `task for ${due}` };
     }
     case 'notify_team': {
       const to = env.NOTIFY_EMAIL;
@@ -298,7 +282,9 @@ async function runStep(env, run, step, context) {
       return { status: 'ok', detail: `notified ${to}` };
     }
     default:
-      return { status: 'skipped', detail: `unknown action ${step.action}` };
+      return RETIRED[step.action]
+        ? { status: 'skipped', detail: `${step.action} is no longer available: ${RETIRED[step.action]}` }
+        : { status: 'skipped', detail: `unknown action ${step.action}` };
   }
 }
 
@@ -359,8 +345,7 @@ async function advanceRun(env, run) {
     } catch (e) {
       const attempts = (run.attempts || 0) + 1;
       const message = String(e && e.message ? e.message : e).slice(0, 400);
-      const permanent = e instanceof PermanentError || e?.permanent === true ||
-        (e instanceof ghl.GhlError && e.detail && e.detail.code === 'not_configured');
+      const permanent = e instanceof PermanentError || e?.permanent === true;
       await log(env, run, index, step.action, 'error', message);
 
       if (permanent || attempts >= MAX_ATTEMPTS) {
@@ -537,7 +522,7 @@ import * as db from './db.js';
 export async function handleListAutomations(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  const locationId = ghl.locationFor(env, user);
+  const locationId = tenantFor(env, user);
 
   const { results } = await env.DB.prepare(
     `SELECT a.*,
@@ -564,7 +549,7 @@ export async function handleGetAutomation(request, env, id) {
   // Scoped by location. The runs below carry contact names and email
   // addresses, and knowing an id is not the same as being allowed to see it.
   const row = await env.DB.prepare('SELECT * FROM automations WHERE id = ? AND location_id = ?')
-    .bind(id, ghl.locationFor(env, user)).first();
+    .bind(id, tenantFor(env, user)).first();
   if (!row) return notFound('Automation not found.');
 
   const { results: runs } = await env.DB.prepare(
@@ -598,7 +583,7 @@ export async function handleSaveAutomation(request, env, id = null) {
     return badRequest('This automation only waits. Add a step that does something.');
   }
 
-  const locationId = ghl.locationFor(env, user);
+  const locationId = tenantFor(env, user);
   const cfg = {};
   if (clean(body.formId, 64)) cfg.formId = clean(body.formId, 64);
   const ts = now();
@@ -632,7 +617,7 @@ export async function handleDeleteAutomation(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
   const res = await env.DB.prepare('DELETE FROM automations WHERE id = ? AND location_id = ?')
-    .bind(id, ghl.locationFor(env, user)).run();
+    .bind(id, tenantFor(env, user)).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Automation not found.');
   await db.logActivity(env, user.id, 'automation.delete', 'Deleted an automation', { id });
   return json({ ok: true });
@@ -650,11 +635,11 @@ export async function handleRunAutomations(request, env) {
   if (only) {
     const owned = await env.DB.prepare(
       'SELECT id FROM automations WHERE id = ? AND location_id = ?'
-    ).bind(only, ghl.locationFor(env, user)).first();
+    ).bind(only, tenantFor(env, user)).first();
     if (!owned) return notFound('Automation not found.');
   }
 
-  await scanTimeTriggers(env, ghl.locationFor(env, user)).catch(() => null);
+  await scanTimeTriggers(env, tenantFor(env, user)).catch(() => null);
   const result = await processDueRuns(env, { automationId: only });
   await db.logActivity(env, user.id, 'automation.run',
     only ? 'Ran one automation' : 'Ran a pass', result);

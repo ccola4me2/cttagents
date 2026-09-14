@@ -8,8 +8,9 @@
 // after the session check passes.
 
 import {
-  redirect, notFound, json } from './util.js'; import {   handleLogin, handleLogout, handleMe, handleForgot, handleReset, handleChangePassword, handleUpdateProfile, getCurrentUser, isAdmin, } from './auth.js'; import {   handleListLeads, handleGetLead, handleCreateLead, handleUpdateLead, handleCreateLeadNote, handleContactDetail, handleCreateTask, handleToggleTask, } from './leads.js'; import {   handleListPipelines, handleListOpportunities, handleCreateOpportunity, handleUpdateOpportunity, } from './pipeline.js'; import {   handleListBookings, handleGetBooking, handleBookingRecord, handleCreateBooking, handleUpdateBooking, handleQuickUpdate, handleDeleteBooking, handleWelcomed, } from './bookings.js'; import { markReturnedTripsTravelled } from './db.js'; import { mirrorCatalogStep } from './catalogmirror.js'; import { remindTasks } from './taskmail.js'; import { remindDuePayments } from './payremind.js'; import { sendCallLists } from './calllist.js'; import {   handleShareTrip, handleShareDocument, handleTripMessages, handleReadTripMessage, renderTripPage, handleTripMessage, handleClientChoose, serveTripDocument, renderTripManifest,
+  redirect, notFound, json } from './util.js'; import {   handleLogin, handleLogout, handleMe, handleForgot, handleReset, handleChangePassword, handleUpdateProfile, getCurrentUser, isAdmin, } from './auth.js'; import {   handleListPipelines, handleListOpportunities, handleCreateOpportunity, handleUpdateOpportunity, } from './pipeline.js'; import {   handleListBookings, handleGetBooking, handleBookingRecord, handleCreateBooking, handleUpdateBooking, handleQuickUpdate, handleDeleteBooking, handleWelcomed, } from './bookings.js'; import { markReturnedTripsTravelled } from './db.js'; import { mirrorCatalogStep } from './catalogmirror.js'; import { remindTasks } from './taskmail.js'; import { remindDuePayments } from './payremind.js'; import { sendCallLists } from './calllist.js'; import {   handleShareTrip, handleShareDocument, handleTripMessages, handleReadTripMessage, renderTripPage, handleTripMessage, handleClientChoose, serveTripDocument, renderTripManifest,
 } from './share.js';
+import { tenantFor } from './tenant.js';
 import { handleReadConfirmation } from './confirm.js';
 import { migrationHint } from './schema-drift.js';
 import { runJob, jobHealth } from './cronlog.js';
@@ -41,18 +42,9 @@ import {
   handleListTiers, handleAddTier, handleUpdateTier, handleDeleteTier, handleApplyVendorTerms,
 } from './penalties.js';
 import {
-  handleListConversations, handleListMessages as handleConversationMessages, handleSendMessage,
-} from './conversations.js';
-import { handleListCalendar, handleCreateAppointment } from './calendar.js';
-import { handleBilling, handleCreateInvoice, handleSendInvoice } from './billing.js';
-import {
   handlePayments, handleCreatePayment, handlePaymentReminder, handleUpdatePayment,
   handleMarkPaid, handleDeletePayment, handleGenerateSchedule, handleSetBookingStatus,
 } from './payments.js';
-import {
-  handleListForms, handleListWorkflows, handleAddToWorkflow, handleListCampaigns,
-} from './forms.js';
-import { handleCrmLinks } from './crm.js';
 import {
   handleListForms as handleListOwnForms, handleGetForm, handleSaveForm, handleDeleteForm,
   handleListMyTemplates, handleSaveMyTemplate, handleDeleteMyTemplate,
@@ -140,10 +132,6 @@ import {
   handleListAutomations, handleGetAutomation, handleSaveAutomation,
   handleDeleteAutomation, handleRunAutomations, processDueRuns, scanTimeTriggers, purgeOldRuns,
 } from './automations.js';
-import {
-  handleMarketing, handleCatalog, handleLibrary, handleAccount, handleSurveys, handleUploadMedia,
-  handleCreateSocialPost, handleCreateProduct, handleCreateAccountItem,
-} from './library.js';
 import { handleDashboard, handleProduction, handleMonth } from './reports.js';
 import {
   handleListAdvisors, handleSetAdvisorStatus, handleSetAdvisorGhl, handleSetAdvisorSplit,
@@ -155,8 +143,6 @@ import {
   handleSyncStatus, handleRunSync,
 } from './admin.js';
 import { purgeExpiredSessions } from './db.js';
-import { runSync } from './sync.js';
-import { locationFor } from './ghl.js';
 import {
   handleMembership, handleCheckout, handlePortal, handleStripeWebhook,
 } from './membership.js';
@@ -179,20 +165,9 @@ const PAGE_FILES = {
   '/pending': '/pending.html',
   '/app': '/app/index.html',
   '/app/': '/app/index.html',
-  '/app/leads': '/app/leads.html',
-  '/app/contact': '/app/contact.html',
-  '/app/inbox': '/app/inbox.html',
-  '/app/calendar': '/app/calendar.html',
-  '/app/billing': '/app/billing.html',
   '/app/payments': '/app/payments.html',
-  '/app/forms': '/app/forms.html',
   '/app/formbuilder': '/app/formbuilder.html',
   '/app/automations': '/app/automations.html',
-  '/app/crm': '/app/crm.html',
-  '/app/marketing': '/app/marketing.html',
-  '/app/catalog': '/app/catalog.html',
-  '/app/library': '/app/library.html',
-  '/app/account': '/app/account.html',
   '/app/pipeline': '/app/pipeline.html',
   '/app/tasks': '/app/tasks.html',
   '/app/new': '/app/new.html',
@@ -266,7 +241,6 @@ export default {
 
     job('purge sessions', () => purgeExpiredSessions(env));
     job('purge automation runs', () => purgeOldRuns(env));
-    job('crm sync', () => runSync(env, locationFor(env, null)));
 
     // The catalog import is a no-op once the current monthly snapshot is fully
     // imported, so running it on every tick costs one request a day and the
@@ -307,7 +281,7 @@ export default {
     // minutes. One job rather than two, because the second half is pointless
     // without the first.
     job('automations', async () => {
-      await scanTimeTriggers(env, locationFor(env, null));
+      await scanTimeTriggers(env, tenantFor(env, null));
       await processDueRuns(env);
     });
   },
@@ -329,10 +303,6 @@ async function routeRequest(request, env, ctx) {
 // ---------------------------------------------------------------------------
 async function routeApi(request, env, path, method) {
   // /api/leads/<id>/notes and /api/leads/<id>
-  const leadMatch = path.match(/^\/api\/leads\/([^/]+)(\/notes)?$/);
-  const detailMatch = path.match(/^\/api\/leads\/([^/]+)\/detail$/);
-  const taskMatch = path.match(/^\/api\/leads\/([^/]+)\/tasks(?:\/([^/]+))?$/);
-  const wfMatch = path.match(/^\/api\/leads\/([^/]+)\/workflow$/);
   const oppMatch = path.match(/^\/api\/opportunities\/([^/]+)$/);
   const bookingMatch = path.match(/^\/api\/bookings\/([^/]+)$/);
   const recordMatch = path.match(/^\/api\/bookings\/([^/]+)\/record$/);
@@ -362,13 +332,10 @@ async function routeApi(request, env, path, method) {
   const tierMatch = path.match(/^\/api\/penalties\/([^/]+)$/);
   const applyTermsMatch = path.match(/^\/api\/bookings\/([^/]+)\/penalties\/apply$/);
   const priceLineMatch = path.match(/^\/api\/pricing\/([^/]+)$/);
-  const convoMatch = path.match(/^\/api\/conversations\/([^/]+)\/messages$/);
-  const invoiceSendMatch = path.match(/^\/api\/billing\/invoices\/([^/]+)\/send$/);
   const ownFormMatch = path.match(/^\/api\/myforms\/([^/]+)$/);
   const leadToBookingMatch = path.match(/^\/api\/leads\/submissions\/([^/]+)\/reservation$/);
   const publicFormMatch = path.match(/^\/api\/public\/forms\/([^/]+)$/);
   // Excludes /run, which is an action rather than an automation id.
-  const accountItemMatch = path.match(/^\/api\/account\/(tags|custom-values|custom-fields)$/);
   const autoMatch = path.match(/^\/api\/automations\/(?!run$)([^/]+)$/);
   const payMatch = path.match(/^\/api\/payments\/([^/]+)$/);
   const payPaidMatch = path.match(/^\/api\/payments\/([^/]+)\/paid$/);
@@ -430,30 +397,6 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/auth/profile' && method === 'PUT') return handleUpdateProfile(request, env);
 
   // ---- leads ------------------------------------------------------------
-  if (path === '/api/leads' && method === 'GET') return handleListLeads(request, env);
-  if (path === '/api/leads' && method === 'POST') return handleCreateLead(request, env);
-  if (wfMatch && method === 'POST') {
-    return handleAddToWorkflow(request, env, decodeURIComponent(wfMatch[1]));
-  }
-  if (detailMatch && method === 'GET') {
-    return handleContactDetail(request, env, decodeURIComponent(detailMatch[1]));
-  }
-  if (taskMatch && !taskMatch[2] && method === 'POST') {
-    return handleCreateTask(request, env, decodeURIComponent(taskMatch[1]));
-  }
-  if (taskMatch && taskMatch[2] && method === 'PUT') {
-    return handleToggleTask(request, env,
-      decodeURIComponent(taskMatch[1]), decodeURIComponent(taskMatch[2]));
-  }
-  if (leadMatch && leadMatch[2] === '/notes' && method === 'POST') {
-    return handleCreateLeadNote(request, env, decodeURIComponent(leadMatch[1]));
-  }
-  if (leadMatch && !leadMatch[2] && method === 'GET') {
-    return handleGetLead(request, env, decodeURIComponent(leadMatch[1]));
-  }
-  if (leadMatch && !leadMatch[2] && method === 'PUT') {
-    return handleUpdateLead(request, env, decodeURIComponent(leadMatch[1]));
-  }
 
   // ---- pipeline ---------------------------------------------------------
   if (path === '/api/pipelines' && method === 'GET') return handleListPipelines(request, env);
@@ -518,23 +461,10 @@ async function routeApi(request, env, path, method) {
   if (bookingMatch && method === 'DELETE') return handleDeleteBooking(request, env, bookingMatch[1]);
 
   // ---- conversations ----------------------------------------------------
-  if (path === '/api/conversations' && method === 'GET') return handleListConversations(request, env);
-  if (path === '/api/conversations/send' && method === 'POST') return handleSendMessage(request, env);
-  if (convoMatch && method === 'GET') {
-    return handleConversationMessages(request, env, decodeURIComponent(convoMatch[1]));
-  }
 
   // ---- calendar ---------------------------------------------------------
-  if (path === '/api/calendar' && method === 'GET') return handleListCalendar(request, env);
-  if (path === '/api/calendar/appointments' && method === 'POST') {
-    return handleCreateAppointment(request, env);
-  }
 
   // ---- forms and workflows ----------------------------------------------
-  if (path === '/api/forms' && method === 'GET') return handleListForms(request, env);
-  if (path === '/api/workflows' && method === 'GET') return handleListWorkflows(request, env);
-  if (path === '/api/campaigns' && method === 'GET') return handleListCampaigns(request, env);
-  if (path === '/api/crm/links' && method === 'GET') return handleCrmLinks(request, env);
 
   // Our own forms, built and hosted here.
   // An advisor's own form templates.
@@ -566,17 +496,6 @@ async function routeApi(request, env, path, method) {
   if (publicFormMatch && method === 'POST') {
     return handlePublicSubmit(request, env, decodeURIComponent(publicFormMatch[1]));
   }
-  if (path === '/api/surveys' && method === 'GET') return handleSurveys(request, env);
-  if (path === '/api/marketing' && method === 'GET') return handleMarketing(request, env);
-  if (path === '/api/catalog' && method === 'GET') return handleCatalog(request, env);
-  if (path === '/api/library' && method === 'GET') return handleLibrary(request, env);
-  if (path === '/api/library/media' && method === 'POST') return handleUploadMedia(request, env);
-  if (path === '/api/account' && method === 'GET') return handleAccount(request, env);
-  if (path === '/api/marketing/social' && method === 'POST') return handleCreateSocialPost(request, env);
-  if (path === '/api/catalog/products' && method === 'POST') return handleCreateProduct(request, env);
-  if (accountItemMatch && method === 'POST') {
-    return handleCreateAccountItem(request, env, accountItemMatch[1]);
-  }
 
   // ---- payments ---------------------------------------------------------
   if (path === '/api/payments' && method === 'GET') return handlePayments(request, env);
@@ -593,11 +512,6 @@ async function routeApi(request, env, path, method) {
   }
 
   // ---- billing ----------------------------------------------------------
-  if (path === '/api/billing' && method === 'GET') return handleBilling(request, env);
-  if (path === '/api/billing/invoices' && method === 'POST') return handleCreateInvoice(request, env);
-  if (invoiceSendMatch && method === 'POST') {
-    return handleSendInvoice(request, env, decodeURIComponent(invoiceSendMatch[1]));
-  }
 
   // ---- dashboard and reports -------------------------------------------
   if (path === '/api/search' && method === 'GET') return handleSearch(request, env);

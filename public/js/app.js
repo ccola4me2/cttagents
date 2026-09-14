@@ -152,8 +152,6 @@ const NAV = [
       { href: '/app/import', label: 'Import reservations' },
       { href: '/app/payments', label: 'Payments Due' },
       { href: '/app/commissions', label: 'Commission owed' },
-      { href: '/app/billing', label: 'Invoices' },
-      { href: '/app/catalog', label: 'Vendor products' },
     ],
   },
   // A page of its own, next to the dashboard. A supplier directory is opened
@@ -173,28 +171,19 @@ const NAV = [
       { href: '/app/clients', label: 'Clients' },
       { href: '/app/import-clients', label: 'Import clients' },
       { href: '/app/households', label: 'Households' },
-      { href: '/app/pipeline', label: 'Sales opportunities' },
+      { href: '/app/pipeline', label: 'Reservation board' },
       { href: '/app/segments', label: 'Lists' },
       { href: '/app/broadcasts', label: 'Emails' },
-      // No separate CRM contacts entry. Clients now lists everyone the CRM
-      // knows alongside everyone who has booked, and two menu items for one
-      // set of people was how the same person ended up on the list twice.
-      // /app/leads still works for anyone holding a link to it.
       { href: '/app/tasks', label: 'To do' },
       { href: '/app/hotlists', label: 'Who to call' },
       { href: '/app/credits', label: 'Client credits' },
-      { href: '/app/inbox', label: 'Messages' },
-      { href: '/app/calendar', label: 'Calendar' },
     ],
   },
   {
     hub: 'Marketing', icon: I.megaphone, items: [
-      { href: '/app/marketing', label: 'Campaigns & funnels' },
       { href: '/app/specials', label: 'Specials' },
       { href: '/app/formbuilder', label: 'Forms' },
-      { href: '/app/forms', label: 'Imported forms' },
       { href: '/app/automations', label: 'Automations' },
-      { href: '/app/library', label: 'Media' },
     ],
   },
   {
@@ -205,10 +194,8 @@ const NAV = [
   },
   {
     hub: 'Setup', icon: I.gear, items: [
-      { href: '/app/account', label: 'Account' },
       { href: '/app/settings', label: 'Settings' },
       { href: '/app/membership', label: 'Membership' },
-      { href: '/app/crm', label: 'CTT Tools' },
       { href: '/app/manual', label: 'How this works' },
     ],
   },

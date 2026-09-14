@@ -9,8 +9,8 @@ import {
   json, badRequest, notFound, clean, cleanDate, toCents, oneOf, readJson, now,
 } from './util.js';
 import { requireUser, isAdmin } from './auth.js';
+import { tenantFor } from './tenant.js';
 import * as db from './db.js';
-import * as ghl from './ghl.js';
 import { fireTrigger } from './automations.js';
 import { applyTemplates } from './tasktemplates.js';
 import { PRODUCT_TYPES } from './producttypes.js';
@@ -420,7 +420,7 @@ export async function handleCreateBooking(request, env) {
   const booking = await db.createBooking(env, user.id, fields);
   await db.logActivity(env, user.id, 'booking.create',
     `Added booking for ${booking.client_name}`, { id: booking.id });
-  await fireTrigger(env, ghl.locationFor(env, user), 'booking.created', {
+  await fireTrigger(env, tenantFor(env, user), 'booking.created', {
     bookingId: booking.id,
     contactId: booking.ghl_contact_id || null,
     name: booking.client_name,

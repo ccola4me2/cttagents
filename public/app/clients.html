@@ -14,7 +14,7 @@
   <div class="main">
     <header class="topbar">
       <div><h1>Clients</h1><p class="sub">Everyone you have booked. Prospects are
-        people CTT Tools knows who have not booked yet.</p></div>
+        people carried over from the old CRM who have never booked.</p></div>
       <span style="display:flex;align-items:center;gap:.6rem;">
         <span id="scope"></span>
         <a class="btn btn-sm" href="/app/import-clients">Import a list</a>
@@ -354,13 +354,13 @@ function render(d) {
       <p class="meta">Across everyone listed</p></div>
     ${s.crmOnly ? `<div class="stat"><p class="label">Prospects</p>
       <p class="value">${s.crmOnly}</p>
-      <p class="meta">Known to CTT Tools, never booked</p></div>` : ''}`;
+      <p class="meta">From the old CRM, never booked</p></div>` : ''}`;
 
   if (!clients.length && !prospects.length && !alsoMatch) {
     panel.innerHTML = whoFilter.value === 'prospects'
       ? `<div class="empty"><h3>No prospects</h3>
-          <p>Everybody CTT Tools knows about has booked with you. Contacts arrive here
-            from the CRM; they become clients the moment one is used.</p></div>`
+          <p>Everybody carried over from the old CRM has booked with you. They
+            became clients the moment one was used.</p></div>`
       : `<div class="empty"><h3>No clients yet</h3>
           <p>Add one above, <a href="/app/import-clients">import a list</a>, or take a
             reservation and the client record appears with it.</p></div>`;
@@ -412,7 +412,7 @@ function render(d) {
     ${prospects.map((c) => `<tr class="crm-row">
       <td></td><td></td>
       <td><span class="name">${esc(c.name)}</span>
-        <div class="muted" style="font-size:.76rem;">Prospect &middot; in CTT Tools,
+        <div class="muted" style="font-size:.76rem;">Prospect &middot; from the old CRM,
           never booked</div></td>
       <td>${[c.phone ? `<a href="tel:${esc(c.phone)}">${esc(c.phone)}</a>` : '',
              c.email ? `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>` : '']
@@ -431,7 +431,7 @@ function render(d) {
     render(d);
   });
 
-  // One click turns a CRM contact into a client record. It carries the name,
+  // One click turns a carried-over contact into a client record. It carries the name,
   // email and phone across; everything else is filled in on their own page.
   // The row disappears on reload because the name is then known.
   panel.querySelectorAll('[data-adopt]').forEach((btn) => {

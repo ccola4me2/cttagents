@@ -30,8 +30,8 @@ import { json, badRequest, notFound, clean, cleanText, uid, now, sha256Hex, read
   escapeHtml as esc } from './util.js';
 import { brandForUser, DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand.js';
 import { requireUser } from './auth.js';
+import { tenantFor } from './tenant.js';
 import * as db from './db.js';
-import * as ghl from './ghl.js';
 import { fireTrigger } from './automations.js';
 import { ITEM_KINDS } from './itinerary.js';
 import { sendTripMessageEmail, sendOptionChosenEmail } from './email.js';
@@ -772,7 +772,7 @@ export async function handleClientChoose(request, env, code) {
   // after the choice is recorded, so an automation that reads the booking sees
   // the answer rather than the question. Keyed on the option, because changing
   // their mind and changing it back is a correction and not a second yes.
-  await fireTrigger(env, ghl.locationFor(env, trip.booking), 'option.chosen', {
+  await fireTrigger(env, tenantFor(env, trip.booking), 'option.chosen', {
     bookingId: trip.booking.id,
     contactId: trip.booking.ghl_contact_id || null,
     name: trip.booking.client_name,

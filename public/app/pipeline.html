@@ -22,7 +22,6 @@
           <option value="list">List</option>
         </select>
         <button class="btn btn-ghost btn-sm" id="refresh">Refresh</button>
-        <button class="btn btn-primary btn-sm" id="new-deal">New deal</button>
       </div>
     </header>
     <div class="content">
@@ -32,40 +31,6 @@
   </div>
 </div>
 
-<dialog id="deal-dialog">
-  <form id="deal-form" method="dialog">
-    <div class="card-head"><h2>New deal</h2>
-      <button class="icon-btn" type="button" data-close aria-label="Close">&times;</button></div>
-    <div class="dialog-body">
-      <div class="notice notice-error" hidden></div>
-      <div class="field picker">
-        <label for="contact-search">Contact</label>
-        <input id="contact-search" autocomplete="off" placeholder="Search a name, email or phone">
-        <input type="hidden" name="contactId" id="contactId">
-        <div class="picker-results" id="picker" hidden></div>
-        <p class="field-hint" id="picked"></p>
-      </div>
-      <div class="field">
-        <label for="deal-name">Deal name</label>
-        <input id="deal-name" name="name" required placeholder="Bahamas cruise, March 2027">
-      </div>
-      <div class="field-row">
-        <div class="field">
-          <label for="stageId">Stage</label>
-          <select id="stageId" name="stageId"></select>
-        </div>
-        <div class="field">
-          <label for="monetaryValue">Value (USD)</label>
-          <input id="monetaryValue" name="monetaryValue" inputmode="decimal" placeholder="0">
-        </div>
-      </div>
-    </div>
-    <div class="dialog-foot">
-      <button class="btn btn-ghost" type="button" data-close>Cancel</button>
-      <button class="btn btn-primary" type="submit">Create deal</button>
-    </div>
-  </form>
-</dialog>
 
 <script type="module">
 import { api, mountShell, esc, money, showError, onSubmit,
@@ -103,27 +68,8 @@ viewSelect.addEventListener('change', () => {
   if (lastData) render(lastData);
 });
 
-// Said once, on the pipelines where the advisor picker cannot apply.
-function sharedNote(data) {
-  return data.shared
-    ? `<div class="notice notice-info">These opportunities come from CTT Tools, which the whole
-        agency shares, so they cannot be narrowed to one advisor.
-        <a href="?">Back to reservations</a></div>`
-    : '';
-}
-
 function render(data) {
   lastData = data;
-  if (!data.pipeline) {
-    panel.innerHTML = '<div class="card"><div class="empty"><h3>No pipelines found</h3><p>Create a pipeline in CTT Tools and it will show up here.</p></div></div>';
-    return;
-  }
-
-  if (data.pipelines.length > 1) {
-    select.hidden = false;
-    select.innerHTML = data.pipelines.map((p) =>
-      `<option value="${esc(p.id)}"${p.id === data.pipeline.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
-  }
 
   const openCount = data.stages.reduce((n, s) => n + s.count, 0);
   const openValue = data.stages.reduce((n, s) => n + s.valueTotal, 0);
@@ -138,7 +84,7 @@ function render(data) {
 
   if (view === 'list') { drawList(data); return; }
 
-  panel.innerHTML = `${sharedNote(data)}<div class="board">${data.stages.map((s) => `
+  panel.innerHTML = `<div class="board">${data.stages.map((s) => `
     <div class="board-col"${s.id ? ` data-stage="${esc(s.id)}"` : ''}>
       <h3>${esc(s.name)}</h3>
       <p class="col-meta">${s.count} &middot; ${money(s.valueTotal * 100)}</p>
@@ -163,7 +109,6 @@ function render(data) {
   // Dragging moves a CRM card. A reservation's stage is worked out from the
   // reservation, so there is nothing to drag it to: the way to move one along
   // is to send the quote or post the payment, and the card follows.
-  if (!data.derived) wireBoard();
 }
 
 /**
@@ -190,7 +135,7 @@ function drawList(data) {
     return;
   }
 
-  panel.innerHTML = `${sharedNote(data)}<div class="card"><div class="table-wrap"><table>
+  panel.innerHTML = `<div class="card"><div class="table-wrap"><table>
     <thead><tr><th>Opportunity</th><th>Client</th><th>Stage</th>
       <th class="num">Value</th></tr></thead>
     <tbody>${rows.map((o) => `
@@ -209,127 +154,9 @@ function drawList(data) {
       </tr>`).join('')}</tbody></table></div></div>`;
 
   // The same select the cards carry, so moving a deal works the same either way.
-  if (!data.derived) wireMoves();
 }
 
 /** Drag to move, with a per-card select so touch and keyboard also work. */
-function wireBoard() {
-  let draggedId = null;
-
-  panel.querySelectorAll('.opp[data-opp]').forEach((card) => {
-    card.addEventListener('dragstart', (e) => {
-      draggedId = card.dataset.opp;
-      card.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', draggedId);
-    });
-    card.addEventListener('dragend', () => {
-      draggedId = null;
-      card.classList.remove('dragging');
-    });
-  });
-
-  panel.querySelectorAll('.board-col[data-stage]').forEach((col) => {
-    col.addEventListener('dragover', (e) => { e.preventDefault(); col.classList.add('drop-target'); });
-    col.addEventListener('dragleave', () => col.classList.remove('drop-target'));
-    col.addEventListener('drop', async (e) => {
-      e.preventDefault();
-      col.classList.remove('drop-target');
-      const id = draggedId || e.dataTransfer.getData('text/plain');
-      const stageId = col.dataset.stage;
-      if (!id || !stageId) return;
-      await moveOpportunity(id, stageId);
-    });
-  });
-
-  wireMoves();
-}
-
-/** The stage select, which both views carry, so a deal moves the same either way. */
-function wireMoves() {
-  panel.querySelectorAll('[data-move]').forEach((sel) => {
-    sel.addEventListener('change', () => moveOpportunity(sel.dataset.move, sel.value));
-  });
-}
-
-async function moveOpportunity(id, stageId) {
-  try {
-    await api(`/api/opportunities/${encodeURIComponent(id)}`, { method: 'PUT', body: { stageId } });
-    await load(select.value || undefined);
-  } catch (err) {
-    alert(err.message);
-    await load(select.value || undefined);
-  }
-}
-
-async function load(pipelineId) {
-  panel.innerHTML = '<p class="spinner">Loading pipeline...</p>';
-  try {
-    const params = [];
-    if (pipelineId) params.push(`pipelineId=${encodeURIComponent(pipelineId)}`);
-    if (advisorParam()) params.push(advisorParam());
-    const data = await api(`/api/opportunities${params.length ? `?${params.join('&')}` : ''}`);
-    mountScopePicker(document.getElementById('scope'), data, () => load(pipelineId));
-    render(data);
-  } catch (err) {
-    summary.hidden = true;
-    showError(panel, err);
-  }
-}
-
-// --- new deal -------------------------------------------------------------
-const dealDialog = document.getElementById('deal-dialog');
-const dealForm = document.getElementById('deal-form');
-const contactSearch = document.getElementById('contact-search');
-const picker = document.getElementById('picker');
-
-document.getElementById('new-deal').addEventListener('click', () => {
-  if (!lastData || !lastData.pipeline) { alert('No pipeline to add a deal to yet.'); return; }
-  dealForm.reset();
-  document.getElementById('contactId').value = '';
-  document.getElementById('picked').textContent = '';
-  dealForm.querySelector('.notice-error').hidden = true;
-  document.getElementById('stageId').innerHTML = lastData.stages
-    .filter((st) => st.id)
-    .map((st) => `<option value="${esc(st.id)}">${esc(st.name)}</option>`).join('');
-  dealDialog.showModal();
-});
-dealDialog.querySelectorAll('[data-close]').forEach((b) =>
-  b.addEventListener('click', () => dealDialog.close()));
-
-let pickTimer;
-contactSearch.addEventListener('input', () => {
-  clearTimeout(pickTimer);
-  const q = contactSearch.value.trim();
-  if (q.length < 2) { picker.hidden = true; return; }
-  pickTimer = setTimeout(async () => {
-    try {
-      const { contacts } = await api(`/api/leads?q=${encodeURIComponent(q)}&limit=8`);
-      picker.innerHTML = contacts.length
-        ? contacts.map((c) => `<button type="button" data-cid="${esc(c.id)}" data-cname="${esc(c.name)}">
-             ${esc(c.name)}<br><span class="muted">${esc(c.email || c.phone || '')}</span></button>`).join('')
-        : '<button type="button" disabled>No matches</button>';
-      picker.hidden = false;
-      picker.querySelectorAll('[data-cid]').forEach((b) => b.addEventListener('click', () => {
-        document.getElementById('contactId').value = b.dataset.cid;
-        document.getElementById('picked').textContent = `Attached to ${b.dataset.cname}`;
-        contactSearch.value = b.dataset.cname;
-        picker.hidden = true;
-      }));
-    } catch { picker.hidden = true; }
-  }, 300);
-});
-
-onSubmit(dealForm, async (values) => {
-  if (!values.contactId) throw new Error('Pick a contact for this deal.');
-  await api('/api/opportunities', {
-    method: 'POST',
-    body: { ...values, pipelineId: lastData.pipeline.id, status: 'open' },
-  });
-  dealDialog.close();
-  await load(select.value || undefined);
-});
-
 select.addEventListener('change', () => load(select.value));
 document.getElementById('refresh').addEventListener('click', () => load(select.value || undefined));
 await load();

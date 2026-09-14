@@ -13,7 +13,7 @@ import {
   isValidEmail, normalizeEmail, readJson,
 } from './util.js';
 import { requireUser } from './auth.js';
-import * as ghl from './ghl.js';
+import { tenantFor } from './tenant.js';
 import * as db from './db.js';
 import { upsertContact } from './sync.js';
 
@@ -512,7 +512,7 @@ export async function handleSaveMyTemplate(request, env, id = null) {
 
   if (body.fromForm) {
     const row = await env.DB.prepare('SELECT * FROM forms WHERE id = ? AND location_id = ?')
-      .bind(clean(body.fromForm, 64), ghl.locationFor(env, user)).first();
+      .bind(clean(body.fromForm, 64), tenantFor(env, user)).first();
     if (!row) return notFound('Form not found.');
     const form = hydrate(row);
     source = {
@@ -582,7 +582,7 @@ export async function handleDeleteMyTemplate(request, env, id) {
 export async function handleListForms(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  const locationId = ghl.locationFor(env, user);
+  const locationId = tenantFor(env, user);
 
   const { results } = await env.DB.prepare(
     `SELECT f.*, (SELECT COUNT(*) FROM form_submissions s WHERE s.form_id = f.id) AS submissions
@@ -609,7 +609,7 @@ export async function handleGetForm(request, env, id) {
   // form, which is client names, emails and phone numbers, and an id is not a
   // permission.
   const row = await env.DB.prepare('SELECT * FROM forms WHERE id = ? AND location_id = ?')
-    .bind(id, ghl.locationFor(env, user)).first();
+    .bind(id, tenantFor(env, user)).first();
   if (!row) return notFound('Form not found.');
 
   const { results } = await env.DB.prepare(
@@ -642,7 +642,7 @@ export async function handleFormsReport(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const locationId = ghl.locationFor(env, user);
+  const locationId = tenantFor(env, user);
   const url = new URL(request.url);
   const days = Math.min(Math.max(Number(url.searchParams.get('days')) || 90, 1), 730);
   // Seconds. now() is seconds in this codebase and mixing the two has been the
@@ -720,7 +720,7 @@ export async function handleReservationFromLead(request, env, submissionId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const locationId = ghl.locationFor(env, user);
+  const locationId = tenantFor(env, user);
   // Scoped by location: a submission id is not a permission, and this reads a
   // client's name, email and phone number.
   const row = await env.DB.prepare(
@@ -836,7 +836,7 @@ export async function handleSaveForm(request, env, id = null) {
   const fields = parseFields(body.fields);
   if (!fields.length) return badRequest('Add at least one field.');
 
-  const locationId = ghl.locationFor(env, user);
+  const locationId = tenantFor(env, user);
   const ts = now();
   const slug = await uniqueSlug(env, clean(body.slug, 60) || name, id);
 
@@ -888,7 +888,7 @@ export async function handleDeleteForm(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
   const res = await env.DB.prepare('DELETE FROM forms WHERE id = ? AND location_id = ?')
-    .bind(id, ghl.locationFor(env, user)).run();
+    .bind(id, tenantFor(env, user)).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Form not found.');
   await db.logActivity(env, user.id, 'form.delete', 'Deleted a form', { id });
   return json({ ok: true });

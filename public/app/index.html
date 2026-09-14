@@ -207,7 +207,7 @@ function build() {
 
   if (d.ghlStatus === 'not_configured') showError(document.getElementById('ghl-state'), { code: 'not_configured' });
   else if (d.ghlStatus === 'error') document.getElementById('ghl-state').innerHTML =
-    '<div class="notice notice-error">Could not reach CTT Tools just now. Reservation figures above are still accurate.</div>';
+    '';
 
   drawPanels();
 }
@@ -566,8 +566,7 @@ let monthCursor = null;
 function monthWidget() {
   const el = document.createElement('section');
   el.className = 'widget';
-  el.innerHTML = `<header><h2>This month</h2>
-      <a href="/app/calendar">Open calendar</a></header>
+  el.innerHTML = `<header><h2>This month</h2></header>
     <div class="wbody" id="month-body"><p class="spinner">Loading...</p></div>`;
   // Drawn after the element is in the DOM, so the fetch cannot race the mount.
   queueMicrotask(() => drawMonth(el.querySelector('#month-body')));

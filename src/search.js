@@ -8,9 +8,9 @@
 // answers at database speed and keeps working when the upstream API does not.
 
 import { json } from './util.js';
+import { tenantFor } from './tenant.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
-import * as ghl from './ghl.js';
 
 const PER_GROUP = 6;
 
@@ -29,7 +29,7 @@ export async function handleSearch(request, env) {
   if (q.length < 2) return json({ query: q, groups: [], total: 0 });
 
   const term = like(q);
-  const locationId = ghl.locationFor(env, user);
+  const locationId = tenantFor(env, user);
   // Same rule as every other screen: an associate finds their own records,
   // an owner finds the agency's.
   const scope = db.scopeFor(env, user, request);

@@ -137,7 +137,7 @@ export async function setUserStatus(env, id, status, approvedBy = null) {
   return getUserById(env, id);
 }
 
-/** Bind an advisor to a GoHighLevel sub-account and user id. Admin only. */
+/** Bind an advisor to their own tenant partition. Admin only. */
 export async function setUserGhl(env, id, { locationId, ghlUserId }) {
   await env.DB.prepare(
     'UPDATE users SET ghl_location_id = ?, ghl_user_id = ?, updated_at = ? WHERE id = ?'

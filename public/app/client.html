@@ -284,9 +284,6 @@ function render(d) {
     d.editable
       ? `<button class="btn btn-ghost btn-sm" id="pin">${c.pinned_at ? 'Pinned' : 'Pin'}</button>`
       : '',
-    c.ghl_contact_id
-      ? `<a class="btn btn-ghost btn-sm" href="/app/contact?id=${esc(c.ghl_contact_id)}">CRM record</a>`
-      : '',
   ].filter(Boolean).join('');
 
   const pinBtn = document.getElementById('pin');
