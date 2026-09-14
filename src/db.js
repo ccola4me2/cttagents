@@ -947,6 +947,41 @@ export async function welcomeHomeCandidates(env, scope, { today, days = 30, limi
 }
 
 /**
+ * Every proposal that is still a question.
+ *
+ * A proposal is not a record type here: it is a reservation in the quoted
+ * state with options on it, and until now there was no way to see them
+ * together. The reservation list showed them among everything else, and the
+ * dashboard showed the ones nobody had answered in a week. Neither answers
+ * the question an advisor actually has on a Monday, which is "what have I got
+ * out, and which of them is waiting on me rather than on them".
+ *
+ * Every field this needs was already being written down. Nothing here is new
+ * data: it is the first time anybody looked at it in one place.
+ */
+export async function proposals(env, scope, { limit = 200 } = {}) {
+  const scoped = scopeWhere(scope, 'b.user_id');
+  const { results } = await env.DB.prepare(
+    `SELECT ${BOOKING_COLUMNS_B}, ${ADVISOR_NAME},
+            (SELECT COUNT(*) FROM quote_options o
+              WHERE o.booking_id = b.id) AS option_count,
+            (SELECT COUNT(*) FROM quote_options o
+              WHERE o.booking_id = b.id AND o.chosen = 1) AS chosen_count,
+            (SELECT o.label FROM quote_options o
+              WHERE o.booking_id = b.id AND o.chosen = 1 LIMIT 1) AS chosen_label,
+            (SELECT o.chosen_at FROM quote_options o
+              WHERE o.booking_id = b.id AND o.chosen = 1 LIMIT 1) AS chosen_at,
+            (SELECT o.chosen_by FROM quote_options o
+              WHERE o.booking_id = b.id AND o.chosen = 1 LIMIT 1) AS chosen_by
+       FROM bookings b LEFT JOIN users u ON u.id = b.user_id
+      WHERE ${scoped.sql} AND b.status = 'quoted'
+      ORDER BY COALESCE(b.quote_sent_at, b.shared_at, b.created_at) ASC
+      LIMIT ?`
+  ).bind(...scoped.binds, takeWithProbe(limit)).all();
+  return results || [];
+}
+
+/**
  * Quotes sitting with no answer.
  *
  * The largest quiet leak in travel sales, and the one nothing in this portal

@@ -26,7 +26,8 @@ import {
 } from './pipeline.js';
 import {
   handleLeadBoard, handleAddLead, handleUpdateLead, handleMoveLead, handleCloseLead,
-} from './leads.js'; import {
+} from './leads.js';
+import { handleProposals } from './proposals.js'; import {
   handleListBookings,
   handleGetBooking,
   handleBookingRecord,
@@ -371,6 +372,7 @@ const PAGE_FILES = {
   '/app/formbuilder': '/app/formbuilder.html',
   '/app/automations': '/app/automations.html',
   '/app/pipeline': '/app/pipeline.html',
+  '/app/proposals': '/app/proposals.html',
   '/app/leads': '/app/leads.html',
   '/app/tasks': '/app/tasks.html',
   '/app/new': '/app/new.html',
@@ -602,6 +604,9 @@ async function routeApi(request, env, path, method) {
   // ---- leads ------------------------------------------------------------
 
   // ---- pipeline ---------------------------------------------------------
+  // Everything quoted and still unanswered, by who is holding it up.
+  if (path === '/api/proposals' && method === 'GET') return handleProposals(request, env);
+
   // The marketing pipeline: people who have not booked yet.
   if (path === '/api/leads' && method === 'GET') return handleLeadBoard(request, env);
   if (path === '/api/leads' && method === 'POST') return handleAddLead(request, env);

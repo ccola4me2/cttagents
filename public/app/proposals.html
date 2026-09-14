@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proposals out | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+<style>
+  .pgroup { margin-bottom: 1.6rem; }
+  .pgroup > h2 { font-size: 1rem; margin: 0 0 .1rem; }
+  .pgroup > .hint { font-size: .82rem; color: var(--ink-500); margin: 0 0 .7rem; }
+  .pgroup.act > h2 { color: var(--red-600); }
+  .agecell { white-space: nowrap; }
+  .agecell.old { color: var(--red-600); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Proposals out</h1>
+        <p class="sub">Everything quoted and unanswered, grouped by who it is waiting on.</p></div>
+      <div class="toolbar" style="margin:0;">
+        <span id="scope"></span>
+        <input id="q" type="search" placeholder="Search" style="width:11rem;">
+        <button class="btn btn-ghost btn-sm" id="refresh">Refresh</button>
+      </div>
+    </header>
+    <div class="content">
+      <div class="notice notice-error" id="err" hidden></div>
+      <section id="summary" class="stat-grid" hidden></section>
+      <section id="panel"><p class="spinner">Loading...</p></section>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api, mountShell, esc, money, dateFmt, timeAgo, showError,
+  mountScopePicker, advisorParam } from '/js/app.js';
+await mountShell();
+
+const panel = document.getElementById('panel');
+const summary = document.getElementById('summary');
+const err = document.getElementById('err');
+const q = document.getElementById('q');
+
+// The three an advisor can clear today without anybody replying to them.
+const MINE = new Set(['unsent', 'chosen', 'empty']);
+
+// What a proposal has done since it went out, in one column. Three separate
+// counts of the same thing read as three questions; this is the answer to the
+// only one being asked, which is whether it landed.
+function heard(p) {
+  if (p.state === 'chosen') {
+    return `<strong>${esc(p.chosenLabel || 'One of them')}</strong>${
+      p.chosenBy === 'client' ? ' &middot; they chose it' : ' &middot; recorded by you'}${
+      p.chosenAt ? `<div class="muted" style="font-size:.74rem;">${esc(timeAgo(p.chosenAt))}</div>` : ''}`;
+  }
+  if (!p.sentAt && !p.sharedAt) return '<span class="muted">never sent</span>';
+  const bits = [];
+  if (p.sentAt) {
+    bits.push(`emailed ${esc(timeAgo(p.sentAt))}${p.sentCount > 1 ? `, ${p.sentCount} times` : ''}`);
+  } else {
+    bits.push(`link shared ${esc(timeAgo(p.sharedAt))}`);
+  }
+  bits.push(p.viewCount
+    ? `opened ${p.viewCount === 1 ? 'once' : `${p.viewCount} times`}, last ${esc(timeAgo(p.viewedLastAt))}`
+    : '<span style="color:var(--red-600);">not opened</span>');
+  // A line each. They were separated by an empty div, which puts them on two
+  // lines and reads as one run-on sentence to anything that is not a browser,
+  // a screen reader included.
+  return bits.map((b) => `<div>${b}</div>`).join('');
+}
+
+function table(items) {
+  return `<div class="table-wrap"><table class="grid">
+    <thead><tr><th>Client</th><th>Trip</th><th>Departing</th>
+      <th class="num">Quoted</th><th>What has happened</th><th class="num">Waiting</th></tr></thead>
+    <tbody>${items.map((p) => `<tr>
+      <td><a class="name" href="/app/reservation?id=${esc(p.id)}">${esc(p.clientName)}</a>
+        ${p.advisorName ? `<div class="muted" style="font-size:.74rem;">${esc(p.advisorName)}</div>` : ''}</td>
+      <td>${esc(p.itinerary || p.productName || '-')}
+        <div class="muted" style="font-size:.76rem;">${esc(p.supplier || '')}${
+          p.optionCount ? ` &middot; ${p.optionCount} option${p.optionCount === 1 ? '' : 's'}` : ''}</div></td>
+      <td>${p.departDate ? esc(dateFmt(p.departDate)) : '<span class="muted">no date</span>'}</td>
+      <td class="num">${p.grossCents ? esc(money(p.grossCents)) : '<span class="muted">-</span>'}</td>
+      <td style="font-size:.82rem;">${heard(p)}</td>
+      <td class="num agecell${p.age !== null && p.age >= 14 ? ' old' : ''}">${
+        p.age === null ? '' : `${p.age} day${p.age === 1 ? '' : 's'}`}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+function render(d) {
+  summary.hidden = false;
+  summary.innerHTML = `
+    <div class="stat"><p class="label">Proposals out</p><p class="value">${d.total}</p>
+      <p class="meta">quoted and unanswered</p></div>
+    <div class="stat"><p class="label">Quoted value</p><p class="value">${esc(money(d.openValue))}</p>
+      <p class="meta">what they add up to</p></div>
+    <div class="stat"><p class="label">Waiting on you</p>
+      <p class="value" style="${d.yours ? 'color:var(--red-600);' : ''}">${d.yours}</p>
+      <p class="meta">nobody has to reply first</p></div>`;
+
+  const live = d.groups.filter((g) => g.items.length);
+  if (!live.length) {
+    panel.innerHTML = `<div class="empty"><h3>Nothing out</h3>
+      <p>No quoted reservation is waiting on an answer. Quotes appear here as soon as
+        one is written, before it is even sent.</p></div>`;
+    return;
+  }
+  panel.innerHTML = live.map((g) => `<section class="pgroup${MINE.has(g.id) ? ' act' : ''}">
+    <h2>${esc(g.name)} &middot; ${g.items.length}</h2>
+    <p class="hint">${esc(g.hint)}</p>
+    ${table(g.items)}
+  </section>`).join('');
+}
+
+async function load() {
+  try {
+    const params = [];
+    if (q.value.trim()) params.push(`q=${encodeURIComponent(q.value.trim())}`);
+    if (advisorParam()) params.push(advisorParam());
+    const d = await api(`/api/proposals${params.length ? `?${params.join('&')}` : ''}`);
+    mountScopePicker(document.getElementById('scope'), d, load);
+    render(d);
+  } catch (e) {
+    summary.hidden = true;
+    showError(panel, e);
+  }
+}
+
+document.getElementById('refresh').addEventListener('click', load);
+let t;
+q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 250); });
+await load();
+</script>
+</body></html>

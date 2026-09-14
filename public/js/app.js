@@ -172,6 +172,7 @@ const NAV = [
       { href: '/app/clients', label: 'Clients' },
       { href: '/app/import-clients', label: 'Import clients' },
       { href: '/app/households', label: 'Households' },
+      { href: '/app/proposals', label: 'Proposals out' },
       { href: '/app/pipeline', label: 'Reservation board' },
       { href: '/app/segments', label: 'Lists' },
       { href: '/app/broadcasts', label: 'Emails' },
