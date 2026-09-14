@@ -20,7 +20,9 @@
   <div class="main">
     <header class="topbar">
       <div><h1>Leads</h1>
-        <p class="sub">People who got in touch and have not booked. Drag a card to move it.</p></div>
+        <p class="sub">People who got in touch and have not booked. Drag a card to move it.
+          When one turns into a trip, start a reservation from their card: they leave this
+          board on their own and pick up on the reservation board.</p></div>
       <div class="toolbar" style="margin:0;">
         <span id="scope"></span>
         <input id="q" type="search" placeholder="Search" style="width:11rem;">
@@ -86,6 +88,13 @@
     </div>
     <div class="dialog-foot">
       <button class="btn btn-ghost" type="button" id="off" hidden>Take off the board</button>
+      <!-- The step this board never offered, which is why it was not obvious
+           that the two boards are one road and not a choice between them. A
+           lead is a person; the moment the conversation is a particular ship on
+           a particular week it is also a trip, and the trip belongs on the
+           reservation board. Saving the lead first, so nothing typed is lost on
+           the way. -->
+      <a class="btn btn-secondary" id="to-reservation" hidden>Start a reservation</a>
       <button class="btn btn-primary" type="submit">Save</button>
     </div>
   </form>
@@ -240,6 +249,11 @@ function open(l) {
   document.getElementById('dlg-err').hidden = true;
   document.getElementById('dlg-title').textContent = l ? l.name : 'Somebody called';
   document.getElementById('off').hidden = !l;
+  // Only for somebody already saved: there is nobody to attach a trip to until
+  // the lead exists, and the reservation form fills itself in from the name.
+  const go = document.getElementById('to-reservation');
+  go.hidden = !l;
+  if (l) go.href = `/app/new?client=${encodeURIComponent(l.name)}`;
   const f = document.getElementById('form');
   fillStages();
   note('');
