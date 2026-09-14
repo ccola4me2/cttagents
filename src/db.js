@@ -1616,95 +1616,10 @@ export async function localContact(env, id) {
   return hydrateContact(await env.DB.prepare('SELECT * FROM crm_contacts WHERE id = ?').bind(id).first());
 }
 
-export async function localPipelines(env, locationId) {
-  const { results } = await env.DB.prepare(
-    'SELECT * FROM crm_pipelines WHERE location_id = ? ORDER BY name'
-  ).bind(locationId).all();
-  return (results || []).map((r) => {
-    let stages = [];
-    try { stages = r.stages_json ? JSON.parse(r.stages_json) : []; } catch { stages = []; }
-    return { id: r.id, name: r.name || 'Pipeline', stages };
-  });
-}
 
-export async function localOpportunities(env, locationId, { pipelineId, status, query } = {}) {
-  const where = ['location_id = ?'];
-  const binds = [locationId];
-  if (pipelineId) { where.push('pipeline_id = ?'); binds.push(pipelineId); }
-  if (status) { where.push('status = ?'); binds.push(status); }
-  if (query) {
-    where.push('(name LIKE ? OR contact_name LIKE ?)');
-    const like = `%${query}%`;
-    binds.push(like, like);
-  }
-  const { results } = await env.DB.prepare(
-    `SELECT * FROM crm_opportunities WHERE ${where.join(' AND ')}
-      ORDER BY COALESCE(updated_at, created_at, '') DESC LIMIT 500`
-  ).bind(...binds).all();
-  return (results || []).map((r) => ({
-    id: r.id,
-    name: r.name || 'Untitled opportunity',
-    status: r.status || '',
-    stageId: r.stage_id || null,
-    pipelineId: r.pipeline_id || null,
-    monetaryValue: Number(r.monetary_value || 0),
-    contactId: r.contact_id || null,
-    contactName: r.contact_name || '',
-    contactEmail: r.contact_email || '',
-    contactPhone: r.contact_phone || '',
-    assignedTo: r.assigned_to || null,
-    source: r.source || '',
-    createdAt: r.created_at || null,
-    updatedAt: r.updated_at || null,
-  }));
-}
 
-export async function localOpportunitiesForContact(env, contactId) {
-  const { results } = await env.DB.prepare(
-    'SELECT * FROM crm_opportunities WHERE contact_id = ? ORDER BY COALESCE(updated_at, "") DESC LIMIT 50'
-  ).bind(contactId).all();
-  return (results || []).map((r) => ({
-    id: r.id, name: r.name || 'Untitled opportunity', status: r.status || '',
-    monetaryValue: Number(r.monetary_value || 0), contactId: r.contact_id,
-  }));
-}
 
-/**
- * How opportunities finished, for a closing rate.
- *
- * The rate counts won against won plus lost. Abandoned deals are reported but
- * kept out of the denominator: a lead that went quiet was never a decision,
- * and folding it in makes an advisor who chases plenty of cold leads look
- * worse than one who chases none.
- */
-export async function localOpportunityOutcomes(env, locationId, sinceIso) {
-  const { results } = await env.DB.prepare(
-    `SELECT status, COUNT(*) AS n, COALESCE(SUM(monetary_value), 0) AS value
-       FROM crm_opportunities
-      WHERE location_id = ? AND status IS NOT NULL AND status != 'open'
-        AND COALESCE(updated_at, created_at, '') >= ?
-      GROUP BY status`
-  ).bind(locationId, sinceIso).all().catch(() => ({ results: [] }));
 
-  const by = Object.fromEntries((results || []).map((r) => [r.status, r]));
-  const won = by.won?.n || 0;
-  const lost = by.lost?.n || 0;
-  const decided = won + lost;
-  return {
-    won,
-    lost,
-    abandoned: by.abandoned?.n || 0,
-    wonValue: by.won?.value || 0,
-    closingRate: decided > 0 ? Math.round((won / decided) * 1000) / 10 : null,
-  };
-}
-
-export async function crmCounts(env, locationId) {
-  const c = await env.DB.prepare('SELECT COUNT(*) AS n FROM crm_contacts WHERE location_id = ?').bind(locationId).first();
-  const o = await env.DB.prepare('SELECT COUNT(*) AS n FROM crm_opportunities WHERE location_id = ?').bind(locationId).first();
-  const p = await env.DB.prepare('SELECT COUNT(*) AS n FROM crm_pipelines WHERE location_id = ?').bind(locationId).first();
-  return { contacts: c?.n || 0, opportunities: o?.n || 0, pipelines: p?.n || 0 };
-}
 
 // ---------------------------------------------------------------------------
 // Booking payments

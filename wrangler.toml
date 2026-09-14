@@ -48,7 +48,7 @@ database_id = "c95cdf55-a781-45a4-88d0-76d63ba5ad56"
 binding = "DOCS"
 bucket_name = "cttagents-docs"
 
-# Non-secret config. Secrets (GHL_API_TOKEN, RESEND_API_KEY) are set in the
+# Non-secret config. Secrets (RESEND_API_KEY, UNSUBSCRIBE_SECRET) are set in the
 # dashboard under Settings > Variables and Secrets. Never committed.
 [vars]
 # The host people are sent to from outside the portal: client trip pages,
@@ -110,23 +110,13 @@ RESET_TTL_MINUTES = "60"
 
 # GoHighLevel. The agency default sub-account every advisor falls back to when
 # they have no sub-account of their own recorded in D1.
-# The CTT sub-account in app.concinnity.digital. Its own, not Trip Vara's:
-# pointing this at another agency's location would put their contacts and
-# opportunities on these screens.
-#
-# This is only half of it. GHL_API_TOKEN is a secret and is set in the
-# dashboard; until that token exists and can reach this location, every CRM
-# screen says "CTT Tools is not connected yet" and the rest of the portal
-# works, which is the intended half-configured state rather than a fault.
+# The tenant every advisor's automations and forms are partitioned under,
+# unless their own user row names a different one. The name is historical: the
+# value came from the CRM that used to sit behind this portal, and the rows
+# still carry it. See src/tenant.js for why it was not renamed.
 GHL_DEFAULT_LOCATION_ID = "JxDfISzvUbtcobLNDHl3"
-GHL_API_BASE = "https://services.leadconnectorhq.com"
-GHL_API_VERSION = "2021-07-28"
-# White-labelled GoHighLevel app, used to deep-link the areas that have no
-# useful API (funnel builder, workflow editor, email builder and so on).
-GHL_APP_BASE = "https://app.concinnity.digital"
 
-# Keeps the local CRM copy current. Each run advances whichever sync jobs still
-# have work and no-ops cheaply once everything is complete and recently
-# refreshed, so idle runs cost almost nothing. Every 5 minutes.
+# Payment reminders, task digests, the broadcast queue and the automation
+# runner. Every 5 minutes; each job no-ops cheaply when it has nothing to do.
 [triggers]
 crons = ["*/5 * * * *"]

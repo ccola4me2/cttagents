@@ -29,12 +29,21 @@ export function normalise(email) {
 /**
  * The secret the unsubscribe links are signed with.
  *
- * Falls back to the Resend key, which is already a secret this Worker holds
- * and is never sent anywhere as part of a link. A dedicated secret is better
- * and this is what makes the feature work before somebody sets one.
+ * One secret, and a named one. It used to fall back to the Resend key and then
+ * to the CRM token, on the reasoning that both are secrets this Worker already
+ * holds. They are, and they are also the wrong ones: the key that signs a link
+ * has to outlive everything, and those two are rotated and revoked for reasons
+ * that have nothing to do with unsubscribing. Rotate the Resend key and every
+ * unsubscribe link ever sent stops verifying, which a client experiences as
+ * "this link is not one of ours" on the page whose whole job is to take them
+ * off the list. Removing the CRM made the same point louder.
+ *
+ * The literal keeps the feature working before anybody sets the secret, which
+ * is the state on a fresh deployment. Set UNSUBSCRIBE_SECRET before the first
+ * broadcast goes out and it never needs setting again.
  */
 function signingKey(env) {
-  return env.UNSUBSCRIBE_SECRET || env.RESEND_API_KEY || env.GHL_API_TOKEN || 'ctt-unsubscribe';
+  return env.UNSUBSCRIBE_SECRET || 'ctt-unsubscribe';
 }
 
 /**
