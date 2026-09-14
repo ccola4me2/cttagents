@@ -2196,9 +2196,18 @@ async function main() {
     check(/form#say,#say[^}]*display:none/.test(html.replace(/\s+/g, ''))
       || /#say,\.obtn/.test(html.replace(/\s+/g, '')),
       'with the note box left off the paper version');
-    check(/class="printonly"/.test(html),
+    // Who to ring, rather than the markup that used to carry it. This asserted
+    // class="printonly", a block in the footer repeating the advisor, the
+    // agency, the email and the phone that the Questions card above already
+    // prints, so it went on passing while a printed proposal named the advisor
+    // twice and the agency three times. The fact is what matters: the contact
+    // line is there, and nothing in the print rules takes it off the paper.
+    check(html.includes(ADVISOR_EMAIL) && /class="contact"/.test(html),
       'and the advisor named on it, since a printed itinerary with nobody to ring gets binbotted'
-        .replace('binbotted', 'binned'));
+        .replace('binbotted', 'binned'),
+      html.includes(ADVISOR_EMAIL) ? 'no contact line' : 'the advisor email is not on the page');
+    check(!/\.contact[^}]*display:none/.test(html.replace(/\s+/g, '')),
+      'and the paper version keeps it');
     check(html.includes(`/t/${code}`) && /data-url=/.test(html),
       'carrying the address of the live page, so paper can find its way back to it');
 
