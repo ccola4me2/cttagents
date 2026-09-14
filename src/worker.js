@@ -23,7 +23,10 @@ import {
   isAdmin,
 } from './auth.js'; import {
   handleListOpportunities,
-} from './pipeline.js'; import {
+} from './pipeline.js';
+import {
+  handleLeadBoard, handleAddLead, handleUpdateLead, handleMoveLead, handleCloseLead,
+} from './leads.js'; import {
   handleListBookings,
   handleGetBooking,
   handleBookingRecord,
@@ -156,8 +159,8 @@ import {
   handleSaveLayout,
   handleResetLayout,
 } from './prefs.js';
-// Aliased: leads.js already exports handleCreateTask for the CRM's own
-// contact tasks, which are a different thing from an advisor's working list.
+// Aliased so the names read as what they are: an advisor's own working list,
+// which is the only kind of task there is now.
 import {
   handleListTasks as handleListMyTasks,
   handleCreateTask as handleCreateMyTask,
