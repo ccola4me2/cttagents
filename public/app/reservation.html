@@ -1552,8 +1552,18 @@ function render() {
   //
   // Only hard rows count. A soft row is this portal's own reminder to chase,
   // and a reminder nobody needs any more is not the vendor waiting.
-  const owing = (d.payments || []).filter((p) => p.payment_class === 'hard' && !p.paid_date);
-  const settled = !owing.length;
+  //
+  // Three states, not two. A schedule with nothing left on it is paid; one with
+  // something left is owing; and no schedule at all is neither, however much
+  // the arithmetic wants to read nought out of nothing as settled. This tile
+  // said "Paid in full" on a reservation nobody had written a single payment
+  // against, beside another tile saying the whole trip cost was on no schedule
+  // and a third saying there was no schedule at all. The list page was fixed
+  // for the same reason and this one was not.
+  const hard = (d.payments || []).filter((p) => p.payment_class === 'hard');
+  const owing = hard.filter((p) => !p.paid_date);
+  const unscheduled = hard.length === 0;
+  const settled = !unscheduled && !owing.length;
 
   document.getElementById('money').innerHTML = `
     <div class="stat"><p class="label">Trip cost</p><p class="value">${money(b.gross_cents)}</p>
@@ -1565,16 +1575,18 @@ function render() {
       <p class="meta">Nothing will chase what is not on the schedule</p></div>
     <div class="stat"><p class="label">Final payment</p>
       <p class="value" style="font-size:1.1rem;${
-        !settled && left !== null && left < 14 ? 'color:var(--red-600);' : ''}">${
+        !settled && !unscheduled && left !== null && left < 14 ? 'color:var(--red-600);' : ''}">${
         settled ? 'Paid in full'
           : b.final_payment_due ? esc(short(b.final_payment_due)) : 'none set'}</p>
       <p class="meta">${settled
         ? (b.final_payment_due
           ? `nothing owing, due ${esc(short(b.final_payment_due))}`
           : 'nothing owing')
-        : b.final_payment_due
-          ? (left < 0 ? 'passed, confirm with the vendor' : `vendor cancels in ${left} days`)
-          : 'nothing can warn you without a date'}</p></div>`;
+        : unscheduled
+          ? 'nothing posted and nothing scheduled, so nothing is being chased'
+          : b.final_payment_due
+            ? (left < 0 ? 'passed, confirm with the vendor' : `vendor cancels in ${left} days`)
+            : 'nothing can warn you without a date'}</p></div>`;
 
   // ---- schedule ----
   document.getElementById('schedule-actions').innerHTML = d.editable
