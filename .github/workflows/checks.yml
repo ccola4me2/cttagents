@@ -79,6 +79,9 @@ jobs:
       - name: Escapes mean what they look like
         run: npm run check:escapes
 
+      - name: Only an advisor sends a quote
+        run: npm run check:sending
+
       - name: What a rendered email says
         run: npm run check:email
 
