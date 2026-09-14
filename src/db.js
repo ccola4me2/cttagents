@@ -1865,7 +1865,10 @@ export async function bookingBalances(env, scope) {
                               THEN p.amount_cents END), 0) AS paid_cents,
             COALESCE(SUM(CASE WHEN p.payment_class = 'hard' AND p.paid_date IS NULL
                               THEN p.amount_cents END), 0) AS scheduled_cents,
-            COUNT(p.id) AS payment_count
+            -- Hard rows only, like the two sums above. A soft row is the
+            -- reminder in front of the same money, so counting it would say a
+            -- reservation has a schedule when all it has is a nudge.
+            COUNT(CASE WHEN p.payment_class = 'hard' THEN 1 END) AS payment_count
        FROM bookings b
        LEFT JOIN booking_payments p ON p.booking_id = b.id
       WHERE ${scoped.sql} AND b.status IN ('quoted','booked','travelled')
@@ -1888,7 +1891,12 @@ export async function paymentsByMonth(env, scope, sinceDate) {
   const scoped = scopeWhere(scope, 'p.user_id');
   const { results } = await env.DB.prepare(
     `SELECT substr(p.due_date, 1, 7) AS month,
-            COUNT(*) AS payments,
+            -- Hard rows only, the same as the two sums below it. A final
+            -- balance is two rows, the vendor's deadline and this portal's own
+            -- reminder ten days ahead of it, and both usually fall in the same
+            -- month. Counted whole, one $4,500 balance read as two payments
+            -- beside the single figure it actually was.
+            COUNT(CASE WHEN p.payment_class = 'hard' THEN 1 END) AS payments,
             SUM(CASE WHEN p.payment_class = 'hard' AND p.paid_date IS NOT NULL
                      THEN p.amount_cents ELSE 0 END) AS posted_cents,
             SUM(CASE WHEN p.payment_class = 'hard' AND p.paid_date IS NULL
