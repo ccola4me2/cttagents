@@ -447,6 +447,7 @@ const BOOKING_COLUMNS = `
   return_date, deposit_due, final_payment_due, travellers, gross_cents, deposit_cents,
   commission_cents, commission_status, status, notes, group_id, client_id, vendor_id,
   cabin, cabin_category, itinerary, booking_method, insurance_status, advisor_split_pct,
+  agreed_split_pct, agreed_lead_split_pct,
   quote_sent_at, quote_sent_count, statement_sent_at, welcomed_at,
   invoice_no, invoice_issued_at, invoice_notes, personal,
   created_at, updated_at, share_code, shared_at, statement_hash, lead_source,
@@ -560,6 +561,19 @@ export async function setBookingSplit(env, id, { advisorSplitPct, leadSource }) 
   return getBookingUnscoped(env, id);
 }
 
+/**
+ * The agreement is stamped here, in the insert, rather than worked out by the
+ * caller and passed in.
+ *
+ * Four places create a reservation and a fifth creates one from a deal, and a
+ * rule that every one of them has to remember is a rule one of them will not.
+ * Read straight off the advisor's row in the same statement, it cannot be
+ * forgotten and cannot disagree with itself. See 0074_agreed_split.sql.
+ */
+const AGREED_SPLIT_SQL = `
+  (SELECT COALESCE(u.default_split_pct, 100) FROM users u WHERE u.id = ?),
+  (SELECT COALESCE(u.lead_split_pct, u.default_split_pct, 100) FROM users u WHERE u.id = ?)`;
+
 export async function createBooking(env, userId, f) {
   const ts = now();
   const id = uid();
@@ -570,8 +584,10 @@ export async function createBooking(env, userId, f) {
         depart_date, return_date, deposit_due, final_payment_due, travellers,
         gross_cents, deposit_cents, commission_cents, commission_status, status, notes,
         group_id, client_id, vendor_id, cabin, cabin_category, itinerary,
-        booking_method, insurance_status, advisor_split_pct, personal, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        booking_method, insurance_status, advisor_split_pct, personal, created_at, updated_at,
+        agreed_split_pct, agreed_lead_split_pct)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+       ${AGREED_SPLIT_SQL})`
   ).bind(
     id, userId, f.ghlContactId || null, f.ghlOpportunityId || null,
     f.clientName, f.supplier || null, f.productType, f.productName || null,
@@ -581,7 +597,8 @@ export async function createBooking(env, userId, f) {
     f.status, f.notes || null, f.groupId || null, f.clientId || null, f.vendorId || null,
     f.cabin || null, f.cabinCategory || null, f.itinerary || null, f.bookingMethod || null,
     f.insuranceStatus || 'unknown', f.advisorSplitPct == null ? null : f.advisorSplitPct,
-    f.personal ? 1 : 0, ts, ts
+    f.personal ? 1 : 0, ts, ts,
+    userId, userId
   ).run();
   return getBooking(env, id, userId);
 }
@@ -628,7 +645,7 @@ export async function bookingStats(env, scope) {
   // nothing to anybody's column, the agency's included.
   const earned = EARNED_SQL('b.commission_cents', 'b.commission_status');
   const share = ADVISOR_SHARE_SQL(earned,
-    SPLIT_PCT_SQL('b.advisor_split_pct', 'u.default_split_pct', 'b.lead_source', 'u.lead_split_pct'),
+    SPLIT_PCT_SQL(),
     UNSPLIT_SQL('b.id'));
   const row = await env.DB.prepare(
     `SELECT
@@ -726,8 +743,7 @@ export async function productionByAdvisor(env, scope, sinceDate, { includePerson
             -- they billed. An owner reading a combined report needs both: the
             -- agency is owed the whole commission and pays out only part of it.
             COALESCE(SUM(${ADVISOR_SHARE_SQL(EARNED_SQL('b.commission_cents', 'b.commission_status'),
-              SPLIT_PCT_SQL('b.advisor_split_pct', 'u.default_split_pct', 'b.lead_source',
-                'u.lead_split_pct'), UNSPLIT_SQL('b.id'))}), 0)
+              SPLIT_PCT_SQL(), UNSPLIT_SQL('b.id'))}), 0)
               AS advisor_share_cents,
             u.default_split_pct, u.lead_split_pct
        FROM users u

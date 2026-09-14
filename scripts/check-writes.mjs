@@ -53,6 +53,16 @@ const ALLOWED = [
     + 'the star every time a supplier was edited, which is how it got one'],
 ];
 
+// What the commission agreement said when the reservation was taken. Stamped
+// by the insert and never written again by anything: an edit that carried it
+// would move the figure every time somebody corrected a cabin number, which is
+// the whole thing 0074_agreed_split.sql exists to stop.
+for (const column of ['agreed_split_pct', 'agreed_lead_split_pct']) {
+  ALLOWED.push([`bookings:${column}`, 'UPDATE bookings SET',
+    'the agreement a trip was taken under is set when it is taken and is not '
+    + 'something an edit may move']);
+}
+
 // The five lead columns belong to the lead board and to nothing else. The
 // client form has no controls for them, so writing them from it would clear
 // somebody's stage and their next call every time a passport number was saved:

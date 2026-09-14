@@ -284,11 +284,16 @@ export async function handleBookEnquiry(request, env, leadId) {
   await env.DB.prepare(
     `INSERT INTO bookings (id, user_id, client_name, client_id, supplier, vendor_id,
        product_type, product_name, destination, depart_date, return_date, travellers,
-       status, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'quoted',?,?)`
+       status, created_at, updated_at, agreed_split_pct, agreed_lead_split_pct)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'quoted',?,?,
+       (SELECT COALESCE(u.default_split_pct, 100) FROM users u WHERE u.id = ?),
+       (SELECT COALESCE(u.lead_split_pct, u.default_split_pct, 100) FROM users u WHERE u.id = ?))`
   ).bind(id, user.id, lead.name, clientId, lead.vendor, lead.vendor_id,
          lead.product_type, lead.headline, lead.destination,
-         lead.depart_date, lead.return_date, lead.party_size || null, ts, ts).run();
+         lead.depart_date, lead.return_date, lead.party_size || null, ts, ts,
+         // The agreement as it stands for this advisor today, stamped now so a
+         // later change to their record does not restate this trip.
+         user.id, user.id).run();
 
   await env.DB.prepare('UPDATE special_leads SET booking_id = ? WHERE id = ? AND user_id = ?')
     .bind(id, leadId, user.id).run();
