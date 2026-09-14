@@ -46,9 +46,10 @@
     <div class="dialog-body">
       <div class="notice notice-error" id="dlg-err" hidden></div>
       <div class="field"><label for="name">Their name</label>
-        <input id="name" name="name" required maxlength="120" placeholder="Edward Welch">
-        <p class="field-hint">If they are already on your book this adds to that person
-          rather than making a second copy of them.</p></div>
+        <input id="name" name="name" required maxlength="120" placeholder="Edward Welch"
+          autocomplete="off">
+        <p class="field-hint" id="name-hint">Start typing: if they are already on your book
+          this adds to that person rather than making a second copy of them.</p></div>
       <div class="field-row">
         <div class="field"><label for="phone">Phone</label>
           <input id="phone" name="phone" type="tel" maxlength="40"></div>
@@ -241,6 +242,7 @@ function open(l) {
   document.getElementById('off').hidden = !l;
   const f = document.getElementById('form');
   fillStages();
+  note('');
   f.elements.name.value = l ? l.name : '';
   f.elements.phone.value = l ? l.phone : '';
   f.elements.email.value = l ? l.email : '';
@@ -255,6 +257,17 @@ function open(l) {
   f.elements.nextStep.value = l ? l.nextStep : '';
   f.elements.nextStepOn.value = l ? l.nextStepOn : '';
   dlg.showModal();
+}
+
+// What the name box has to say, under the name box. Restored to the standing
+// hint whenever the dialog is opened, so a match from the last lead is not
+// still on screen for the next one.
+const NAME_HINT = 'Start typing: if they are already on your book this adds to that '
+  + 'person rather than making a second copy of them.';
+function note(text) {
+  const el = document.getElementById('name-hint');
+  el.textContent = text || NAME_HINT;
+  el.style.color = text ? 'var(--teal)' : '';
 }
 
 // The channel list comes from the server with the board, so the dialog and the
@@ -278,6 +291,27 @@ function showReferred() {
   }
 }
 document.getElementById('sourceKind').addEventListener('change', showReferred);
+
+// The name box, which has always said "if they are already on your book this
+// adds to that person rather than making a second copy of them" and gave no way
+// to find out until you pressed Save. It matches on the server either way; this
+// is so the advisor can see the match while they are still typing, and see the
+// phone and email that come with it.
+mountClientSuggest(document.getElementById('name'), {
+  onChoose: (row) => {
+    const f = document.getElementById('form');
+    // Only into empty boxes. Somebody typing a new number for a client whose
+    // old one is on file is correcting it, not asking to have it overwritten.
+    if (!f.elements.phone.value && row.phone) f.elements.phone.value = row.phone;
+    if (!f.elements.email.value && row.email) f.elements.email.value = row.email;
+    if (!f.elements.sourceKind.value && row.source_kind) {
+      f.elements.sourceKind.value = row.source_kind;
+      showReferred();
+    }
+    note(`On your book already. Saving adds to ${row.name} rather than making a second one.`);
+  },
+  emptyText: 'Nobody by that name yet, which is fine: this makes them.',
+});
 
 mountClientSuggest(document.getElementById('referredByName'), {
   onChoose: (row) => { document.getElementById('referredBy').value = row.id; },
