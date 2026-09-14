@@ -1255,12 +1255,52 @@ function drawPricing() {
  * vendor wants and by when sits underneath it.
  */
 function drawMoney() {
+/**
+ * What the deposit box is actually holding.
+ *
+ * A deposit holds the cabin and is not a charge on the trip, which is true
+ * right up until the reservation is taken inside the vendor's full payment
+ * window. From there they want the whole fare at once, so the figure in this
+ * box is the payment in full and there is no final to come. Four of the first
+ * six reservations on this portal were exactly that, and the hint under the box
+ * told the advisor the opposite of what the numbers said.
+ *
+ * The same comparison catches the other way round, which is how a trip total
+ * goes missing: a deposit equal to the total on a trip a year out almost never
+ * means the client paid it all today, it means the total is still the deposit
+ * because nobody typed the real one.
+ */
+const FULL_PAYMENT_WINDOW = 90;
+
+function depositHint(b) {
+  const gross = Number(b.gross_cents || 0);
+  const deposit = Number(b.deposit_cents || 0);
+  const out = daysUntil(b.depart_date);
+
+  if (deposit > 0 && gross > 0 && deposit >= gross) {
+    return out !== null && out > FULL_PAYMENT_WINDOW
+      ? { warn: true, text: `This is the whole trip total on a trip ${out} days away. Inside `
+          + `${FULL_PAYMENT_WINDOW} days that is right and the trip is paid. This far ahead it `
+          + 'usually means the trip total has not been filled in yet.' }
+      : { warn: false, text: 'The whole trip total, so this is the payment in full rather than a '
+          + 'deposit. Nothing further falls due.' };
+  }
+
+  if (out !== null && out <= FULL_PAYMENT_WINDOW && gross > 0 && deposit > 0) {
+    return { warn: true, text: `Departing in ${out} days. Inside ${FULL_PAYMENT_WINDOW} the vendor `
+      + 'usually wants the whole fare rather than a deposit.' };
+  }
+
+  return { warn: false, text: 'What holds the cabin, which is not a charge on it.' };
+}
+
   const b = d.booking;
   const box = document.getElementById('money-block');
   if (!box) return;
   const ro = !d.editable;
   const priced = Boolean(d.priceSummary);
   const cash = (c) => (c ? (c / 100).toFixed(2) : '');
+  const deposit = depositHint(b);
 
   box.innerHTML = `
     <p class="label" style="margin:0 0 .5rem;">Deposit and deadlines</p>
@@ -1268,7 +1308,8 @@ function drawMoney() {
     <div class="field-row">
       <div class="field"><label for="m-deposit">Deposit the vendor wants</label>
         <input id="m-deposit" value="${esc(cash(b.deposit_cents))}" inputmode="decimal" ${ro ? 'disabled' : ''}>
-        <p class="field-hint">What holds the cabin, which is not a charge on it.</p></div>
+        <p class="field-hint"${deposit.warn ? ' style="color:var(--amber-600);"' : ''}>${
+          esc(deposit.text)}</p></div>
       <div class="field"><label for="m-deposit-due">Deposit due</label>
         <input id="m-deposit-due" type="date" value="${esc(b.deposit_due || '')}" ${ro ? 'disabled' : ''}></div>
       <div class="field"><label for="m-final-due">Final payment due</label>
