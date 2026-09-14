@@ -1277,24 +1277,45 @@ function drawMoney() {
  * text names the field rather than the fault: an advisor who is short a fare
  * knows where to put it.
  *
- * So it names both and colours neither. A warning that cries wolf on a product
- * a cruise agency sells every month is worse than no warning, because the next
- * one gets ignored too.
+ * So it reads the breakdown, which turns out to answer it. A casino rate shows
+ * as a bonus_shared commission line, and the reservation page already has that
+ * in priceSummary at the moment this runs. Better still, a priced reservation
+ * cannot be short of its total at all, because the total is the sum of its
+ * lines. Only a reservation with no breakdown is genuinely ambiguous, and only
+ * there does this fall back to naming both readings.
+ *
+ * Written first as a warning on every such reservation, which was wrong twice
+ * over: it cried wolf on a product a cruise agency sells every month, and the
+ * live example it fired on had its Fare line filled in correctly at nought.
  */
 const FULL_PAYMENT_WINDOW = 90;
 
-function depositHint(b) {
+function depositHint(b, price) {
   const gross = Number(b.gross_cents || 0);
   const deposit = Number(b.deposit_cents || 0);
   const out = daysUntil(b.depart_date);
+  const casino = Boolean(price && price.commissionByKind
+    && price.commissionByKind.bonus_shared > 0);
 
   if (deposit > 0 && gross > 0 && deposit >= gross) {
-    return out !== null && out > FULL_PAYMENT_WINDOW
-      ? { warn: false, text: `The whole trip total on a trip ${out} days away. Right for a casino `
-          + 'or comped cabin, where the client pays only taxes and fees. On an ordinary fare it '
-          + 'means the Fare line still needs filling in on the breakdown.' }
-      : { warn: false, text: 'The whole trip total, so this is the payment in full rather than a '
-          + 'deposit. Nothing further falls due.' };
+    if (out === null || out <= FULL_PAYMENT_WINDOW) {
+      return { warn: false, text: 'The whole trip total, so this is the payment in full rather '
+        + 'than a deposit. Nothing further falls due.' };
+    }
+    // A comped cabin on a casino rate is not a guess when the breakdown says so.
+    if (casino) {
+      return { warn: false, text: 'A casino rate, so the cabin is comped and the whole of this is '
+        + 'taxes and fees. Nothing further falls due.' };
+    }
+    // A priced reservation cannot be short of its total: the total is the sum
+    // of the lines. Only a reservation with no breakdown can be missing one.
+    if (price) {
+      return { warn: false, text: 'The whole trip total, and the breakdown agrees with it. '
+        + 'Nothing further falls due.' };
+    }
+    return { warn: false, text: `The whole trip total on a trip ${out} days away, with no `
+      + 'breakdown to check it against. Right for a casino or comped cabin, where the client pays '
+      + 'only taxes and fees. On an ordinary fare it means the total is short a Fare line.' };
   }
 
   if (out !== null && out <= FULL_PAYMENT_WINDOW && gross > 0 && deposit > 0) {
@@ -1311,7 +1332,7 @@ function depositHint(b) {
   const ro = !d.editable;
   const priced = Boolean(d.priceSummary);
   const cash = (c) => (c ? (c / 100).toFixed(2) : '');
-  const deposit = depositHint(b);
+  const deposit = depositHint(b, d.priceSummary);
 
   box.innerHTML = `
     <p class="label" style="margin:0 0 .5rem;">Deposit and deadlines</p>
