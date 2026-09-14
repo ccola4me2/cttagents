@@ -146,12 +146,12 @@ export function fill(template, context) {
  * Starts every active automation matching a trigger. Never throws: a broken
  * automation must not break the thing that fired it.
  */
-export async function fireTrigger(env, locationId, triggerType, context = {}, { key = null } = {}) {
+export async function fireTrigger(env, agencyId, triggerType, context = {}, { key = null } = {}) {
   try {
     const { results } = await env.DB.prepare(
       `SELECT * FROM automations
-        WHERE location_id = ? AND trigger_type = ? AND active = 1`
-    ).bind(locationId, triggerType).all();
+        WHERE agency_id = ? AND trigger_type = ? AND active = 1`
+    ).bind(agencyId, triggerType).all();
 
     for (const row of results || []) {
       const a = hydrateAutomation(row);
@@ -167,10 +167,10 @@ export async function fireTrigger(env, locationId, triggerType, context = {}, { 
         // started a run and must not start another.
         await env.DB.prepare(
           `INSERT INTO automation_runs
-             (id, automation_id, location_id, contact_id, contact_email, contact_name,
+             (id, automation_id, agency_id, contact_id, contact_email, contact_name,
               context_json, step_index, status, next_run_at, trigger_key, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'pending', ?, ?, ?, ?)`
-        ).bind(uid(), a.id, locationId, context.contactId || null,
+        ).bind(uid(), a.id, agencyId, context.contactId || null,
                context.email || null, context.name || null,
                JSON.stringify({ ...context, ownerId: a.ownerId }), ts, key, ts, ts).run();
       } catch (e) {
@@ -199,15 +199,15 @@ async function log(env, run, stepIndex, action, status, detail) {
 }
 
 /**
- * The agency a sub-account belongs to.
+ * The agency record behind a run's partition.
  *
- * Automations are keyed on the GoHighLevel location and the suppression list
- * is keyed on the agency, because the agency is this portal's fence and the
- * sub-account is somebody else's idea of one. One lookup per marketing send,
- * which is the rate marketing sends happen at.
+ * A run carries an agency id and the footer needs the agency's name and
+ * address, so this is a read by primary key. It used to be a search by
+ * sub-account, which could match two agencies or none. One lookup per marketing
+ * send, which is the rate marketing sends happen at.
  *
- * Null when there is no agency behind the location, which suppresses nothing
- * and puts no address in the footer rather than inventing either.
+ * Null when the agency has been deleted, which suppresses nothing and puts no
+ * address in the footer rather than inventing either.
  */
 // The same one-liner email.js, share.js and publicform.js each keep privately.
 // Worth a shared home one day; not worth a fifth import today.
@@ -215,14 +215,14 @@ function appUrl(env) {
   return (env.APP_URL || 'https://cttagents.com').replace(/\/$/, '');
 }
 
-async function agencyForLocation(env, locationId) {
-  if (!locationId) return null;
+async function agencyRecord(env, agencyId) {
+  if (!agencyId) return null;
   try {
     return await env.DB.prepare(
-      'SELECT id, name, address FROM agencies WHERE ghl_location_id = ? LIMIT 1'
-    ).bind(locationId).first();
+      'SELECT id, name, address FROM agencies WHERE id = ? LIMIT 1'
+    ).bind(agencyId).first();
   } catch (e) {
-    console.error('agencyForLocation', e);
+    console.error('agencyRecord', e);
     return null;
   }
 }
@@ -238,7 +238,7 @@ async function runStep(env, run, step, context) {
 
       let footer;
       if (step.marketing) {
-        const agency = await agencyForLocation(env, run.location_id);
+        const agency = await agencyRecord(env, run.agency_id);
         if (await isSuppressed(env, agency?.id || null, to)) {
           // Skipped, not failed. The run carries on to whatever follows,
           // because a person who opted out of the newsletter has not opted out
@@ -381,32 +381,31 @@ async function advanceRun(env, run) {
  * window and fires one run per payment, keyed on the payment id so a week of
  * passes produces exactly one reminder.
  */
-export async function scanTimeTriggers(env, locationId, { withinDays = 7 } = {}) {
+export async function scanTimeTriggers(env, agencyId, { withinDays = 7 } = {}) {
   const through = new Date(Date.now() + withinDays * 86400000).toISOString().slice(0, 10);
   const today = new Date().toISOString().slice(0, 10);
 
-  // Only the payments belonging to advisors on this sub-account.
+  // Only the payments belonging to advisors in this agency.
   //
-  // This swept every advisor's payments in the database and fired the calling
-  // location's automations against all of them. On the cron that was merely
-  // wrong; from the "run automations" button it was one advisor's client data
-  // flowing into another advisor's automation, which can send an email or an
-  // SMS from their CRM account. An advisor's own location wins, falling back
-  // to the agency default, which is exactly how locationFor resolves it for
-  // every other call.
+  // This once swept every advisor's payments in the database and fired the
+  // calling partition's automations against all of them. Narrowing it to the
+  // old sub-account key fixed less than it looked: an advisor without one of
+  // their own fell back to a single shared default, so on a multi-agency portal
+  // the sweep still crossed agencies. The agency is the fence, so it is the
+  // key. See 0073_agency_partition.sql.
   const { results } = await env.DB.prepare(
     `SELECT p.id, p.kind, p.amount_cents, p.due_date,
             b.client_name, b.supplier, b.product_name, b.depart_date, b.ghl_contact_id
        FROM booking_payments p
        JOIN bookings b ON b.id = p.booking_id
        JOIN users u ON u.id = p.user_id
-      WHERE COALESCE(NULLIF(u.ghl_location_id, ''), ?) = ?
+      WHERE u.agency_id = ?
         AND p.paid_date IS NULL
         AND p.due_date IS NOT NULL
         AND p.due_date >= ? AND p.due_date <= ?
         AND b.status IN ('quoted','booked')
       LIMIT 200`
-  ).bind(env.GHL_DEFAULT_LOCATION_ID || '', locationId, today, through).all();
+  ).bind(agencyId, today, through).all();
 
   let fired = 0;
 
@@ -418,17 +417,17 @@ export async function scanTimeTriggers(env, locationId, { withinDays = 7 } = {})
             b.ghl_contact_id
        FROM bookings b
        JOIN users u ON u.id = b.user_id
-      WHERE COALESCE(NULLIF(u.ghl_location_id, ''), ?) = ?
+      WHERE u.agency_id = ?
         AND b.status = 'travelled'
         AND b.personal = 0
         AND b.welcomed_at IS NULL
         AND b.return_date IS NOT NULL
         AND b.return_date <= ?
       LIMIT 100`
-  ).bind(env.GHL_DEFAULT_LOCATION_ID || '', locationId, today).all();
+  ).bind(agencyId, today).all();
 
   for (const row of home || []) {
-    await fireTrigger(env, locationId, 'booking.returned', {
+    await fireTrigger(env, agencyId, 'booking.returned', {
       bookingId: row.id,
       contactId: row.ghl_contact_id || null,
       name: row.client_name,
@@ -440,7 +439,7 @@ export async function scanTimeTriggers(env, locationId, { withinDays = 7 } = {})
   }
 
   for (const row of results || []) {
-    await fireTrigger(env, locationId, 'booking.final_payment_due', {
+    await fireTrigger(env, agencyId, 'booking.final_payment_due', {
       paymentId: row.id,
       kind: row.kind,
       amount: (row.amount_cents / 100).toFixed(2),
@@ -522,14 +521,14 @@ import * as db from './db.js';
 export async function handleListAutomations(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  const locationId = tenantFor(env, user);
+  const agencyId = tenantFor(env, user);
 
   const { results } = await env.DB.prepare(
     `SELECT a.*,
        (SELECT COUNT(*) FROM automation_runs r WHERE r.automation_id = a.id AND r.status IN ('pending','waiting')) AS active_runs,
        (SELECT COUNT(*) FROM automation_runs r WHERE r.automation_id = a.id AND r.status = 'failed') AS failed_runs
-     FROM automations a WHERE a.location_id = ? ORDER BY a.updated_at DESC`
-  ).bind(locationId).all();
+     FROM automations a WHERE a.agency_id = ? ORDER BY a.updated_at DESC`
+  ).bind(agencyId).all();
 
   return json({
     automations: (results || []).map((r) => ({
@@ -548,7 +547,7 @@ export async function handleGetAutomation(request, env, id) {
 
   // Scoped by location. The runs below carry contact names and email
   // addresses, and knowing an id is not the same as being allowed to see it.
-  const row = await env.DB.prepare('SELECT * FROM automations WHERE id = ? AND location_id = ?')
+  const row = await env.DB.prepare('SELECT * FROM automations WHERE id = ? AND agency_id = ?')
     .bind(id, tenantFor(env, user)).first();
   if (!row) return notFound('Automation not found.');
 
@@ -583,7 +582,7 @@ export async function handleSaveAutomation(request, env, id = null) {
     return badRequest('This automation only waits. Add a step that does something.');
   }
 
-  const locationId = tenantFor(env, user);
+  const agencyId = tenantFor(env, user);
   const cfg = {};
   if (clean(body.formId, 64)) cfg.formId = clean(body.formId, 64);
   const ts = now();
@@ -591,32 +590,32 @@ export async function handleSaveAutomation(request, env, id = null) {
   if (id) {
     const res = await env.DB.prepare(
       `UPDATE automations SET name=?, description=?, trigger_type=?, trigger_config_json=?,
-         steps_json=?, active=?, updated_at=? WHERE id=? AND location_id=?`
+         steps_json=?, active=?, updated_at=? WHERE id=? AND agency_id=?`
     ).bind(name, clean(body.description, 400), triggerType, JSON.stringify(cfg),
-           JSON.stringify(steps), body.active === false ? 0 : 1, ts, id, locationId).run();
+           JSON.stringify(steps), body.active === false ? 0 : 1, ts, id, agencyId).run();
     if (!res.meta || res.meta.changes === 0) return notFound('Automation not found.');
     await db.logActivity(env, user.id, 'automation.update', `Updated ${name}`, { id });
   } else {
     id = uid();
     await env.DB.prepare(
-      `INSERT INTO automations (id, location_id, name, description, trigger_type,
+      `INSERT INTO automations (id, agency_id, name, description, trigger_type,
          trigger_config_json, steps_json, active, created_by, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(id, locationId, name, clean(body.description, 400), triggerType,
+    ).bind(id, agencyId, name, clean(body.description, 400), triggerType,
            JSON.stringify(cfg), JSON.stringify(steps),
            body.active === false ? 0 : 1, user.id, ts, ts).run();
     await db.logActivity(env, user.id, 'automation.create', `Created ${name}`, { id });
   }
 
-  const row = await env.DB.prepare('SELECT * FROM automations WHERE id = ? AND location_id = ?')
-    .bind(id, locationId).first();
+  const row = await env.DB.prepare('SELECT * FROM automations WHERE id = ? AND agency_id = ?')
+    .bind(id, agencyId).first();
   return json({ ok: true, automation: hydrateAutomation(row) });
 }
 
 export async function handleDeleteAutomation(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  const res = await env.DB.prepare('DELETE FROM automations WHERE id = ? AND location_id = ?')
+  const res = await env.DB.prepare('DELETE FROM automations WHERE id = ? AND agency_id = ?')
     .bind(id, tenantFor(env, user)).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Automation not found.');
   await db.logActivity(env, user.id, 'automation.delete', 'Deleted an automation', { id });
@@ -634,7 +633,7 @@ export async function handleRunAutomations(request, env) {
   // id is not permission to run somebody else's rules.
   if (only) {
     const owned = await env.DB.prepare(
-      'SELECT id FROM automations WHERE id = ? AND location_id = ?'
+      'SELECT id FROM automations WHERE id = ? AND agency_id = ?'
     ).bind(only, tenantFor(env, user)).first();
     if (!owned) return notFound('Automation not found.');
   }

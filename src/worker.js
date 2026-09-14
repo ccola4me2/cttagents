@@ -58,9 +58,6 @@ import { handleProposals } from './proposals.js'; import {
   renderTripManifest,
 } from './share.js';
 import {
-  tenantFor,
-} from './tenant.js';
-import {
   handleReadConfirmation,
 } from './confirm.js';
 import {
@@ -487,7 +484,21 @@ export default {
     // minutes. One job rather than two, because the second half is pointless
     // without the first.
     job('automations', async () => {
-      await scanTimeTriggers(env, tenantFor(env, null));
+      // Every agency with something listening, rather than one.
+      //
+      // This passed the tenant of no user at all, which resolved to a single
+      // shared default, so the sweep only ever covered advisors who had no
+      // partition of their own. Anybody with one got no time based automation
+      // at all, and nothing said so: an automation that never fires and an
+      // automation nobody triggered look the same from outside.
+      //
+      // Read from the automations themselves rather than from the agency list,
+      // because an agency with nothing active has nothing to scan for.
+      const { results } = await env.DB.prepare(
+        `SELECT DISTINCT agency_id FROM automations
+          WHERE active = 1 AND agency_id IS NOT NULL AND agency_id <> ''`
+      ).all();
+      for (const row of results || []) await scanTimeTriggers(env, row.agency_id);
       await processDueRuns(env);
     });
   },

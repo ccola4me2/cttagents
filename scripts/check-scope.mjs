@@ -52,9 +52,16 @@ const OWNED = new Set([
   'itinerary_items', 'itinerary_library',
 ]);
 
-// Shared by a whole agency through a GoHighLevel sub-account, so location_id
-// is the predicate that matters rather than user_id.
-const LOCATION_OWNED = new Set(['forms', 'form_submissions']);
+// Shared by a whole agency, so agency_id is the predicate that matters rather
+// than user_id. The key used to be a GoHighLevel sub-account and the column
+// was called location_id; see 0073_agency_partition.sql.
+//
+// automations, automation_runs and crm_contacts are scoped the same way and
+// are deliberately not in here yet. Most of their statements reach by primary
+// key after the caller has already proved the row is theirs, so adding them
+// would mean a dozen entries in ALLOWED, and a rule that only passes because
+// of its exceptions is the failure this file warns about. Worth doing right.
+const AGENCY_OWNED = new Set(['forms', 'form_submissions']);
 
 // Carries a user_id, and is not reached through one.
 const EXEMPT = new Map([
@@ -257,18 +264,18 @@ for (const file of files) {
   for (const { sql, line } of sqlStatements(src)) {
     const all = tablesIn(sql);
     const tables = [...all].filter((t) => OWNED.has(t));
-    const byLocation = [...all].filter((t) => LOCATION_OWNED.has(t));
-    if (!tables.length && !byLocation.length) continue;
-    // A location table is not subject to the write rule below: its predicate
-    // is a sub-account, and reporting it as "no user_id" names the wrong fix.
+    const byAgency = [...all].filter((t) => AGENCY_OWNED.has(t));
+    if (!tables.length && !byAgency.length) continue;
+    // An agency table is not subject to the write rule below: its predicate
+    // is the agency, and reporting it as "no user_id" names the wrong fix.
     const writeRuleApplies = tables.length > 0;
 
     checked += 1;
 
-    // A location table is answered by location_id, or by a form_id belonging
+    // An agency table is answered by agency_id, or by a form_id belonging
     // to a form the caller already proved is theirs.
     if (!tables.length) {
-      if (/\blocation_id\b/.test(sql) || /\bform_id\b/.test(sql)) continue;
+      if (/\bagency_id\b/.test(sql) || /\bform_id\b/.test(sql)) continue;
     }
 
     // Named directly, or through one of the helpers that writes the predicate.
@@ -304,8 +311,8 @@ for (const file of files) {
     if (excuse) continue;
 
     problems += 1;
-    const named = tables.length ? tables.join(', ') : byLocation.join(', ');
-    const kind = tables.length ? 'no user predicate' : 'no location predicate';
+    const named = tables.length ? tables.join(', ') : byAgency.join(', ');
+    const kind = tables.length ? 'no user predicate' : 'no agency predicate';
     annotate('Scope', `src/${file}:${line} touches ${named} with ${kind}: `
       + sql.replace(/\s+/g, ' ').trim().slice(0, 140));
     console.log(`FAIL  src/${file}:${line}  touches ${named} with ${kind}`);
@@ -318,7 +325,7 @@ for (const file of files) {
 // that covers the codebase and one that covers what somebody remembered.
 for (const [table, cols] of SCHEMA) {
   if (!cols.has('user_id')) continue;
-  if (OWNED.has(table) || LOCATION_OWNED.has(table) || EXEMPT.has(table)) continue;
+  if (OWNED.has(table) || AGENCY_OWNED.has(table) || EXEMPT.has(table)) continue;
   problems += 1;
   annotate('Scope', `${table} has a user_id and is in none of the lists in check-scope: `
     + 'add it to OWNED, or to EXEMPT with the reason it is reached another way');

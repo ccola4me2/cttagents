@@ -18,18 +18,18 @@ import { brandForUser, brandOf, DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from
 /**
  * The agency behind a hosted form.
  *
- * Forms are keyed to a GoHighLevel sub-account rather than to an advisor, so
- * this is the one public page reached through the location instead. Two
- * agencies sharing a sub-account would be ambiguous; the oldest wins, which is
- * a guess, and the default brand rather than a wrong one when there is no
- * match at all.
+ * A form belongs to an agency rather than to an advisor, so this is the one
+ * public page reached through the agency instead. A read by primary key since
+ * 0073_agency_partition.sql: it used to search on a sub-account id, where two
+ * agencies sharing one were ambiguous and the oldest won. The default brand
+ * rather than a wrong one when the agency has been deleted.
  */
-async function brandForLocation(env, locationId) {
-  if (!locationId) return { ...DEFAULT_BRAND };
+async function brandForAgency(env, agencyId) {
+  if (!agencyId) return { ...DEFAULT_BRAND };
   try {
     const row = await env.DB.prepare(
-      'SELECT * FROM agencies WHERE ghl_location_id = ? ORDER BY created_at ASC LIMIT 1'
-    ).bind(locationId).first();
+      'SELECT * FROM agencies WHERE id = ? LIMIT 1'
+    ).bind(agencyId).first();
     return brandOf(row);
   } catch {
     return { ...DEFAULT_BRAND };
@@ -115,7 +115,7 @@ export async function renderPublicForm(request, env, slug) {
       });
     </script>`;
 
-  return new Response(page(f.name, body, await brandForLocation(env, found.row.location_id)), {
+  return new Response(page(f.name, body, await brandForAgency(env, found.row.agency_id)), {
     headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
   });
 }
@@ -551,9 +551,9 @@ export async function handlePublicSubmit(request, env, slug) {
   const submissionId = uid();
   await env.DB.prepare(
     `INSERT INTO form_submissions
-       (id, form_id, location_id, contact_id, name, email, phone, data_json, source, ip_hash, created_at)
+       (id, form_id, agency_id, contact_id, name, email, phone, data_json, source, ip_hash, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(submissionId, form.id, row.location_id, null, name || null, email || null,
+  ).bind(submissionId, form.id, row.agency_id, null, name || null, email || null,
          phone || null, JSON.stringify(data), `form:${form.slug}`, ipHash, now()).run();
 
   // The lead becomes a client record, as a prospect.
@@ -616,14 +616,14 @@ export async function handlePublicSubmit(request, env, slug) {
     formId: form.id, formName: form.name, formSlug: form.slug,
     contactId: clientId || null, name, email, phone, ...data,
   };
-  await fireTrigger(env, row.location_id, 'form.submitted', context);
+  await fireTrigger(env, row.agency_id, 'form.submitted', context);
 
   // A form submission from somebody new is also a new contact, and anybody
   // building a "welcome new contact" automation reasonably expects it to cover
   // leads that arrive by form. Only when the client record was actually made,
   // so a form filled in twice by the same person does not welcome them twice.
   if (clientIsNew) {
-    await fireTrigger(env, row.location_id, 'contact.created', context);
+    await fireTrigger(env, row.agency_id, 'contact.created', context);
   }
 
   // The form has carried a "notify" address since it got its settings, and

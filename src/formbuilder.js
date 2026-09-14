@@ -510,7 +510,7 @@ export async function handleSaveMyTemplate(request, env, id = null) {
   let source = body;
 
   if (body.fromForm) {
-    const row = await env.DB.prepare('SELECT * FROM forms WHERE id = ? AND location_id = ?')
+    const row = await env.DB.prepare('SELECT * FROM forms WHERE id = ? AND agency_id = ?')
       .bind(clean(body.fromForm, 64), tenantFor(env, user)).first();
     if (!row) return notFound('Form not found.');
     const form = hydrate(row);
@@ -581,12 +581,12 @@ export async function handleDeleteMyTemplate(request, env, id) {
 export async function handleListForms(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  const locationId = tenantFor(env, user);
+  const agencyId = tenantFor(env, user);
 
   const { results } = await env.DB.prepare(
     `SELECT f.*, (SELECT COUNT(*) FROM form_submissions s WHERE s.form_id = f.id) AS submissions
-       FROM forms f WHERE f.location_id = ? ORDER BY f.updated_at DESC`
-  ).bind(locationId).all();
+       FROM forms f WHERE f.agency_id = ? ORDER BY f.updated_at DESC`
+  ).bind(agencyId).all();
 
   return json({
     forms: (results || []).map((r) => ({ ...hydrate(r), submissions: r.submissions || 0 })),
@@ -607,7 +607,7 @@ export async function handleGetForm(request, env, id) {
   // Scoped by location, not just id. This returns every submission on the
   // form, which is client names, emails and phone numbers, and an id is not a
   // permission.
-  const row = await env.DB.prepare('SELECT * FROM forms WHERE id = ? AND location_id = ?')
+  const row = await env.DB.prepare('SELECT * FROM forms WHERE id = ? AND agency_id = ?')
     .bind(id, tenantFor(env, user)).first();
   if (!row) return notFound('Form not found.');
 
@@ -641,7 +641,7 @@ export async function handleFormsReport(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const locationId = tenantFor(env, user);
+  const agencyId = tenantFor(env, user);
   const url = new URL(request.url);
   const days = Math.min(Math.max(Number(url.searchParams.get('days')) || 90, 1), 730);
   // Seconds. now() is seconds in this codebase and mixing the two has been the
@@ -653,10 +653,10 @@ export async function handleFormsReport(request, env) {
             s.source, s.data_json, f.name AS form_name, f.slug
        FROM form_submissions s
        JOIN forms f ON f.id = s.form_id
-      WHERE s.location_id = ? AND s.created_at >= ?
+      WHERE s.agency_id = ? AND s.created_at >= ?
       ORDER BY s.created_at DESC
       LIMIT 500`
-  ).bind(locationId, since).all();
+  ).bind(agencyId, since).all();
 
   const submissions = (rows || []).map((r) => {
     let data = {};
@@ -672,9 +672,9 @@ export async function handleFormsReport(request, env) {
     `SELECT f.id, f.name, f.slug, f.active,
             (SELECT COUNT(*) FROM form_submissions s WHERE s.form_id = f.id) AS total,
             (SELECT MAX(created_at) FROM form_submissions s WHERE s.form_id = f.id) AS last_at
-       FROM forms f WHERE f.location_id = ?
+       FROM forms f WHERE f.agency_id = ?
       ORDER BY total DESC, f.name ASC`
-  ).bind(locationId).all();
+  ).bind(agencyId).all();
 
   const byMonth = {};
   for (const s of submissions) {
@@ -721,14 +721,14 @@ export async function handleReservationFromLead(request, env, submissionId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const locationId = tenantFor(env, user);
+  const agencyId = tenantFor(env, user);
   // Scoped by location: a submission id is not a permission, and this reads a
   // client's name, email and phone number.
   const row = await env.DB.prepare(
     `SELECT s.*, f.name AS form_name, f.source AS form_source
        FROM form_submissions s JOIN forms f ON f.id = s.form_id
-      WHERE s.id = ? AND s.location_id = ?`
-  ).bind(submissionId, locationId).first();
+      WHERE s.id = ? AND s.agency_id = ?`
+  ).bind(submissionId, agencyId).first();
   if (!row) return notFound('That lead was not found.');
 
   let data = {};
@@ -837,7 +837,7 @@ export async function handleSaveForm(request, env, id = null) {
   const fields = parseFields(body.fields);
   if (!fields.length) return badRequest('Add at least one field.');
 
-  const locationId = tenantFor(env, user);
+  const agencyId = tenantFor(env, user);
   const ts = now();
   const slug = await uniqueSlug(env, clean(body.slug, 60) || name, id);
 
@@ -865,30 +865,30 @@ export async function handleSaveForm(request, env, id = null) {
       `UPDATE forms SET slug=?, name=?, headline=?, description=?, fields_json=?,
          submit_label=?, success_message=?, redirect_url=?, active=?,
          starts_on=?, ends_on=?, notify_email=?, source=?, updated_at=?
-       WHERE id = ? AND location_id = ?`
-    ).bind(...shared, id, locationId).run();
+       WHERE id = ? AND agency_id = ?`
+    ).bind(...shared, id, agencyId).run();
     if (!res.meta || res.meta.changes === 0) return notFound('Form not found.');
     await db.logActivity(env, user.id, 'form.update', `Updated form ${name}`, { id });
   } else {
     id = uid();
     await env.DB.prepare(
-      `INSERT INTO forms (id, location_id, slug, name, headline, description, fields_json,
+      `INSERT INTO forms (id, agency_id, slug, name, headline, description, fields_json,
          submit_label, success_message, redirect_url, active,
          starts_on, ends_on, notify_email, source, created_by, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(id, locationId, ...shared.slice(0, 13), user.id, ts, ts).run();
+    ).bind(id, agencyId, ...shared.slice(0, 13), user.id, ts, ts).run();
     await db.logActivity(env, user.id, 'form.create', `Created form ${name}`, { id });
   }
 
-  const row = await env.DB.prepare('SELECT * FROM forms WHERE id = ? AND location_id = ?')
-    .bind(id, locationId).first();
+  const row = await env.DB.prepare('SELECT * FROM forms WHERE id = ? AND agency_id = ?')
+    .bind(id, agencyId).first();
   return json({ ok: true, form: hydrate(row) }, isNew ? 201 : 200);
 }
 
 export async function handleDeleteForm(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  const res = await env.DB.prepare('DELETE FROM forms WHERE id = ? AND location_id = ?')
+  const res = await env.DB.prepare('DELETE FROM forms WHERE id = ? AND agency_id = ?')
     .bind(id, tenantFor(env, user)).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Form not found.');
   await db.logActivity(env, user.id, 'form.delete', 'Deleted a form', { id });

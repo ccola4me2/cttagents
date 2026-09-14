@@ -242,7 +242,7 @@ async function noticesFor(env, user, scope) {
     env.DB.prepare(
       `SELECT COUNT(*) AS n, MAX(r.last_error) AS last_error
          FROM automation_runs r JOIN automations a ON a.id = r.automation_id
-        WHERE a.location_id = ? AND r.status = 'failed'
+        WHERE a.agency_id = ? AND r.status = 'failed'
           AND r.updated_at > ?`
     ).bind(tenantFor(env, user), now() - 7 * 86400).first().catch(() => null),
 

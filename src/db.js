@@ -138,10 +138,10 @@ export async function setUserStatus(env, id, status, approvedBy = null) {
 }
 
 /** Bind an advisor to their own tenant partition. Admin only. */
-export async function setUserGhl(env, id, { locationId, ghlUserId }) {
+export async function setUserGhl(env, id, { agencyId, ghlUserId }) {
   await env.DB.prepare(
     'UPDATE users SET ghl_location_id = ?, ghl_user_id = ?, updated_at = ? WHERE id = ?'
-  ).bind(locationId || null, ghlUserId || null, now(), id).run();
+  ).bind(agencyId || null, ghlUserId || null, now(), id).run();
   return getUserById(env, id);
 }
 
@@ -1627,9 +1627,9 @@ function hydrateContact(row) {
   };
 }
 
-export async function localContacts(env, locationId, { query, limit = 50, offset = 0 } = {}) {
-  const where = ['location_id = ?'];
-  const binds = [locationId];
+export async function localContacts(env, agencyId, { query, limit = 50, offset = 0 } = {}) {
+  const where = ['agency_id = ?'];
+  const binds = [agencyId];
   if (query) {
     where.push('(name LIKE ?1x OR email LIKE ?1x OR phone LIKE ?1x)'.replace(/\?1x/g, '?'));
     const like = `%${query}%`;
@@ -1648,9 +1648,6 @@ export async function localContacts(env, locationId, { query, limit = 50, offset
   return { contacts: (results || []).map(hydrateContact), total: countRow?.n || 0 };
 }
 
-export async function localContact(env, id) {
-  return hydrateContact(await env.DB.prepare('SELECT * FROM crm_contacts WHERE id = ?').bind(id).first());
-}
 
 
 

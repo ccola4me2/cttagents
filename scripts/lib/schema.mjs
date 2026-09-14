@@ -61,6 +61,24 @@ export function schemaFromMigrations(root, { origins } = {}) {
       tables.set(table, cols);
       if (origins && !origins.has(`${table}.${col}`)) origins.set(`${table}.${col}`, file);
     }
+
+    // A rename is the one edit that both adds and removes. Without this the
+    // expected schema keeps the old name for ever, so /api/admin/health reports
+    // the new column as an extra and the old one as missing, on a database that
+    // is in fact correct. The origin moves with the name, because the file that
+    // renames a column is the file that would put it there.
+    for (const m of sql.matchAll(
+      /ALTER\s+TABLE\s+([A-Za-z_][\w]*)\s+RENAME\s+COLUMN\s+([A-Za-z_][\w]*)\s+TO\s+([A-Za-z_][\w]*)/gi)) {
+      const [, table, from, to] = m;
+      const cols = tables.get(table) || new Set();
+      cols.delete(from);
+      cols.add(to);
+      tables.set(table, cols);
+      if (origins) {
+        origins.delete(`${table}.${from}`);
+        origins.set(`${table}.${to}`, file);
+      }
+    }
   }
 
   return tables;
@@ -71,9 +89,9 @@ export function ownedTables(tables) {
   return new Set([...tables].filter(([, cols]) => cols.has('user_id')).map(([name]) => name));
 }
 
-/** Tables scoped to a GoHighLevel sub-account instead, which a whole agency shares. */
-export function locationTables(tables) {
+/** Tables scoped to a whole agency rather than to one advisor. */
+export function agencyTables(tables) {
   return new Set([...tables]
-    .filter(([, cols]) => !cols.has('user_id') && cols.has('location_id'))
+    .filter(([, cols]) => !cols.has('user_id') && cols.has('agency_id'))
     .map(([name]) => name));
 }

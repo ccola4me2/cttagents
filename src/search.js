@@ -29,7 +29,7 @@ export async function handleSearch(request, env) {
   if (q.length < 2) return json({ query: q, groups: [], total: 0 });
 
   const term = like(q);
-  const locationId = tenantFor(env, user);
+  const agencyId = tenantFor(env, user);
   // Same rule as every other screen: an associate finds their own records,
   // an owner finds the agency's.
   const scope = db.scopeFor(env, user, request);
@@ -39,10 +39,10 @@ export async function handleSearch(request, env) {
   const [clients, reservations, payments] = await Promise.all([
     env.DB.prepare(
       `SELECT id, name, email, phone FROM crm_contacts
-        WHERE location_id = ?
+        WHERE agency_id = ?
           AND (name LIKE ? ESCAPE '\\' OR email LIKE ? ESCAPE '\\' OR phone LIKE ? ESCAPE '\\')
         ORDER BY LENGTH(COALESCE(name, '')) ASC LIMIT ?`
-    ).bind(locationId, term, term, term, PER_GROUP).all().catch(() => ({ results: [] })),
+    ).bind(agencyId, term, term, term, PER_GROUP).all().catch(() => ({ results: [] })),
 
     env.DB.prepare(
       `SELECT b.id, b.client_name, b.supplier, b.product_name, b.destination,
