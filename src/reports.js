@@ -233,6 +233,43 @@ export async function handleProduction(request, env) {
  * screen and notice a red count, which meant a revoked API key could go unseen
  * for a week while follow ups silently stopped going out.
  */
+/**
+ * Details of the advisor's own that a client sees, and that are not filled in.
+ *
+ * Every one of these lives on the advisor's record, shows on a quote, an
+ * itinerary and a statement, and is editable by the advisor at /app/settings.
+ * Blank, each is left off rather than guessed at, which is the right behaviour
+ * and also a silent one: the quote goes out looking finished and the client
+ * simply has no number to ring.
+ *
+ * A form nobody is sent to is a form nobody fills in, so this says so on the
+ * screen they open every morning instead of waiting for a client to notice.
+ *
+ * One notice naming all of them rather than one each. This is the advisor's own
+ * housekeeping and it must not push a passed vendor deadline down the list.
+ */
+function profileGap(user) {
+  const missing = [];
+  if (!(user.first_name || user.last_name)) missing.push('your name');
+  if (!user.phone) missing.push('your phone number');
+  // Florida, California, Washington and Hawaii require this on a client
+  // document, which is why its absence is a warning and a missing phone is not.
+  if (!user.seller_of_travel) missing.push('your seller of travel registration');
+  if (!missing.length) return null;
+
+  const list = missing.length === 1
+    ? missing[0]
+    : `${missing.slice(0, -1).join(', ')} and ${missing[missing.length - 1]}`;
+
+  return {
+    tone: user.seller_of_travel ? 'info' : 'warn',
+    title: `A client reading your quote does not see ${list}`,
+    detail: 'Everything a client needs to reach you comes off your own record, and what is '
+      + 'blank is left off the page rather than guessed at.',
+    href: '/app/settings', label: 'Fill them in',
+  };
+}
+
 async function noticesFor(env, user, scope) {
   const out = [];
   const isOwner = user.role === 'admin';
@@ -377,6 +414,11 @@ async function noticesFor(env, user, scope) {
       href: '/admin/', label: 'Check email',
     });
   }
+
+  // Last, deliberately. A vendor deadline that has passed matters more than
+  // an advisor's own phone number, and this one never goes away on its own.
+  const gap = profileGap(user);
+  if (gap) out.push(gap);
 
   return out;
 }
