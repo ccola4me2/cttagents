@@ -567,7 +567,7 @@ function monthWidget() {
   const el = document.createElement('section');
   el.className = 'widget';
   el.innerHTML = `<header><h2>This month</h2></header>
-    <div class="wbody" id="month-body"><p class="spinner">Loading...</p></div>`;
+    <div class="wbody whole" id="month-body"><p class="spinner">Loading...</p></div>`;
   // Drawn after the element is in the DOM, so the fetch cannot race the mount.
   queueMicrotask(() => drawMonth(el.querySelector('#month-body')));
   return el;

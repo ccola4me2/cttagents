@@ -656,6 +656,15 @@ dialog > form > .card-pad:has(.picker-results) { overflow: visible; }
 .wtab[aria-selected="true"] { color: var(--navy-800); border-bottom-color: var(--coral-400); }
 .wtab:hover { color: var(--navy-800); }
 .wbody { max-height: 320px; overflow-y: auto; }
+/* Except the ones that are not lists.
+   The cap exists so a long list scrolls inside its card instead of running
+   down the page, which is right for bookings and tasks. The month calendar is
+   not a list: it is a fixed grid with a detail panel underneath, and a full
+   month does not fit in 320px. So the last two weeks were cut off and the
+   panel that says what is on a day sat below the scroll. Clicking a day worked
+   and looked like it did nothing, which is the worst way for a feature to
+   fail. */
+.wbody.whole { max-height: none; overflow-y: visible; }
 .wbody table { font-size: .8rem; }
 .wbody th { padding: .5rem .8rem; font-size: .62rem; }
 .wbody td { padding: .5rem .8rem; }
