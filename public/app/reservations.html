@@ -76,8 +76,23 @@ function render(bookings, stats, scope, d = {}) {
       <th class="num">Gross</th><th class="num">Commission</th><th></th></tr></thead>
     <tbody>${bookings.map((b) => {
       // The final payment is a cancellation deadline, not an invoice date.
+      //
+      // And a deadline says when the vendor wants the money, never whether it
+      // arrived. Read on its own it turned a reservation paid in full red and
+      // said "past due, may be cancelled", which is the most alarming thing
+      // this table can say and it was saying it to five rows out of six. The
+      // reservation page fixed exactly this and the list was never told.
+      //
+      // Hard rows only, like every other money total here: a soft row is this
+      // portal's own reminder to chase, and a reminder nobody needs is not the
+      // vendor waiting. No hard rows at all is not the same as none left, so
+      // the deadline still speaks for a reservation with no schedule on it.
+      const owing = Number(b.owing_cents || 0);
+      const scheduled = Number(b.hard_rows || 0) > 0;
+      const settled = scheduled && owing <= 0;
       const left = daysUntil(b.final_payment_due);
-      const tone = left === null ? '' : left < 0 ? 'badge-red' : left <= 14 ? 'badge-red' : left <= 30 ? 'badge-amber' : 'badge-navy';
+      const tone = settled ? 'badge-green'
+        : left === null ? '' : left < 0 ? 'badge-red' : left <= 14 ? 'badge-red' : left <= 30 ? 'badge-amber' : 'badge-navy';
       return `<tr>
         <td><a class="name" href="/app/reservation?id=${esc(b.id)}">${esc(b.client_name)}</a>
           <div><span class="badge ${STATUS_TONE[b.status] || 'badge-navy'}">${esc(b.status)}</span></div></td>
@@ -88,9 +103,11 @@ function render(bookings, stats, scope, d = {}) {
           <div class="muted">${esc(b.destination || '')}</div></td>
         <td>${b.depart_date ? esc(dateFmt(b.depart_date)) : '<span class="muted">-</span>'}
           <div class="muted">${b.return_date ? 'back ' + esc(dateFmt(b.return_date)) : ''}</div></td>
-        <td>${b.final_payment_due
-            ? `${esc(dateFmt(b.final_payment_due))}<div><span class="badge ${tone}">${
-                left < 0 ? 'past due, may be cancelled' : left === 0 ? 'cancels today' : `cancels in ${left}d`}</span></div>`
+        <td>${b.final_payment_due || settled
+            ? `${b.final_payment_due ? esc(dateFmt(b.final_payment_due)) : ''}<div><span class="badge ${tone}">${
+                settled ? 'paid in full'
+                  : left < 0 ? 'past due, may be cancelled'
+                  : left === 0 ? 'cancels today' : `cancels in ${left}d`}</span></div>`
             : '<span class="muted">-</span>'}</td>
         <td class="num">${money(b.gross_cents)}</td>
         <td class="num">${money(b.commission_cents)}

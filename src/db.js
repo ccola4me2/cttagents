@@ -441,6 +441,22 @@ export function scopeWhere(scope, column = 'user_id') {
 const ADVISOR_NAME =
   "COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''), u.email) AS advisor_name";
 
+/**
+ * What the vendor is still waiting for on a reservation, for a list that has to
+ * decide whether it is at risk without loading its schedule.
+ *
+ * Hard rows only. A soft row is this portal's own reminder to chase, and a
+ * reminder nobody needs any more is not the vendor waiting. The count comes
+ * back as well as the total, because no schedule at all and a schedule with
+ * nothing left on it are different facts and nought would tell them apart.
+ */
+const OWING_SQL = `
+  COALESCE((SELECT SUM(p.amount_cents) FROM booking_payments p
+             WHERE p.booking_id = b.id AND p.payment_class = 'hard'
+               AND p.paid_date IS NULL), 0) AS owing_cents,
+  (SELECT COUNT(*) FROM booking_payments p
+     WHERE p.booking_id = b.id AND p.payment_class = 'hard') AS hard_rows`;
+
 const BOOKING_COLUMNS = `
   id, user_id, ghl_contact_id, ghl_opportunity_id, client_name, supplier,
   product_type, product_name, destination, confirmation_number, depart_date,
@@ -521,7 +537,7 @@ export async function listBookings(env, scope, { status, search, limit } = {}) {
   }
   binds.push(takeWithProbe(limit));
   const { results } = await env.DB.prepare(
-    `SELECT ${BOOKING_COLUMNS_B}, ${ADVISOR_NAME}
+    `SELECT ${BOOKING_COLUMNS_B}, ${ADVISOR_NAME}, ${OWING_SQL}
        FROM bookings b LEFT JOIN users u ON u.id = b.user_id
       WHERE ${where.join(' AND ')}
       ORDER BY COALESCE(b.depart_date, '9999-12-31') ASC, b.created_at DESC
