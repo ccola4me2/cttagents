@@ -28,13 +28,20 @@
 // than one that is not there.
 
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
-import { join, dirname, basename } from 'node:path';
+import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { annotate } from './lib/annotate.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const HERE = basename(ROOT);
-const SIBLINGS = { cttagents: 'trip-vara-website', 'trip-vara-website': 'cttagents' };
+
+// Which portal this is, and which one it is compared against. Written down
+// rather than read off the directory name, because the directory name is not
+// the portal: CI checks the other one out at a path called "sibling", and
+// inferring identity from that made every exception recorded against the other
+// portal stop matching. The first thing this check did on its first real run
+// was fail on itself for that.
+const HERE = 'cttagents';
+const THERE = 'trip-vara-website';
 
 // Exports one side has and the other does not, and why that is right. Every
 // entry is a claim somebody checked, which is the point of writing it down
@@ -63,13 +70,7 @@ const ALLOWED = new Map([
   ['split.js:COMPANY_LEAD', ['cttagents', 'a second commission rate for company-supplied leads, cttagents only']],
 ]);
 
-const sibling = process.argv[2]
-  || join(ROOT, '..', SIBLINGS[HERE] || '');
-
-if (!SIBLINGS[HERE]) {
-  console.log(`check-fork: ${HERE} has no sibling recorded. Nothing to compare.`);
-  process.exit(0);
-}
+const sibling = process.argv[2] || join(ROOT, '..', THERE);
 if (!existsSync(sibling) || !statSync(sibling).isDirectory()) {
   console.log(`check-fork: skipped, ${sibling} is not checked out.`);
   console.log('            Pass a path to compare against a different copy.');
@@ -119,7 +120,7 @@ for (const file of listing(join(ROOT, 'src'), '.js')) {
   const a = exportsOf(mine);
   const b = exportsOf(theirs);
   for (const [name, side] of [...[...a].filter((n) => !b.has(n)).map((n) => [n, HERE]),
-    ...[...b].filter((n) => !a.has(n)).map((n) => [n, basename(sibling)])]) {
+    ...[...b].filter((n) => !a.has(n)).map((n) => [n, THERE])]) {
     const excuse = ALLOWED.get(`${file}:${name}`);
     if (excuse && excuse[0] === side) continue;
     problems += 1;
@@ -156,11 +157,11 @@ if (drift.length) {
   for (const [file, onlyMine, onlyTheirs] of drift) {
     console.log(`  ${file}`);
     if (onlyMine.length) console.log(`      ${HERE} only:  ${onlyMine.join(' ')}`);
-    if (onlyTheirs.length) console.log(`      ${basename(sibling)} only: ${onlyTheirs.join(' ')}`);
+    if (onlyTheirs.length) console.log(`      ${THERE} only: ${onlyTheirs.join(' ')}`);
   }
 }
 
-console.log(`\ncheck-fork: ${compared} shared modules compared against ${basename(sibling)}.`);
+console.log(`\ncheck-fork: ${compared} shared modules compared against ${THERE}.`);
 if (problems) {
   console.log(`${problems} export${problems === 1 ? '' : 's'} on one side only and unaccounted for.`);
   process.exit(1);
