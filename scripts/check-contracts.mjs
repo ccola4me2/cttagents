@@ -54,6 +54,7 @@ const PAGES = [
   ['public/app/billing.html', ['/api/billing']],
   ['public/app/reports.html', ['/api/reports/production?months=12',
     '/api/reports/attribution']],
+  ['public/app/reviews.html', ['/api/reviews']],
   ['public/app/leads.html', ['/api/leads']],
   ['public/app/contact.html', ['/api/leads', '/api/workflows']],
   ['public/app/pipeline.html', ['/api/opportunities', '/api/leads']],

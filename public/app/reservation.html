@@ -1511,6 +1511,13 @@ function render() {
   // Offered once they are home and once, because the point is remembering
   // whether the call happened, not counting how many times.
   const backHome = b.status === 'travelled' && !b.welcomed_at;
+  // Asking how it was is a different question from remembering to ring, and it
+  // stays available after the call: plenty of advisors ring first and send the
+  // link afterwards. Any trip that is over, whether or not it has been marked
+  // travelled, because the status is a thing somebody remembers to set.
+  const home = (b.status === 'booked' || b.status === 'travelled')
+    && Boolean(b.return_date || b.depart_date)
+    && (b.return_date || b.depart_date) < d.today;
   const invoicing = b.status === 'booked' || b.status === 'travelled';
   // The copy the client is holding no longer matches the booking. Said on the
   // button, because an advisor who has to open the preview to find out whether
@@ -1521,6 +1528,7 @@ function render() {
     : invoicing ? 'Send invoice' : 'Send quote';
   document.getElementById('actions').innerHTML = d.editable
     ? `${backHome ? '<button class="btn btn-secondary btn-sm" id="welcomed-btn">Rang them</button>' : ''}
+       ${home ? '<button class="btn btn-ghost btn-sm" id="ask-review">Ask how it was</button>' : ''}
        ${d.split?.canChange
          ? '<button class="btn btn-ghost btn-sm" id="split-btn">Commission split</button>'
          : ''}
@@ -1528,6 +1536,17 @@ function render() {
          id="send-statement">${esc(outgoing)}</button>` : ''}
 `
     : '<span class="muted">Another advisor\'s reservation</span>';
+  const ask = document.getElementById('ask-review');
+  if (ask) ask.addEventListener('click', async () => {
+    ask.disabled = true;
+    try {
+      const res = await api(`/api/bookings/${encodeURIComponent(id)}/ask-review`,
+        { method: 'POST', body: {} });
+      ask.textContent = `Sent to ${res.to}`;
+      err.innerHTML = '';
+    } catch (e) { showError(err, e); ask.disabled = false; }
+  });
+
   const sb = document.getElementById('send-statement');
   if (sb) sb.addEventListener('click', statement);
   const spb = document.getElementById('split-btn');

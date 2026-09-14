@@ -53,6 +53,7 @@ import { handleProposals } from './proposals.js'; import {
   handleReadTripMessage,
   renderTripPage,
   handleTripMessage,
+  handleTripReview,
   handleClientChoose,
   serveTripDocument,
   renderTripManifest,
@@ -319,6 +320,7 @@ import {
   handleMonth,
 } from './reports.js';
 import { handleAttribution } from './attribution.js';
+import { handleListReviews, handleAskReview } from './reviews.js';
 import {
   handleListAdvisors,
   handleSetAdvisorStatus,
@@ -387,6 +389,7 @@ const PAGE_FILES = {
   '/app/reservation': '/app/reservation.html',
   '/app/client': '/app/client.html',
   '/app/clients': '/app/clients.html',
+  '/app/reviews': '/app/reviews.html',
   '/app/import': '/app/import.html',
   '/app/import-clients': '/app/import-clients.html',
   '/app/segments': '/app/segments.html',
@@ -931,6 +934,9 @@ async function routeApi(request, env, path, method) {
   }
   if (path === '/api/reports/production' && method === 'GET') return handleProduction(request, env);
   if (path === '/api/reports/attribution' && method === 'GET') return handleAttribution(request, env);
+  if (path === '/api/reviews' && method === 'GET') return handleListReviews(request, env);
+  const askReview = path.match(/^\/api\/bookings\/([^/]+)\/ask-review$/);
+  if (askReview && method === 'POST') return handleAskReview(request, env, askReview[1]);
   // Everyone whose documents will stop them travelling, across the whole book.
   if (path === '/api/documents' && method === 'GET') return handleDocumentWatch(request, env);
 
@@ -1013,6 +1019,12 @@ async function routePage(request, env, path) {
   if (tripDoc) {
     return serveTripDocument(request, env,
       decodeURIComponent(tripDoc[1]), decodeURIComponent(tripDoc[2]));
+  }
+  // The client answering "how was it", once they are home. Before the page
+  // match, for the same reason /choose is.
+  const tripReview = path.match(/^\/t\/([^/]+)\/review$/);
+  if (tripReview && request.method === 'POST') {
+    return handleTripReview(request, env, decodeURIComponent(tripReview[1]));
   }
   // The client answering their proposal. Before the page match, which would
   // otherwise read /choose as part of the code.

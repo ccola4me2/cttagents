@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reviews | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Reviews</h1>
+        <p class="sub">What clients said when they got home, and who they sent you.</p></div>
+      <div class="toolbar" style="margin:0;"><span id="scope"></span>
+        <a class="btn btn-ghost btn-sm" href="/app/reports">Where clients come from</a></div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <section id="stats" class="stat-grid"></section>
+      <div class="notice notice-info">
+        The ask goes to the trip page the client already has, over your name. Nothing here
+        is published anywhere: a tick against a review means they said you may quote them,
+        and quoting it is still something you do.
+      </div>
+      <section class="card" id="panel"><p class="spinner">Loading...</p></section>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api, mountShell, esc, dateFmt, timeAgo, showError,
+  mountScopePicker, advisorParam } from '/js/app.js';
+await mountShell();
+
+const panel = document.getElementById('panel');
+const err = document.getElementById('err');
+let d = null;
+
+const stars = (n) => (n
+  ? `<span class="rev-stars" aria-label="${n} out of 5">${'★'.repeat(n)}<span
+      class="muted">${'☆'.repeat(5 - n)}</span></span>`
+  : '<span class="muted">no rating</span>');
+
+function render() {
+  const s = d.stats;
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><p class="label">Asked</p><p class="value">${s.asked}</p>
+      <p class="meta">Trips where the question went out</p></div>
+    <div class="stat"><p class="label">Answered</p><p class="value">${s.answered}</p>
+      <p class="meta">${s.asked ? Math.round((s.answered / s.asked) * 100) + '% of them' : 'Nothing asked yet'}</p></div>
+    <div class="stat"><p class="label">Average</p>
+      <p class="value">${s.average === null ? '<span class="muted">nothing rated yet</span>' : s.average}</p>
+      <p class="meta">Out of five, across every rating</p></div>
+    <div class="stat"><p class="label">You may quote</p><p class="value">${s.quotable}</p>
+      <p class="meta">Written, and cleared to use</p></div>`;
+
+  if (!d.reviews.length) {
+    panel.innerHTML = `<div class="empty"><h3>Nobody has been asked yet</h3>
+      <p>Open a reservation for a trip that is over and press <strong>Ask how it was</strong>.
+        It sends them to the trip page they already have, which is where the answer and any
+        referral come back.</p>
+      <p><a class="btn btn-ghost btn-sm" href="/app/reservations">Reservations</a></p></div>`;
+    return;
+  }
+
+  panel.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Client</th><th>Trip</th><th>Rating</th><th>What they said</th>
+      <th class="num">Sent you</th><th></th></tr></thead>
+    <tbody>${d.reviews.map((r) => `<tr>
+      <td><a class="name" href="/app/reservation?id=${esc(r.booking_id)}">${esc(r.client_name)}</a>
+        <div class="muted">${r.submitted_at
+          ? esc(timeAgo(r.submitted_at))
+          : r.asked_at
+            ? `asked ${esc(timeAgo(r.asked_at))}${r.asked_count > 1
+                ? `, ${r.asked_count} times` : ''}`
+            : 'not asked'}</div></td>
+      <td>${esc(r.product_name || r.supplier || '-')}
+        <div class="muted">${r.return_date ? 'home ' + esc(dateFmt(r.return_date)) : ''}</div></td>
+      <td>${stars(r.rating)}</td>
+      <td>${r.body
+        ? `<div class="rev-body">${esc(r.body)}</div>${r.consent_public
+            ? `<span class="badge badge-green">may be quoted${r.author_name
+                ? ' as ' + esc(r.author_name) : ''}</span>`
+            : '<span class="badge badge-navy">private</span>'}`
+        : '<span class="muted">nothing yet</span>'}</td>
+      <td class="num">${r.referrals
+        ? `<a href="/app/leads">${r.referrals}</a>` : '<span class="muted">-</span>'}</td>
+      <td class="num">${r.body && r.consent_public
+        ? `<button class="btn btn-ghost btn-sm" data-copy="${esc(r.id)}">Copy</button>` : ''}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+
+  // Copy the quote with the name they asked to be credited under, because a
+  // quote pasted without it is the half of the permission nobody gave.
+  panel.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
+    const r = d.reviews.find((x) => x.id === b.dataset.copy);
+    if (!r) return;
+    const who = r.author_name || r.client_name;
+    try {
+      await navigator.clipboard.writeText(`"${r.body}"\n${who}`);
+      b.textContent = 'Copied';
+      setTimeout(() => { b.textContent = 'Copy'; }, 1500);
+    } catch { b.textContent = 'Select it by hand'; }
+  }));
+}
+
+async function load() {
+  panel.innerHTML = '<p class="spinner">Loading...</p>';
+  try {
+    d = await api(`/api/reviews${advisorParam() ? '?' + advisorParam() : ''}`);
+    mountScopePicker(document.getElementById('scope'), d, load);
+    render();
+  } catch (e) { showError(panel, e); }
+}
+await load();
+</script>
+</body></html>

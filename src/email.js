@@ -425,6 +425,50 @@ export function sendTripMessageEmail(env, { to, firstName, clientName, tripName,
 }
 
 /**
+ * Asking a client how it was, and who else would love it.
+ *
+ * Sent to the client, over the advisor's name, with a reply-to that reaches a
+ * person. It goes to the trip page they already have rather than to a form
+ * nobody has seen before: the link in their inbox from three months ago and
+ * this one are the same address, which is the whole reason that page exists.
+ *
+ * One ask. The second and third time a portal asks somebody for a review is
+ * how an advisor's name ends up in a spam folder, so the count is kept on the
+ * row and the screen shows it rather than a cron deciding on its own.
+ */
+export function sendReviewRequest(env, {
+  to, replyTo, clientName, advisorName, agencyName, advisorPhone, tripName, href,
+}) {
+  if (!to) return Promise.resolve({ skipped: true });
+  const trip = tripName || 'your trip';
+  return send(env, {
+    to,
+    replyTo,
+    subject: `How was ${trip}?`,
+    html: layout(env, {
+      heading: 'Welcome home',
+      body: `<p style="margin:0 0 12px;">Hello ${escapeHtml(clientName || 'there')},</p>
+             <p style="margin:0 0 12px;">I hope ${escapeHtml(trip)} was everything you
+             wanted. If you have a minute, your trip page has a box at the bottom now:
+             tell me how it went, and say whether I may quote you.</p>
+             <p style="margin:0 0 12px;">There is a second box under it, and it is the one
+             that matters most to me. If somebody came to mind while you were away who
+             would love this, leave me their name. That is how most of my work arrives.</p>
+             <p style="margin:0;">Either way, thank you for travelling with me.</p>`,
+      cta: { label: 'Open your trip page', href },
+      footer: [
+        escapeHtml(advisorName || ''),
+        agencyName ? escapeHtml(agencyName) : '',
+        replyTo ? `<a href="mailto:${escapeHtml(replyTo)}" style="color:#6b7a8c;">${
+          escapeHtml(replyTo)}</a>` : '',
+        advisorPhone ? `<a href="tel:${escapeHtml(advisorPhone)}" style="color:#6b7a8c;">${
+          escapeHtml(advisorPhone)}</a>` : '',
+      ].filter(Boolean).join(' &middot; '),
+    }),
+  });
+}
+
+/**
  * A client has picked one of the options.
  *
  * The one message in this file that is genuinely good news, and it is time

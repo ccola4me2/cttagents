@@ -1186,3 +1186,8 @@ th.num .th-sort { justify-content: flex-end; }
 .itin-grip:active { cursor: grabbing; }
 .itin-row.itin-dragging { opacity: .45; }
 .itin-row:hover .itin-grip { color: var(--teal-500); }
+
+/* A review, on the Reviews page. The stars are text rather than an icon font:
+   they copy and paste, they read out loud, and they survive an email. */
+.rev-stars { color: #d79a00; letter-spacing: .06em; white-space: nowrap; }
+.rev-body { max-width: 34rem; white-space: pre-wrap; margin: 0 0 .35rem; }

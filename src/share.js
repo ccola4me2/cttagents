@@ -35,6 +35,7 @@ import * as db from './db.js';
 import { fireTrigger } from './automations.js';
 import { ITEM_KINDS } from './itinerary.js';
 import { sendTripMessageEmail, sendOptionChosenEmail } from './email.js';
+import { submitReview, reviewFor, tripIsOver } from './reviews.js';
 
 const money = (cents) => (Number(cents) || 0) / 100 === 0 ? '$0'
   : (Number(cents) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -517,6 +518,12 @@ export async function renderTripPage(request, env, code) {
   const choosing = Boolean(b.options_open) && trip.options.length > 0;
   const today = new Date().toISOString().slice(0, 10);
 
+  // Once they are back, and not a day before. Asking somebody how their holiday
+  // was while they are on it is the portal not paying attention, and asking
+  // somebody who has not gone yet is worse.
+  const home = tripIsOver(b, today);
+  const review = home ? await reviewFor(env, b.id) : null;
+
   const facts = [
     ['Departs', sayDate(b.depart_date)],
     ['Returns', sayDate(b.return_date)],
@@ -604,6 +611,50 @@ export async function renderTripPage(request, env, code) {
       </li>`).join('')}</ul>
     </section>` : ''}
 
+    ${home ? `<section class="card pad" id="home">
+      <h2>Welcome home</h2>
+      <p class="lede">Two questions, and the second one is the one that keeps
+        ${esc(advisor)} in business.</p>
+      ${review && review.submitted_at ? `<p class="dim small" id="review-said">You have
+        already answered this, and it is still here if you want to change it.</p>` : ''}
+      <form id="review" novalidate>
+        <fieldset class="stars" aria-label="How was it">
+          ${[1, 2, 3, 4, 5].map((n) => `<label class="star">
+            <input type="radio" name="rating" value="${n}"${
+              review && review.rating === n ? ' checked' : ''}>
+            <span>${'\u2605'.repeat(n)}</span>
+            <span class="dim small">${['Not good', 'Could be better', 'Fine',
+              'Very good', 'As good as it gets'][n - 1]}</span>
+          </label>`).join('')}
+        </fieldset>
+        <label for="rbody">How was it?</label>
+        <textarea id="rbody" name="body" rows="4" maxlength="4000"
+          placeholder="Anything you want to say. A sentence is plenty."
+          >${esc((review && review.body) || '')}</textarea>
+        <label class="tick"><input type="checkbox" name="consentPublic"${
+          review && review.consent_public ? ' checked' : ''}>
+          <span>You may quote me</span></label>
+        <label for="rauthor" class="dim small">Credited as</label>
+        <input id="rauthor" name="authorName" maxlength="120"
+          placeholder="${esc(b.client_name)}" value="${esc((review && review.author_name) || '')}">
+
+        <hr>
+        <p class="lede" style="margin-bottom:.4rem;">Who else would love this?</p>
+        <p class="dim small">A name is enough. ${esc(advisor)} will do the rest, and will
+          say you sent them.</p>
+        <div class="refrow">
+          <input name="referName" maxlength="120" placeholder="Their name">
+          <input name="referEmail" type="email" maxlength="254" placeholder="Email, if you have it">
+          <input name="referPhone" maxlength="40" placeholder="Or a phone number">
+        </div>
+
+        <div class="hp" aria-hidden="true"><label>Company website<input name="company_website"
+          tabindex="-1" autocomplete="off"></label></div>
+        <button type="submit" class="obtn">Send it</button>
+        <p id="review-said-back" class="dim small" hidden></p>
+      </form>
+    </section>` : ''}
+
     <section class="card pad">
       <h2>Questions</h2>
       <p class="lede">${esc(advisor)}${b.agency_name ? ` at ${esc(b.agency_name)}` : ''} is
@@ -642,6 +693,7 @@ export async function renderTripPage(request, env, code) {
       ${b.agency_name ? `<p>${esc(b.agency_name)}</p>` : ''}
       ${b.seller_of_travel ? `<p class="dim">${esc(b.seller_of_travel)}</p>` : ''}
     </footer>
+    ${home ? REVIEW_SCRIPT : ''}
     ${SAY_SCRIPT}
     ${CHOOSE_SCRIPT}
     ${PRINT_SCRIPT}`;
@@ -653,6 +705,35 @@ export async function renderTripPage(request, env, code) {
 const PAYMENT_WORD = {
   deposit: 'Deposit', installment: 'Instalment', final: 'Final payment', refund: 'Refund',
 };
+
+/**
+ * The client answering "how was it" and "who else would love this".
+ *
+ * Public, like the page it is posted from, and behind the same share code. The
+ * work is in reviews.js; this resolves the code and hands it the booking.
+ */
+export async function handleTripReview(request, env, code) {
+  const trip = await loadTrip(env, clean(code, 40));
+  if (!trip) return notFound('This trip page is not available.');
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (!tripIsOver(trip.booking, today)) {
+    return badRequest('This asks how a trip was, so it waits until the trip is over.');
+  }
+
+  const out = await submitReview(env, request, trip.booking, await readJson(request));
+  if (out.error) return badRequest(out.error);
+
+  // Told once, in the words that match what they actually did. "Thanks" for a
+  // review and "thanks" for a name they have just handed over are not the same
+  // sentence, and the second one deserves the better of the two.
+  const message = out.referred && out.reviewed
+    ? `Thank you, and thank you for ${out.referred.name}. They will hear from us.`
+    : out.referred
+      ? `Thank you. ${out.referred.name} will hear from us, and we will say you sent them.`
+      : 'Thank you. That means a great deal.';
+  return json({ ok: true, message });
+}
 
 export async function handleTripMessage(request, env, code) {
   const trip = await loadTrip(env, clean(code, 40));
@@ -897,6 +978,44 @@ document.getElementById('say').addEventListener('submit', async (e) => {
     button.disabled = false;
   }
 });
+</scr${''}ipt>`;
+
+const REVIEW_SCRIPT = `<scr${''}ipt>
+(function () {
+  var form = document.getElementById('review');
+  if (!form) return;
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var button = form.querySelector('button');
+    var said = document.getElementById('review-said-back');
+    var rating = form.querySelector('input[name=rating]:checked');
+    said.hidden = true;
+    button.disabled = true;
+    try {
+      var res = await fetch(location.pathname.replace(/\\/$/, '') + '/review', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          rating: rating ? rating.value : null,
+          body: form.body.value,
+          consentPublic: form.consentPublic.checked,
+          authorName: form.authorName.value,
+          referName: form.referName.value,
+          referEmail: form.referEmail.value,
+          referPhone: form.referPhone.value,
+          company_website: form.company_website.value,
+        }),
+      });
+      var data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'That did not send.');
+      form.innerHTML = '<p class="sent">' + (data.message || 'Thank you.') + '</p>';
+    } catch (ex) {
+      said.textContent = ex.message;
+      said.hidden = false;
+      button.disabled = false;
+    }
+  });
+}());
 </scr${''}ipt>`;
 
 /**
@@ -1144,6 +1263,28 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
   .err{color:var(--late);font-size:.88rem;margin:.6rem 0 0}
   .sent{margin:0;color:var(--ok);font-weight:600}
   .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+  /* Welcome home. Stars as radio buttons rather than a script: the keyboard
+     works, the back button works, and a client with no JavaScript still has a
+     form that posts. */
+  #review{margin:0}
+  #review label,#review .tick{display:block;margin:.9rem 0 .3rem;font-weight:650;
+    color:var(--navy);font-size:.9rem}
+  #review textarea,#review input[type=text],#review input[type=email],#review input:not([type]){
+    width:100%;font:inherit;padding:.6rem .7rem;border:1px solid var(--line);
+    border-radius:10px;background:#fff;color:var(--ink)}
+  #review textarea{resize:vertical}
+  .stars{border:0;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:.4rem}
+  .star{display:flex;align-items:center;gap:.5rem;margin:0;font-weight:400;
+    border:1px solid var(--line);border-radius:999px;padding:.35rem .8rem;cursor:pointer}
+  .star span:first-of-type{color:#e0a500;letter-spacing:.06em}
+  .star:has(input:checked){border-color:var(--navy);background:var(--navy-050,#f2f7fb)}
+  .star input{margin:0}
+  .tick{display:flex !important;align-items:center;gap:.5rem;font-weight:400 !important}
+  .tick input{margin:0}
+  .refrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:.6rem}
+  #review hr{border:0;border-top:1px solid var(--line);margin:1.4rem 0 1rem}
+  #review .obtn{width:auto;margin-top:1.1rem;padding:.55rem 1.4rem}
+  .sent{margin:0;font-weight:650;color:var(--navy)}
   .foot{margin-top:2rem;text-align:center;font-size:.82rem;color:var(--dim)}
   .foot p{margin:.15rem 0}
   @media (max-width:520px){ h1{font-size:1.55rem} .pad{padding:1.2rem} }
