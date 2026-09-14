@@ -40,6 +40,15 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DELIBERATE = {
   users: {
     password_hash: 'read only by the sign-in path, which selects it explicitly',
+    ghl_location_id: 'the CRM sub-account the portal was partitioned by until '
+      + '0073_agency_partition.sql moved that onto agency_id. The column stays as '
+      + 'the record of what that CRM handed out, and nothing reads it',
+    ghl_user_id: 'from the same CRM, and never read for any decision even while it '
+      + 'was there. Left on the table for the same reason',
+  },
+  agencies: {
+    ghl_location_id: 'what the old CRM called this agency. Every row it keyed has '
+      + 'been moved to agency_id; see 0073_agency_partition.sql',
   },
 };
 
