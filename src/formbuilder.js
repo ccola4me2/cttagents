@@ -15,7 +15,6 @@ import {
 import { requireUser } from './auth.js';
 import { tenantFor } from './tenant.js';
 import * as db from './db.js';
-import { upsertContact } from './sync.js';
 
 const FIELD_TYPES = ['text', 'email', 'tel', 'textarea', 'select', 'date', 'number', 'checkbox'];
 

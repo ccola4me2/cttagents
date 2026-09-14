@@ -8,54 +8,154 @@
 // after the session check passes.
 
 import {
-  redirect, notFound, json } from './util.js'; import {   handleLogin, handleLogout, handleMe, handleForgot, handleReset, handleChangePassword, handleUpdateProfile, getCurrentUser, isAdmin, } from './auth.js'; import {   handleListPipelines, handleListOpportunities, handleCreateOpportunity, handleUpdateOpportunity, } from './pipeline.js'; import {   handleListBookings, handleGetBooking, handleBookingRecord, handleCreateBooking, handleUpdateBooking, handleQuickUpdate, handleDeleteBooking, handleWelcomed, } from './bookings.js'; import { markReturnedTripsTravelled } from './db.js'; import { mirrorCatalogStep } from './catalogmirror.js'; import { remindTasks } from './taskmail.js'; import { remindDuePayments } from './payremind.js'; import { sendCallLists } from './calllist.js'; import {   handleShareTrip, handleShareDocument, handleTripMessages, handleReadTripMessage, renderTripPage, handleTripMessage, handleClientChoose, serveTripDocument, renderTripManifest,
+  redirect,
+  notFound,
+  json,
+} from './util.js'; import {
+  handleLogin,
+  handleLogout,
+  handleMe,
+  handleForgot,
+  handleReset,
+  handleChangePassword,
+  handleUpdateProfile,
+  getCurrentUser,
+  isAdmin,
+} from './auth.js'; import {
+  handleListOpportunities,
+} from './pipeline.js'; import {
+  handleListBookings,
+  handleGetBooking,
+  handleBookingRecord,
+  handleCreateBooking,
+  handleUpdateBooking,
+  handleQuickUpdate,
+  handleDeleteBooking,
+  handleWelcomed,
+} from './bookings.js'; import {
+  markReturnedTripsTravelled,
+} from './db.js'; import {
+  mirrorCatalogStep,
+} from './catalogmirror.js'; import {
+  remindTasks,
+} from './taskmail.js'; import {
+  remindDuePayments,
+} from './payremind.js'; import {
+  sendCallLists,
+} from './calllist.js'; import {
+  handleShareTrip,
+  handleShareDocument,
+  handleTripMessages,
+  handleReadTripMessage,
+  renderTripPage,
+  handleTripMessage,
+  handleClientChoose,
+  serveTripDocument,
+  renderTripManifest,
 } from './share.js';
-import { tenantFor } from './tenant.js';
-import { handleReadConfirmation } from './confirm.js';
-import { migrationHint } from './schema-drift.js';
-import { runJob, jobHealth } from './cronlog.js';
 import {
-  renderUnsubscribe, handleUnsubscribe, handleListSuppressions,
-  handleAddSuppression, handleRestoreSuppression,
+  tenantFor,
+} from './tenant.js';
+import {
+  handleReadConfirmation,
+} from './confirm.js';
+import {
+  migrationHint,
+} from './schema-drift.js';
+import {
+  runJob,
+  jobHealth,
+} from './cronlog.js';
+import {
+  renderUnsubscribe,
+  handleUnsubscribe,
+  handleListSuppressions,
+  handleAddSuppression,
+  handleRestoreSuppression,
 } from './suppression.js';
 import {
-  handleSegmentRules, handleSegmentPreview, handleListSegments,
-  handleSaveSegment, handleDeleteSegment,
+  handleSegmentRules,
+  handleSegmentPreview,
+  handleListSegments,
+  handleSaveSegment,
+  handleDeleteSegment,
 } from './segments.js';
 import {
-  handleListBroadcasts, handleGetBroadcast, handleSaveBroadcast, handleDeleteBroadcast,
-  handlePreviewBroadcast, handleTestBroadcast, handleSendBroadcast, handleCancelBroadcast,
+  handleListBroadcasts,
+  handleGetBroadcast,
+  handleSaveBroadcast,
+  handleDeleteBroadcast,
+  handlePreviewBroadcast,
+  handleTestBroadcast,
+  handleSendBroadcast,
+  handleCancelBroadcast,
   sendQueuedBroadcasts,
 } from './broadcasts.js';
 import {
-  handleAddComponent, handleUpdateComponent, handleDeleteComponent,
+  handleAddComponent,
+  handleUpdateComponent,
+  handleDeleteComponent,
 } from './components.js';
 import {
-  handleUploadDocument, handleGetDocument, handleDeleteDocument,
+  handleUploadDocument,
+  handleGetDocument,
+  handleDeleteDocument,
 } from './documents.js';
-import { handleStatement } from './statement.js';
 import {
-  handleAddOption, handleUpdateOption, handleDeleteOption, handleChooseOption,
-  handleRecommendOption, handleOpenOptions,
+  handleStatement,
+} from './statement.js';
+import {
+  handleAddOption,
+  handleUpdateOption,
+  handleDeleteOption,
+  handleChooseOption,
+  handleRecommendOption,
+  handleOpenOptions,
 } from './options.js';
 import {
-  handleListTiers, handleAddTier, handleUpdateTier, handleDeleteTier, handleApplyVendorTerms,
+  handleListTiers,
+  handleAddTier,
+  handleUpdateTier,
+  handleDeleteTier,
+  handleApplyVendorTerms,
 } from './penalties.js';
 import {
-  handlePayments, handleCreatePayment, handlePaymentReminder, handleUpdatePayment,
-  handleMarkPaid, handleDeletePayment, handleGenerateSchedule, handleSetBookingStatus,
+  handlePayments,
+  handleCreatePayment,
+  handlePaymentReminder,
+  handleUpdatePayment,
+  handleMarkPaid,
+  handleDeletePayment,
+  handleGenerateSchedule,
+  handleSetBookingStatus,
 } from './payments.js';
 import {
-  handleListForms as handleListOwnForms, handleGetForm, handleSaveForm, handleDeleteForm,
-  handleListMyTemplates, handleSaveMyTemplate, handleDeleteMyTemplate,
-  handleFormsReport, handleReservationFromLead,
+  handleListForms as handleListOwnForms,
+  handleGetForm,
+  handleSaveForm,
+  handleDeleteForm,
+  handleListMyTemplates,
+  handleSaveMyTemplate,
+  handleDeleteMyTemplate,
+  handleFormsReport,
+  handleReservationFromLead,
 } from './formbuilder.js';
 import {
-  renderPublicForm, handlePublicSubmit, renderGroupPage, handleGroupRegistration,
-  renderSpecialPage, handleSpecialEnquiry,
+  renderPublicForm,
+  handlePublicSubmit,
+  renderGroupPage,
+  handleGroupRegistration,
+  renderSpecialPage,
+  handleSpecialEnquiry,
 } from './publicform.js';
-import { handleSearch } from './search.js';
-import { handleGetLayout, handleSaveLayout, handleResetLayout } from './prefs.js';
+import {
+  handleSearch,
+} from './search.js';
+import {
+  handleGetLayout,
+  handleSaveLayout,
+  handleResetLayout,
+} from './prefs.js';
 // Aliased: leads.js already exports handleCreateTask for the CRM's own
 // contact tasks, which are a different thing from an advisor's working list.
 import {
@@ -63,88 +163,187 @@ import {
   handleCreateTask as handleCreateMyTask,
   handleUpdateTask as handleUpdateMyTask,
   handleDeleteTask as handleDeleteMyTask,
-  handleListTaskItems, handleCreateTaskItem, handleUpdateTaskItem, handleDeleteTaskItem,
+  handleListTaskItems,
+  handleCreateTaskItem,
+  handleUpdateTaskItem,
+  handleDeleteTaskItem,
 } from './tasks.js';
 import {
-  handleListTemplates, handleSaveTemplate, handleDeleteTemplate, handleSeedTemplates,
+  handleListTemplates,
+  handleSaveTemplate,
+  handleDeleteTemplate,
+  handleSeedTemplates,
 } from './tasktemplates.js';
 import {
-  handleListGroups, handleGetGroup, handleBookRegistration, handleCreateGroup, handleUpdateGroup, handleDeleteGroup,
+  handleListGroups,
+  handleGetGroup,
+  handleBookRegistration,
+  handleCreateGroup,
+  handleUpdateGroup,
+  handleDeleteGroup,
 } from './groups.js';
 import {
-  handleListCredits, handleCreateCredit, handleUpdateCredit, handleDeleteCredit,
+  handleListCredits,
+  handleCreateCredit,
+  handleUpdateCredit,
+  handleDeleteCredit,
 } from './credits.js';
 import {
-  handleHotLists, handleHotListDone, handleHotListUndo,
+  handleHotLists,
+  handleHotListDone,
+  handleHotListUndo,
 } from './hotlists.js';
 import {
-  handleListSpecials, handleGetSpecial, handleCreateSpecial, handleUpdateSpecial,
-  handleDeleteSpecial, handleBookEnquiry, handleDeleteEnquiry,
+  handleListSpecials,
+  handleGetSpecial,
+  handleCreateSpecial,
+  handleUpdateSpecial,
+  handleDeleteSpecial,
+  handleBookEnquiry,
+  handleDeleteEnquiry,
 } from './specials.js';
 import {
-  handleListAgencies, handleCreateAgency, handleUpdateAgency,
-  handleAgencyGhlStatus, handleProvisionAgency,
+  handleListAgencies,
+  handleCreateAgency,
+  handleUpdateAgency,
   handleSetAdvisorAgency,
 } from './agencies.js';
 import {
-  handleListHouseholds, handleCreateHousehold, handleUpdateHousehold,
-  handleAddMember, handleRemoveMember, handleDeleteHousehold, handleHouseholdTravellers,
-  handleHouseholdRecord, handleSuggestHouseholds,
+  handleListHouseholds,
+  handleCreateHousehold,
+  handleUpdateHousehold,
+  handleAddMember,
+  handleRemoveMember,
+  handleDeleteHousehold,
+  handleHouseholdTravellers,
+  handleHouseholdRecord,
+  handleSuggestHouseholds,
 } from './households.js';
 import {
-  handleListItinerary, handleSaveItem, handleDeleteItem, handleShareItinerary,
+  handleListItinerary,
+  handleSaveItem,
+  handleDeleteItem,
+  handleShareItinerary,
   handleReorderItinerary,
 } from './itinerary.js';
 import {
-  handleListLibrary, handleSaveLibraryPiece, handleDeleteLibraryPiece, handleUseLibraryPiece,
+  handleListLibrary,
+  handleSaveLibraryPiece,
+  handleDeleteLibraryPiece,
+  handleUseLibraryPiece,
 } from './itinlibrary.js';
-import { handleGetGoals, handleSaveGoals } from './goals.js';
-import { handleListCommissions, handleSetCommissionStatus } from './commissions.js';
 import {
-  handleListReceipts, handleAddReceipt, handleDeleteReceipt,
-  handleListStatements, handleCreateStatement, handleUpdateStatement,
-  handleDeleteStatement, handleStatementCandidates,
+  handleGetGoals,
+  handleSaveGoals,
+} from './goals.js';
+import {
+  handleListCommissions,
+  handleSetCommissionStatus,
+} from './commissions.js';
+import {
+  handleListReceipts,
+  handleAddReceipt,
+  handleDeleteReceipt,
+  handleListStatements,
+  handleCreateStatement,
+  handleUpdateStatement,
+  handleDeleteStatement,
+  handleStatementCandidates,
 } from './reconcile.js';
 import {
-  handleClientRecord, handleListClients, handleUpdateClient, handleCreateClient,
+  handleClientRecord,
+  handleListClients,
+  handleUpdateClient,
+  handleCreateClient,
 } from './clients.js';
-import { handlePreviewImport, handleRunImport,
-  handlePreviewClientImport, handleRunClientImport } from './importer.js';
 import {
-  handleCatalogLines, handleCatalogSearch, handleCatalogSailing, handleCatalogShips, handleCatalogDates, handleCatalogStatus,
-  handleCatalogImport, handleCatalogSuggest, handleCatalogApply,
+  handlePreviewImport,
+  handleRunImport,
+  handlePreviewClientImport,
+  handleRunClientImport,
+} from './importer.js';
+import {
+  handleCatalogLines,
+  handleCatalogSearch,
+  handleCatalogSailing,
+  handleCatalogShips,
+  handleCatalogDates,
+  handleCatalogStatus,
+  handleCatalogImport,
+  handleCatalogSuggest,
+  handleCatalogApply,
 } from './catalogapi.js';
-import { importCatalogStep } from './catalog.js';
 import {
-  handleListVendors, handleUpdateVendor, handleMergeVendors, handleSuggestDates,
-  handleFavouriteVendor, handleCreateVendor, handleDeleteVendor, handleImportVendors,
+  importCatalogStep,
+} from './catalog.js';
+import {
+  handleListVendors,
+  handleUpdateVendor,
+  handleMergeVendors,
+  handleSuggestDates,
+  handleFavouriteVendor,
+  handleCreateVendor,
+  handleDeleteVendor,
+  handleImportVendors,
   handleGetVendor,
 } from './vendors.js';
 import {
-  handleAddTraveller, handleUpdateTraveller, handleDeleteTraveller,
-  handleAddAmenity, handleUpdateAmenity, handleDeleteAmenity,
+  handleAddTraveller,
+  handleUpdateTraveller,
+  handleDeleteTraveller,
+  handleAddAmenity,
+  handleUpdateAmenity,
+  handleDeleteAmenity,
   handleDocumentWatch,
 } from './travellers.js';
 import {
-  handleAddPriceLine, handleUpdatePriceLine, handleDeletePriceLine, handleSavePricingGrid,
+  handleAddPriceLine,
+  handleUpdatePriceLine,
+  handleDeletePriceLine,
+  handleSavePricingGrid,
 } from './pricing.js';
 import {
-  handleListAutomations, handleGetAutomation, handleSaveAutomation,
-  handleDeleteAutomation, handleRunAutomations, processDueRuns, scanTimeTriggers, purgeOldRuns,
+  handleListAutomations,
+  handleGetAutomation,
+  handleSaveAutomation,
+  handleDeleteAutomation,
+  handleRunAutomations,
+  processDueRuns,
+  scanTimeTriggers,
+  purgeOldRuns,
 } from './automations.js';
-import { handleDashboard, handleProduction, handleMonth } from './reports.js';
 import {
-  handleListAdvisors, handleSetAdvisorStatus, handleSetAdvisorGhl, handleSetAdvisorSplit,
-  handleCreateAdvisor, handleReissueInvite, handleStartActing, handleStopActing,
+  handleDashboard,
+  handleProduction,
+  handleMonth,
+} from './reports.js';
+import {
+  handleListAdvisors,
+  handleSetAdvisorStatus,
+  handleSetAdvisorGhl,
+  handleSetAdvisorSplit,
+  handleCreateAdvisor,
+  handleReissueInvite,
+  handleStartActing,
+  handleStopActing,
   handleSetBookingSplit,
   handleRunLifecycle,
-  handleHealth, handleTestEmail, handleRunTaskReminders, handleRunPaymentReminders,
-  handleRunCallLists, handleMirrorCatalog, handleMirrorStatus,
-  handleSyncStatus, handleRunSync,
+  handleHealth,
+  handleTestEmail,
+  handleRunTaskReminders,
+  handleRunPaymentReminders,
+  handleRunCallLists,
+  handleMirrorCatalog,
+  handleMirrorStatus,
 } from './admin.js';
-import { purgeExpiredSessions } from './db.js';
 import {
-  handleMembership, handleCheckout, handlePortal, handleStripeWebhook,
+  purgeExpiredSessions,
+} from './db.js';
+import {
+  handleMembership,
+  handleCheckout,
+  handlePortal,
+  handleStripeWebhook,
 } from './membership.js';
 
 // Pages any visitor may reach.
