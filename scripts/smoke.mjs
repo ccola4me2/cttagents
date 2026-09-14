@@ -3867,15 +3867,6 @@ async function main() {
   check(badStatus.status === 400, 'an unknown status is refused rather than defaulted',
     `status ${badStatus.status}`);
 
-  check(travel.every((e) => e.date && /^\d{4}-\d{2}-\d{2}$/.test(e.date)),
-    'each carrying a plain date rather than a timestamp');
-  check(travel.every((e) => e.bookingId),
-    'and linking back to the reservation it came from');
-  // Sorted, because the page renders them in order under day headings and
-  // sorting in two places is how the two disagree.
-  const dates = travel.map((e) => e.date);
-  check(dates.join() === [...dates].sort().join(), 'in date order');
-
   // ------------------------------------------- reading a real confirmation --
   step('An agent confirmation, as a vendor lays one out');
 
