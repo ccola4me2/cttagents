@@ -1224,7 +1224,7 @@ export async function reservationPipeline(env, scope, today) {
             b.depart_date, b.return_date, b.final_payment_due, b.quote_sent_at,
             b.ghl_contact_id,
             -- Hard rows only, like every other money total. A soft row is the
-            -- same balance a week early, so counting a paid one would carry a
+            -- same balance ten days early, so counting a paid one would carry a
             -- reservation to "paid in full" on half the money.
             COALESCE((SELECT SUM(p.amount_cents) FROM booking_payments p
                        WHERE p.booking_id = b.id AND p.kind = 'deposit'
@@ -1814,7 +1814,7 @@ export async function paymentStats(env, scope, { today, soonThrough, softThrough
        SUM(CASE WHEN payment_class = 'hard' AND paid_date IS NULL THEN amount_cents ELSE 0 END) AS outstanding,
        -- Hard rows only, for the same reason as the two above, which the
        -- comment claimed was already true here and was not. A final payment
-       -- has two rows: the vendor's deadline and this portal's reminder a week
+       -- has two rows: the vendor's deadline and this portal's reminder ten days
        -- earlier for the same balance. Counting both made every late payment
        -- worth twice what it was, and a balance that had been posted stayed in
        -- the past due column because only its hard row had been ticked.

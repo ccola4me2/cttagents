@@ -1,8 +1,11 @@
 // Dashboard and reporting.
 //
-// Pulls the D1 booking numbers and, when GoHighLevel is connected, a live
-// pipeline snapshot. A GHL outage degrades to booking-only numbers rather than
-// failing the whole dashboard, because the D1 half is still useful on its own.
+// Every number here comes from D1. It used to blend in a live pipeline from a
+// CRM sub-account; that CRM is gone, and the reservation board answers the same
+// question from the book of business rather than from a copy of it.
+//
+// A panel that cannot be built is named in `failed` rather than left blank, so
+// an empty panel means there is nothing to do and not that something broke.
 
 import { json, now } from './util.js';
 import { tenantFor } from './tenant.js';
@@ -16,10 +19,19 @@ import { listCredits } from './credits.js';
 import { migrationHint } from './schema-drift.js';
 import { goalProgress } from './goals.js';
 import { BUCKETS } from './commissions.js';
+import { SOFT_DAYS } from './payments.js';
 
 function isoDay(offsetDays = 0) {
   const d = new Date(Date.now() + offsetDays * 86400000);
   return d.toISOString().slice(0, 10);
+}
+
+/** Money for a notice, written the way the screen around it writes money. */
+function dollars(cents) {
+  const n = Number(cents || 0) / 100;
+  const digits = Number.isInteger(n) ? 0 : 2;
+  return `$${n.toLocaleString('en-US',
+    { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 }
 
 /**
@@ -98,6 +110,11 @@ export async function handleDashboard(request, env) {
     reservations: { added: recentAdded, modified: recentModified },
     current: { upcoming, traveling, returned },
     today,
+    // How far ahead of a vendor deadline this portal chases, so the screen can
+    // say it rather than carry its own copy of the number. It was written into
+    // the dashboard as "a week", and stayed a week after the rule became ten
+    // days, which is the kind of sentence nothing can catch.
+    softDays: SOFT_DAYS,
     scope: db.scopeLabel(scope, user),
     advisors: await db.advisorOptions(env, user),
     layout: await readLayout(env, user.id),
@@ -402,11 +419,10 @@ async function noticesFor(env, user, scope) {
       tone: 'warn',
       title: `${unscheduled.n} booked trip${unscheduled.n === 1 ? '' : 's'} with money on no payment schedule`,
       // The amount, because the count alone reads like paperwork. It is the
-      // money nothing in this portal is watching.
-      detail: `$${(cents / 100).toLocaleString('en-US', {
-        minimumFractionDigits: 2, maximumFractionDigits: 2,
-      })} of trip cost that is neither posted as taken nor due on any date. `
-        + 'Nothing chases what is not on the schedule.',
+      // money nothing in this portal is watching. Whole dollars stay clean, the
+      // same rule every other figure on the dashboard is written by.
+      detail: `${dollars(cents)} of trip cost that is neither posted as taken nor `
+        + 'due on any date. Nothing chases what is not on the schedule.',
       href: '/app/complete', label: 'Build the schedules',
     });
   }

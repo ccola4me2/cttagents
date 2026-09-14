@@ -282,10 +282,15 @@ function render(d) {
   }
 
   bookings = d.balances;
+  // The Build button is offered wherever money sits on no payment row, rather
+  // than only where there are no rows at all. A trip carrying a deposit line
+  // and nothing else is the common shape, and it was the one shape the button
+  // never appeared on, so the half-built schedule could only be finished by
+  // typing each row by hand.
   balancesEl.innerHTML = d.balances.length
     ? `<div class="table-wrap"><table>
         <thead><tr><th>Reservation</th><th class="num">Trip cost</th><th class="num">Posted</th>
-          <th class="num">Scheduled</th><th class="num">Unbilled</th><th></th></tr></thead>
+          <th class="num">Scheduled</th><th class="num">Not scheduled</th><th></th></tr></thead>
         <tbody>${d.balances.map((b) => `<tr>
           <td><span class="name">${esc(b.client_name)}</span>
             <div class="muted">${esc([b.product_name || b.supplier, b.depart_date ? dateFmt(b.depart_date) : ''].filter(Boolean).join('  ·  '))}</div></td>
@@ -293,8 +298,9 @@ function render(d) {
           <td class="num">${money(b.paid_cents)}</td>
           <td class="num">${money(b.scheduled_cents)}</td>
           <td class="num" style="${b.unscheduled_cents ? 'color:var(--amber-600);font-weight:650;' : ''}">${money(b.unscheduled_cents)}</td>
-          <td class="num">${b.payment_count === 0
-            ? `<button class="btn btn-ghost btn-sm" data-gen="${esc(b.id)}">Build schedule</button>` : ''}</td>
+          <td class="num">${b.unscheduled_cents > 0
+            ? `<button class="btn btn-ghost btn-sm" data-gen="${esc(b.id)}">${
+                b.payment_count ? 'Finish schedule' : 'Build schedule'}</button>` : ''}</td>
         </tr>`).join('')}</tbody></table></div>`
     : '<div class="empty"><p>No active reservations yet.</p></div>';
 

@@ -199,11 +199,14 @@ function build() {
       <p class="meta">${money(s.commissionPaidCents)} paid out</p></div>`;
 
   // Said once, in plain words, because the same balance appears in both
-  // figures a week apart and that is not obvious from two numbers side by side.
+  // figures days apart and that is not obvious from two numbers side by side.
+  // The gap comes from the payload rather than being written here: this
+  // sentence said "a week" for a while after the rule became ten days.
+  const gap = Number(d.softDays) || 0;
   document.getElementById('stat-note').innerHTML =
     `<p class="stat-note">Usually the same money twice. <strong>Chase this week</strong> is your own
-     reminder to collect. <strong>At risk of cancelling</strong> is the vendor's own deadline, a week
-     later, after which they cancel the trip.</p>`;
+     reminder to collect. <strong>At risk of cancelling</strong> is the vendor's own deadline${
+       gap ? `, ${gap} days later` : ''}, after which they cancel the trip.</p>`;
 
 
   drawPanels();
@@ -212,8 +215,8 @@ function build() {
 // Module scope, because the panel builders below run outside build().
 //
 // Passed means a vendor deadline that has gone by, so it counts hard rows
-// only. A soft row is the same balance a week early, and listing both put the
-// same money on the tab twice.
+// only. A soft row is the same balance ten days early, and listing both put
+// the same money on the tab twice.
 //
 // A reminder whose own date has gone by is still something to chase, so it
 // stays on the chase tab rather than falling between the two.

@@ -50,6 +50,10 @@ let cache = [];
 
 const STATUS_TONE = { booked: 'badge-green', quoted: 'badge-amber', travelled: 'badge-navy', cancelled: 'badge-red' };
 
+// The one status where a commission of nought is the answer rather than a
+// number nobody has typed yet.
+const NO_COMMISSION = 'none';
+
 function render(bookings, stats, scope, d = {}) {
   // Only worth a column when the list spans more than one advisor. Showing
   // your own name in every row of your own list is noise.
@@ -109,9 +113,18 @@ function render(bookings, stats, scope, d = {}) {
                   : left < 0 ? 'past due, may be cancelled'
                   : left === 0 ? 'cancels today' : `cancels in ${left}d`}</span></div>`
             : '<span class="muted">-</span>'}</td>
-        <td class="num">${money(b.gross_cents)}</td>
-        <td class="num">${money(b.commission_cents)}
-          <div class="muted">${esc(b.commission_status)}</div></td>
+        <!-- A dash where nothing was typed, not $0. Every other column on this
+             row already says "-" for an empty field; these two answered zero,
+             which reads as a free trip and a trip that earns nothing rather
+             than as a price nobody has put in yet. A reservation marked no
+             commission is the one case where nought is the answer, and it says
+             so in words. -->
+        <td class="num">${b.gross_cents
+          ? money(b.gross_cents) : '<span class="muted">-</span>'}</td>
+        <td class="num">${b.commission_status === NO_COMMISSION
+          ? '<span class="muted">No commission</span>'
+          : `${b.commission_cents ? money(b.commission_cents) : '<span class="muted">-</span>'}
+             <div class="muted">${esc(b.commission_status)}</div>`}</td>
         <td class="num"><a class="btn btn-ghost btn-sm" href="/app/reservation?id=${esc(b.id)}">Open</a></td>
       </tr>`;
     }).join('')}</tbody></table></div>`;

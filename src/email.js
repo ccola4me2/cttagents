@@ -767,7 +767,7 @@ export async function sendPaymentReminder(env, {
       ? `This is a reminder that the ${word.noun} of ${money(amountCents)} for ${trip} is due on ${when}. `
         + `This date is set by the vendor, and the booking may be cancelled if it passes unpaid.`
       // No date on a soft reminder, on purpose. The date on a soft row is the
-      // advisor's own reminder a week early, not anything the vendor set, and
+      // advisor's own reminder ten days early, not anything the vendor set, and
       // giving a client a deadline nobody agreed to is worse than giving none.
       : `Just a friendly note that the ${word.noun} of ${money(amountCents)} for ${trip} will be due shortly. `
         + `I like to give plenty of notice so nothing is rushed.`,

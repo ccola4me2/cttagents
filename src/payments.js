@@ -370,7 +370,7 @@ export async function handleUpdatePayment(request, env, id) {
 /**
  * Keep the reminder honest about what is still owed.
  *
- * A final balance is two rows: the vendor's deadline, and a soft line a week
+ * A final balance is two rows: the vendor's deadline, and a soft line ten days
  * earlier that exists only to make somebody chase it in time. They are one
  * obligation shown twice, which is why every money total counts the hard rows
  * and ignores the soft ones.
@@ -426,7 +426,7 @@ export async function handleMarkPaid(request, env, id) {
 
   // You cannot pay a reminder.
   //
-  // The soft line is the same money as the vendor deadline it sits a week in
+  // The soft line is the same money as the vendor deadline it sits ten days in
   // front of, and only the hard rows are counted as paid. Posting against the
   // reminder therefore recorded the payment somewhere no total looks at: the
   // reservation still showed the whole balance outstanding, and the vendor

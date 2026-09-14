@@ -255,7 +255,7 @@ export async function handleBookingRecord(request, env, id) {
         .bind(booking.vendor_id).first()
     : null;
 
-  // Hard rows only. A soft row is a reminder to chase the same balance a week
+  // Hard rows only. A soft row is a reminder to chase the same balance ten days
   // before its vendor deadline, not a second amount owed, so totalling both
   // reports a $5,000 trip as owing $9,500.
   const owed = (payments.results || []).filter((p) => p.payment_class === 'hard');
