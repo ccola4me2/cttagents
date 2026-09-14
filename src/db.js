@@ -1799,7 +1799,7 @@ export async function paymentStats(env, scope, { today, soonThrough, softThrough
   const row = await env.DB.prepare(
     `SELECT
        -- Money totals count hard rows only: a soft row is the same balance
-       -- again, a week earlier, so including it doubles every final payment.
+       -- again, ahead of it, so including it doubles every final payment.
        -- The soft and hard due figures below are counts within a window
        -- rather than totals owed, and are class filtered for that reason.
        SUM(CASE WHEN payment_class = 'hard' AND paid_date IS NOT NULL THEN amount_cents ELSE 0 END) AS posted,
@@ -1851,7 +1851,7 @@ export async function bookingBalances(env, scope) {
     `SELECT b.id, b.client_name, b.supplier, b.product_name, b.depart_date,
             b.status, b.gross_cents, b.deposit_cents,
             -- Hard rows only. A soft row is a reminder to chase the same
-            -- balance a week earlier, not a second sum owed, so counting both
+            -- balance ahead of it, not a second sum owed, so counting both
             -- inflates every reservation carrying a final payment.
             COALESCE(SUM(CASE WHEN p.payment_class = 'hard' AND p.paid_date IS NOT NULL
                               THEN p.amount_cents END), 0) AS paid_cents,

@@ -7,9 +7,10 @@
 // Four decisions worth stating, because each is the kind that gets reversed by
 // accident later:
 //
-//   - Hard payments only. The scheduler creates a soft row a week before every
-//     vendor deadline as the advisor's own buffer, for the same money. Sending
-//     both would tell the client twice about one payment.
+//   - Hard payments only. The scheduler creates a soft row ahead of every
+//     vendor deadline as the advisor's own buffer, for the same money, at the
+//     distance SOFT_DAYS sets in payments.js. Sending both would tell the
+//     client twice about one payment.
 //   - Three weeks, one week, one day, then once when it is late. Different
 //     messages about the same payment, so the column tracks how close the last
 //     one was rather than whether any went at all.

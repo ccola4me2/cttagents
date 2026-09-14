@@ -2,7 +2,7 @@
 //
 // A final balance is two rows in booking_payments. The hard row is the
 // vendor's deadline. The soft row is this portal's own reminder to chase the
-// same money a week earlier. They are one obligation stored twice, which is a
+// same money earlier. They are one obligation stored twice, which is a
 // good design for chasing and a trap for arithmetic: any total that sums both
 // reports a $2,000 balance as $4,000.
 //

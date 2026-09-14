@@ -389,8 +389,10 @@ async function main() {
     'a hard deposit for the deposit amount', JSON.stringify(deposit));
   check(hardFinal?.amount_cents === 450000 && hardFinal?.due_date === isoDay(60),
     'a hard balance on the vendor date, net of the deposit', JSON.stringify(hardFinal));
-  check(softFinal?.amount_cents === 450000 && softFinal?.due_date === isoDay(53),
-    'a soft reminder one week earlier', JSON.stringify(softFinal));
+  // Ten days, not the seven this used to assert. The number lives in
+  // SOFT_DAYS in payments.js; this is the check that it still reaches the row.
+  check(softFinal?.amount_cents === 450000 && softFinal?.due_date === isoDay(50),
+    'a soft reminder ten days earlier', JSON.stringify(softFinal));
 
   const again = await call(advisor, 'POST', `/api/bookings/${bookingId}/schedule`, {});
   check((again.data?.created || []).length === 0,
@@ -1493,7 +1495,7 @@ async function main() {
       { name: `Chase Me ${stamp}`, email: `chase-${stamp}@example.com` });
 
     // Two rows for one payment: the vendor's real deadline, and the advisor's
-    // own buffer a week earlier. Only the first is the client's business.
+    // own buffer ahead of it. Only the first is the client's business.
     const hard = await call(advisor, 'POST', '/api/payments', {
       bookingId: tripId, kind: 'final', amount: '4100',
       dueDate: isoDay(5), paymentClass: 'hard',
