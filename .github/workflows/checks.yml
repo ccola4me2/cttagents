@@ -112,6 +112,13 @@ jobs:
       - name: Column lists against the schema
         run: npm run check:columns
 
+      # The other end of the same question. That one reads the shared SELECT
+      # constants against the schema; this reads what the JavaScript actually
+      # reaches for, because a property that is not there is undefined rather
+      # than an error, and the field is simply always blank.
+      - name: Every column a handler reads is real
+        run: npm run check:reads
+
       - name: Build the database from the migrations
         run: npx wrangler d1 migrations apply cttagents --local
 
