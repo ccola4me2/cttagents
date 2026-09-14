@@ -17,6 +17,7 @@ import { requireUser } from './auth.js';
 import * as db from './db.js';
 import { suppressionFor } from './suppression.js';
 import { householdFor } from './households.js';
+import { SOURCE_KINDS, SOURCE_KIND_IDS } from './attribution.js';
 
 export async function handleListClients(request, env) {
   const { user, response } = await requireUser(request, env);
@@ -178,8 +179,17 @@ export async function handleClientRecord(request, env) {
   const liveCredits = (credits.results || []).filter((c) => !c.used_on);
 
   return json({
+    // The channels, from the one place they are written down, so the record's
+    // dropdown and the report cannot disagree about what a channel is.
+    sourceKinds: SOURCE_KINDS,
     client: {
       ...client,
+      // Who sent them, by name. The record holds an id, which is the right
+      // thing to store and the wrong thing to show anybody.
+      referred_by_name: client.referred_by_client_id
+        ? ((await env.DB.prepare('SELECT name FROM clients WHERE id = ? AND user_id = ?')
+            .bind(client.referred_by_client_id, client.user_id).first()) || {}).name || ''
+        : '',
       trips: counted.length,
       lifetimeCents: counted.reduce((n, b) => n + (b.gross_cents || 0), 0),
       commissionCents: counted.reduce((n, b) => n + (b.commission_cents || 0), 0),
@@ -319,7 +329,7 @@ export async function upsertClient(env, user, body) {
        passport_number = ?, passport_country = ?, passport_issued = ?, passport_expiry = ?,
        address1 = ?, address2 = ?, city = ?, state = ?, postcode = ?, country = ?,
        loyalty_json = ?, known_traveler = ?, redress = ?, ghl_contact_id = ?,
-       nickname = ?, source = ?,
+       nickname = ?, source = ?, source_kind = ?, referred_by_client_id = ?,
        updated_at = ? WHERE id = ? AND user_id = ?`
   ).bind(
     keep(clean(body.email, 160), before?.email),
@@ -351,6 +361,11 @@ export async function upsertClient(env, user, body) {
     keep(clean(body.contactId, 60), before?.ghl_contact_id),
     keep(t.nickname, before?.nickname),
     keep(t.source, before?.source),
+    // Where somebody came from is a fact about the first time they turned up,
+    // so keep() applies here as it does everywhere else on this record: a
+    // later import or a second form fills in a blank and overwrites nothing.
+    keep(oneOf(body.sourceKind, SOURCE_KIND_IDS), before?.source_kind),
+    keep(clean(body.referredBy, 64), before?.referred_by_client_id),
     now(), existingId, user.id
   ).run();
 
@@ -407,6 +422,7 @@ export async function handleUpdateClient(request, env, id) {
   const res = await env.DB.prepare(
     `UPDATE clients SET name = ?, email = ?, phone = ?, notes = ?,
        birthday = ?, anniversary = ?, nickname = ?, source = ?,
+       source_kind = ?, referred_by_client_id = ?,
        ${TRAVEL_SET}, updated_at = ?
       WHERE id = ? AND user_id = ?`
   ).bind(name, clean(body.email, 160) || null, clean(body.phone, 40) || null,
@@ -416,6 +432,11 @@ export async function handleUpdateClient(request, env, id) {
          // from a passport, so there is no reason to throw the year away.
          cleanDate(body.birthday), cleanDate(body.anniversary),
          travel.nickname, travel.source,
+         // The channel and who sent them, editable for the same reason the note
+         // beside them is: the first guess at where somebody came from is often
+         // wrong, and a field nobody can correct is a field nobody trusts.
+         oneOf(body.sourceKind, SOURCE_KIND_IDS) || null,
+         clean(body.referredBy, 64) || null,
          ...travelBinds(travel),
          now(), id, user.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Client not found.');

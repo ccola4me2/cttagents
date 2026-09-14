@@ -38,6 +38,15 @@
         <div class="card-pad" id="comparison"></div>
       </section>
       <section class="card">
+        <div class="card-head"><h2>Where clients come from</h2>
+          <a class="btn btn-ghost btn-sm" href="/app/clients">Clients</a></div>
+        <div id="attribution"><p class="spinner">Loading...</p></div>
+      </section>
+      <section class="card" id="referrers-card" hidden>
+        <div class="card-head"><h2>Who sends you people</h2></div>
+        <div id="referrers"></div>
+      </section>
+      <section class="card">
         <div class="card-head"><h2>How the selling is going</h2></div>
         <div class="card-pad" id="mix"></div>
       </section>
@@ -237,6 +246,82 @@ function drawMix(data) {
   </div>`;
 }
 
+
+// ---------------------------------------------------------------------------
+// Where clients come from
+//
+// Its own request, because it answers a different question from everything
+// above and because the month range and the personal-travel switch mean nothing
+// to it: a client came from where they came from, whatever window you are
+// looking at.
+// ---------------------------------------------------------------------------
+function drawAttribution(a) {
+  const host = document.getElementById('attribution');
+  const recorded = a.rows.filter((r) => r.kind);
+  const blank = a.rows.find((r) => !r.kind);
+
+  if (!recorded.length) {
+    host.innerHTML = `<div class="empty"><h3>Nothing is recorded yet</h3>
+      <p>Every client can carry where they came from, and then this says what each
+        channel has been worth. Set it on a lead as you take it, or on the client
+        record.</p></div>`;
+    document.getElementById('referrers-card').hidden = true;
+    return;
+  }
+
+  host.innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>Channel</th><th class="num">Clients</th><th class="num">Booked</th>
+        <th class="num">First</th><th class="num">Repeat</th>
+        <th class="num">Trips booked</th><th class="num">Commission</th>
+        <th class="num">Per client</th></tr></thead>
+      <tbody>${a.rows.map((r) => `<tr${r.kind ? '' : ' class="muted"'}>
+        <td><span class="name">${esc(r.name)}</span></td>
+        <td class="num">${r.clients}</td>
+        <td class="num">${r.bookedClients || '<span class="muted">-</span>'}</td>
+        <td class="num">${r.firstBookings || '<span class="muted">-</span>'}</td>
+        <td class="num">${r.repeatBookings || '<span class="muted">-</span>'}</td>
+        <td class="num">${r.grossCents ? money(r.grossCents) : '<span class="muted">-</span>'}</td>
+        <td class="num">${r.commissionCents ? money(r.commissionCents) : '<span class="muted">-</span>'}</td>
+        <td class="num">${r.grossCents ? money(r.perClientCents) : '<span class="muted">-</span>'}</td>
+      </tr>`).join('')}</tbody></table></div>
+    <p class="field-hint" style="padding:.8rem 1.25rem 1rem;margin:0;">
+      A reservation is counted under the channel its client came from, so a client who
+      books four trips is worth all four to whatever brought them in.
+      <strong>Per client</strong> is the column to read: forty leads who never booked are
+      worth less than four who did.${blank
+        ? ` ${blank.clients} client${blank.clients === 1 ? ' has' : 's have'} no channel
+           recorded and ${blank.clients === 1 ? 'is' : 'are'} in no total above except
+           their own row.` : ''}${a.unattributed.bookings
+        ? ` ${a.unattributed.bookings} reservation${a.unattributed.bookings === 1 ? '' : 's'}
+           worth ${money(a.unattributed.grossCents)} ${a.unattributed.bookings === 1
+             ? 'is' : 'are'} attached to no client record at all, so ${
+             a.unattributed.bookings === 1 ? 'it is' : 'they are'} in no channel.` : ''}</p>`;
+
+  const refs = a.referrers;
+  document.getElementById('referrers-card').hidden = !refs.length;
+  if (!refs.length) return;
+  document.getElementById('referrers').innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>Client</th><th class="num">Sent</th><th class="num">Booked</th>
+        <th class="num">Trips booked</th></tr></thead>
+      <tbody>${refs.map((r) => `<tr>
+        <td><a class="name" href="/app/client?id=${esc(r.id)}">${esc(r.name)}</a></td>
+        <td class="num">${r.sent}</td>
+        <td class="num">${r.booked || '<span class="muted">-</span>'}</td>
+        <td class="num">${r.grossCents ? money(r.grossCents) : '<span class="muted">-</span>'}</td>
+      </tr>`).join('')}</tbody></table></div>
+    <p class="field-hint" style="padding:.8rem 1.25rem 1rem;margin:0;">
+      Worth a thank you, and worth asking again: a client who has sent you somebody once
+      is the likeliest person in the book to do it twice.</p>`;
+}
+
+async function loadAttribution() {
+  try {
+    const a = await api(`/api/reports/attribution${
+      advisorParam() ? '?' + advisorParam() : ''}`);
+    drawAttribution(a);
+  } catch (err) { showError(document.getElementById('attribution'), err); }
+}
+
 async function load() {
   chart.innerHTML = '<p class="spinner">Loading...</p>';
   try {
@@ -250,5 +335,6 @@ async function load() {
 range.addEventListener('change', load);
 personal.addEventListener('change', load);
 await load();
+await loadAttribution();
 </script>
 </body></html>

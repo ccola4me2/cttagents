@@ -1493,6 +1493,7 @@ const CLIENT_COLUMNS = `
   c.passport_number, c.passport_country, c.passport_issued, c.passport_expiry,
   c.address1, c.address2, c.city, c.state, c.postcode, c.country,
   c.loyalty_json, c.known_traveler, c.redress, c.nickname, c.source,
+  c.source_kind, c.referred_by_client_id,
   c.lead_stage, c.lead_at, c.lead_asked_about, c.lead_next_step, c.lead_next_step_on
 `;
 

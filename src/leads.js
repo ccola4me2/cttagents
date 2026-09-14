@@ -19,6 +19,7 @@
 import { json, badRequest, notFound, uid, now, clean, cleanText, oneOf, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
+import { SOURCE_KINDS, SOURCE_KIND_IDS } from './attribution.js';
 
 // Where somebody is in the conversation, in the words an advisor would use.
 // "Booked" is not here on purpose: it is a fact about reservations, so it is
@@ -39,6 +40,11 @@ function shape(r) {
     email: r.email || '',
     phone: r.phone || '',
     source: r.source || '',
+    // The channel and the note beside it. One is countable and one says which
+    // form, whose party, which post.
+    sourceKind: r.source_kind || '',
+    referredBy: r.referred_by_client_id || '',
+    referredByName: r.referred_by_name || '',
     stage: r.lead_stage,
     askedAbout: r.lead_asked_about || '',
     nextStep: r.lead_next_step || '',
@@ -71,6 +77,11 @@ export async function handleLeadBoard(request, env) {
   // behind without following a variable.
   const { results } = await env.DB.prepare(
     `SELECT c.id, c.user_id, c.name, c.email, c.phone, c.source, c.created_at,
+            c.source_kind, c.referred_by_client_id,
+            -- The referrer's name, so the dialog can show who sent them rather
+            -- than an id nobody can read.
+            (SELECT r.name FROM clients r WHERE r.id = c.referred_by_client_id
+               AND r.user_id = c.user_id) AS referred_by_name,
             c.lead_stage, c.lead_at, c.lead_asked_about, c.lead_next_step, c.lead_next_step_on,
             (SELECT COUNT(*) FROM bookings b
               WHERE b.client_id = c.id AND b.status IN ('booked','travelled')) AS trips
@@ -94,6 +105,10 @@ export async function handleLeadBoard(request, env) {
 
   return json({
     stages,
+    // The channels, from the one place they are written down. The dialog builds
+    // its dropdown from this for the same reason it builds the stage dropdown
+    // from `stages`: a second copy is a second thing to keep in step.
+    kinds: SOURCE_KINDS,
     total: open.length,
     // The ones who have not been answered. A pipeline exists to produce this
     // number and most of them make it hard to find.
@@ -123,6 +138,10 @@ function parse(body) {
       email: clean(body.email, 254) || null,
       phone: clean(body.phone, 40) || null,
       source: clean(body.source, 120) || null,
+      // Null rather than a default. Nobody has said where this person came
+      // from, and "other" would be the portal saying it for them.
+      sourceKind: oneOf(body.sourceKind, SOURCE_KIND_IDS) || null,
+      referredBy: clean(body.referredBy, 64) || null,
       stage: oneOf(body.stage, STAGE_IDS) || 'new',
       askedAbout: cleanText(body.askedAbout, 500) || null,
       nextStep: clean(body.nextStep, 160) || null,
@@ -156,10 +175,15 @@ export async function handleAddLead(request, env) {
           SET email = COALESCE(NULLIF(email, ''), ?),
               phone = COALESCE(NULLIF(phone, ''), ?),
               source = COALESCE(NULLIF(source, ''), ?),
+              -- Where somebody came from is a fact about the first time, so an
+              -- existing one is never written over by a later form or call.
+              source_kind = COALESCE(source_kind, ?),
+              referred_by_client_id = COALESCE(referred_by_client_id, ?),
               lead_stage = ?, lead_at = COALESCE(lead_at, ?), lead_asked_about = ?,
               lead_next_step = ?, lead_next_step_on = ?, updated_at = ?
         WHERE id = ? AND user_id = ?`
-    ).bind(fields.email, fields.phone, fields.source, fields.stage, ts,
+    ).bind(fields.email, fields.phone, fields.source,
+           fields.sourceKind, fields.referredBy, fields.stage, ts,
            fields.askedAbout, fields.nextStep, fields.nextStepOn, ts,
            existing.id, user.id).run();
     return json({ ok: true, id: existing.id, matched: true });
@@ -168,10 +192,12 @@ export async function handleAddLead(request, env) {
   const id = uid();
   await env.DB.prepare(
     `INSERT INTO clients
-       (id, user_id, name, email, phone, source, lead_stage, lead_at,
+       (id, user_id, name, email, phone, source, source_kind, referred_by_client_id,
+        lead_stage, lead_at,
         lead_asked_about, lead_next_step, lead_next_step_on, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(id, user.id, fields.name, fields.email, fields.phone, fields.source,
+         fields.sourceKind, fields.referredBy,
          fields.stage, ts, fields.askedAbout, fields.nextStep, fields.nextStepOn,
          ts, ts).run();
 
@@ -188,10 +214,12 @@ export async function handleUpdateLead(request, env, id) {
 
   const res = await env.DB.prepare(
     `UPDATE clients
-        SET name = ?, email = ?, phone = ?, source = ?, lead_stage = ?,
+        SET name = ?, email = ?, phone = ?, source = ?,
+            source_kind = ?, referred_by_client_id = ?, lead_stage = ?,
             lead_asked_about = ?, lead_next_step = ?, lead_next_step_on = ?, updated_at = ?
       WHERE id = ? AND user_id = ?`
-  ).bind(fields.name, fields.email, fields.phone, fields.source, fields.stage,
+  ).bind(fields.name, fields.email, fields.phone, fields.source,
+         fields.sourceKind, fields.referredBy, fields.stage,
          fields.askedAbout, fields.nextStep, fields.nextStepOn, now(), id, user.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('That lead is not here.');
   return json({ ok: true });

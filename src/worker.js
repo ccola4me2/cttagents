@@ -318,6 +318,7 @@ import {
   handleProduction,
   handleMonth,
 } from './reports.js';
+import { handleAttribution } from './attribution.js';
 import {
   handleListAdvisors,
   handleSetAdvisorStatus,
@@ -929,6 +930,7 @@ async function routeApi(request, env, path, method) {
     return handleSetCommissionStatus(request, env);
   }
   if (path === '/api/reports/production' && method === 'GET') return handleProduction(request, env);
+  if (path === '/api/reports/attribution' && method === 'GET') return handleAttribution(request, env);
   // Everyone whose documents will stop them travelling, across the whole book.
   if (path === '/api/documents' && method === 'GET') return handleDocumentWatch(request, env);
 

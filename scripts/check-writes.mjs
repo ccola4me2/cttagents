@@ -51,6 +51,9 @@ const ALLOWED = [
   ['vendors:favourite', 'UPDATE vendors SET name = ?',
     'the star has its own endpoint. Writing it from a form with no star field cleared '
     + 'the star every time a supplier was edited, which is how it got one'],
+  ['clients:referred_by_client_id', "SET email = COALESCE(NULLIF(email, ''), ?)",
+    'a public form knows it is a form and nothing else. Who sent somebody is a thing '
+    + 'an advisor is told, and the form path fills in blanks rather than clearing them'],
 ];
 
 // What the commission agreement said when the reservation was taken. Stamped
@@ -88,7 +91,7 @@ for (const column of ['address1', 'address2', 'anniversary', 'birthday', 'citize
   'passport_expiry', 'passport_issued', 'passport_number', 'postcode', 'redress', 'state']) {
   ALLOWED.push([`clients:${column}`, "SET email = COALESCE(NULLIF(email, ''), ?)",
     'the lead dialog holds a name and a way to reach somebody, and nothing about travel']);
-  ALLOWED.push([`clients:${column}`, 'SET name = ?, email = ?, phone = ?, source = ?, lead_stage = ?',
+  ALLOWED.push([`clients:${column}`, 'SET name = ?, email = ?, phone = ?, source = ?,',
     'the lead dialog holds a name and a way to reach somebody, and nothing about travel']);
 }
 
@@ -97,7 +100,7 @@ for (const column of ['address1', 'address2', 'anniversary', 'birthday', 'citize
 // something a later edit should move.
 ALLOWED.push(['clients:name', "SET email = COALESCE(NULLIF(email, ''), ?)",
   'reached by name, so renaming from it would rename the person it just matched']);
-ALLOWED.push(['clients:lead_at', 'SET name = ?, email = ?, phone = ?, source = ?, lead_stage = ?',
+ALLOWED.push(['clients:lead_at', 'SET name = ?, email = ?, phone = ?, source = ?,',
   'when somebody first got in touch is a fact, and editing their phone number is not it']);
 
 // A form knows what somebody asked about. It does not know when to ring them,

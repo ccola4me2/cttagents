@@ -592,6 +592,10 @@ export async function handlePublicSubmit(request, env, slug) {
               SET email = COALESCE(NULLIF(email, ''), ?),
                   phone = COALESCE(NULLIF(phone, ''), ?),
                   source = COALESCE(NULLIF(source, ''), ?),
+                  -- Which form is the detail; the website is the channel. Only
+                  -- ever filled in when it is blank: somebody who came by
+                  -- referral and later filled in a form came by referral.
+                  source_kind = COALESCE(source_kind, 'website'),
                   lead_stage = COALESCE(lead_stage, ?),
                   lead_at = COALESCE(lead_at, ?),
                   lead_asked_about = COALESCE(NULLIF(lead_asked_about, ''), ?),

@@ -59,10 +59,22 @@
         <textarea id="askedAbout" name="askedAbout" maxlength="500"
           placeholder="Alaska next summer, two of them, never cruised before"></textarea></div>
       <div class="field-row">
-        <div class="field"><label for="source">How they found you</label>
-          <input id="source" name="source" maxlength="120" placeholder="Referral, website, Facebook"></div>
+        <div class="field"><label for="sourceKind">How they found you</label>
+          <select id="sourceKind" name="sourceKind"></select>
+          <p class="field-hint" id="source-hint">Countable, so the reports can say what each
+            channel has been worth. Leave it blank rather than guessing.</p></div>
         <div class="field"><label for="stage">Stage</label>
           <select id="stage" name="stage"></select></div>
+      </div>
+      <div class="field-row">
+        <div class="field" id="referred-field" hidden><label for="referredByName">Who sent them</label>
+          <input id="referredByName" maxlength="120" placeholder="Start typing a client's name">
+          <input type="hidden" id="referredBy" name="referredBy">
+          <p class="field-hint">A name here turns "referral: eight clients" into eight people
+            you can thank.</p></div>
+        <div class="field"><label for="source">The detail</label>
+          <input id="source" name="source" maxlength="120"
+            placeholder="Which form, whose party, which post"></div>
       </div>
       <div class="field-row">
         <div class="field"><label for="nextStep">Next step</label>
@@ -81,6 +93,7 @@
 <script type="module">
 import { api, mountShell, esc, dateFmt, timeAgo, showError, onSubmit,
   mountScopePicker, advisorParam } from '/js/app.js';
+import { mountClientSuggest } from '/js/client-suggest.js';
 await mountShell();
 
 const panel = document.getElementById('panel');
@@ -104,6 +117,16 @@ function fillStages() {
     .map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
 }
 
+// What to show for where somebody came from: the channel, then the note, then
+// an honest blank. The note alone was all there was, and a board full of
+// "source not recorded" is what made the case for a countable field.
+function cameFrom(l) {
+  const kind = ((data && data.kinds) || []).find((k) => k.id === l.sourceKind);
+  const bits = [kind ? kind.name : '', l.referredByName ? `sent by ${l.referredByName}` : '',
+    l.source || ''].filter(Boolean);
+  return bits.length ? bits.join(' \u00b7 ') : 'source not recorded';
+}
+
 function reach(l) {
   return [l.phone ? `<a href="tel:${esc(l.phone)}">${esc(l.phone)}</a>` : '',
           l.email ? `<a href="mailto:${esc(l.email)}">${esc(l.email)}</a>` : '']
@@ -118,7 +141,7 @@ function card(l) {
     ${l.nextStep ? `<div class="n${late ? ' due' : ''}">${esc(l.nextStep)}${
       l.nextStepOn ? ` &middot; ${esc(dateFmt(l.nextStepOn))}` : ''}</div>`
       : '<div class="n due">No next step</div>'}
-    <div class="w">${esc(l.source || 'source not recorded')} &middot; ${esc(timeAgo(l.since))}</div>
+    <div class="w">${esc(cameFrom(l))} &middot; ${esc(timeAgo(l.since))}</div>
   </article>`;
 }
 
@@ -169,7 +192,7 @@ function list() {
       const late = l.nextStepOn && l.nextStepOn <= data.today;
       return `<tr>
         <td><a class="name" href="/app/client?id=${esc(l.id)}">${esc(l.name)}</a>
-          <div class="muted" style="font-size:.74rem;">${esc(l.source || 'source not recorded')}</div></td>
+          <div class="muted" style="font-size:.74rem;">${esc(cameFrom(l))}</div></td>
         <td>${reach(l) || '<span class="muted">nothing on file</span>'}</td>
         <td class="muted">${esc(l.askedAbout || '')}</td>
         <td${late ? ' style="color:var(--red-600);font-weight:600;"' : ''}>${
@@ -223,11 +246,47 @@ function open(l) {
   f.elements.email.value = l ? l.email : '';
   f.elements.askedAbout.value = l ? l.askedAbout : '';
   f.elements.source.value = l ? l.source : '';
+  fillKinds();
+  f.elements.sourceKind.value = l ? (l.sourceKind || '') : '';
+  f.elements.referredBy.value = l ? (l.referredBy || '') : '';
+  document.getElementById('referredByName').value = l ? (l.referredByName || '') : '';
+  showReferred();
   f.elements.stage.value = l ? l.stage : 'new';
   f.elements.nextStep.value = l ? l.nextStep : '';
   f.elements.nextStepOn.value = l ? l.nextStepOn : '';
   dlg.showModal();
 }
+
+// The channel list comes from the server with the board, so the dialog and the
+// report can never disagree about what a channel is.
+function fillKinds() {
+  const sel = document.getElementById('sourceKind');
+  if (sel.dataset.filled) return;
+  sel.innerHTML = '<option value="">Not recorded</option>'
+    + ((data && data.kinds) || []).map((k) =>
+        `<option value="${esc(k.id)}">${esc(k.name)}</option>`).join('');
+  sel.dataset.filled = '1';
+}
+
+// Who sent them is only a question when the answer is a person.
+function showReferred() {
+  const referral = document.getElementById('sourceKind').value === 'referral';
+  document.getElementById('referred-field').hidden = !referral;
+  if (!referral) {
+    document.getElementById('referredBy').value = '';
+    document.getElementById('referredByName').value = '';
+  }
+}
+document.getElementById('sourceKind').addEventListener('change', showReferred);
+
+mountClientSuggest(document.getElementById('referredByName'), {
+  onChoose: (row) => { document.getElementById('referredBy').value = row.id; },
+});
+// Typing over a chosen name without picking anybody clears the link rather than
+// leaving it pointing at whoever was there before.
+document.getElementById('referredByName').addEventListener('input', () => {
+  document.getElementById('referredBy').value = '';
+});
 
 document.querySelectorAll('[data-close]').forEach((b) =>
   b.addEventListener('click', () => dlg.close()));

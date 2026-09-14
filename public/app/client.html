@@ -143,6 +143,11 @@
 
 <script type="module">
 import { api, mountShell, esc, money, dateFmt, daysUntil, showError, onSubmit, timeAgo } from '/js/app.js';
+import { mountClientSuggest } from '/js/client-suggest.js';
+
+/** A channel's name, from the list the server sent with the record. */
+const sourceKindName = (d, id) =>
+  ((d.sourceKinds || []).find((k) => k.id === id) || {}).name || 'Not recorded';
 await mountShell();
 
 const params = new URLSearchParams(location.search);
@@ -466,7 +471,10 @@ function drawContact(d) {
             .join('<br>')}</dd>` : ''}
           ${c.known_traveler ? `<dt>Known traveler</dt><dd>${esc(c.known_traveler)}</dd>` : ''}
           ${c.redress ? `<dt>Redress</dt><dd>${esc(c.redress)}</dd>` : ''}
-          ${c.source ? `<dt>Came from</dt><dd>${esc(c.source)}</dd>` : ''}
+          ${c.source_kind || c.source ? `<dt>Came from</dt><dd>${
+            esc(sourceKindName(d, c.source_kind))}${c.source
+              ? ` <span class="muted">${esc(c.source)}</span>` : ''}${c.referred_by_name
+              ? `<div class="muted">sent by ${esc(c.referred_by_name)}</div>` : ''}</dd>` : ''}
           ${c.notes ? `<dt>Notes</dt><dd>${esc(c.notes)}</dd>` : ''}
         </dl>`
       : '<p class="muted" style="margin:0;font-size:.86rem;">No phone or email on file yet.</p>');
@@ -498,11 +506,28 @@ function drawContact(d) {
           placeholder="Barb">
         <p class="field-hint">What to call them, if it is not their first name. Emails use
           it.</p></div>
-      <div class="field"><label for="csource">Where they came from</label>
+      <div class="field"><label for="csourceKind">Where they came from</label>
+        <select id="csourceKind" name="sourceKind">
+          <option value="">Not recorded</option>
+          ${(d.sourceKinds || []).map((k) => `<option value="${esc(k.id)}"${
+            c.source_kind === k.id ? ' selected' : ''}>${esc(k.name)}</option>`).join('')}
+        </select>
+        <p class="field-hint">The channel, from a fixed list, so the reports can add it up.
+          What was typed here before is kept below.</p></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label for="csource">The detail</label>
         <input id="csource" name="source" maxlength="80" value="${esc(c.source || '')}"
-          placeholder="Referral">
-        <p class="field-hint">Referral, Facebook, a repeat client. The only field that
-          answers which of your marketing is working.</p></div>
+          placeholder="Which form, whose party, which post">
+        <p class="field-hint">Free text, and not counted. This is where "Sandra's Christmas
+          party" goes.</p></div>
+      <div class="field"><label for="creferredByName">Who sent them</label>
+        <input id="creferredByName" maxlength="120" value="${esc(c.referred_by_name || '')}"
+          placeholder="Start typing a client's name">
+        <input type="hidden" id="creferredBy" name="referredBy"
+          value="${esc(c.referred_by_client_id || '')}">
+        <p class="field-hint">Only when it was a referral. A name here turns a statistic into
+          somebody to thank.</p></div>
     </div>
     <div class="field-row">
       <div class="field"><label for="cphone">Phone</label>
@@ -585,6 +610,18 @@ function drawContact(d) {
 
   document.getElementById('cancel-contact').addEventListener('click', () => {
     editing = false; drawContact(d);
+  });
+
+  // Who sent them, picked from the book rather than typed, because the record
+  // holds an id and a name that matches nobody is a link to nothing. Typing over
+  // a chosen name without picking clears the link instead of leaving it pointing
+  // at whoever was there before.
+  const refName = document.getElementById('creferredByName');
+  mountClientSuggest(refName, {
+    onChoose: (row) => { document.getElementById('creferredBy').value = row.id; },
+  });
+  refName.addEventListener('input', () => {
+    document.getElementById('creferredBy').value = '';
   });
   onSubmit(document.getElementById('contact-form'), async (values) => {
     const body = { ...values, loyalty: loyaltyFromText(values.loyaltyText) };
