@@ -26,24 +26,58 @@ export function normalise(email) {
   return String(email || '').trim().toLowerCase();
 }
 
+// The literal this used to sign with, kept only for reading.
+//
+// It is in the git history of a public repository, so anybody could mint a
+// valid unsubscribe for any address on any list with it. Nothing is signed with
+// it any more. It stays in the verifying set so that a link already sitting in
+// somebody's inbox still works, and can be deleted once no mail signed with it
+// is plausibly still out there.
+const LEGACY_KEY = 'ctt-unsubscribe';
+
 /**
  * The secret the unsubscribe links are signed with.
  *
- * One secret, and a named one. It used to fall back to the Resend key and then
- * to the CRM token, on the reasoning that both are secrets this Worker already
- * holds. They are, and they are also the wrong ones: the key that signs a link
- * has to outlive everything, and those two are rotated and revoked for reasons
- * that have nothing to do with unsubscribing. Rotate the Resend key and every
- * unsubscribe link ever sent stops verifying, which a client experiences as
- * "this link is not one of ours" on the page whose whole job is to take them
- * off the list. Removing the CRM made the same point louder.
+ * This key has two requirements that every candidate the Worker already held
+ * fails. It has to be **stable for years**, because a link sent today is
+ * clicked whenever somebody gets round to it, which rules out the Resend key
+ * and the CRM token: both are rotated for reasons that have nothing to do with
+ * email preferences, and rotating one used to break every unsubscribe link ever
+ * sent. And it has to be **secret**, which rules out a literal in the source,
+ * because this repository is public.
  *
- * The literal keeps the feature working before anybody sets the secret, which
- * is the state on a fresh deployment. Set UNSUBSCRIBE_SECRET before the first
- * broadcast goes out and it never needs setting again.
+ * So the portal makes its own, once, and keeps it in app_settings. Nothing to
+ * set and nothing to remember. INSERT OR IGNORE and then a re-read, rather than
+ * trusting the insert, because two requests arriving together would otherwise
+ * leave one of them signing with a value that lost the race and was discarded.
+ *
+ * UNSUBSCRIBE_SECRET in the environment still wins, for an operator who would
+ * rather hold it themselves.
  */
-function signingKey(env) {
-  return env.UNSUBSCRIBE_SECRET || 'ctt-unsubscribe';
+async function signingKey(env) {
+  if (env.UNSUBSCRIBE_SECRET) return env.UNSUBSCRIBE_SECRET;
+  try {
+    const read = async () => {
+      const row = await env.DB.prepare(
+        "SELECT value FROM app_settings WHERE key = 'unsubscribe_secret'"
+      ).first();
+      return row && row.value ? row.value : null;
+    };
+    const found = await read();
+    if (found) return found;
+    const ts = now();
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO app_settings (key, value, created_at, updated_at)
+       VALUES ('unsubscribe_secret', ?, ?, ?)`
+    ).bind(`${uid()}${uid()}`, ts, ts).run();
+    return (await read()) || LEGACY_KEY;
+  } catch (e) {
+    // A link that cannot be verified is a client who cannot get off the list,
+    // so this falls back rather than throwing. It also means the table is
+    // missing, which is worth saying out loud.
+    console.error('unsubscribe secret', e);
+    return LEGACY_KEY;
+  }
 }
 
 /**
@@ -56,7 +90,7 @@ function signingKey(env) {
  */
 export async function unsubscribeToken(env, agencyId, email) {
   const who = `${agencyId || ''}:${normalise(email)}`;
-  const sig = (await sha256Hex(`${signingKey(env)}|${who}`)).slice(0, 24);
+  const sig = (await sha256Hex(`${await signingKey(env)}|${who}`)).slice(0, 24);
   // base64url, so it survives being a path segment and a mail client's
   // enthusiasm for turning things into links.
   const payload = btoa(who).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -71,8 +105,15 @@ export async function readToken(env, token) {
   try {
     who = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
   } catch { return null; }
-  const expected = (await sha256Hex(`${signingKey(env)}|${who}`)).slice(0, 24);
-  if (expected !== sig) return null;
+  // Signed with today's key, or with the literal that used to be the key. Both
+  // are accepted for reading so a link already in an inbox keeps working; only
+  // the first is ever used for signing.
+  const keys = [await signingKey(env), LEGACY_KEY];
+  let ok = false;
+  for (const key of keys) {
+    if ((await sha256Hex(`${key}|${who}`)).slice(0, 24) === sig) { ok = true; break; }
+  }
+  if (!ok) return null;
   const at = who.indexOf(':');
   if (at < 0) return null;
   return { agencyId: who.slice(0, at) || null, email: who.slice(at + 1) };
