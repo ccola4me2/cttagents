@@ -1265,10 +1265,17 @@ function drawMoney() {
  * six reservations on this portal were exactly that, and the hint under the box
  * told the advisor the opposite of what the numbers said.
  *
- * The same comparison catches the other way round, which is how a trip total
- * goes missing: a deposit equal to the total on a trip a year out almost never
- * means the client paid it all today, it means the total is still the deposit
- * because nobody typed the real one.
+ * The same comparison is worth saying the other way round, but only as a
+ * question. A deposit equal to the total on a trip a year out can mean the
+ * total is still the deposit because nobody typed the real one. It can equally
+ * mean a casino or comped booking, where the cabin costs the client nothing and
+ * the only money is taxes and fees, so the total really is that small. This
+ * portal cannot tell those apart: the casino rate shows on a pricing line as
+ * bonus_shared, and a reservation entered without a breakdown has no line.
+ *
+ * So it names both and colours neither. A warning that cries wolf on a product
+ * a cruise agency sells every month is worse than no warning, because the next
+ * one gets ignored too.
  */
 const FULL_PAYMENT_WINDOW = 90;
 
@@ -1279,9 +1286,9 @@ function depositHint(b) {
 
   if (deposit > 0 && gross > 0 && deposit >= gross) {
     return out !== null && out > FULL_PAYMENT_WINDOW
-      ? { warn: true, text: `This is the whole trip total on a trip ${out} days away. Inside `
-          + `${FULL_PAYMENT_WINDOW} days that is right and the trip is paid. This far ahead it `
-          + 'usually means the trip total has not been filled in yet.' }
+      ? { warn: false, text: `The whole trip total on a trip ${out} days away. Right for a casino `
+          + 'or comped cabin, where the client pays only taxes and fees. On an ordinary fare it '
+          + 'means the trip total still needs filling in.' }
       : { warn: false, text: 'The whole trip total, so this is the payment in full rather than a '
           + 'deposit. Nothing further falls due.' };
   }
