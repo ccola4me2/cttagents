@@ -26,8 +26,19 @@
               <div class="field"><label for="firstName">First name</label><input id="firstName" name="firstName"></div>
               <div class="field"><label for="lastName">Last name</label><input id="lastName" name="lastName"></div>
             </div>
-            <div class="field"><label for="phone">Phone</label><input id="phone" name="phone" type="tel"></div>
-            <div class="field"><label for="agencyName">Agency or host</label><input id="agencyName" name="agencyName"></div>
+            <p class="field-hint">Every other field here says where it turns up in front of a
+              client, and these four never did. This one signs your proposals, your invoices and
+              every message the portal sends on your behalf. Left blank it falls back to the
+              address you sign in with, which reads to a client as a system rather than a
+              person.</p>
+            <div class="field"><label for="phone">Phone</label><input id="phone" name="phone" type="tel">
+              <p class="field-hint">On the proposal, on the invoice, and in the footer of a payment
+                reminder, as a number a client can tap. That last one tells them a booking may be
+                cancelled if a date passes, so a number to ring is worth more there than
+                anywhere.</p></div>
+            <div class="field"><label for="agencyName">Agency or host</label><input id="agencyName" name="agencyName">
+              <p class="field-hint">The name that stands beside yours on everything a client is
+                sent.</p></div>
             <div class="field"><label for="notifyEmail">Tell me about leads at</label>
               <input id="notifyEmail" name="notifyEmail" type="email" maxlength="254">
               <p class="field-hint" id="notify-hint">Where you are told when somebody signs up on a

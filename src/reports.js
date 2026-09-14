@@ -280,9 +280,13 @@ function profileGap(user) {
 
   return {
     tone: user.seller_of_travel ? 'info' : 'warn',
-    title: `A client reading your quote does not see ${list}`,
-    detail: 'Everything a client needs to reach you comes off your own record, and what is '
-      + 'blank is left off the page rather than guessed at.',
+    title: `A client reading what you send does not see ${list}`,
+    // Not "your quote" any more. The same record signs the invoice and the
+    // footer of a payment reminder, which is the message that tells somebody a
+    // booking may be cancelled, and a number to ring is worth most there.
+    detail: 'Everything a client needs to reach you comes off your own record: the proposal, '
+      + 'the invoice, and the foot of a payment reminder. What is blank is left off rather '
+      + 'than guessed at.',
     href: '/app/settings', label: 'Fill them in',
   };
 }
