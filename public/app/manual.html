@@ -82,8 +82,9 @@
 <ul>
   <li>The <strong>vendor deadline</strong> is the real one. Miss it and the booking can be
     cancelled.</li>
-  <li>The <strong>reminder</strong> sits a week in front of it. It is your own buffer, not
-    the vendor's date.</li>
+  <li>The <strong>reminder</strong> sits <strong>ten days</strong> in front of it. It is
+    your own buffer, not the vendor's date: a client who has to move money needs longer
+    than a weekend.</li>
 </ul>
 <p>They are the same money written down twice, so <strong>every total counts the vendor
   deadline only.</strong> If both were counted, a $2,000 balance would read as $4,000.
@@ -92,6 +93,26 @@
 <div class="aside"><p>Posting a payment against the reminder line instead of the deadline
   is a thing people do, and the portal quietly moves it to the right one rather than
   recording it somewhere no total looks at.</p></div>
+
+<h3>Where the two lines come from</h3>
+<p>They do not appear on their own. A reservation has a <strong>payment schedule</strong>,
+  and until something is on it there is nothing to chase and nothing to remind anybody
+  about. A trip can carry a final payment date, look completely normal in the list, and
+  still have an empty schedule, and in that state the portal will never say a word about
+  it.</p>
+<p>Open the reservation and press <strong>Build schedule</strong>, or use the same button
+  on <a href="/app/payments">Payments</a> or on
+  <a href="/app/complete">Fill in the gaps</a>. It reads the deposit and the final payment
+  date off the reservation and writes the lines. It never marks anything paid and it never
+  emails anybody.</p>
+<p>The one shape worth knowing: <strong>inside ninety days of departure there is no
+  deposit</strong>, because a cruise is paid in full at booking. The whole trip cost goes
+  in the deposit box and there is no separate balance to chase later. That is correct, and
+  it is why a reservation worth several thousand dollars can have nothing outstanding once
+  the payment is posted.</p>
+<p>If a client has already paid, post the payment rather than leaving the schedule empty.
+  An empty schedule and a paid trip look identical to the portal, and only one of them is
+  true.</p>
 
 <h3>Part payments</h3>
 <p>Post what actually arrived. The line becomes the amount received, and the remainder
@@ -260,10 +281,17 @@
 <h2 id="stuck">Things that catch people out</h2>
 
 <h3>"It says past due and I have paid it"</h3>
-<p>Check which of the two lines you posted against. The reminder sits a week in front of
+<p>Check which of the two lines you posted against. The reminder sits ten days in front of
   the vendor deadline and is the same money; posting against the reminder is moved to the
   deadline for you, but a reminder left over from an older schedule can still look like a
   balance. Opening the reservation shows both.</p>
+
+<h3>"Nothing is reminding me about a trip"</h3>
+<p>Its payment schedule is probably empty. A final payment date on its own warns nobody:
+  the reminders are built from the schedule, and a reservation with no lines on it has
+  nothing to remind you about. Press <strong>Build schedule</strong> on the reservation, or
+  on <a href="/app/complete">Fill in the gaps</a>, which lists every trip in that state
+  with the amount that is on no line.</p>
 
 <h3>"The commission total does not match what I added up"</h3>
 <p>Most likely one of three things: a no-commission reservation, which is excluded on

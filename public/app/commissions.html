@@ -113,6 +113,25 @@ function ageLabel(r) {
   return `${r.daysSince}d since return`;
 }
 
+/**
+ * Which parts of a commission are still out, under the total.
+ *
+ * The column is called "Still out" and used to answer with the breakdown and
+ * no total at all: three small figures, two of them $0 on the ordinary
+ * reservation where a vendor pays one kind of commission.
+ *
+ * Nothing at all when one part carries the whole of it, because repeating the
+ * total in smaller type under itself tells nobody anything. A vendor paying
+ * base and a bonus is the case this exists for: the bonus is the half that
+ * goes unchased, and it disappears inside one figure.
+ */
+function kindSplit(r) {
+  const parts = Object.entries(r.outstanding_by_kind || {}).filter(([, v]) => v > 0);
+  if (parts.length < 2) return '';
+  return `<div class="muted" style="font-size:.72rem;">${
+    parts.map(([k, v]) => `${esc(k)} ${money(v)}`).join('<br>')}</div>`;
+}
+
 function render() {
   const t = d.totals;
   document.getElementById('stats').innerHTML = `
@@ -189,11 +208,9 @@ function render() {
           <td class="num">${r.received_cents ? money(r.received_cents) : '<span class="muted">-</span>'}
             ${r.last_received_on
               ? `<div class="muted" style="font-size:.72rem;">${esc(short(r.last_received_on))}</div>` : ''}</td>
-          <td class="num">${Object.keys(r.outstanding_by_kind || {}).length
-            ? `<div class="muted" style="font-size:.72rem;">${
-                Object.entries(r.outstanding_by_kind)
-                  .map(([k, v]) => `${k} ${money(v)}`).join('<br>')}</div>`
-            : ''}</td>
+          <td class="num">${r.outstanding_cents
+            ? `${money(r.outstanding_cents)}${kindSplit(r)}`
+            : '<span class="muted">-</span>'}</td>
           <td class="num">${r.variance_cents
             ? `<strong style="color:var(--${r.variance_cents < 0 ? 'red' : 'amber'}-600);">${
                 money(r.variance_cents)}</strong>`
