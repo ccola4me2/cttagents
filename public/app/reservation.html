@@ -46,10 +46,10 @@
               <span id="pricing-actions"></span></div>
             <div id="pricing"></div>
           </section>
-          <section class="card" style="margin-bottom:1.5rem;" id="components-card">
-            <div class="card-head" id="sec-components"><h2>Also on this trip</h2>
-              <span id="component-actions"></span></div>
-            <div id="components"></div>
+          <section class="card" style="margin-bottom:1.5rem;">
+            <div class="card-head" id="sec-payments"><h2>Payment schedule</h2>
+              <span id="schedule-actions"></span></div>
+            <div id="payments"></div>
           </section>
           <section class="card" style="margin-bottom:1.5rem;" id="options-card" hidden>
             <div class="card-head" id="sec-options"><h2>Choices offered</h2>
@@ -66,10 +66,10 @@
               <span id="itin-actions"></span></div>
             <div class="card-pad" id="itinerary"></div>
           </section>
-          <section class="card">
-            <div class="card-head" id="sec-payments"><h2>Payment schedule</h2>
-              <span id="schedule-actions"></span></div>
-            <div id="payments"></div>
+          <section class="card" id="components-card">
+            <div class="card-head" id="sec-components"><h2>Also on this trip</h2>
+              <span id="component-actions"></span></div>
+            <div id="components"></div>
           </section>
         </div>
         <div>
@@ -297,6 +297,8 @@
     <div class="card-pad">
       <div class="notice notice-error" hidden></div>
       <p class="muted" id="post-what" style="margin:0 0 .9rem;"></p>
+      <div class="field" id="pp-kind-field" hidden><label for="pp-kind">What it is</label>
+        <select id="pp-kind" name="kind"></select></div>
       <div class="field-row">
         <div class="field"><label for="pp-amount">How much was received</label>
           <input id="pp-amount" name="amount" inputmode="decimal">
@@ -1635,8 +1637,14 @@ function render() {
 
   // ---- schedule ----
   document.getElementById('schedule-actions').innerHTML = d.editable
-    ? `<button class="btn btn-ghost btn-sm" id="build">Build schedule</button>`
+    ? `<button class="btn btn-secondary btn-sm" id="post-new">Post a payment</button>
+       <button class="btn btn-ghost btn-sm" id="build">Build schedule</button>`
     : '';
+  // Money that arrived without being scheduled. A client who sends the balance
+  // early, or a deposit taken before anybody built a schedule, had nowhere to
+  // be recorded from this page: the only way in was a row that already existed.
+  const postNew = document.getElementById('post-new');
+  if (postNew) postNew.addEventListener('click', () => openPost(null));
   const buildBtn = document.getElementById('build');
   if (buildBtn) buildBtn.addEventListener('click', async () => {
     buildBtn.disabled = true;
@@ -1730,10 +1738,10 @@ function render() {
   const sections = [
     ['sec-detail', 'Reservation'],
     ['sec-pricing', 'Pricing'],
-    ['sec-components', 'Other vendors'],
+    ['sec-payments', 'Payments'],
     ['sec-options', 'Choices'],
     ['sec-travellers', 'Travellers'],
-    ['sec-payments', 'Payments'],
+    ['sec-components', 'Other vendors'],
     ['sec-share', 'Client page'],
     ['sec-docs', 'Documents'],
     ['sec-penalty', 'If they cancel'],
@@ -2496,47 +2504,63 @@ function postFields() {
   document.getElementById('pp-credit-field').hidden = !wantsCredit;
 }
 
+/**
+ * The dialog, for a row that exists or for money that just turned up.
+ *
+ * Null means new: the client sent something nobody had scheduled, which is the
+ * commonest way a deposit arrives. Same form either way, because it asks the
+ * same questions, and the only extra one is what kind of payment it was.
+ */
 function openPost(paymentId) {
-  const p = (d.payments || []).find((x) => x.id === paymentId);
-  if (!p) return;
+  const p = paymentId ? (d.payments || []).find((x) => x.id === paymentId) : null;
+  if (paymentId && !p) return;
   posting = paymentId;
   postForm.reset();
   postForm.querySelector('.notice-error').hidden = true;
 
-  document.getElementById('post-what').textContent =
-    `${KIND[p.kind] || p.kind} of ${money(p.amount_cents)}${
-      p.due_date ? `, due ${dateFmt(p.due_date)}` : ''}.`;
+  const kindField = document.getElementById('pp-kind-field');
+  kindField.hidden = Boolean(p);
+  document.getElementById('pp-kind').innerHTML = ['deposit', 'installment', 'final', 'refund']
+    .map((k) => `<option value="${esc(k)}">${esc(KIND[k] || k)}</option>`).join('');
+  postForm.elements.kind.value = p ? p.kind : 'deposit';
+
+  document.getElementById('post-what').textContent = p
+    ? `${KIND[p.kind] || p.kind} of ${money(p.amount_cents)}${
+        p.due_date ? `, due ${dateFmt(p.due_date)}` : ''}.`
+    : 'Money that has already arrived. It goes on the schedule as posted, so every '
+      + 'total counts it straight away.';
 
   // Defaulted to the whole amount, so posting a payment in full is still one
   // click on a filled-in form. Typing less records a part payment and leaves
   // the rest on its own line, still due on the same date.
-  postForm.elements.amount.value = ((p.amount_cents || 0) / 100).toFixed(2);
-  document.getElementById('pp-amount-hint').textContent =
-    `Leave it as ${money(p.amount_cents)} for the full amount, or type less to record `
-    + 'a part payment. The balance stays due on the same date.';
-  postForm.elements.paidDate.value = p.paid_date || d.today;
+  postForm.elements.amount.value = p ? ((p.amount_cents || 0) / 100).toFixed(2) : '';
+  document.getElementById('pp-amount-hint').textContent = p
+    ? `Leave it as ${money(p.amount_cents)} for the full amount, or type less to record `
+      + 'a part payment. The balance stays due on the same date.'
+    : 'What actually arrived.';
+  postForm.elements.paidDate.value = (p && p.paid_date) || d.today;
   document.getElementById('pp-type').innerHTML =
     '<option value="">Not recorded</option>' + orderedTypes(d.paymentTypes)
       .map((t) => `<option value="${esc(t)}">${esc(PAY_TYPE[t] || t)}</option>`).join('');
-  postForm.elements.paymentType.value = p.payment_type || '';
+  postForm.elements.paymentType.value = (p && p.payment_type) || '';
 
   document.getElementById('pp-by').innerHTML =
     '<option value="">Not recorded</option>' + (d.travellers || [])
       .map((t) => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('');
-  postForm.elements.paidBy.value = p.paid_by || '';
+  postForm.elements.paidBy.value = (p && p.paid_by) || '';
 
   const credits = d.spendableCredits || [];
   document.getElementById('pp-credit').innerHTML =
     '<option value="">None</option>' + credits.map((c) => `<option value="${esc(c.id)}">${
       esc([money(c.amount_cents), c.vendor, c.reference].filter(Boolean).join(' · '))}${
       c.expires_on ? ' · expires ' + esc(dateFmt(c.expires_on)) : ''}</option>`).join('');
-  postForm.elements.creditId.value = p.credit_id || '';
+  postForm.elements.creditId.value = (p && p.credit_id) || '';
   document.getElementById('pp-credit-hint').textContent = credits.length
     ? 'Spending a credit marks it used, so it stops being offered on the next trip.'
     : 'This client has no open credits on file.';
 
-  postForm.elements.cardLast4.value = p.card_last4 || '';
-  postForm.elements.reference.value = p.reference || '';
+  postForm.elements.cardLast4.value = (p && p.card_last4) || '';
+  postForm.elements.reference.value = (p && p.reference) || '';
   postFields();
   postDlg.showModal();
 }
@@ -2549,7 +2573,16 @@ postForm.elements.paymentType.addEventListener('change', postFields);
 document.querySelector('[data-close-post]').addEventListener('click', () => postDlg.close());
 onSubmit(postForm, async (values) => {
   values.cardLast4 = last4(values.cardLast4);
-  await api(`/api/payments/${encodeURIComponent(posting)}/paid`, { method: 'POST', body: values });
+  if (posting) {
+    await api(`/api/payments/${encodeURIComponent(posting)}/paid`, { method: 'POST', body: values });
+  } else {
+    // A payment that was never scheduled. Due on the day it arrived, because
+    // it did: a paid row with no due date falls out of every total that reads
+    // a schedule by date.
+    await api('/api/payments', { method: 'POST', body: {
+      ...values, bookingId: id, paymentClass: 'hard', dueDate: values.paidDate,
+    } });
+  }
   postDlg.close();
   await load();
 });
