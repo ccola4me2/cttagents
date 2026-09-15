@@ -680,6 +680,60 @@ export async function followBookingDates(env, user, before, after) {
   return moved;
 }
 
+/**
+ * The chase date on a reservation, as a date rather than as a payment row.
+ *
+ * It is the soft twin of the final balance, and it was invisible: derived when
+ * the schedule was built and never shown as a field, so an advisor who wanted
+ * to chase earlier than ten days had nowhere to say so. Brent asked for it
+ * beside the vendor's date, which is where it belongs, because the two dates
+ * are the pair somebody thinks about together.
+ */
+export function chaseDateOf(payments, booking) {
+  const soft = (payments || []).find((p) => p.kind === 'final'
+    && p.payment_class === 'soft' && !p.paid_date);
+  if (soft) return soft.due_date || '';
+  return booking && booking.final_payment_due ? softFor(booking.final_payment_due) : '';
+}
+
+/**
+ * Put the chase date where somebody asked for it.
+ *
+ * Typed by hand, so the row stops following the vendor's date: they have said
+ * something more specific, and moving it out from under them on the next edit
+ * is the behaviour this whole change exists to remove. Blank puts it back to
+ * ten days and following.
+ */
+export async function setChaseDate(env, user, booking, wanted) {
+  const rows = await db.listPayments(env, db.selfScope(user), { bookingId: booking.id });
+  const soft = rows.find((p) => p.kind === 'final' && p.payment_class === 'soft' && !p.paid_date);
+  const auto = booking.final_payment_due ? softFor(booking.final_payment_due) : null;
+  const to = wanted || auto;
+  if (!to) return null;
+
+  if (!soft) {
+    // No reminder yet, which happens on a schedule built before the final date
+    // was known. Worth making rather than silently ignoring.
+    const hard = rows.find((p) => p.kind === 'final' && p.payment_class === 'hard' && !p.paid_date);
+    if (!hard) return null;
+    await db.createPayment(env, user.id, {
+      bookingId: booking.id, kind: 'final', paymentClass: 'soft',
+      amountCents: hard.amount_cents, dueDate: to, paidDate: null,
+      fromBooking: wanted ? false : true,
+      notes: wanted ? 'Chase date set by hand'
+        : `Internal reminder, ${SOFT_DAYS} days before the vendor deadline`,
+    });
+    return to;
+  }
+
+  if (soft.due_date === to) return to;
+  await env.DB.prepare(
+    `UPDATE booking_payments SET due_date = ?, from_booking = ?, updated_at = ?
+      WHERE id = ? AND user_id = ? AND paid_date IS NULL`
+  ).bind(to, wanted ? 0 : 1, now(), soft.id, user.id).run();
+  return to;
+}
+
 export async function handleGenerateSchedule(request, env, bookingId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;

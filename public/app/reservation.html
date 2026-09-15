@@ -725,6 +725,24 @@ function drawDetail() {
     group('Travel'),
     row(date('departDate', 'Departing', b.depart_date),
         date('returnDate', 'Returning', b.return_date)),
+
+    // The deadlines, here, with the other dates.
+    //
+    // They lived at the foot of the Pricing card, three sections down, under a
+    // heading about money, so taking a booking meant filling this form in and
+    // then going to find them. Dates belong with dates, and these two are the
+    // pair an advisor thinks about together: the vendor's date, and the day
+    // they start asking.
+    group('Deadlines'),
+    row(date('finalPaymentDue', 'Final payment due', b.final_payment_due),
+        date('softPaymentDue', 'Chase from', d.softPaymentDue || '')),
+    `<p class="field-hint" style="margin:-.2rem 0 .6rem;">The first is the vendor's and
+      cancels the booking if it passes. The second is yours, ten days in front of it unless
+      you say otherwise, and it is what the reminders run on. Change the vendor's date and
+      both move together; type over the chase date and it stays where you put it.</p>`,
+    row(date('depositDue', 'Deposit due', b.deposit_due),
+        ''),
+
     row(text('destination', 'Destination', b.destination),
         text('itinerary', 'Itinerary', b.itinerary)),
     // No traveller count. The names in the Travellers card are the count, and
@@ -1334,19 +1352,23 @@ function depositHint(b, price) {
   const cash = (c) => (c ? (c / 100).toFixed(2) : '');
   const deposit = depositHint(b, d.priceSummary);
 
+  // Money only. The three dates that used to sit here are up in Reservation
+  // information with the other dates, and showing them in both places is the
+  // duplication this was meant to remove.
   box.innerHTML = `
-    <p class="label" style="margin:0 0 .5rem;">Deposit and deadlines</p>
+    <p class="label" style="margin:0 0 .5rem;">Totals</p>
     <div class="notice notice-error" id="money-error" hidden></div>
     <div class="field-row">
       <div class="field"><label for="m-deposit">Deposit the vendor wants</label>
         <input id="m-deposit" value="${esc(cash(b.deposit_cents))}" inputmode="decimal" ${ro ? 'disabled' : ''}>
         <p class="field-hint"${deposit.warn ? ' style="color:var(--amber-600);"' : ''}>${
           esc(deposit.text)}</p></div>
-      <div class="field"><label for="m-deposit-due">Deposit due</label>
-        <input id="m-deposit-due" type="date" value="${esc(b.deposit_due || '')}" ${ro ? 'disabled' : ''}></div>
-      <div class="field"><label for="m-final-due">Final payment due</label>
-        <input id="m-final-due" type="date" value="${esc(b.final_payment_due || '')}" ${ro ? 'disabled' : ''}>
-        <p class="field-hint">The vendor's own date. Miss it and they cancel.</p></div>
+      <div class="field"><p class="label" style="margin:0 0 .3rem;">Deadlines</p>
+        <p class="field-hint" style="margin:0;">${b.final_payment_due
+          ? `Final payment ${esc(short(b.final_payment_due))}, chased from ${
+              esc(short(d.softPaymentDue || ''))}. Change them at the top of the page.`
+          : 'No final payment date yet. Set one at the top of the page and the schedule '
+            + 'builds itself.'}</p></div>
     </div>
     ${priced ? '' : `<div class="field-row">
       <div class="field"><label for="m-gross">Trip total</label>
@@ -1368,8 +1390,6 @@ function depositHint(b, price) {
     // here, and sending an empty one would set it to nothing.
     const body = {
       deposit: document.getElementById('m-deposit').value,
-      depositDue: document.getElementById('m-deposit-due').value,
-      finalPaymentDue: document.getElementById('m-final-due').value,
       commissionStatus: document.getElementById('m-commission-status').value,
     };
     const gross = document.getElementById('m-gross');

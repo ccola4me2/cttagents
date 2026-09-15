@@ -17,7 +17,8 @@ import { PRODUCT_TYPES } from './producttypes.js';
 import { buildStatement, statementFingerprint } from './statement.js';
 import { resolveVendor } from './vendors.js';
 import { listTravellers, listAmenities, passportProblem } from './travellers.js';
-import { PAYMENT_TYPES, releaseCredit, buildSchedule, followBookingDates } from './payments.js';
+import { PAYMENT_TYPES, releaseCredit, buildSchedule, followBookingDates,
+  chaseDateOf, setChaseDate } from './payments.js';
 import { COMPANY_LEAD, NO_COMMISSION, splitPct, shareOf, UNSPLIT_COMMISSION_KINDS } from './split.js';
 import { listOptions } from './options.js';
 import { listTiers, penaltyToday } from './penalties.js';
@@ -322,6 +323,9 @@ export async function handleBookingRecord(request, env, id) {
     credits: credits.results || [],
     spendableCredits: spendable.results || [],
     paymentTypes: PAYMENT_TYPES,
+    // The chase date as a date, beside the vendor's, because that is the pair
+    // an advisor thinks about together. Derived when no reminder exists yet.
+    softPaymentDue: chaseDateOf(payments.results || [], booking),
     group,
     // What is neither posted nor even on the schedule. The quiet number: a
     // trip worth $8,000 with a $500 deposit and nothing else planned.
@@ -413,7 +417,9 @@ export async function handleCreateBooking(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const { fields, error } = parseBooking(await readJson(request));
+  // Kept, because the chase date is a payment row rather than a column here.
+  const raw = await readJson(request);
+  const { fields, error } = parseBooking(raw);
   if (error) return badRequest(error);
 
   // A new reservation follows the standing agreement, whatever was posted.
@@ -447,6 +453,9 @@ export async function handleCreateBooking(request, env) {
   // reservation form asks for the cost and both dates now, so the commonest
   // booking arrives complete and never needed a second visit to be chased.
   const built = await buildSchedule(env, user, booking);
+  if (Object.prototype.hasOwnProperty.call(raw, 'softPaymentDue')) {
+    await setChaseDate(env, user, booking, cleanDate(raw.softPaymentDue));
+  }
 
   return json({
     ok: true, booking, tasksMade: tasks.made,
@@ -552,6 +561,13 @@ export async function handleQuickUpdate(request, env, id) {
   // came to disagree about the same money.
   const moved = await followBookingDates(env, user, before, after);
 
+  // Typed beside the vendor's date, so it is written after the rows have
+  // followed: setting both at once must land on what was asked for, not on
+  // what ten days before the new deadline happens to be.
+  if (Object.prototype.hasOwnProperty.call(body, 'softPaymentDue')) {
+    await setChaseDate(env, user, after, cleanDate(body.softPaymentDue));
+  }
+
   // And fills itself in. A reservation with a cost and a date has a schedule
   // whether or not anybody remembered to press a button, which is the step
   // quietly missing from every booking taken in a hurry.
@@ -571,7 +587,11 @@ export async function handleUpdateBooking(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const { fields, error } = parseBooking(await readJson(request));
+  // Kept, not consumed. The chase date is not a column on this table, so
+  // parseBooking has nothing to say about it and it has to be read from what
+  // was actually sent.
+  const raw = await readJson(request);
+  const { fields, error } = parseBooking(raw);
   if (error) return badRequest(error);
 
   // Whatever share the reservation already carries, it keeps. updateBooking
@@ -594,6 +614,9 @@ export async function handleUpdateBooking(request, env, id) {
   // The same two rules the quick save follows, so editing a date on the full
   // form and editing it on the money block cannot end up doing different things.
   const moved = await followBookingDates(env, user, before, booking);
+  if (Object.prototype.hasOwnProperty.call(raw, 'softPaymentDue')) {
+    await setChaseDate(env, user, booking, cleanDate(raw.softPaymentDue));
+  }
   const built = await buildSchedule(env, user, booking);
 
   return json({

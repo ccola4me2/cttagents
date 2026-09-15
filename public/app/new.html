@@ -165,6 +165,18 @@ document.getElementById('fields').innerHTML = [
 
   group('Travel'),
   row(date('departDate', 'Departing'), date('returnDate', 'Returning')),
+
+  // The deadlines, with the other dates and near the top, because they are
+  // what everything else in the portal runs on. The chase date fills itself in
+  // ten days ahead of the vendor's the moment you set one.
+  group('Deadlines'),
+  row(date('finalPaymentDue', 'Final payment due'),
+      date('softPaymentDue', 'Chase from')),
+  `<p class="field-hint" style="margin:-.2rem 0 .6rem;">The first is the vendor's and cancels
+    the booking if it passes. The second is yours, and it is what the reminders run on.
+    Leave it and it sits ten days in front.</p>`,
+  row(date('depositDue', 'Deposit due'), ''),
+
   row(text('destination', 'Destination'), text('itinerary', 'Itinerary')),
   row(text('cabinCategory', 'Category'), text('cabin', 'Cabin or room')),
 
@@ -176,30 +188,43 @@ document.getElementById('fields').innerHTML = [
    <div id="traveller-rows"></div>
    <button class="btn btn-ghost btn-sm" type="button" id="add-traveller">Add another traveller</button>`,
 
-  // The money, on the form you are already filling in.
+  // The totals, at the end, where somebody adding up a confirmation ends.
   //
-  // This form asked for none of it, so taking one booking off one vendor
-  // confirmation meant saving, scrolling to Deposit and deadlines, typing three
-  // numbers you had just been looking at, saving again, and pressing Build
-  // schedule. Everything here is on the confirmation in front of you.
-  group('The money'),
+  // This form asked for no money at all, so taking one booking meant saving,
+  // scrolling, typing three numbers you had just been reading, saving again and
+  // pressing Build schedule. Save this and the payment schedule is written from
+  // the dates above.
+  group('Totals'),
   row(cash('gross', 'Trip cost',
         'What the client pays in total. Break it down into a pricing grid later if you '
         + 'want to, and this follows it.'),
       cash('deposit', 'Deposit',
         'What holds it. Inside ninety days of departure there is usually no deposit and '
         + 'this is the whole trip cost.')),
-  row(date('depositDue', 'Deposit due'),
-      date('finalPaymentDue', 'Final payment due')),
-  `<p class="field-hint" style="margin:-.2rem 0 0;">The vendor's own dates. Save this and
-    the payment schedule is built from them, with your chase reminder ten days in front of
-    the final date. You never type that one.</p>`,
 
   group('Notes'),
   '<div class="field"><textarea id="f-notes" name="notes" maxlength="2000"></textarea></div>',
 ].join('');
 
 suggestClients(form.elements.clientName);
+
+// Ten days in front of the vendor's date, filled in the moment that date is set
+// and only while the box is untouched. Somebody who wants a different day types
+// one and it is left alone from then on.
+(function () {
+  const fin = document.getElementById('f-finalPaymentDue');
+  const soft = document.getElementById('f-softPaymentDue');
+  if (!fin || !soft) return;
+  let touched = false;
+  soft.addEventListener('input', () => { touched = true; });
+  fin.addEventListener('change', () => {
+    if (touched || !fin.value) return;
+    const d = new Date(`${fin.value}T00:00:00`);
+    d.setDate(d.getDate() - 10);
+    soft.value = d.toISOString().slice(0, 10);
+  });
+}());
+
 
 /**
  * Started from a client's own page: fill their name in.
