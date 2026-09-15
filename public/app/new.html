@@ -212,8 +212,12 @@ suggestClients(form.elements.clientName);
 // and only while the box is untouched. Somebody who wants a different day types
 // one and it is left alone from then on.
 (function () {
-  const fin = document.getElementById('f-finalPaymentDue');
-  const soft = document.getElementById('f-softPaymentDue');
+  // By field name, not by id. Every id on this form is built from a template,
+  // so check-dom cannot see that #f-softPaymentDue exists and was right to say
+  // so: a lookup nothing declares is the shape of a typo. The form's own named
+  // elements are declared, and they are what the rest of this page uses.
+  const fin = form.elements.finalPaymentDue;
+  const soft = form.elements.softPaymentDue;
   if (!fin || !soft) return;
   let touched = false;
   soft.addEventListener('input', () => { touched = true; });
