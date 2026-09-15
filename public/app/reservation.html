@@ -1664,6 +1664,19 @@ function render() {
             : 'nothing can warn you without a date'}</p></div>`;
 
   // ---- schedule ----
+  //
+  // The action is in the card body as well as in its head. A pill in a card
+  // head is the first thing to fall off the right edge of a narrow window, and
+  // posting money that has arrived is the thing people come to this card to do.
+  const footAction = d.editable
+    ? `<div class="card-pad" style="border-top:1px solid var(--navy-100);display:flex;
+         gap:.5rem;flex-wrap:wrap;align-items:center;">
+         <button class="btn btn-secondary btn-sm" data-post-new>Post a payment</button>
+         <span class="muted" style="font-size:.82rem;">A deposit, a part payment or the
+           balance. It goes on as posted, dated the day it arrived.</span>
+       </div>`
+    : '';
+
   document.getElementById('schedule-actions').innerHTML = d.editable
     ? `<button class="btn btn-secondary btn-sm" id="post-new">Post a payment</button>
        <button class="btn btn-ghost btn-sm" id="build">Build schedule</button>`
@@ -1671,8 +1684,8 @@ function render() {
   // Money that arrived without being scheduled. A client who sends the balance
   // early, or a deposit taken before anybody built a schedule, had nowhere to
   // be recorded from this page: the only way in was a row that already existed.
-  const postNew = document.getElementById('post-new');
-  if (postNew) postNew.addEventListener('click', () => openPost(null));
+  document.querySelectorAll('#post-new, [data-post-new]').forEach((btn) =>
+    btn.addEventListener('click', () => openPost(null)));
   const buildBtn = document.getElementById('build');
   if (buildBtn) buildBtn.addEventListener('click', async () => {
     buildBtn.disabled = true;
@@ -1747,9 +1760,13 @@ function render() {
               ${p.reminded_at ? `<div class="muted" style="font-size:.7rem;">chased ${
                 esc(timeAgo(p.reminded_at))}${p.reminder_count > 1 ? `, ${p.reminder_count} times` : ''}</div>` : ''}</td>
           </tr>`;
-        }).join('')}</tbody></table></div>`
+        }).join('')}</tbody></table></div>${footAction}`
     : `<div class="empty"><h3>No schedule yet</h3>
-        <p>Nothing will warn you about a payment that was never written down.</p></div>`;
+        <p>Nothing will warn you about a payment that was never written down.</p>
+        ${d.editable ? `<p style="margin-top:1rem;">
+          <button class="btn btn-secondary btn-sm" data-post-new>Post a payment</button>
+          </p><p class="muted" style="font-size:.82rem;margin:.4rem 0 0;">Money that has already
+          arrived goes on here, whether or not a schedule was ever built.</p>` : ''}</div>`;
 
   document.querySelectorAll('[data-remind]').forEach((btn) => {
     btn.addEventListener('click', () => chase(btn.dataset.remind));
