@@ -423,15 +423,15 @@ async function main() {
     'moving the vendor date moves the balance and the chase date with it',
     JSON.stringify(moved.data?.moved));
 
-  const after = (await call(advisor, 'GET', `/api/bookings/${bookingId}/record`))
+  const rowsAfterMove = (await call(advisor, 'GET', `/api/bookings/${bookingId}/record`))
     .data?.payments || [];
-  const movedHard = after.find((p) => p.kind === 'final' && p.payment_class === 'hard');
-  const movedSoft = after.find((p) => p.kind === 'final' && p.payment_class === 'soft');
+  const movedHard = rowsAfterMove.find((p) => p.kind === 'final' && p.payment_class === 'hard');
+  const movedSoft = rowsAfterMove.find((p) => p.kind === 'final' && p.payment_class === 'soft');
   check(movedHard?.due_date === moveTo,
     'the balance is on the new vendor date', movedHard?.due_date);
   check(movedSoft?.due_date === isoDay(65),
     'and the chase date is ten days in front of it', movedSoft?.due_date);
-  check(after.find((p) => p.kind === 'deposit')?.due_date === isoDay(5),
+  check(rowsAfterMove.find((p) => p.kind === 'deposit')?.due_date === isoDay(5),
     'while the deposit, which nobody moved, stays where it was');
 
   // The dashboard is the thing an advisor actually looks at, so check the
