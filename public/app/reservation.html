@@ -1429,8 +1429,21 @@ function depositHint(b, price) {
  */
 function rateLine(s) {
   if (s.truePct !== null) {
-    return `${s.truePct}%<span class="muted">of the commissionable part${
-      s.effectivePct === null ? '' : `, ${s.effectivePct}% of everything`}</span>`;
+    // Two rates only when they are two different numbers.
+    //
+    // They differ when part of the trip earns nothing: taxes, port fees, a
+    // non-commissionable fare. Then the vendor's rate and what the trip earned
+    // against what the client paid are genuinely different figures and both
+    // are worth seeing. When every line earns, they are the same number, and
+    // printing "15% of the commissionable part, 15% of everything" said one
+    // thing twice and read as though it meant two.
+    const same = s.effectivePct === null || s.effectivePct === s.truePct;
+    if (same) {
+      return `${s.truePct}%<span class="muted">of the whole trip cost, every part of which
+        earns it</span>`;
+    }
+    return `${s.truePct}%<span class="muted">of the part the vendor pays on, which comes to
+      ${s.effectivePct}% of what the client pays</span>`;
   }
   if (!s.commissionCents) {
     return '<span class="muted">No commission on this reservation.</span>';
