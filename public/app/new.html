@@ -124,7 +124,7 @@ const cash = (name, label, hint = '') => `
     <input id="f-${name}" name="${name}" class="money" inputmode="decimal" placeholder="0.00">
     ${hint ? `<p class="field-hint">${esc(hint)}</p>` : ''}</div>`;
 const row = (...cells) => `<div class="field-row">${cells.join('')}</div>`;
-const group = (title) => `<p class="label" style="margin:1.4rem 0 .4rem;">${esc(title)}</p>`;
+const group = (title) => `<p class="form-group">${esc(title)}</p>`;
 
 document.getElementById('fields').innerHTML = [
   group('Who and what'),
@@ -172,9 +172,8 @@ document.getElementById('fields').innerHTML = [
   group('Deadlines'),
   row(date('finalPaymentDue', 'Final payment due'),
       date('softPaymentDue', 'Chase from')),
-  `<p class="field-hint" style="margin:-.2rem 0 .6rem;">The first is the vendor's and cancels
-    the booking if it passes. The second is yours, and it is what the reminders run on.
-    Leave it and it sits ten days in front.</p>`,
+  `<p class="field-hint" style="margin:-.35rem 0 1.1rem;">The vendor cancels on the first.
+    The second is when you start asking, and it fills itself in ten days ahead.</p>`,
   row(date('depositDue', 'Deposit due'), ''),
 
   row(text('destination', 'Destination'), text('itinerary', 'Itinerary')),

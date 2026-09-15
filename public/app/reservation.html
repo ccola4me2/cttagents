@@ -715,7 +715,7 @@ function drawDetail() {
     <div class="field"><label for="f-${name}">${esc(label)}</label>
       <select id="f-${name}" name="${name}" ${ro ? 'disabled' : ''}>${selectOptions(list, value)}</select></div>`;
   const row = (...cells) => `<div class="field-row">${cells.join('')}</div>`;
-  const group = (title) => `<p class="label" style="margin:1.4rem 0 .4rem;">${esc(title)}</p>`;
+  const group = (title) => `<p class="form-group">${esc(title)}</p>`;
 
   document.getElementById('detail-fields').innerHTML = [
     group('Who and what'),
@@ -749,10 +749,9 @@ function drawDetail() {
     group('Payment'),
     row(date('finalPaymentDue', 'Final payment due', b.final_payment_due),
         date('softPaymentDue', 'Chase from', d.softPaymentDue || '')),
-    `<p class="field-hint" style="margin:-.2rem 0 .6rem;">The first is the vendor's and
-      cancels the booking if it passes. The second is yours, ten days in front of it unless
-      you say otherwise, and it is what the reminders run on. Change the vendor's date and
-      both move together; type over the chase date and it stays where you put it.</p>`,
+    `<p class="field-hint" style="margin:-.35rem 0 1.1rem;">The vendor cancels on the first.
+      The second is when you start asking, ten days ahead unless you change it, and it moves
+      with the first.</p>`,
     // The deposit amount with its own date, rather than in a Totals box of its
     // own three sections down. It is the last thing that box held.
     row(date('depositDue', 'Deposit due', b.deposit_due),
@@ -776,7 +775,7 @@ function drawDetail() {
       }>${esc(b.notes || '')}</textarea></div>`,
 
     // Everything the reservation knows about itself that nobody types.
-    `<p class="label" style="margin:1.4rem 0 .4rem;">On the record</p>
+    `<p class="form-group">On the record</p>
      <dl class="pairs">
        <dt>Booking agent</dt><dd>${esc(b.advisor_name || '-')}</dd>
        ${b.invoice_no ? `<dt>Invoice</dt><dd>${esc(b.invoice_no)}${b.statement_sent_at
@@ -788,8 +787,9 @@ function drawDetail() {
        ${d.split && d.split.earns === false ? `<dt>Commission</dt>
          <dd>None. <span class="muted">This trip is marked no commission, so nobody is
            paid on it: not you and not the agency.</span></dd>` : ''}
-       ${d.split && d.split.earns !== false && d.split.pct !== 100 ? `<dt>You keep</dt><dd>${money(d.split.advisorCents)}
-         <span class="muted">${esc(String(d.split.pct))}% ${d.split.overridden
+       ${d.split && d.split.earns !== false && d.split.pct !== 100 ? `<dt>You keep</dt><dd><strong>${money(d.split.advisorCents)}</strong>
+         <span class="muted" style="display:block;margin-top:.15rem;">${
+           esc(String(d.split.pct))}% ${d.split.overridden
            ? 'set on this trip' : 'by the agreement this trip was taken under'}; the agency keeps ${
            money(d.split.agencyCents)}${d.split.unsplitCents
              ? `. ${money(d.split.unsplitCents)} of it is TC or bonus and is yours in full,

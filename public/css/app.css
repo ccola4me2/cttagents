@@ -183,9 +183,19 @@ textarea { min-height: 90px; resize: vertical; }
 }
 .card-pad { padding: 1.25rem; }
 .card-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  display: flex; align-items: center; justify-content: space-between; gap: .6rem 1rem;
   padding: 1rem 1.25rem; border-bottom: 1px solid var(--navy-100);
+  /* Wraps rather than squeezing. A narrow card with a three word title and two
+     buttons beside it broke the title to one word a line and left the buttons
+     stacked against it: "If they / cancel" next to a column of pills. */
+  flex-wrap: wrap;
 }
+.card-head > h2 { margin-right: auto; }
+/* The controls travel together, so they wrap as a group under the title rather
+   than one at a time. Only a span: no card head in either portal wraps its
+   controls in a div, and a rule for a shape that does not exist is a rule
+   waiting to catch the first one that does. */
+.card-head > span { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
 
 .badge {
   display: inline-block; border-radius: 999px; padding: .16rem .6rem;
@@ -1191,3 +1201,18 @@ th.num .th-sort { justify-content: flex-end; }
    they copy and paste, they read out loud, and they survive an email. */
 .rev-stars { color: #d79a00; letter-spacing: .06em; white-space: nowrap; }
 .rev-body { max-width: 34rem; white-space: pre-wrap; margin: 0 0 .35rem; }
+
+/* A heading inside a form, marking where one group of fields ends and the next
+   begins. It had no style at all: the reservation form's "Who and what",
+   "Vendor", "Travel" and "Payment" rendered as plain body text, quieter than
+   the field labels underneath them, which inverts the hierarchy. The thing
+   that organises a form should not read as less important than the things it
+   organises. A hairline and small caps, so a long form is a handful of blocks
+   rather than one list of thirty boxes. */
+.form-group {
+  margin: 2.1rem 0 1.1rem; padding-bottom: .45rem;
+  border-bottom: 1px solid var(--navy-100);
+  font-size: .72rem; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--ink-400);
+}
+.form-group:first-child { margin-top: 0; }
