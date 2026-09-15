@@ -1621,9 +1621,9 @@ function render() {
     } catch (e) { showError(err, e); buildBtn.disabled = false; }
   });
 
-  // A final balance is two rows: the vendor's deadline, and a soft reminder a
-  // earlier for the same money. That is right in the database -- the
-  // reminder is what drives the chase -- and wrong on a page, where two lines
+  // A final balance is two rows: the vendor's deadline, and a soft reminder ten
+  // days earlier for the same money. That is right in the database, since the
+  // reminder is what drives the chase, and wrong on a page, where two lines
   // reading "Final balance $2,083.39" look like twice the money. Every total
   // in the portal already counts the deadline and ignores the reminder; this
   // makes the schedule agree with them.
