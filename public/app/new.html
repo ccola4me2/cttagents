@@ -119,6 +119,10 @@ const date = (name, label) => `
 const select = (name, label, options, value) => `
   <div class="field"><label for="f-${name}">${esc(label)}</label>
     <select id="f-${name}" name="${name}">${selectOptions(options, value)}</select></div>`;
+const cash = (name, label, hint = '') => `
+  <div class="field"><label for="f-${name}">${esc(label)}</label>
+    <input id="f-${name}" name="${name}" class="money" inputmode="decimal" placeholder="0.00">
+    ${hint ? `<p class="field-hint">${esc(hint)}</p>` : ''}</div>`;
 const row = (...cells) => `<div class="field-row">${cells.join('')}</div>`;
 const group = (title) => `<p class="label" style="margin:1.4rem 0 .4rem;">${esc(title)}</p>`;
 
@@ -171,6 +175,25 @@ document.getElementById('fields').innerHTML = [
    <div id="household-offer"></div>
    <div id="traveller-rows"></div>
    <button class="btn btn-ghost btn-sm" type="button" id="add-traveller">Add another traveller</button>`,
+
+  // The money, on the form you are already filling in.
+  //
+  // This form asked for none of it, so taking one booking off one vendor
+  // confirmation meant saving, scrolling to Deposit and deadlines, typing three
+  // numbers you had just been looking at, saving again, and pressing Build
+  // schedule. Everything here is on the confirmation in front of you.
+  group('The money'),
+  row(cash('gross', 'Trip cost',
+        'What the client pays in total. Break it down into a pricing grid later if you '
+        + 'want to, and this follows it.'),
+      cash('deposit', 'Deposit',
+        'What holds it. Inside ninety days of departure there is usually no deposit and '
+        + 'this is the whole trip cost.')),
+  row(date('depositDue', 'Deposit due'),
+      date('finalPaymentDue', 'Final payment due')),
+  `<p class="field-hint" style="margin:-.2rem 0 0;">The vendor's own dates. Save this and
+    the payment schedule is built from them, with your chase reminder ten days in front of
+    the final date. You never type that one.</p>`,
 
   group('Notes'),
   '<div class="field"><textarea id="f-notes" name="notes" maxlength="2000"></textarea></div>',

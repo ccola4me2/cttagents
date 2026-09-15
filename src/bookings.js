@@ -17,7 +17,7 @@ import { PRODUCT_TYPES } from './producttypes.js';
 import { buildStatement, statementFingerprint } from './statement.js';
 import { resolveVendor } from './vendors.js';
 import { listTravellers, listAmenities, passportProblem } from './travellers.js';
-import { PAYMENT_TYPES, releaseCredit } from './payments.js';
+import { PAYMENT_TYPES, releaseCredit, buildSchedule, followBookingDates } from './payments.js';
 import { COMPANY_LEAD, NO_COMMISSION, splitPct, shareOf, UNSPLIT_COMMISSION_KINDS } from './split.js';
 import { listOptions } from './options.js';
 import { listTiers, penaltyToday } from './penalties.js';
@@ -443,7 +443,15 @@ export async function handleCreateBooking(request, env) {
   // the reservation, which would be entirely the wrong way round.
   const tasks = await applyTemplates(env, user, booking);
 
-  return json({ ok: true, booking, tasksMade: tasks.made }, 201);
+  // And its payment schedule, if the form carried enough to build one. The
+  // reservation form asks for the cost and both dates now, so the commonest
+  // booking arrives complete and never needed a second visit to be chased.
+  const built = await buildSchedule(env, user, booking);
+
+  return json({
+    ok: true, booking, tasksMade: tasks.made,
+    scheduled: built.created.filter((p) => p.payment_class === 'hard').length,
+  }, 201);
 }
 
 /**
@@ -562,7 +570,16 @@ export async function handleUpdateBooking(request, env, id) {
   if (!booking) return notFound('Booking not found.');
   await db.logActivity(env, user.id, 'booking.update',
     `Updated booking for ${booking.client_name}`, { id });
-  return json({ ok: true, booking });
+
+  // The same two rules the quick save follows, so editing a date on the full
+  // form and editing it on the money block cannot end up doing different things.
+  const moved = await followBookingDates(env, user, before, booking);
+  const built = await buildSchedule(env, user, booking);
+
+  return json({
+    ok: true, booking, moved,
+    scheduled: built.created.filter((p) => p.payment_class === 'hard').length,
+  });
 }
 
 /**

@@ -556,15 +556,19 @@ export async function handleDeletePayment(request, env, id) {
  */
 export const SOFT_DAYS = 10;
 
-export async function handleGenerateSchedule(request, env, bookingId) {
-  const { user, response } = await requireUser(request, env);
-  if (response) return response;
-
-  const booking = await db.getBooking(env, bookingId, user.id);
-  if (!booking) return notFound('Booking not found.');
-
-  // Self scope: this reads in order to write, so it must not widen for an owner.
-  const existing = await db.listPayments(env, db.selfScope(user), { bookingId });
+/**
+ * Put whatever the schedule does not cover yet onto the reservation's own dates.
+ *
+ * Shared by the button and by saving a reservation, so pressing Build and
+ * simply filling the money in cannot produce different schedules. Writes only
+ * rows that are missing, marks nothing paid and emails nobody, which is what
+ * makes it safe to run on every save.
+ *
+ * Rows it writes are stamped from_booking, so they move when the reservation's
+ * dates move. See 0077_schedule_follows.sql.
+ */
+export async function buildSchedule(env, user, booking) {
+  const existing = await db.listPayments(env, db.selfScope(user), { bookingId: booking.id });
   const have = new Set(existing.map((p) => p.kind));
   // What the schedule already accounts for, taken or still to come. Hard rows
   // only, like every other total here: a soft row is this portal's reminder to
@@ -576,15 +580,15 @@ export async function handleGenerateSchedule(request, env, bookingId) {
 
   if (booking.deposit_cents > 0 && booking.deposit_due && !have.has('deposit')) {
     created.push(await db.createPayment(env, user.id, {
-      bookingId, kind: 'deposit', paymentClass: 'hard',
+      bookingId: booking.id, kind: 'deposit', paymentClass: 'hard',
       amountCents: booking.deposit_cents,
-      dueDate: booking.deposit_due, paidDate: null,
+      dueDate: booking.deposit_due, paidDate: null, fromBooking: true,
       notes: 'Vendor deadline, generated from the reservation',
     }));
     covered += booking.deposit_cents;
   }
 
-  // Whatever the schedule does not cover yet, put on the vendor's final date.
+  // Whatever the schedule does not cover yet, on the vendor's final date.
   //
   // Gross minus the deposit field is what this used to be, and it was wrong in
   // the case that matters most. Inside ninety days of departure a cruise is
@@ -603,26 +607,91 @@ export async function handleGenerateSchedule(request, env, bookingId) {
     // final that misses its date is a cancelled reservation rather than a late
     // invoice. Brent's own rule, 2026-09-14.
     created.push(await db.createPayment(env, user.id, {
-      bookingId, kind: 'final', paymentClass: 'hard', amountCents: balance,
-      dueDate: booking.final_payment_due, paidDate: null,
+      bookingId: booking.id, kind: 'final', paymentClass: 'hard', amountCents: balance,
+      dueDate: booking.final_payment_due, paidDate: null, fromBooking: true,
       notes: 'Vendor deadline, generated from the reservation',
     }));
 
-    const softDate = new Date(Date.parse(`${booking.final_payment_due}T00:00:00`) - SOFT_DAYS * 86400000)
-      .toISOString().slice(0, 10);
+    const softDate = softFor(booking.final_payment_due);
     if (softDate > isoDay(0)) {
       created.push(await db.createPayment(env, user.id, {
-        bookingId, kind: 'final', paymentClass: 'soft', amountCents: balance,
-        dueDate: softDate, paidDate: null,
+        bookingId: booking.id, kind: 'final', paymentClass: 'soft', amountCents: balance,
+        dueDate: softDate, paidDate: null, fromBooking: true,
         notes: `Internal reminder, ${SOFT_DAYS} days before the vendor deadline`,
       }));
     }
   }
 
+  return { created, covered, short: (booking.gross_cents || 0) - covered, have };
+}
+
+/** The chase date for a vendor deadline. Never typed, always this. */
+export function softFor(finalDue) {
+  return new Date(Date.parse(`${finalDue}T00:00:00`) - SOFT_DAYS * 86400000)
+    .toISOString().slice(0, 10);
+}
+
+/**
+ * The schedule follows the reservation's dates.
+ *
+ * The trip cost has followed the pricing grid for as long as the grid has
+ * existed. The dates never did: they were copied once and then drifted, so the
+ * reservations list could say one thing and the payments page another about the
+ * same money, and the advisor was left to notice.
+ *
+ * Only unpaid rows, and only rows this portal wrote. A row somebody edited by
+ * hand has said something more specific than the reservation says.
+ */
+export async function followBookingDates(env, user, before, after) {
+  const moved = [];
+  const scope = db.selfScope(user);
+  const rows = await db.listPayments(env, scope, { bookingId: before.id });
+
+  const movable = (p, kind, cls) => p.kind === kind && p.payment_class === cls
+    && !p.paid_date && Number(p.from_booking) === 1;
+
+  const shift = async (p, to, what) => {
+    if (!to || p.due_date === to) return;
+    await env.DB.prepare(
+      `UPDATE booking_payments SET due_date = ?, updated_at = ?
+        WHERE id = ? AND user_id = ? AND from_booking = 1 AND paid_date IS NULL`
+    ).bind(to, now(), p.id, user.id).run();
+    moved.push({ what, from: p.due_date, to });
+  };
+
+  if (after.deposit_due && after.deposit_due !== before.deposit_due) {
+    for (const p of rows) {
+      if (movable(p, 'deposit', 'hard')) await shift(p, after.deposit_due, 'the deposit');
+    }
+  }
+
+  if (after.final_payment_due && after.final_payment_due !== before.final_payment_due) {
+    for (const p of rows) {
+      if (movable(p, 'final', 'hard')) {
+        await shift(p, after.final_payment_due, 'the final balance');
+      } else if (movable(p, 'final', 'soft')) {
+        // The chase date is never typed and never stored as an independent
+        // fact. It is ten days in front of the deadline, so it moves with it.
+        await shift(p, softFor(after.final_payment_due), 'the chase date');
+      }
+    }
+  }
+
+  return moved;
+}
+
+export async function handleGenerateSchedule(request, env, bookingId) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const booking = await db.getBooking(env, bookingId, user.id);
+  if (!booking) return notFound('Booking not found.');
+
+  const { created, short, have } = await buildSchedule(env, user, booking);
+
   if (!created.length) {
     // Say which of the three reasons it was. "Nothing happened" sent people
     // back to the reservation to look for a field that was already filled in.
-    const short = (booking.gross_cents || 0) - covered;
     const money = (cents) => `$${(cents / 100).toLocaleString('en-US', {
       minimumFractionDigits: 2, maximumFractionDigits: 2,
     })}`;
@@ -648,14 +717,6 @@ export async function handleGenerateSchedule(request, env, bookingId) {
 }
 
 
-/**
- * Set a booking's status.
- *
- * Exists because of what happens when a final payment date passes unpaid: the
- * supplier cancels the booking. The portal cannot know that happened, so the
- * payments page offers the advisor a way to record it once they have checked,
- * rather than leaving a dead booking counted as live revenue forever.
- */
 export async function handleSetBookingStatus(request, env, bookingId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;

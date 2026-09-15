@@ -1378,8 +1378,21 @@ function depositHint(b, price) {
     if (commission) body.commission = commission.value;
 
     try {
-      await api(`/api/bookings/${encodeURIComponent(id)}/quick`, { method: 'POST', body });
+      const res = await api(`/api/bookings/${encodeURIComponent(id)}/quick`,
+        { method: 'POST', body });
       await load();
+      // Said out loud. The schedule following a date it was copied from is
+      // helpful once it is announced and alarming until then, and a schedule
+      // that built itself should not be something you discover by scrolling.
+      const said = [];
+      for (const m of res.moved || []) said.push(`moved ${m.what} to ${short(m.to)}`);
+      if (res.scheduled) {
+        said.push(`put ${res.scheduled} payment${res.scheduled === 1 ? '' : 's'} on the schedule`);
+      }
+      if (said.length) {
+        err.innerHTML = `<div class="notice notice-info">Saved, and ${
+          esc(said.join(', and '))}.</div>`;
+      }
     } catch (e) {
       const box2 = document.getElementById('money-error');
       box2.textContent = e.message;

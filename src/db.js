@@ -1707,7 +1707,7 @@ export const PAYMENT_COLUMNS = `
   p.id, p.booking_id, p.user_id, p.kind, p.payment_class, p.amount_cents,
   p.due_date, p.paid_date, p.method, p.reference, p.notes, p.created_at, p.updated_at,
   p.reminded_at, p.reminder_count, p.auto_lead_sent,
-  p.payment_type, p.paid_by, p.credit_id, p.card_last4
+  p.payment_type, p.paid_by, p.credit_id, p.card_last4, p.from_booking
 `;
 
 export async function listPayments(env, scope,
@@ -1754,12 +1754,14 @@ export async function createPayment(env, userId, f) {
     `INSERT INTO booking_payments
        (id, booking_id, user_id, kind, payment_class, amount_cents, due_date,
         paid_date, method, reference, notes, payment_type, paid_by, credit_id,
-        card_last4, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        card_last4, from_booking, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(id, f.bookingId, userId, f.kind, f.paymentClass || 'hard', f.amountCents,
          f.dueDate, f.paidDate, f.method || null, f.reference || null,
          f.notes || null, f.paymentType || null, f.paidBy || null, f.creditId || null,
-         f.cardLast4 || null, ts, ts).run();
+         // Whether this row is a copy of a date on the reservation, and so
+         // whether it moves when that date moves. Only the generator sets it.
+         f.cardLast4 || null, f.fromBooking ? 1 : 0, ts, ts).run();
   return getPayment(env, id, userId);
 }
 
@@ -1768,7 +1770,12 @@ export async function updatePayment(env, id, userId, f) {
     `UPDATE booking_payments
         SET kind = ?, payment_class = ?, amount_cents = ?, due_date = ?, paid_date = ?,
             method = ?, reference = ?, notes = ?, payment_type = ?, paid_by = ?,
-            credit_id = ?, card_last4 = ?, updated_at = ?
+            credit_id = ?, card_last4 = ?,
+            -- Edited by hand, so it stops following the reservation. Somebody
+            -- has said something more specific than the reservation says, and
+            -- moving it out from under them afterwards is how a portal loses
+            -- an advisor's trust in one afternoon.
+            from_booking = 0, updated_at = ?
       WHERE id = ? AND user_id = ?`
   ).bind(f.kind, f.paymentClass || 'hard', f.amountCents, f.dueDate, f.paidDate,
          f.method || null, f.reference || null, f.notes || null,
