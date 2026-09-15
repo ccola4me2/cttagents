@@ -22,6 +22,7 @@
     </header>
     <div class="content">
       <div id="err"></div>
+      <div id="readonly"></div>
       <section id="money" class="stat-grid"></section>
       <nav class="section-nav" id="section-nav" aria-label="Sections"></nav>
       <div class="split" style="margin-top:1.5rem;">
@@ -61,15 +62,15 @@
               <span id="option-actions"></span></div>
             <div id="options"></div>
           </section>
-          <section class="card" style="margin-bottom:1.5rem;" id="itinerary-card">
-            <div class="card-head" id="sec-itinerary"><h2>Full trip itinerary</h2>
-              <span id="itin-actions"></span></div>
-            <div class="card-pad" id="itinerary"></div>
-          </section>
-          <section class="card" id="components-card">
+          <section class="card" style="margin-bottom:1.5rem;" id="components-card">
             <div class="card-head" id="sec-components"><h2>Also on this trip</h2>
               <span id="component-actions"></span></div>
             <div id="components"></div>
+          </section>
+          <section class="card" id="itinerary-card">
+            <div class="card-head" id="sec-itinerary"><h2>Full trip itinerary</h2>
+              <span id="itin-actions"></span></div>
+            <div class="card-pad" id="itinerary"></div>
           </section>
         </div>
         <div>
@@ -1575,7 +1576,19 @@ function render() {
        ${outgoing ? `<button class="btn ${stale ? 'btn-secondary' : 'btn-ghost'} btn-sm"
          id="send-statement">${esc(outgoing)}</button>` : ''}
 `
-    : '<span class="muted">Another advisor\'s reservation</span>';
+    : '';
+
+  // Said once, plainly, where it is read.
+  //
+  // A read-only reservation used to drop every button on the page and explain
+  // itself in four grey words among the actions. So Add a traveller, Edit,
+  // Post a payment and Build schedule were all simply absent, and the obvious
+  // reading is that the portal is missing them rather than that this trip
+  // belongs to somebody else.
+  const ro2 = document.getElementById('readonly');
+  ro2.innerHTML = d.editable ? '' : `<div class="notice notice-info">
+    This is ${esc(b.advisor_name || 'another advisor')}'s reservation, so it is read only for
+    you. Everything is here to look at; the buttons that would change it are not shown.</div>`;
   const ask = document.getElementById('ask-review');
   if (ask) ask.addEventListener('click', async () => {
     ask.disabled = true;
