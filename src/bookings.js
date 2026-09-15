@@ -544,7 +544,27 @@ export async function handleQuickUpdate(request, env, id) {
     `UPDATE bookings SET ${sets.join(', ')}, updated_at = ? WHERE id = ? AND user_id = ?`
   ).bind(...binds, Math.floor(Date.now() / 1000), id, user.id).run();
 
-  return json({ ok: true, booking: await db.getBooking(env, id, user.id) });
+  const after = await db.getBooking(env, id, user.id);
+
+  // The schedule follows the reservation, the way the headline totals already
+  // follow the pricing grid. Moving a vendor deadline and leaving the payment
+  // row on the old date is how the reservations list and the payments page
+  // came to disagree about the same money.
+  const moved = await followBookingDates(env, user, before, after);
+
+  // And fills itself in. A reservation with a cost and a date has a schedule
+  // whether or not anybody remembered to press a button, which is the step
+  // quietly missing from every booking taken in a hurry.
+  const built = await buildSchedule(env, user, after);
+
+  return json({
+    ok: true,
+    booking: await db.getBooking(env, id, user.id),
+    // Said rather than done silently. A date that moves on its own is helpful
+    // once it is announced and alarming until then.
+    moved,
+    scheduled: built.created.filter((p) => p.payment_class === 'hard').length,
+  });
 }
 
 export async function handleUpdateBooking(request, env, id) {
