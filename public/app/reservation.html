@@ -1358,18 +1358,10 @@ function depositHint(b, price) {
   box.innerHTML = `
     <p class="label" style="margin:0 0 .5rem;">Totals</p>
     <div class="notice notice-error" id="money-error" hidden></div>
-    <div class="field-row">
-      <div class="field"><label for="m-deposit">Deposit the vendor wants</label>
-        <input id="m-deposit" value="${esc(cash(b.deposit_cents))}" inputmode="decimal" ${ro ? 'disabled' : ''}>
-        <p class="field-hint"${deposit.warn ? ' style="color:var(--amber-600);"' : ''}>${
-          esc(deposit.text)}</p></div>
-      <div class="field"><p class="label" style="margin:0 0 .3rem;">Deadlines</p>
-        <p class="field-hint" style="margin:0;">${b.final_payment_due
-          ? `Final payment ${esc(short(b.final_payment_due))}, chased from ${
-              esc(short(d.softPaymentDue || ''))}. Change them at the top of the page.`
-          : 'No final payment date yet. Set one at the top of the page and the schedule '
-            + 'builds itself.'}</p></div>
-    </div>
+    <div class="field" style="max-width:20rem;"><label for="m-deposit">Deposit the vendor wants</label>
+      <input id="m-deposit" value="${esc(cash(b.deposit_cents))}" inputmode="decimal" ${ro ? 'disabled' : ''}>
+      <p class="field-hint"${deposit.warn ? ' style="color:var(--amber-600);"' : ''}>${
+        esc(deposit.text)}</p></div>
     ${priced ? '' : `<div class="field-row">
       <div class="field"><label for="m-gross">Trip total</label>
         <input id="m-gross" value="${esc(cash(b.gross_cents))}" inputmode="decimal" ${ro ? 'disabled' : ''}>
