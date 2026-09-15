@@ -377,9 +377,18 @@ async function main() {
   check(res.data.booking.deposit_cents === 50000,
     'the deposit is stored and read back', res.data.booking.deposit_cents);
 
-  const sched = await call(advisor, 'POST', `/api/bookings/${bookingId}/schedule`, {});
-  const rows = sched.data?.created || [];
-  check(sched.status === 201, 'schedule built', `status ${sched.status}`);
+  // The schedule arrives with the reservation.
+  //
+  // This used to press Build and assert on what the button returned. Taking a
+  // reservation with a cost and both dates now builds it on save, so by the
+  // time anybody presses Build there is nothing left to create, and the button
+  // answering "nothing to do" was the new behaviour working rather than a
+  // failure. Asserted on the schedule itself, from wherever it came.
+  check(res.data?.scheduled === 2,
+    'a reservation with a cost and dates arrives with its schedule', `${res.data?.scheduled}`);
+
+  const rows = (await call(advisor, 'GET', `/api/bookings/${bookingId}/record`))
+    .data?.payments || [];
 
   const deposit = rows.find((p) => p.kind === 'deposit');
   const hardFinal = rows.find((p) => p.kind === 'final' && p.payment_class === 'hard');
@@ -394,9 +403,36 @@ async function main() {
   check(softFinal?.amount_cents === 450000 && softFinal?.due_date === isoDay(50),
     'a soft reminder ten days earlier', JSON.stringify(softFinal));
 
+  // Every row it wrote is a copy of a date on the reservation, so every row
+  // follows when that date moves. See 0077_schedule_follows.sql.
+  check([deposit, hardFinal, softFinal].every((p) => Number(p?.from_booking) === 1),
+    'and each one is marked as following the reservation');
+
   const again = await call(advisor, 'POST', `/api/bookings/${bookingId}/schedule`, {});
   check((again.data?.created || []).length === 0,
-    'building it twice does not duplicate the schedule', JSON.stringify(again.data?.created));
+    'pressing Build after it has built itself does nothing',
+    JSON.stringify(again.data?.created));
+
+  // The schedule follows the reservation. Move the vendor's date and the
+  // unpaid rows that came from it move too, the chase date keeping its ten
+  // days in front. This is the half that used to drift.
+  const moveTo = isoDay(75);
+  const moved = await call(advisor, 'POST', `/api/bookings/${bookingId}/quick`,
+    { finalPaymentDue: moveTo });
+  check((moved.data?.moved || []).length === 2,
+    'moving the vendor date moves the balance and the chase date with it',
+    JSON.stringify(moved.data?.moved));
+
+  const after = (await call(advisor, 'GET', `/api/bookings/${bookingId}/record`))
+    .data?.payments || [];
+  const movedHard = after.find((p) => p.kind === 'final' && p.payment_class === 'hard');
+  const movedSoft = after.find((p) => p.kind === 'final' && p.payment_class === 'soft');
+  check(movedHard?.due_date === moveTo,
+    'the balance is on the new vendor date', movedHard?.due_date);
+  check(movedSoft?.due_date === isoDay(65),
+    'and the chase date is ten days in front of it', movedSoft?.due_date);
+  check(after.find((p) => p.kind === 'deposit')?.due_date === isoDay(5),
+    'while the deposit, which nobody moved, stays where it was');
 
   // The dashboard is the thing an advisor actually looks at, so check the
   // schedule reaches it rather than trusting the write.
