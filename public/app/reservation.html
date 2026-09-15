@@ -690,6 +690,7 @@ function drawDetail() {
   // Whether the grid has anything in it. With lines, the totals are its
   // arithmetic; without, they are the only figures there are.
   const priced = Boolean(d.priceSummary);
+  const depositNote = depositHint(b, d.priceSummary);
 
   const text = (name, label, value, extra = '') => `
     <div class="field"><label for="f-${name}">${esc(label)}</label>
@@ -733,15 +734,22 @@ function drawDetail() {
     // then going to find them. Dates belong with dates, and these two are the
     // pair an advisor thinks about together: the vendor's date, and the day
     // they start asking.
-    group('Deadlines'),
+    group('Payment'),
     row(date('finalPaymentDue', 'Final payment due', b.final_payment_due),
         date('softPaymentDue', 'Chase from', d.softPaymentDue || '')),
     `<p class="field-hint" style="margin:-.2rem 0 .6rem;">The first is the vendor's and
       cancels the booking if it passes. The second is yours, ten days in front of it unless
       you say otherwise, and it is what the reminders run on. Change the vendor's date and
       both move together; type over the chase date and it stays where you put it.</p>`,
+    // The deposit amount with its own date, rather than in a Totals box of its
+    // own three sections down. It is the last thing that box held.
     row(date('depositDue', 'Deposit due', b.deposit_due),
-        ''),
+        `<div class="field"><label for="f-deposit">Deposit the vendor wants</label>
+           <input id="f-deposit" name="deposit" class="money" inputmode="decimal"
+             value="${esc(b.deposit_cents ? (b.deposit_cents / 100).toFixed(2) : '')}"
+             ${ro ? 'disabled' : ''}>
+           <p class="field-hint"${depositNote.warn ? ' style="color:var(--amber-600);"' : ''}>${
+             esc(depositNote.text)}</p></div>`),
 
     row(text('destination', 'Destination', b.destination),
         text('itinerary', 'Itinerary', b.itinerary)),
@@ -1096,7 +1104,7 @@ function drawPricing() {
       <span class="muted" id="grid-note"></span>
       <button class="btn btn-primary" id="save-pricing">Save pricing</button></div>` : ''}
     <div class="card-pad" id="price-summary" style="border-top:1px solid var(--navy-100);"></div>
-    <div class="card-pad" id="money-block" style="border-top:1px solid var(--navy-100);"></div>`;
+`;
 
   const cells = () => [...document.querySelectorAll('[data-cell]')];
   const rates = () => [...document.querySelectorAll('[data-rate]')];
@@ -1198,7 +1206,6 @@ function drawPricing() {
   });
   retotal();
   drawPriceSummary();
-  drawMoney();
 
   const toggle = document.getElementById('toggle-rows');
   if (toggle) toggle.addEventListener('click', () => { showAllRows = !showAllRows; drawPricing(); });
@@ -1272,7 +1279,6 @@ function drawPricing() {
  * and this is it: what the trip costs is the grid's arithmetic, and what the
  * vendor wants and by when sits underneath it.
  */
-function drawMoney() {
 /**
  * What the deposit box is actually holding.
  *
@@ -1344,76 +1350,6 @@ function depositHint(b, price) {
   return { warn: false, text: 'What holds the cabin, which is not a charge on it.' };
 }
 
-  const b = d.booking;
-  const box = document.getElementById('money-block');
-  if (!box) return;
-  const ro = !d.editable;
-  const priced = Boolean(d.priceSummary);
-  const cash = (c) => (c ? (c / 100).toFixed(2) : '');
-  const deposit = depositHint(b, d.priceSummary);
-
-  // Money only. The three dates that used to sit here are up in Reservation
-  // information with the other dates, and showing them in both places is the
-  // duplication this was meant to remove.
-  box.innerHTML = `
-    <p class="label" style="margin:0 0 .5rem;">Totals</p>
-    <div class="notice notice-error" id="money-error" hidden></div>
-    <div class="field" style="max-width:20rem;"><label for="m-deposit">Deposit the vendor wants</label>
-      <input id="m-deposit" value="${esc(cash(b.deposit_cents))}" inputmode="decimal" ${ro ? 'disabled' : ''}>
-      <p class="field-hint"${deposit.warn ? ' style="color:var(--amber-600);"' : ''}>${
-        esc(deposit.text)}</p></div>
-    ${priced ? '' : `<div class="field-row">
-      <div class="field"><label for="m-gross">Trip total</label>
-        <input id="m-gross" value="${esc(cash(b.gross_cents))}" inputmode="decimal" ${ro ? 'disabled' : ''}>
-        <p class="field-hint">Until the grid has figures in it, this is the only total there is.</p></div>
-      <div class="field"><label for="m-commission">Commission</label>
-        <input id="m-commission" value="${esc(cash(b.commission_cents))}" inputmode="decimal" ${ro ? 'disabled' : ''}></div>
-    </div>`}
-    <div class="field"><label for="m-commission-status">Commission status</label>
-      <select id="m-commission-status" style="max-width:16rem;" ${ro ? 'disabled' : ''}>
-        ${selectOptions((d.fieldOptions || {}).commissionStatuses, b.commission_status)}</select></div>
-    ${ro ? '' : '<button class="btn btn-secondary btn-sm" id="save-money">Save these</button>'}`;
-
-  const save = document.getElementById('save-money');
-  if (!save) return;
-  save.addEventListener('click', async () => {
-    save.disabled = true;
-    // Only the fields on screen. A trip with a priced grid has no total field
-    // here, and sending an empty one would set it to nothing.
-    const body = {
-      deposit: document.getElementById('m-deposit').value,
-      commissionStatus: document.getElementById('m-commission-status').value,
-    };
-    const gross = document.getElementById('m-gross');
-    const commission = document.getElementById('m-commission');
-    if (gross) body.gross = gross.value;
-    if (commission) body.commission = commission.value;
-
-    try {
-      const res = await api(`/api/bookings/${encodeURIComponent(id)}/quick`,
-        { method: 'POST', body });
-      await load();
-      // Said out loud. The schedule following a date it was copied from is
-      // helpful once it is announced and alarming until then, and a schedule
-      // that built itself should not be something you discover by scrolling.
-      const said = [];
-      for (const m of res.moved || []) said.push(`moved ${m.what} to ${short(m.to)}`);
-      if (res.scheduled) {
-        said.push(`put ${res.scheduled} payment${res.scheduled === 1 ? '' : 's'} on the schedule`);
-      }
-      if (said.length) {
-        err.innerHTML = `<div class="notice notice-info">Saved, and ${
-          esc(said.join(', and '))}.</div>`;
-      }
-    } catch (e) {
-      const box2 = document.getElementById('money-error');
-      box2.textContent = e.message;
-      box2.hidden = false;
-      save.disabled = false;
-    }
-  });
-}
-
 /**
  * The rate, when there is one.
  *
@@ -1457,10 +1393,35 @@ function drawPriceSummary() {
   const s = d.priceSummary;
   const box = document.getElementById('price-summary');
   if (!box) return;
+  const b = d.booking;
+  const ro = !d.editable;
+  const cash = (c) => (c ? (c / 100).toFixed(2) : '');
+
+  // Where the commission is read is where it is set.
+  //
+  // The status and, on a reservation with no breakdown, the two figures behind
+  // it lived in a Totals box further down under a heading about deposits. They
+  // belong under the commission and the rate they describe.
+  const controls = `
+    <div class="notice notice-error" id="money-error" hidden style="margin-top:1rem;"></div>
+    ${s ? '' : `<div class="field-row" style="margin-top:1rem;">
+      <div class="field"><label for="m-gross">Trip total</label>
+        <input id="m-gross" class="money" value="${esc(cash(b.gross_cents))}" inputmode="decimal" ${ro ? 'disabled' : ''}>
+        <p class="field-hint">Until the grid has figures in it, this is the only total there is.</p></div>
+      <div class="field"><label for="m-commission">Commission</label>
+        <input id="m-commission" class="money" value="${esc(cash(b.commission_cents))}" inputmode="decimal" ${ro ? 'disabled' : ''}></div>
+    </div>`}
+    <div class="field" style="max-width:18rem;margin-top:${s ? '1rem' : '0'};">
+      <label for="m-commission-status">Commission status</label>
+      <select id="m-commission-status" ${ro ? 'disabled' : ''}>
+        ${selectOptions((d.fieldOptions || {}).commissionStatuses, b.commission_status)}</select></div>
+    ${ro ? '' : '<button class="btn btn-secondary btn-sm" id="save-money">Save these</button>'}`;
+
   if (!s) {
     box.innerHTML = `<p class="muted">Nothing saved yet. Without a breakdown, commission
       looks like a share of everything the client paid, including taxes nobody pays
-      commission on.</p>`;
+      commission on.</p>${controls}`;
+    wireCommission();
     return;
   }
   const variance = s.varianceCents;
@@ -1475,7 +1436,34 @@ function drawPriceSummary() {
       ${variance === 0 ? '<span class="badge badge-green">matches</span>'
         : variance > 0 ? `<span class="badge badge-green">${money(variance)} above</span>`
         : `<span class="badge badge-red">${money(Math.abs(variance))} short</span>`}</dd>`}
-  </dl>`;
+  </dl>${controls}`;
+  wireCommission();
+}
+
+/** Saving whatever of the commission is editable on this reservation. */
+function wireCommission() {
+  const save = document.getElementById('save-money');
+  if (!save) return;
+  save.addEventListener('click', async () => {
+    save.disabled = true;
+    // Only the fields on screen. A reservation with a priced grid has no total
+    // box here, and sending an empty one would set the total to nothing.
+    const body = { commissionStatus: document.getElementById('m-commission-status').value };
+    const gross = document.getElementById('m-gross');
+    const commission = document.getElementById('m-commission');
+    if (gross) body.gross = gross.value;
+    if (commission) body.commission = commission.value;
+
+    try {
+      await api(`/api/bookings/${encodeURIComponent(id)}/quick`, { method: 'POST', body });
+      await load();
+    } catch (e) {
+      const box = document.getElementById('money-error');
+      box.textContent = e.message;
+      box.hidden = false;
+      save.disabled = false;
+    }
+  });
 }
 
 function drawTravellers() {
