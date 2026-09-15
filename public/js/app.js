@@ -48,13 +48,14 @@ export async function api(path, { method = 'GET', body, signal } = {}) {
 // ----------------------------------------------------------- formatting --
 export function money(cents) {
   const n = Number(cents || 0) / 100;
-  // Whole dollars stay clean; anything with cents shows both digits. Min and
-  // max have to agree, or Intl throws a RangeError.
-  const digits = Number.isInteger(n) ? 0 : 2;
+  // Always both digits. This used to drop them on a whole number, so a
+  // reservation read $289 on one line and $1,284.50 on the next, and a column
+  // of money did not line up. Brent's rule, 2026-09-15: every figure carries
+  // its cents, including the nought ones.
   return n.toLocaleString('en-US', {
     style: 'currency', currency: 'USD',
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   });
 }
 

@@ -28,10 +28,8 @@ function isoDay(offsetDays = 0) {
 
 /** Money for a notice, written the way the screen around it writes money. */
 function dollars(cents) {
-  const n = Number(cents || 0) / 100;
-  const digits = Number.isInteger(n) ? 0 : 2;
-  return `$${n.toLocaleString('en-US',
-    { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+  return `$${(Number(cents || 0) / 100).toLocaleString('en-US',
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /**

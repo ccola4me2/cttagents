@@ -37,8 +37,10 @@ import { ITEM_KINDS } from './itinerary.js';
 import { sendTripMessageEmail, sendOptionChosenEmail } from './email.js';
 import { submitReview, reviewFor, tripIsOver } from './reviews.js';
 
-const money = (cents) => (Number(cents) || 0) / 100 === 0 ? '$0'
-  : (Number(cents) / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+// Both digits, always, including on nought. A client's own page is the last
+// place a column of money should fail to line up.
+const money = (cents) => ((Number(cents) || 0) / 100).toLocaleString('en-US',
+  { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function sayDate(iso) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || '')) return '';
