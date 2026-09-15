@@ -247,6 +247,8 @@
         <input id="t-country" name="passportCountry" maxlength="60"></div>
       <label style="display:flex;align-items:center;gap:.5rem;font-weight:400;">
         <input type="checkbox" id="t-lead" name="isLead" style="width:auto;"> Lead traveller</label>
+      <p class="field-hint" style="margin-top:.3rem;">The person the vendor's confirmation is in.
+        One per reservation, and nothing to do with a sales lead.</p>
     </div>
     <div class="card-foot">
       <button class="btn btn-danger btn-sm" type="button" id="t-delete" hidden>Remove</button>
@@ -1492,7 +1494,8 @@ function drawTravellers() {
         <thead><tr><th>Name</th><th>Born</th><th>Contact</th><th>Passport</th><th></th></tr></thead>
         <tbody>${d.travellers.map((t) => `<tr>
           <td><span class="name">${esc(t.name)}</span>
-            ${t.is_lead ? '<div><span class="badge badge-navy">lead</span></div>' : ''}</td>
+            ${t.is_lead
+              ? '<div><span class="badge badge-navy">lead traveller</span></div>' : ''}</td>
           <td>${t.dob ? esc(short(t.dob)) : '<span class="muted">-</span>'}</td>
           <td>${[t.phone ? `<a href="tel:${esc(t.phone)}">${esc(t.phone)}</a>` : '',
                  t.email ? `<a href="mailto:${esc(t.email)}">${esc(t.email)}</a>` : '']
