@@ -42,6 +42,11 @@
             </form>
           </section>
           <section class="card" style="margin-bottom:1.5rem;">
+            <div class="card-head" id="sec-travellers"><h2>Travellers</h2>
+              <span id="traveller-actions"></span></div>
+            <div id="travellers"></div>
+          </section>
+          <section class="card" style="margin-bottom:1.5rem;">
             <div class="card-head" id="sec-pricing"><h2>Pricing</h2>
               <span id="pricing-actions"></span></div>
             <div id="pricing"></div>
@@ -55,11 +60,6 @@
             <div class="card-head" id="sec-options"><h2>Choices offered</h2>
               <span id="option-actions"></span></div>
             <div id="options"></div>
-          </section>
-          <section class="card" style="margin-bottom:1.5rem;">
-            <div class="card-head" id="sec-travellers"><h2>Travellers</h2>
-              <span id="traveller-actions"></span></div>
-            <div id="travellers"></div>
           </section>
           <section class="card" style="margin-bottom:1.5rem;" id="itinerary-card">
             <div class="card-head" id="sec-itinerary"><h2>Itinerary</h2>
@@ -516,9 +516,19 @@ function drawShare() {
          ${on ? 'Stop sharing' : 'Make a page'}</button>` : '';
 
   if (!on) {
-    host.innerHTML = `<p class="muted" style="margin:0;">A page of their own showing what is
-      booked, what they have paid and what is still due, plus any documents you tick below.
-      They cannot change anything: if they want something different they leave you a note.</p>`;
+    // Said as what it is, not as what it contains. This read like a description
+    // of a feature already switched on, so the one question it left unanswered
+    // was what pressing the button would actually do.
+    host.innerHTML = `<p style="margin:0 0 .7rem;"><strong>Make a page</strong> gives this trip
+      a web address you can send the client. No login and no password: they open the link and
+      it is there. It is the same page a quote goes to, so if you have already sent one, this
+      is it.</p>
+      <p class="muted" style="margin:0 0 .7rem;">They see the itinerary, what is booked, what
+      they have paid and what is still due, and any documents you tick below. Prices show as a
+      total and a schedule. Your commission and the breakdown are never on it.</p>
+      <p class="muted" style="margin:0;">They cannot change anything. They can leave you a note,
+      pick between options if you have offered any, and once they are home, say how the trip
+      went and pass on somebody else's name. You can turn it off again at any time.</p>`;
   } else {
     const url = `${location.origin}/t/${b.share_code}`;
     const shownDocs = (d.documents || []).filter((f) => f.shared).length;
@@ -1737,10 +1747,10 @@ function render() {
   // outside a group both have cards that are not there.
   const sections = [
     ['sec-detail', 'Reservation'],
+    ['sec-travellers', 'Travellers'],
     ['sec-pricing', 'Pricing'],
     ['sec-payments', 'Payments'],
     ['sec-options', 'Choices'],
-    ['sec-travellers', 'Travellers'],
     ['sec-components', 'Other vendors'],
     ['sec-share', 'Client page'],
     ['sec-docs', 'Documents'],
