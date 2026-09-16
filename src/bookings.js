@@ -121,6 +121,69 @@ function parseBooking(body) {
   };
 }
 
+// What the record keeps when a request does not mention it.
+//
+// This endpoint saves the whole reservation, so every field it writes is
+// written on every save, whether or not the form that posted it carried one.
+// That is fine while the form carries all of them and quietly destructive the
+// moment it stops: taking the Totals box off the reservation page left the
+// form without a trip total or a commission, and from then on saving a
+// confirmation number wrote zero over both. The traveller count, the
+// commission status and the group link had never been on that form at all.
+//
+// So absent now means unchanged. Present and empty still clears, because that
+// is somebody actually emptying a box, and every field on the form is posted
+// even when blank.
+//
+// Each entry is the parsed field, the key the request uses for it, and the
+// column to read back off the record. They differ often enough that guessing
+// between them is how this gets wrong: gross is gross_cents, deposit is
+// deposit_cents, and the traveller count is just travellers.
+const KEEP_IF_ABSENT = [
+  ['ghlContactId', 'ghlContactId', 'ghl_contact_id'],
+  ['ghlOpportunityId', 'ghlOpportunityId', 'ghl_opportunity_id'],
+  ['groupId', 'groupId', 'group_id'],
+  ['clientName', 'clientName', 'client_name'],
+  ['supplier', 'supplier', 'supplier'],
+  ['productType', 'productType', 'product_type'],
+  ['productName', 'productName', 'product_name'],
+  ['destination', 'destination', 'destination'],
+  ['confirmationNumber', 'confirmationNumber', 'confirmation_number'],
+  ['cabin', 'cabin', 'cabin'],
+  ['cabinCategory', 'cabinCategory', 'cabin_category'],
+  ['itinerary', 'itinerary', 'itinerary'],
+  ['bookingMethod', 'bookingMethod', 'booking_method'],
+  ['insuranceStatus', 'insuranceStatus', 'insurance_status'],
+  ['personal', 'personal', 'personal'],
+  ['departDate', 'departDate', 'depart_date'],
+  ['returnDate', 'returnDate', 'return_date'],
+  ['depositDue', 'depositDue', 'deposit_due'],
+  ['finalPaymentDue', 'finalPaymentDue', 'final_payment_due'],
+  ['travellers', 'travellers', 'travellers'],
+  ['grossCents', 'gross', 'gross_cents'],
+  ['depositCents', 'deposit', 'deposit_cents'],
+  ['commissionCents', 'commission', 'commission_cents'],
+  ['commissionStatus', 'commissionStatus', 'commission_status'],
+  ['status', 'status', 'status'],
+  ['notes', 'notes', 'notes'],
+  // advisorSplitPct is deliberately not here. It is not the request's to set
+  // at all, at any time, and is taken from the record unconditionally below.
+];
+
+/**
+ * Puts back every field the request stayed silent about.
+ *
+ * Mutates the parsed fields rather than returning a copy, because the caller
+ * goes on to add the resolved client and vendor to the same object.
+ */
+function keepWhatWasNotSent(fields, body, before) {
+  for (const [field, key, column] of KEEP_IF_ABSENT) {
+    if (Object.prototype.hasOwnProperty.call(body, key)) continue;
+    fields[field] = before[column];
+  }
+  return fields;
+}
+
 export async function handleListBookings(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
@@ -615,18 +678,11 @@ export async function handleUpdateBooking(request, env, id) {
   fields.advisorSplitPct = before.advisor_split_pct === null
     || before.advisor_split_pct === undefined ? null : Number(before.advisor_split_pct);
 
-  // And whatever status it already carries, unless this request names one.
-  //
-  // oneOf falls back to the first value it is given when it is handed nothing,
-  // and the first booking status is 'quoted'. This endpoint saves the whole
-  // record, so a save that left status out did not leave it alone: it silently
-  // demoted a booked trip to a quote. The form has always sent one, so nothing
-  // was ever seen to do it, and it cost an afternoon when a test did.
-  //
-  // A quote is also where a reservation starts, so the wrong answer here reads
-  // as normal on every screen it reaches. The same rule as the split above:
-  // what the record holds is kept unless somebody actually said otherwise.
-  if (!Object.prototype.hasOwnProperty.call(raw, 'status')) fields.status = before.status;
+  // And every other field this request did not mention. See KEEP_IF_ABSENT:
+  // the status fix that used to sit here on its own was one instance of it,
+  // and the trip total and the commission were two more that nothing had
+  // noticed yet.
+  keepWhatWasNotSent(fields, raw, before);
 
   fields.clientId = await db.resolveClient(env, owner.id, fields.clientName,
     { ghlContactId: fields.ghlContactId });

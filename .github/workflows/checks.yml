@@ -129,6 +129,15 @@ jobs:
       # the callee reads undefined. That cost a 500 on every statement, every
       # invoice and every preview, and the smoke test reported it three times
       # as the word "undefined".
+      # The reservation save writes the whole record, so a field the request
+      # did not carry is written from whatever the parser defaulted to. That is
+      # how taking the Totals box off the page turned every save of a
+      # confirmation number into a save that zeroed the trip total and the
+      # commission. KEEP_IF_ABSENT is what stops it; this is what stops the list
+      # falling behind the fields.
+      - name: Nothing is erased by a save that never mentioned it
+        run: npm run check:keep
+
       - name: Calls pass the keys the function takes
         run: npm run check:shapes
 
