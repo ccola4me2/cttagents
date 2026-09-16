@@ -56,6 +56,10 @@ export async function handleListAdvisors(request, env) {
     users: users.map(publicUser),
     counts: await db.countUsers(env, { agencyId }),
     platformOwner: Boolean(admin.platform_owner),
+    // So the work-as picker can leave the reader out of their own list. The
+    // server refuses it anyway, with "you are already yourself", but a name in
+    // a list of seats to sit in should be a seat somebody can sit in.
+    viewerId: admin.id,
     agencies: admin.platform_owner ? await agencyNames(env) : [],
   });
 }

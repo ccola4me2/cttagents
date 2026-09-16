@@ -400,7 +400,7 @@ async function load() {
     // of them. The server refuses it either way; this stops the other from
     // being offered something they cannot have.
     document.getElementById('role-field').hidden = !data.platformOwner;
-    fillActAs(data.users);
+    fillActAs(data.users, data.viewerId);
   } catch (err) { showError(panel, err); }
 }
 // ----------------------------------------------------------------- add
@@ -494,16 +494,23 @@ splitForm.addEventListener('submit', async (e) => {
 });
 
 // -------------------------------------------------------------- work as
-// Pick an advisor and the portal becomes theirs: their clients, their
+// Pick somebody and the portal becomes theirs: their clients, their
 // reservations, their book. For the booking somebody phoned in to the office,
-// or the record an advisor cannot fix themselves. A banner sits across every
-// page until you stop, and the switch is logged against you.
+// or the record they cannot fix themselves. A banner sits across every page
+// until you stop, and the switch is logged against you.
+//
+// Anybody active in the agency, another owner included: they are a colleague
+// with a book, and the admin screens are shut for the whole of it whoever is
+// being worked as. Not the reader themselves, and not whoever runs the portal,
+// which is the one account that reaches every agency here.
 const actas = document.getElementById('actas');
 
-function fillActAs(users) {
-  const able = (users || []).filter((u) => u.status === 'active' && u.role !== 'admin');
-  actas.innerHTML = '<option value="">Work as an advisor...</option>'
-    + able.map((u) => `<option value="${esc(u.id)}">${esc(u.name || u.email)}</option>`).join('');
+function fillActAs(users, viewerId) {
+  const able = (users || []).filter((u) => u.status === 'active'
+    && !u.platformOwner && u.id !== viewerId);
+  actas.innerHTML = '<option value="">Work as someone...</option>'
+    + able.map((u) => `<option value="${esc(u.id)}">${esc(u.name || u.email)}${
+      u.role === 'admin' ? ' (owner)' : ''}</option>`).join('');
 }
 
 actas.addEventListener('change', async () => {
