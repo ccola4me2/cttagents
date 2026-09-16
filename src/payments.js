@@ -355,8 +355,18 @@ export async function handleUpdatePayment(request, env, id) {
   // knows nothing about who paid or which credit was spent; without this,
   // correcting a typo there would strip a payment of its payer, its card and
   // its credit, and hand the credit back to the client as unspent.
+  //
+  // The list grew after the same rule was missed on the reservation itself,
+  // where a save that did not carry the trip total wrote a zero over it for
+  // ten days. Anything a form might reasonably not show is kept: what kind of
+  // payment it is, whether it is the vendor's deadline or an advisor's own
+  // reminder, when it is due, and the note saying where it came from. Absent
+  // is silence; a field sent empty still clears.
   for (const [key, column] of [['paymentType', 'payment_type'], ['paidBy', 'paid_by'],
-                               ['creditId', 'credit_id'], ['cardLast4', 'card_last4']]) {
+                               ['creditId', 'credit_id'], ['cardLast4', 'card_last4'],
+                               ['kind', 'kind'], ['paymentClass', 'payment_class'],
+                               ['dueDate', 'due_date'], ['reference', 'reference'],
+                               ['notes', 'notes']]) {
     if (body[key] === undefined) fields[key] = existing[column] || null;
   }
   // The method follows the same rule, except that unposting a payment clears

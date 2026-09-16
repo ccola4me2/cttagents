@@ -233,7 +233,12 @@ function render(d) {
         <th>Status</th><th class="num">Amount</th><th></th></tr></thead>
       <tbody>${rowsFor(d).map((p) => {
         const st = statusOf(p, d.today);
-        const mine = p.user_id === ME;
+        // Mine, or anybody's in my agency if I own it. This read "mine" alone
+        // until owners were given the whole agency to work on, which left the
+        // page refusing buttons over endpoints that would now accept them.
+        // canPick is the same question the scope picker asks: an owner, in an
+        // agency, not sitting in somebody else's seat.
+        const mine = p.user_id === ME || Boolean(d.scope && d.scope.canPick);
         return `<tr>
           <td><span class="name">${esc(p.client_name)}</span>
             <div class="muted">${esc(p.depart_date ? 'Departs ' + dateFmt(p.depart_date) : '')}</div></td>
@@ -257,7 +262,10 @@ function render(d) {
             ? `${!p.paid_date ? `<button class="btn btn-primary btn-sm" data-paid="${esc(p.id)}">Mark posted</button>` : ''}
                ${st.atRisk ? `<button class="btn btn-danger btn-sm" data-cancel="${esc(p.booking_id)}"
                   data-name="${esc(p.client_name)}">Reservation cancelled</button>` : ''}
-               <button class="btn btn-ghost btn-sm" data-edit="${esc(p.id)}">Edit</button>`
+               <button class="btn btn-ghost btn-sm" data-edit="${esc(p.id)}">Edit</button>
+               <button class="btn btn-ghost btn-sm" data-del="${esc(p.id)}"
+                  data-what="${esc(`${KIND_LABEL[p.kind] || p.kind} of ${money(p.amount_cents)} for ${p.client_name}`)}"
+                  >Delete</button>`
             : '<span class="muted">view only</span>'}</td>
         </tr>`;
       }).join('')}</tbody></table></div>`;
@@ -269,6 +277,22 @@ function render(d) {
     }));
     panel.querySelectorAll('[data-edit]').forEach((b) =>
       b.addEventListener('click', () => openDialog(d.payments.find((x) => x.id === b.dataset.edit))));
+
+    // A trip is paid off in as many payments as it takes, so the portal cannot
+    // tell a second real payment from one entered twice. The advisor can, and
+    // this is what they put it right with.
+    panel.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', async () => {
+      // Named in the question. A schedule of four identical amounts makes
+      // "delete this payment?" a question nobody can answer safely.
+      if (!confirm(`Delete the ${b.dataset.what}?\n\n`
+        + 'It comes off the schedule and off every total that counts it. Any '
+        + 'credit it spent goes back to the client.')) return;
+      b.disabled = true;
+      try {
+        await api(`/api/payments/${encodeURIComponent(b.dataset.del)}`, { method: 'DELETE' });
+        await load();
+      } catch (err) { alert(err.message); b.disabled = false; }
+    }));
 
     panel.querySelectorAll('[data-cancel]').forEach((b) => b.addEventListener('click', async () => {
       if (!confirm(`Mark ${b.dataset.name}'s reservation cancelled? Do this once the vendor has confirmed it.`)) return;

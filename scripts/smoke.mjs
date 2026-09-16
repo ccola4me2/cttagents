@@ -3809,6 +3809,49 @@ async function main() {
     console.log('        (email is not configured here, so the send itself cannot be exercised)');
   }
 
+  // Correcting a row, and taking one off.
+  //
+  // The edit dialog shows an amount, a date and how it was paid. It does not
+  // show which kind of row this is, whether it is the vendor's deadline or an
+  // advisor's reminder, when it falls due, or the note saying where it came
+  // from. This endpoint writes every column, so all four have to survive a
+  // save that never mentions them: the same rule that a reservation save broke
+  // for ten days, here where breaking it would move a vendor deadline.
+  const editable = (chaseRecord.data?.payments || []).find((x) => x.kind === 'final'
+    && x.payment_class === 'hard');
+  if (editable) {
+    const before = editable;
+    const edited = await call(advisor, 'PUT', `/api/payments/${editable.id}`, {
+      bookingId: chaseId, amount: '2500.00', paidDate: isoDay(0),
+    });
+    check(edited.status === 200, 'a payment can be corrected', `status ${edited.status}`);
+
+    const after = await call(advisor, 'GET', `/api/bookings/${chaseId}/record`);
+    const now2 = (after.data?.payments || []).find((x) => x.id === editable.id);
+    check(now2 && now2.amount_cents === 250000,
+      'the amount that was sent is the amount that lands', String(now2 && now2.amount_cents));
+    check(now2 && now2.kind === before.kind && now2.payment_class === before.payment_class,
+      'and what kind of row it is survives a form that never asked',
+      `${now2 && now2.kind}/${now2 && now2.payment_class}`);
+    check(now2 && now2.due_date === before.due_date,
+      'as does the date the vendor wants it by', `${before.due_date} -> ${now2 && now2.due_date}`);
+    check(now2 && (now2.notes || null) === (before.notes || null),
+      'as does the note saying where the row came from',
+      `${before.notes} -> ${now2 && now2.notes}`);
+
+    // And off again. Two payments of the same amount are a normal way to pay a
+    // trip off, so nothing can guess which one was a mistake; this is how the
+    // person who knows removes it.
+    const gone = await call(advisor, 'DELETE', `/api/payments/${editable.id}`);
+    check(gone.status === 200, 'and a payment can be taken off the schedule',
+      `status ${gone.status}`);
+    const without = await call(advisor, 'GET', `/api/bookings/${chaseId}/record`);
+    check(!(without.data?.payments || []).some((x) => x.id === editable.id),
+      'after which it is not on the reservation any more');
+  } else {
+    check(false, 'the suite built a final balance for this to be about');
+  }
+
   // Chasing money that has arrived is the kind of message that loses a client.
   const paidOne = (chaseRecord.data?.payments || []).find((p) => p.kind === 'deposit');
   await call(advisor, 'POST', `/api/payments/${paidOne.id}/paid`, {});

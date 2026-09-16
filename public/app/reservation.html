@@ -295,7 +295,7 @@
 
 <dialog id="post-dlg">
   <form id="post-form" method="dialog">
-    <div class="card-head"><h2>Post this payment</h2>
+    <div class="card-head"><h2 id="post-title">Post this payment</h2>
       <button class="btn btn-ghost btn-sm" type="button" data-close-post>Close</button></div>
     <div class="card-pad">
       <div class="notice notice-error" hidden></div>
@@ -1763,9 +1763,13 @@ function render() {
                   ? ' · ' + money(p.amount_cents - p.credit_amount_cents) + ' of this paid another way' : ''
               }</div>` : ''}</td>
             <td class="num">${money(p.amount_cents)}</td>
-            <td class="num">${!p.paid_date && d.editable ? `
+            <td class="num" style="white-space:nowrap;">${!p.paid_date && d.editable ? `
               <button class="btn btn-ghost btn-sm" data-remind="${esc(p.id)}">Chase</button>
               <button class="btn btn-ghost btn-sm" data-paid="${esc(p.id)}">Mark posted</button>` : ''}
+              ${d.editable ? `
+              <button class="btn btn-ghost btn-sm" data-edit-pay="${esc(p.id)}">Edit</button>
+              <button class="btn btn-ghost btn-sm" data-del-pay="${esc(p.id)}"
+                data-what="${esc(`${KIND[p.kind] || p.kind} of ${money(p.amount_cents)}`)}">Delete</button>` : ''}
               ${p.reminded_at ? `<div class="muted" style="font-size:.7rem;">chased ${
                 esc(timeAgo(p.reminded_at))}${p.reminder_count > 1 ? `, ${p.reminder_count} times` : ''}</div>` : ''}</td>
           </tr>`;
@@ -1783,6 +1787,28 @@ function render() {
 
   document.querySelectorAll('[data-paid]').forEach((btn) => {
     btn.addEventListener('click', () => openPost(btn.dataset.paid));
+  });
+
+  // Correcting a row rather than posting against it. A trip is paid off in as
+  // many payments as it takes, so the portal cannot tell a second real payment
+  // from one entered twice; the advisor can, and this is what they fix it with.
+  document.querySelectorAll('[data-edit-pay]').forEach((btn) => {
+    btn.addEventListener('click', () => openEditPayment(btn.dataset.editPay));
+  });
+
+  document.querySelectorAll('[data-del-pay]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      // Named in the question. "Delete this payment?" against a schedule of
+      // four identical amounts tells you nothing about which one is going.
+      if (!confirm(`Delete the ${btn.dataset.what}?\n\n`
+        + 'It comes off the schedule and off every total that counts it. Any '
+        + 'credit it spent goes back to the client.')) return;
+      btn.disabled = true;
+      try {
+        await api(`/api/payments/${encodeURIComponent(btn.dataset.delPay)}`, { method: 'DELETE' });
+        await load();
+      } catch (e) { showError(err, e); btn.disabled = false; }
+    });
   });
 
   // A section nav, because this page is long and getting longer. CP Maxx puts
@@ -2550,6 +2576,10 @@ const postDlg = document.getElementById('post-dlg');
 const postForm = document.getElementById('post-form');
 const CREDIT_TYPES = ['future_cruise_credit', 'future_cruise_deposit'];
 let posting = null;
+// The row being corrected, held whole rather than by id: an edit has to send
+// back the fields the dialog does not show, and the row it came from is where
+// they are.
+let editing = null;
 
 function postFields() {
   const type = postForm.elements.paymentType.value;
@@ -2565,12 +2595,43 @@ function postFields() {
  * commonest way a deposit arrives. Same form either way, because it asks the
  * same questions, and the only extra one is what kind of payment it was.
  */
+/**
+ * Correcting a row that is already on the schedule.
+ *
+ * The same dialog as posting, because it asks the same questions, and a second
+ * one that drifted out of step with this would be worse than the reuse. What
+ * changes is where it goes: this saves the row rather than paying it off, so
+ * clearing the date unposts a payment instead of recording one.
+ */
+function openEditPayment(paymentId) {
+  const p = (d.payments || []).find((x) => x.id === paymentId);
+  if (!p) return;
+  openPost(paymentId);
+  editing = p;
+  posting = null;
+  document.getElementById('post-title').textContent = 'Edit this payment';
+  // Every field, including what kind it is: an edit is where a payment filed
+  // as the wrong kind gets put right.
+  document.getElementById('pp-kind-field').hidden = false;
+  postForm.elements.kind.value = p.kind;
+  // Blank on an unpaid row, so opening an edit cannot quietly mark it posted.
+  // Clearing the date on a paid one is how you take a posting back.
+  postForm.elements.paidDate.value = p.paid_date || '';
+  document.getElementById('post-what').textContent = p.paid_date
+    ? `Posted ${dateFmt(p.paid_date)}. Change what is wrong, or clear the date to take the `
+      + 'posting back and leave it owing.'
+    : 'Not posted yet. Change what is wrong, or fill in the date to post it.';
+  document.getElementById('pp-amount-hint').textContent = 'What this row is for.';
+}
+
 function openPost(paymentId) {
   const p = paymentId ? (d.payments || []).find((x) => x.id === paymentId) : null;
   if (paymentId && !p) return;
   posting = paymentId;
+  editing = null;
   postForm.reset();
   postForm.querySelector('.notice-error').hidden = true;
+  document.getElementById('post-title').textContent = 'Post this payment';
 
   const kindField = document.getElementById('pp-kind-field');
   kindField.hidden = Boolean(p);
@@ -2627,7 +2688,18 @@ postForm.elements.paymentType.addEventListener('change', postFields);
 document.querySelector('[data-close-post]').addEventListener('click', () => postDlg.close());
 onSubmit(postForm, async (values) => {
   values.cardLast4 = last4(values.cardLast4);
-  if (posting) {
+  if (editing) {
+    // The whole row back, including the two the dialog does not ask about.
+    // This endpoint saves every column, so a due date or a class left out
+    // would be written as nothing: the same rule that emptied a trip total
+    // for ten days, in a place where it would empty a vendor deadline.
+    await api(`/api/payments/${encodeURIComponent(editing.id)}`, { method: 'PUT', body: {
+      ...values,
+      bookingId: id,
+      paymentClass: editing.payment_class,
+      dueDate: editing.due_date,
+    } });
+  } else if (posting) {
     await api(`/api/payments/${encodeURIComponent(posting)}/paid`, { method: 'POST', body: values });
   } else {
     // A payment that was never scheduled. Due on the day it arrived, because
