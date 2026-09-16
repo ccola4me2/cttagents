@@ -3872,12 +3872,13 @@ async function main() {
   // A full save leaves alone every field the request did not mention.
   //
   // This is the endpoint the reservation form posts to, and it writes the whole
-  // record. While the form carried every field that was harmless. The Totals
-  // box came off it, so it stopped carrying the trip total and the commission,
-  // and from then on saving a confirmation number wrote zero over both. The
-  // traveller count, the commission status and the group link were never on
-  // that form at all. Nobody saw it because nothing on screen shows a figure
-  // going missing: it just reads as a reservation with no money on it.
+  // record. While the form carried every field that was harmless. Money moved
+  // under the pricing on 5 September and the form stopped carrying a trip total
+  // or a commission, so from then on saving a confirmation number wrote zero
+  // over both. The traveller count, the commission status and the group link
+  // were never on that form at all. It ran ten days before anybody noticed,
+  // because nothing on screen shows a figure going missing: it just reads as a
+  // reservation somebody has not finished entering.
   const wasBooked = await call(advisor, 'GET', `/api/bookings/${bareId}`);
   const had = wasBooked.data?.booking || {};
   const quietSave = await call(advisor, 'PUT', `/api/bookings/${bareId}`,

@@ -126,10 +126,17 @@ function parseBooking(body) {
 // This endpoint saves the whole reservation, so every field it writes is
 // written on every save, whether or not the form that posted it carried one.
 // That is fine while the form carries all of them and quietly destructive the
-// moment it stops: taking the Totals box off the reservation page left the
-// form without a trip total or a commission, and from then on saving a
-// confirmation number wrote zero over both. The traveller count, the
-// commission status and the group link had never been on that form at all.
+// moment it stops. It stopped on 5 September, in f667177, when money moved out
+// of the Reservation information form and under the pricing: from then on
+// saving a confirmation number wrote zero over the trip total and the
+// commission, because toCents(undefined) is 0 and the save writes every
+// column. The traveller count, the commission status and the group link have
+// never been on that form at all, so those went back to one, to pending, and
+// to nothing.
+//
+// It ran for ten days before anybody noticed, which is the measure of how
+// quiet it is: nothing throws, and a reservation with no money on it reads as
+// one somebody has not finished entering.
 //
 // So absent now means unchanged. Present and empty still clears, because that
 // is somebody actually emptying a box, and every field on the form is posted

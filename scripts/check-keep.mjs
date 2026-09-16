@@ -7,11 +7,12 @@
 // written from whatever the parser defaulted to.
 //
 // The rule only works while the list is complete, and an incomplete list fails
-// silently and expensively. Taking the Totals box off the reservation page left
-// the form without a trip total or a commission, and from that moment saving a
-// confirmation number wrote zero over both. Nothing threw. Nothing on screen
-// says a figure has gone; a reservation with no money on it looks like a
-// reservation somebody has not finished entering.
+// silently and expensively. When money moved out of the reservation form and
+// under the pricing, the form stopped carrying a trip total and a commission,
+// and from that moment saving a confirmation number wrote zero over both. It
+// ran for ten days. Nothing threw. Nothing on screen says a figure has gone; a
+// reservation with no money on it looks like one somebody has not finished
+// entering.
 //
 // So a field added to parseBooking and not added to KEEP_IF_ABSENT fails here,
 // and so does one left in the list after the parser stops producing it.
