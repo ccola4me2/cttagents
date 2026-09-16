@@ -180,7 +180,11 @@ export async function handleSavePricingGrid(request, env, bookingId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const booking = await db.getBooking(env, bookingId, user.id);
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, bookingId);
+  if (!owner) return notFound('Reservation not found.');
+
+  const booking = await db.getBooking(env, bookingId, owner.id);
   if (!booking) return notFound('Reservation not found.');
 
   const body = await readJson(request);
@@ -205,7 +209,7 @@ export async function handleSavePricingGrid(request, env, bookingId) {
   // reservation would price somebody who is not on this trip.
   const { results: people } = await env.DB.prepare(
     'SELECT id FROM travellers WHERE booking_id = ? AND user_id = ?'
-  ).bind(bookingId, user.id).all().catch(() => ({ results: [] }));
+  ).bind(bookingId, owner.id).all().catch(() => ({ results: [] }));
   const mine = new Set((people || []).map((p) => p.id));
   const column = (v) => {
     const id = clean(v, 64);
@@ -217,7 +221,7 @@ export async function handleSavePricingGrid(request, env, bookingId) {
   // vendor.
   const { results: parts } = await env.DB.prepare(
     'SELECT id FROM components WHERE booking_id = ? AND user_id = ?'
-  ).bind(bookingId, user.id).all().catch(() => ({ results: [] }));
+  ).bind(bookingId, owner.id).all().catch(() => ({ results: [] }));
   const ours = new Set((parts || []).map((p) => p.id));
   const component = (v) => {
     const id = clean(v, 64);
@@ -270,11 +274,11 @@ export async function handleSavePricingGrid(request, env, bookingId) {
   if (scopeId) {
     await env.DB.prepare(
       'DELETE FROM booking_pricing WHERE booking_id = ? AND user_id = ? AND component_id = ?'
-    ).bind(bookingId, user.id, scopeId).run();
+    ).bind(bookingId, owner.id, scopeId).run();
   } else {
     await env.DB.prepare(
       'DELETE FROM booking_pricing WHERE booking_id = ? AND user_id = ? AND component_id IS NULL'
-    ).bind(bookingId, user.id).run();
+    ).bind(bookingId, owner.id).run();
   }
   for (const r of rows) r.componentId = scopeId;
 
@@ -285,15 +289,15 @@ export async function handleSavePricingGrid(request, env, bookingId) {
          kind, label, amount_cents, commissionable, commission_cents, commission_pct,
          commission_kind, sort_order, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(uid(), bookingId, user.id, r.travellerId, r.componentId, r.kind, r.amountCents,
+    ).bind(uid(), bookingId, owner.id, r.travellerId, r.componentId, r.kind, r.amountCents,
            r.commissionable, r.commissionCents,
            r.commissionPct === undefined ? null : r.commissionPct,
            r.commissionKind || 'base', r.sortOrder, ts, ts).run();
   }
 
-  await syncBookingTotals(env, bookingId, user.id);
-  await db.logActivity(env, user.id, 'pricing.grid',
-    `Priced ${booking.client_name}'s trip`, { bookingId });
+  await syncBookingTotals(env, bookingId, owner.id);
+  await db.logActivity(env, owner.id, 'pricing.grid',
+    db.byHand(`Priced ${booking.client_name}'s trip`, user, owner), { bookingId });
   return json({ ok: true, lines: rows.length });
 }
 
@@ -301,7 +305,11 @@ export async function handleAddPriceLine(request, env, bookingId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const booking = await db.getBooking(env, bookingId, user.id);
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, bookingId);
+  if (!owner) return notFound('Reservation not found.');
+
+  const booking = await db.getBooking(env, bookingId, owner.id);
   if (!booking) return notFound('Reservation not found.');
 
   const { fields, error } = parseLine(await readJson(request));
@@ -313,10 +321,10 @@ export async function handleAddPriceLine(request, env, bookingId) {
     `INSERT INTO booking_pricing (id, booking_id, user_id, kind, label, amount_cents,
        commissionable, commission_cents, sort_order, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, bookingId, user.id, fields.kind, fields.label, fields.amountCents,
+  ).bind(id, bookingId, owner.id, fields.kind, fields.label, fields.amountCents,
          fields.commissionable, fields.commissionCents, fields.sortOrder, ts, ts).run();
 
-  await syncBookingTotals(env, bookingId, user.id);
+  await syncBookingTotals(env, bookingId, owner.id);
   return json({ ok: true, id }, 201);
 }
 
@@ -324,9 +332,13 @@ export async function handleUpdatePriceLine(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'booking_pricing', id);
+  if (!owner) return notFound('Price line not found.');
+
   const row = await env.DB.prepare(
     'SELECT booking_id FROM booking_pricing WHERE id = ? AND user_id = ?'
-  ).bind(id, user.id).first();
+  ).bind(id, owner.id).first();
   if (!row) return notFound('Price line not found.');
 
   const { fields, error } = parseLine(await readJson(request));
@@ -336,22 +348,26 @@ export async function handleUpdatePriceLine(request, env, id) {
     `UPDATE booking_pricing SET kind = ?, label = ?, amount_cents = ?, commissionable = ?,
        commission_cents = ?, sort_order = ?, updated_at = ? WHERE id = ? AND user_id = ?`
   ).bind(fields.kind, fields.label, fields.amountCents, fields.commissionable,
-         fields.commissionCents, fields.sortOrder, now(), id, user.id).run();
+         fields.commissionCents, fields.sortOrder, now(), id, owner.id).run();
 
-  await syncBookingTotals(env, row.booking_id, user.id);
+  await syncBookingTotals(env, row.booking_id, owner.id);
   return json({ ok: true });
 }
 
 export async function handleDeletePriceLine(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'booking_pricing', id);
+  if (!owner) return notFound('Price line not found.');
   const row = await env.DB.prepare(
     'SELECT booking_id FROM booking_pricing WHERE id = ? AND user_id = ?'
-  ).bind(id, user.id).first();
+  ).bind(id, owner.id).first();
   if (!row) return notFound('Price line not found.');
   await env.DB.prepare('DELETE FROM booking_pricing WHERE id = ? AND user_id = ?')
-    .bind(id, user.id).run();
-  await syncBookingTotals(env, row.booking_id, user.id);
+    .bind(id, owner.id).run();
+  await syncBookingTotals(env, row.booking_id, owner.id);
   return json({ ok: true });
 }
 

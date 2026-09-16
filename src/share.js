@@ -80,10 +80,14 @@ export async function handleShareTrip(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, id);
+  if (!owner) return notFound('Reservation not found.');
+
   const body = await readJson(request);
   const on = body.on !== false;
 
-  const booking = await db.getBooking(env, id, user.id);
+  const booking = await db.getBooking(env, id, owner.id);
   if (!booking) return notFound('Reservation not found.');
 
   if (!on) {
@@ -92,18 +96,18 @@ export async function handleShareTrip(request, env, id) {
     // whose details have moved on, is worse than a link that is gone.
     await env.DB.prepare(
       'UPDATE bookings SET share_code = NULL, shared_at = NULL, updated_at = ? WHERE id = ? AND user_id = ?'
-    ).bind(now(), id, user.id).run();
-    await db.logActivity(env, user.id, 'trip.unshare',
-      `Stopped sharing ${booking.client_name}'s trip`, { id });
+    ).bind(now(), id, owner.id).run();
+    await db.logActivity(env, owner.id, 'trip.unshare',
+      db.byHand(`Stopped sharing ${booking.client_name}'s trip`, user, owner), { id });
     return json({ ok: true, shared: false, code: null });
   }
 
   const code = booking.share_code || shareCode();
   await env.DB.prepare(
     'UPDATE bookings SET share_code = ?, shared_at = ?, updated_at = ? WHERE id = ? AND user_id = ?'
-  ).bind(code, booking.shared_at || now(), now(), id, user.id).run();
-  await db.logActivity(env, user.id, 'trip.share',
-    `Shared ${booking.client_name}'s trip`, { id });
+  ).bind(code, booking.shared_at || now(), now(), id, owner.id).run();
+  await db.logActivity(env, owner.id, 'trip.share',
+    db.byHand(`Shared ${booking.client_name}'s trip`, user, owner), { id });
 
   return json({ ok: true, shared: true, code, url: `${appUrl(env)}/t/${code}` });
 }
@@ -112,10 +116,14 @@ export async function handleShareTrip(request, env, id) {
 export async function handleShareDocument(request, env, docId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'documents', docId);
+  if (!owner) return notFound('Document not found.');
   const body = await readJson(request);
   const res = await env.DB.prepare(
     'UPDATE documents SET shared = ?, updated_at = ? WHERE id = ? AND user_id = ?'
-  ).bind(body.shared ? 1 : 0, now(), docId, user.id).run();
+  ).bind(body.shared ? 1 : 0, now(), docId, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Document not found.');
   return json({ ok: true, shared: Boolean(body.shared) });
 }
@@ -136,9 +144,13 @@ export async function handleTripMessages(request, env, id) {
 export async function handleReadTripMessage(request, env, msgId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'trip_messages', msgId);
+  if (!owner) return notFound('Message not found.');
   await env.DB.prepare(
     'UPDATE trip_messages SET read_at = ? WHERE id = ? AND user_id = ?'
-  ).bind(now(), msgId, user.id).run();
+  ).bind(now(), msgId, owner.id).run();
   return json({ ok: true });
 }
 

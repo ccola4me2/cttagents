@@ -215,8 +215,15 @@ async function assigneesFor(env, user, raw) {
 }
 
 async function resolveLinks(env, user, fields) {
-  if (fields.bookingId && !(await db.getBooking(env, fields.bookingId, user.id))) {
-    return { error: 'That reservation is not yours.' };
+  // A task on a reservation belongs to whoever the reservation belongs to. An
+  // agency owner adding one to an advisor's trip is putting it on that
+  // advisor's list, because it is their client who is waiting for it, and the
+  // assigned-by line says who put it there.
+  let onBehalfOf = null;
+  if (fields.bookingId) {
+    onBehalfOf = await db.writerForBooking(env, user, fields.bookingId);
+    if (!onBehalfOf) return { error: 'That reservation is not yours.' };
+    if (onBehalfOf.id === user.id) onBehalfOf = null;
   }
   if (fields.clientId) {
     const row = await env.DB.prepare('SELECT id FROM clients WHERE id = ? AND user_id = ?')
@@ -229,8 +236,8 @@ async function resolveLinks(env, user, fields) {
     if (!row) return { error: 'That group is not yours.' };
   }
 
-  let owner = user.id;
-  let assignedBy = null;
+  let owner = onBehalfOf ? onBehalfOf.id : user.id;
+  let assignedBy = onBehalfOf ? user.id : null;
   if (fields.assignTo && fields.assignTo !== user.id) {
     if (user.role !== 'admin') return { error: 'Only an owner can put a task on somebody else.' };
     const row = await env.DB.prepare(
@@ -427,6 +434,10 @@ export async function handleUpdateTask(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForTask(env, user, id);
+  if (!owner) return notFound('Task not found.');
+
   const body = await readJson(request);
 
   // Pinning is its own request shape for the same reason as ticking off: it
@@ -434,9 +445,9 @@ export async function handleUpdateTask(request, env, id) {
   if (Object.prototype.hasOwnProperty.call(body, 'pinned')) {
     const res = await env.DB.prepare(
       'UPDATE tasks SET pinned_at = ?, updated_at = ? WHERE id = ? AND user_id = ?'
-    ).bind(body.pinned ? now() : null, now(), id, user.id).run();
+    ).bind(body.pinned ? now() : null, now(), id, owner.id).run();
     if (!res.meta || res.meta.changes === 0) return notFound('Task not found.');
-    return json({ ok: true, task: await getTask(env, id, user.id) });
+    return json({ ok: true, task: await getTask(env, id, owner.id) });
   }
 
   // Ticking a task off is its own request shape, because it is the thing
@@ -444,16 +455,16 @@ export async function handleUpdateTask(request, env, id) {
   if (Object.prototype.hasOwnProperty.call(body, 'done')) {
     const res = await env.DB.prepare(
       'UPDATE tasks SET done_at = ?, updated_at = ? WHERE id = ? AND user_id = ?'
-    ).bind(body.done ? now() : null, now(), id, user.id).run();
+    ).bind(body.done ? now() : null, now(), id, owner.id).run();
     if (!res.meta || res.meta.changes === 0) return notFound('Task not found.');
 
-    const task = await getTask(env, id, user.id);
+    const task = await getTask(env, id, owner.id);
     // Only on the way to done, and un-ticking takes it back: a mis-click that
     // makes next week's task and leaves it there is litter somebody has to
     // notice. Only if nothing has been done to it, because a task somebody has
     // started working is theirs now, whatever made it.
     const repeated = body.done ? await repeatTask(env, task) : null;
-    const undone = body.done ? 0 : await undoRepeat(env, id, user.id);
+    const undone = body.done ? 0 : await undoRepeat(env, id, owner.id);
     return json({ ok: true, task, repeated, undone });
   }
 
@@ -470,14 +481,14 @@ export async function handleUpdateTask(request, env, id) {
          overdue_reminded_at = CASE WHEN due_date IS ? THEN overdue_reminded_at ELSE NULL END,
          updated_at = ?
        WHERE id = ? AND user_id = ?`
-    ).bind(due, due, due, now(), id, user.id).run();
+    ).bind(due, due, due, now(), id, owner.id).run();
     if (!res.meta || res.meta.changes === 0) return notFound('Task not found.');
-    return json({ ok: true, task: await getTask(env, id, user.id) });
+    return json({ ok: true, task: await getTask(env, id, owner.id) });
   }
 
   const { fields, error } = parse(body);
   if (error) return badRequest(error);
-  const links = await resolveLinks(env, user, fields);
+  const links = await resolveLinks(env, owner, fields);
   if (links.error) return badRequest(links.error);
 
   // Moving a task's date puts it back in the queue to be chased. Without this
@@ -494,10 +505,10 @@ export async function handleUpdateTask(request, env, id) {
   ).bind(fields.title, fields.notes || null, fields.dueDate, fields.dueTime, fields.priority,
          fields.kind, fields.repeatRule, fields.repeatUntil,
          fields.bookingId, fields.contactId, fields.clientId, fields.groupId,
-         fields.dueDate, fields.dueDate, now(), id, user.id).run();
+         fields.dueDate, fields.dueDate, now(), id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Task not found.');
 
-  return json({ ok: true, task: await getTask(env, id, user.id) });
+  return json({ ok: true, task: await getTask(env, id, owner.id) });
 }
 
 // ---------------------------------------------------------------------------
@@ -617,8 +628,12 @@ export async function handleDeleteTaskItem(request, env, itemId) {
 export async function handleDeleteTask(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForTask(env, user, id);
+  if (!owner) return notFound('Task not found.');
   const res = await env.DB.prepare('DELETE FROM tasks WHERE id = ? AND user_id = ?')
-    .bind(id, user.id).run();
+    .bind(id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Task not found.');
   return json({ ok: true });
 }

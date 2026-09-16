@@ -408,9 +408,14 @@ export async function handleStatement(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  // Self scope. An owner may read an associate's reservation, but sending a
-  // client an email over that advisor's name is not reading.
-  const booking = await db.getBooking(env, id, user.id);
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, id);
+  if (!owner) return notFound('Reservation not found.');
+
+  // Sent over the advisor's name and reply-to, whoever pressed the button. An
+  // owner may send a statement on an advisor's reservation the same way they
+  // may correct one, and the activity line on it says who actually did.
+  const booking = await db.getBooking(env, id, owner.id);
   if (!booking) return notFound('Reservation not found.');
 
   // Nothing goes out about a trip that is off. Whatever the advisor meant to
@@ -419,7 +424,7 @@ export async function handleStatement(request, env, id) {
     return badRequest('That reservation is cancelled. Nothing should go to the client about it.');
   }
 
-  const scope = db.selfScope(user);
+  const scope = db.selfScope(owner);
   const [pricing, travellers, amenities, payments, options] = await Promise.all([
     listPricing(env, id, scope),
     listTravellers(env, id, scope),
@@ -440,7 +445,7 @@ export async function handleStatement(request, env, id) {
   const issuing = booking.status === 'booked' || booking.status === 'travelled';
 
   const build = () => buildStatement({
-    booking, pricing, travellers, amenities, payments, options, client, user,
+    booking, pricing, travellers, amenities, payments, options, client, owner,
   });
 
   let statement = build();
@@ -487,10 +492,10 @@ export async function handleStatement(request, env, id) {
   // having no gaps in it.
   const assignedHere = issuing && !booking.invoice_no;
   if (assignedHere) {
-    const no = await nextInvoiceNo(env, user.id, new Date().getFullYear());
+    const no = await nextInvoiceNo(env, owner.id, new Date().getFullYear());
     await env.DB.prepare(
       'UPDATE bookings SET invoice_no = ?, invoice_issued_at = ?, updated_at = ? WHERE id = ? AND user_id = ?'
-    ).bind(no, now(), now(), id, user.id).run();
+    ).bind(no, now(), now(), id, owner.id).run();
     booking.invoice_no = no;
     booking.invoice_issued_at = now();
     statement = build();
@@ -499,14 +504,14 @@ export async function handleStatement(request, env, id) {
 
   try {
     await sendHtml(env, {
-      to: statement.to, replyTo: user.email, subject: rendered.subject, html: rendered.html,
+      to: statement.to, replyTo: owner.email, subject: rendered.subject, html: rendered.html,
     });
   } catch (e) {
     // The number goes back. A send that failed is an invoice nobody has.
     if (assignedHere) {
       await env.DB.prepare(
         'UPDATE bookings SET invoice_no = NULL, invoice_issued_at = NULL WHERE id = ? AND user_id = ?'
-      ).bind(id, user.id).run().catch(() => null);
+      ).bind(id, owner.id).run().catch(() => null);
     }
     return badRequest(String((e && e.message) || e).slice(0, 300));
   }
@@ -523,15 +528,15 @@ export async function handleStatement(request, env, id) {
     await env.DB.prepare(
       `UPDATE bookings SET quote_sent_at = ?, quote_sent_count = quote_sent_count + 1,
               statement_hash = ?, updated_at = ? WHERE id = ? AND user_id = ?`
-    ).bind(now(), fingerprint, now(), id, user.id).run();
+    ).bind(now(), fingerprint, now(), id, owner.id).run();
   } else {
     await env.DB.prepare(
       `UPDATE bookings SET statement_sent_at = ?, statement_hash = ?, updated_at = ?
         WHERE id = ? AND user_id = ?`
-    ).bind(now(), fingerprint, now(), id, user.id).run();
+    ).bind(now(), fingerprint, now(), id, owner.id).run();
   }
 
-  await db.logActivity(env, user.id, `booking.${statement.mode}`,
-    `Sent ${statement.clientName} a ${statement.mode}`, { bookingId: id });
+  await db.logActivity(env, owner.id, `booking.${statement.mode}`,
+    db.byHand(`Sent ${statement.clientName} a ${statement.mode}`, user, owner), { bookingId: id });
   return json({ ok: true, sentTo: statement.to, subject: rendered.subject, mode: statement.mode });
 }

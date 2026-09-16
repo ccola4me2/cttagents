@@ -66,9 +66,13 @@ function safeName(raw) {
 export async function handleUploadDocument(request, env, bookingId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, bookingId);
+  if (!owner) return notFound('Reservation not found.');
   if (!docsReady(env)) return notConfigured();
 
-  const booking = await db.getBooking(env, bookingId, user.id);
+  const booking = await db.getBooking(env, bookingId, owner.id);
   if (!booking) return notFound('Reservation not found.');
 
   let form;
@@ -89,7 +93,7 @@ export async function handleUploadDocument(request, env, bookingId) {
   // The advisor and the trip are in the key as well as in the row. Nothing
   // reads the key to decide who may have the file, but a bucket somebody is
   // one day looking through by hand should say whose each object is.
-  const key = `${user.id}/${bookingId}/${id}-${filename}`;
+  const key = `${owner.id}/${bookingId}/${id}-${filename}`;
 
   await env.DOCS.put(key, file.stream(), {
     httpMetadata: { contentType: file.type || 'application/octet-stream' },
@@ -101,13 +105,14 @@ export async function handleUploadDocument(request, env, bookingId) {
        (id, user_id, booking_id, object_key, filename, content_type, size_bytes,
         category, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, user.id, bookingId, key, filename, file.type || null, file.size,
+  ).bind(id, owner.id, bookingId, key, filename, file.type || null, file.size,
          category, ts, ts).run();
 
   // The filename is deliberately absent from the log line. A passport scan
   // named after its owner should not end up in an activity feed.
-  await db.logActivity(env, user.id, 'document.add',
-    `Attached a ${category} to ${booking.client_name}'s trip`, { bookingId });
+  await db.logActivity(env, owner.id, 'document.add',
+    db.byHand(`Attached a ${category} to ${booking.client_name}'s trip`,
+      user, owner), { bookingId });
 
   return json({ ok: true, id, filename, category, sizeBytes: file.size }, 201);
 }
@@ -151,11 +156,15 @@ export async function handleGetDocument(request, env, id) {
 export async function handleDeleteDocument(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'documents', id);
+  if (!owner) return notFound('Document not found.');
   if (!docsReady(env)) return notConfigured();
 
   const row = await env.DB.prepare(
     `SELECT ${COLUMNS} FROM documents WHERE id = ? AND user_id = ?`
-  ).bind(id, user.id).first();
+  ).bind(id, owner.id).first();
   if (!row) return notFound('Document not found.');
 
   // The object first. A row without its file is a broken download; a file
@@ -163,9 +172,10 @@ export async function handleDeleteDocument(request, env, id) {
   // the first is visible to anybody.
   await env.DOCS.delete(row.object_key).catch(() => null);
   await env.DB.prepare('DELETE FROM documents WHERE id = ? AND user_id = ?')
-    .bind(id, user.id).run();
+    .bind(id, owner.id).run();
 
-  await db.logActivity(env, user.id, 'document.delete', 'Removed a document',
+  await db.logActivity(env, owner.id, 'document.delete',
+    db.byHand('Removed a document', user, owner),
     { bookingId: row.booking_id });
   return json({ ok: true });
 }

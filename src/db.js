@@ -577,6 +577,120 @@ export async function getBookingUnscoped(env, id) {
   ).bind(id).first();
 }
 
+/**
+ * Which tables a write may be resolved through.
+ *
+ * Written out rather than derived, because the table name is interpolated into
+ * the statement below and a name that came from anywhere near a request would
+ * be a hole. Everything here is a reservation or something hanging off one.
+ */
+const WRITABLE = new Set([
+  'bookings', 'booking_payments', 'booking_pricing', 'quote_options',
+  'penalty_tiers', 'documents', 'components', 'travellers', 'amenities',
+  'itinerary_items', 'trip_messages',
+]);
+
+/**
+ * Who a write belongs to, which is not always who is making it.
+ *
+ * An advisor writes to their own records and nobody else's. An agency owner
+ * may also write to an advisor's reservation in their own agency: they are the
+ * person who fixes a wrong date on a Saturday while the advisor is on a ship
+ * with no signal, and a portal where the owner can read that reservation and
+ * not correct it is a portal the correction gets made outside of.
+ *
+ * What it returns is the advisor, not the owner. The row stays whose it was:
+ * the reservation, the commission and the production all belong to the person
+ * who sold it, and an owner touching it is a correction, not a transfer. Every
+ * caller writes as the returned user, and logs the real one alongside, so the
+ * activity line says who actually did it.
+ *
+ * Null means "not yours", which every caller turns into the same not found it
+ * would have given before. A reader who may not have it is not told it exists.
+ *
+ * The agency fence is in the statement rather than in JavaScript after it. A
+ * fence held by an if is a fence somebody edits around; this one cannot return
+ * a row from another agency to forget to check.
+ */
+export async function writerFor(env, user, table, id) {
+  if (!id) return null;
+  if (!WRITABLE.has(table)) throw new Error(`writerFor: ${table} is not a reservation table`);
+  // An owner with no agency is an independent advisor working alone, whose
+  // agency is themselves. Widening on a null agency_id would match every user
+  // whose agency is also null, which is the failing-open case scopeWhere warns
+  // about, so the flag is off unless there is an agency to be inside.
+  const mayWiden = user.role === 'admin' && user.agency_id ? 1 : 0;
+  const row = await env.DB.prepare(
+    `SELECT t.user_id AS user_id FROM ${table} t
+       JOIN users u ON u.id = t.user_id
+      WHERE t.id = ? AND (t.user_id = ? OR (? = 1 AND u.agency_id = ?))`
+  ).bind(id, user.id, mayWiden, user.agency_id || '').first();
+  if (!row) return null;
+  return row.user_id === user.id ? user : getUserById(env, row.user_id);
+}
+
+/**
+ * The same question asked about a reservation, which is the common case.
+ *
+ * Separate so the callers that have a booking id read as what they are, and so
+ * the table name is written once rather than at forty call sites.
+ */
+export async function writerForBooking(env, user, bookingId) {
+  return writerFor(env, user, 'bookings', bookingId);
+}
+
+/**
+ * The same question asked about a task, which is narrower on purpose.
+ *
+ * Somebody's own to-do list is their own. An owner can already read the whole
+ * agency's tasks board, and being able to read it is not a licence to tick
+ * things off it: "ring the dentist" is not agency business.
+ *
+ * A task hanging off a reservation is different. It is part of the work on
+ * that trip, and an owner who may correct the trip may tick off the thing the
+ * trip was waiting for. So the widening is borrowed from the reservation
+ * rather than granted to tasks, and a task on no reservation stays private.
+ */
+export async function writerForTask(env, user, taskId) {
+  if (!taskId) return null;
+  const own = await env.DB.prepare(
+    'SELECT user_id FROM tasks WHERE id = ? AND user_id = ?'
+  ).bind(taskId, user.id).first();
+  if (own) return user;
+  const linked = await env.DB.prepare(
+    'SELECT booking_id FROM tasks WHERE id = ? AND user_id <> ? AND booking_id IS NOT NULL'
+  ).bind(taskId, user.id).first();
+  if (!linked) return null;
+  return writerForBooking(env, user, linked.booking_id);
+}
+
+/**
+ * Names the person who actually made a change, when it was not their record.
+ *
+ * The line goes in the advisor's own activity, because it is their reservation
+ * and they are the one who needs to know it moved. Without the name it reads
+ * as something they did and forgot, which is worse than no line at all.
+ */
+export function byHand(message, actor, owner) {
+  if (!actor || !owner || actor.id === owner.id) return message;
+  const who = [actor.first_name, actor.last_name].filter(Boolean).join(' ') || actor.email;
+  return `${message}, by ${who}`;
+}
+
+/**
+ * May this reader change this reservation?
+ *
+ * For the page, which needs the answer before it draws a button rather than
+ * after somebody presses one. Takes a booking already loaded through the read
+ * scope, which is agency-fenced, so an owner who can see it is an owner who is
+ * in its agency and no second query is needed to prove it.
+ */
+export function mayWriteBooking(user, booking) {
+  if (!booking) return false;
+  if (booking.user_id === user.id) return true;
+  return user.role === 'admin' && Boolean(user.agency_id);
+}
+
 /** The two fields that decide how a commission divides. Admin path only. */
 export async function setBookingSplit(env, id, { advisorSplitPct, leadSource }) {
   await env.DB.prepare(

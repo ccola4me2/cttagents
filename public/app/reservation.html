@@ -1588,10 +1588,19 @@ function render() {
   // Post a payment and Build schedule were all simply absent, and the obvious
   // reading is that the portal is missing them rather than that this trip
   // belongs to somebody else.
+  //
+  // An agency owner now gets the buttons, and gets told whose reservation they
+  // are about to change instead. Saying nothing would be worse than saying it
+  // is read only was: a page that looks exactly like your own, and is not.
   const ro2 = document.getElementById('readonly');
-  ro2.innerHTML = d.editable ? '' : `<div class="notice notice-info">
-    This is ${esc(b.advisor_name || 'another advisor')}'s reservation, so it is read only for
-    you. Everything is here to look at; the buttons that would change it are not shown.</div>`;
+  ro2.innerHTML = !d.onBehalfOf ? '' : (d.editable
+    ? `<div class="notice notice-info">
+        You are working on <strong>${esc(d.onBehalfOf)}</strong>'s reservation. Anything you
+        change here is saved as theirs, stays on their production and their commission, and
+        is noted in their activity with your name against it.</div>`
+    : `<div class="notice notice-info">
+        This is ${esc(d.onBehalfOf)}'s reservation, so it is read only for you. Everything is
+        here to look at; the buttons that would change it are not shown.</div>`);
   const ask = document.getElementById('ask-review');
   if (ask) ask.addEventListener('click', async () => {
     ask.disabled = true;

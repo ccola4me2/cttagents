@@ -84,7 +84,11 @@ export async function handleAddTraveller(request, env, bookingId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const booking = await db.getBooking(env, bookingId, user.id);
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, bookingId);
+  if (!owner) return notFound('Reservation not found.');
+
+  const booking = await db.getBooking(env, bookingId, owner.id);
   if (!booking) return notFound('Reservation not found.');
 
   const { fields, error } = parseTraveller(await readJson(request));
@@ -103,13 +107,13 @@ export async function handleAddTraveller(request, env, bookingId) {
     `INSERT INTO travellers (id, booking_id, user_id, name, dob, email, phone,
        passport_number, passport_expiry, passport_country, is_lead, notes, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, bookingId, user.id, fields.name, fields.dob, fields.email, fields.phone,
+  ).bind(id, bookingId, owner.id, fields.name, fields.dob, fields.email, fields.phone,
          fields.passportNumber, fields.passportExpiry, fields.passportCountry,
          fields.isLead, fields.notes, ts, ts).run();
 
   // The traveller count follows the people on the record rather than being
   // typed separately, so the two can never disagree.
-  await syncTravellerCount(env, bookingId, user.id);
+  await syncTravellerCount(env, bookingId, owner.id);
   return json({ ok: true, id }, 201);
 }
 
@@ -117,12 +121,16 @@ export async function handleUpdateTraveller(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'travellers', id);
+  if (!owner) return notFound('Traveller not found.');
+
   const { fields, error } = parseTraveller(await readJson(request));
   if (error) return badRequest(error);
 
   const existing = await env.DB.prepare(
     'SELECT booking_id FROM travellers WHERE id = ? AND user_id = ?'
-  ).bind(id, user.id).first();
+  ).bind(id, owner.id).first();
   if (!existing) return notFound('Traveller not found.');
 
   if (fields.isLead) {
@@ -136,7 +144,7 @@ export async function handleUpdateTraveller(request, env, id) {
      WHERE id = ? AND user_id = ?`
   ).bind(fields.name, fields.dob, fields.email, fields.phone, fields.passportNumber,
          fields.passportExpiry, fields.passportCountry, fields.isLead, fields.notes,
-         now(), id, user.id).run();
+         now(), id, owner.id).run();
 
   return json({ ok: true });
 }
@@ -144,11 +152,15 @@ export async function handleUpdateTraveller(request, env, id) {
 export async function handleDeleteTraveller(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'travellers', id);
+  if (!owner) return notFound('Traveller not found.');
   const row = await env.DB.prepare('SELECT booking_id FROM travellers WHERE id = ? AND user_id = ?')
-    .bind(id, user.id).first();
+    .bind(id, owner.id).first();
   if (!row) return notFound('Traveller not found.');
-  await env.DB.prepare('DELETE FROM travellers WHERE id = ? AND user_id = ?').bind(id, user.id).run();
-  await syncTravellerCount(env, row.booking_id, user.id);
+  await env.DB.prepare('DELETE FROM travellers WHERE id = ? AND user_id = ?').bind(id, owner.id).run();
+  await syncTravellerCount(env, row.booking_id, owner.id);
   return json({ ok: true });
 }
 
@@ -167,7 +179,11 @@ export async function handleAddAmenity(request, env, bookingId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const booking = await db.getBooking(env, bookingId, user.id);
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, bookingId);
+  if (!owner) return notFound('Reservation not found.');
+
+  const booking = await db.getBooking(env, bookingId, owner.id);
   if (!booking) return notFound('Reservation not found.');
 
   const body = await readJson(request);
@@ -180,7 +196,7 @@ export async function handleAddAmenity(request, env, bookingId) {
     `INSERT INTO amenities (id, booking_id, user_id, description, amount_cents, source,
        status, requested_on, notes, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, bookingId, user.id, description, toCents(body.amount),
+  ).bind(id, bookingId, owner.id, description, toCents(body.amount),
          oneOf(body.source, AMENITY_SOURCE), oneOf(body.status, AMENITY_STATUS),
          cleanDate(body.requestedOn), clean(body.notes, 1000), ts, ts).run();
 
@@ -191,12 +207,16 @@ export async function handleUpdateAmenity(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'amenities', id);
+  if (!owner) return notFound('Amenity not found.');
+
   const body = await readJson(request);
   // Moving one along is the common case and should not need the whole record.
   if (Object.prototype.hasOwnProperty.call(body, 'status') && Object.keys(body).length === 1) {
     const res = await env.DB.prepare(
       'UPDATE amenities SET status = ?, updated_at = ? WHERE id = ? AND user_id = ?'
-    ).bind(oneOf(body.status, AMENITY_STATUS), now(), id, user.id).run();
+    ).bind(oneOf(body.status, AMENITY_STATUS), now(), id, owner.id).run();
     if (!res.meta || res.meta.changes === 0) return notFound('Amenity not found.');
     return json({ ok: true });
   }
@@ -208,7 +228,7 @@ export async function handleUpdateAmenity(request, env, id) {
        requested_on = ?, notes = ?, updated_at = ? WHERE id = ? AND user_id = ?`
   ).bind(description, toCents(body.amount), oneOf(body.source, AMENITY_SOURCE),
          oneOf(body.status, AMENITY_STATUS), cleanDate(body.requestedOn),
-         clean(body.notes, 1000), now(), id, user.id).run();
+         clean(body.notes, 1000), now(), id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Amenity not found.');
   return json({ ok: true });
 }
@@ -216,8 +236,12 @@ export async function handleUpdateAmenity(request, env, id) {
 export async function handleDeleteAmenity(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'amenities', id);
+  if (!owner) return notFound('Amenity not found.');
   const res = await env.DB.prepare('DELETE FROM amenities WHERE id = ? AND user_id = ?')
-    .bind(id, user.id).run();
+    .bind(id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Amenity not found.');
   return json({ ok: true });
 }

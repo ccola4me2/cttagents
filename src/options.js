@@ -80,7 +80,11 @@ export async function handleAddOption(request, env, bookingId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const booking = await db.getBooking(env, bookingId, user.id);
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, bookingId);
+  if (!owner) return notFound('Reservation not found.');
+
+  const booking = await db.getBooking(env, bookingId, owner.id);
   if (!booking) return notFound('Reservation not found.');
 
   const { fields, error } = parse(await readJson(request));
@@ -93,18 +97,23 @@ export async function handleAddOption(request, env, bookingId) {
        (id, booking_id, user_id, label, detail, amount_cents, chosen, recommended, sort_order,
         image_url, inclusions, component_id, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, bookingId, user.id, fields.label, fields.detail, fields.amountCents,
+  ).bind(id, bookingId, owner.id, fields.label, fields.detail, fields.amountCents,
          fields.sortOrder, fields.imageUrl, fields.inclusions,
-         await ownComponent(env, user.id, bookingId, fields.componentId), ts, ts).run();
+         await ownComponent(env, owner.id, bookingId, fields.componentId), ts, ts).run();
 
-  await db.logActivity(env, user.id, 'option.add',
-    `Added "${fields.label}" to ${booking.client_name}'s quote`, { bookingId });
+  await db.logActivity(env, owner.id, 'option.add',
+    db.byHand(`Added "${fields.label}" to ${booking.client_name}'s quote`,
+      user, owner), { bookingId });
   return json({ ok: true, id }, 201);
 }
 
 export async function handleUpdateOption(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'quote_options', id);
+  if (!owner) return notFound('Option not found.');
 
   const { fields, error } = parse(await readJson(request));
   if (error) return badRequest(error);
@@ -113,17 +122,17 @@ export async function handleUpdateOption(request, env, id) {
   // against the booking it is already on rather than one named in the request.
   const before = await env.DB.prepare(
     'SELECT booking_id, chosen FROM quote_options WHERE id = ? AND user_id = ?'
-  ).bind(id, user.id).first();
+  ).bind(id, owner.id).first();
   if (!before) return notFound('Option not found.');
 
-  const componentId = await ownComponent(env, user.id, before.booking_id, fields.componentId);
+  const componentId = await ownComponent(env, owner.id, before.booking_id, fields.componentId);
 
   const res = await env.DB.prepare(
     `UPDATE quote_options SET label = ?, detail = ?, amount_cents = ?, sort_order = ?,
             image_url = ?, inclusions = ?, component_id = ?,
             updated_at = ? WHERE id = ? AND user_id = ?`
   ).bind(fields.label, fields.detail, fields.amountCents, fields.sortOrder,
-         fields.imageUrl, fields.inclusions, componentId, now(), id, user.id).run();
+         fields.imageUrl, fields.inclusions, componentId, now(), id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Option not found.');
   return json({ ok: true });
 }
@@ -148,12 +157,16 @@ export async function handleRecommendOption(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'quote_options', id);
+  if (!owner) return notFound('Option not found.');
+
   const option = await env.DB.prepare(
     `SELECT ${COLUMNS} FROM quote_options WHERE id = ? AND user_id = ?`
-  ).bind(id, user.id).first();
+  ).bind(id, owner.id).first();
   if (!option) return notFound('Option not found.');
 
-  const booking = await db.getBooking(env, option.booking_id, user.id);
+  const booking = await db.getBooking(env, option.booking_id, owner.id);
   if (!booking) return notFound('Reservation not found.');
 
   const body = await readJson(request);
@@ -166,17 +179,17 @@ export async function handleRecommendOption(request, env, id) {
   await env.DB.prepare(
     `UPDATE quote_options SET recommended = 0, updated_at = ?
       WHERE booking_id = ? AND user_id = ? AND ${sameGroup}`
-  ).bind(now(), option.booking_id, user.id, ...groupBinds).run();
+  ).bind(now(), option.booking_id, owner.id, ...groupBinds).run();
 
   if (on) {
     await env.DB.prepare(
       'UPDATE quote_options SET recommended = 1, updated_at = ? WHERE id = ? AND user_id = ?'
-    ).bind(now(), id, user.id).run();
+    ).bind(now(), id, owner.id).run();
   }
 
-  await db.logActivity(env, user.id, 'option.recommend',
-    on ? `Suggested "${option.label}" on ${booking.client_name}'s quote`
-      : `Took back the suggestion on ${booking.client_name}'s quote`,
+  await db.logActivity(env, owner.id, 'option.recommend',
+    db.byHand(on ? `Suggested "${option.label}" on ${booking.client_name}'s quote`
+      : `Took back the suggestion on ${booking.client_name}'s quote`, user, owner),
     { bookingId: booking.id });
 
   return json({ ok: true, recommended: on === 1 });
@@ -185,9 +198,13 @@ export async function handleRecommendOption(request, env, id) {
 export async function handleDeleteOption(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'quote_options', id);
+  if (!owner) return notFound('Option not found.');
   const res = await env.DB.prepare(
     'DELETE FROM quote_options WHERE id = ? AND user_id = ?'
-  ).bind(id, user.id).run();
+  ).bind(id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Option not found.');
   return json({ ok: true });
 }
@@ -216,11 +233,15 @@ export async function handleOpenOptions(request, env, bookingId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, bookingId);
+  if (!owner) return notFound('Reservation not found.');
+
   const body = await readJson(request);
   const open = body.open === true || body.open === 'on';
   const res = await env.DB.prepare(
     'UPDATE bookings SET options_open = ?, updated_at = ? WHERE id = ? AND user_id = ?'
-  ).bind(open ? 1 : 0, now(), bookingId, user.id).run();
+  ).bind(open ? 1 : 0, now(), bookingId, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Reservation not found.');
 
   return json({ ok: true, open });
@@ -230,12 +251,16 @@ export async function handleChooseOption(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'quote_options', id);
+  if (!owner) return notFound('Option not found.');
+
   const option = await env.DB.prepare(
     `SELECT ${COLUMNS} FROM quote_options WHERE id = ? AND user_id = ?`
-  ).bind(id, user.id).first();
+  ).bind(id, owner.id).first();
   if (!option) return notFound('Option not found.');
 
-  const booking = await db.getBooking(env, option.booking_id, user.id);
+  const booking = await db.getBooking(env, option.booking_id, owner.id);
   if (!booking) return notFound('Reservation not found.');
 
   const body = await readJson(request);
@@ -259,13 +284,13 @@ export async function handleChooseOption(request, env, id) {
   await env.DB.prepare(
     `UPDATE quote_options SET chosen = 0, chosen_at = NULL, chosen_by = NULL,
        updated_at = ? WHERE booking_id = ? AND user_id = ? AND ${sameGroup}`
-  ).bind(now(), option.booking_id, user.id, ...groupBinds).run();
+  ).bind(now(), option.booking_id, owner.id, ...groupBinds).run();
 
   if (chosen) {
     await env.DB.prepare(
       `UPDATE quote_options SET chosen = 1, chosen_at = ?, chosen_by = 'advisor',
          updated_at = ? WHERE id = ? AND user_id = ?`
-    ).bind(now(), now(), id, user.id).run();
+    ).bind(now(), now(), id, owner.id).run();
 
     // Only a whole-trip option is the trip's price. A cabin grade or an
     // insurance choice is part of the total, not the total, and writing it
@@ -273,12 +298,12 @@ export async function handleChooseOption(request, env, id) {
     if (!option.component_id) {
       await env.DB.prepare(
         'UPDATE bookings SET gross_cents = ?, updated_at = ? WHERE id = ? AND user_id = ?'
-      ).bind(option.amount_cents, now(), option.booking_id, user.id).run();
+      ).bind(option.amount_cents, now(), option.booking_id, owner.id).run();
     }
   }
 
   if (chosen) {
-    await fireTrigger(env, tenantFor(env, user), 'option.chosen', {
+    await fireTrigger(env, tenantFor(env, owner), 'option.chosen', {
       bookingId: booking.id,
       contactId: booking.ghl_contact_id || null,
       name: booking.client_name,
@@ -291,10 +316,10 @@ export async function handleChooseOption(request, env, id) {
     }, { key: `option.chosen:${option.id}` });
   }
 
-  await db.logActivity(env, user.id, 'option.choose',
-    chosen
+  await db.logActivity(env, owner.id, 'option.choose',
+    db.byHand(chosen
       ? `${booking.client_name} chose "${option.label}"`
-      : `Cleared the chosen option for ${booking.client_name}`,
+      : `Cleared the chosen option for ${booking.client_name}`, user, owner),
     { bookingId: option.booking_id });
   return json({ ok: true, chosen: Boolean(chosen) });
 }

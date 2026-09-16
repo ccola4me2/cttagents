@@ -225,27 +225,31 @@ export async function handlePaymentReminder(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const payment = await db.getPayment(env, id, user.id);
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'booking_payments', id);
+  if (!owner) return notFound('Payment not found.');
+
+  const payment = await db.getPayment(env, id, owner.id);
   if (!payment) return notFound('Payment not found.');
   if (payment.paid_date) return badRequest('That payment has already been posted.');
 
-  const booking = await db.getBooking(env, payment.booking_id, user.id);
+  const booking = await db.getBooking(env, payment.booking_id, owner.id);
   if (!booking) return notFound('Reservation not found.');
 
   const client = booking.client_id
-    ? await db.getClient(env, db.selfScope(user), { id: booking.client_id })
-    : await db.getClient(env, db.selfScope(user), { name: booking.client_name });
+    ? await db.getClient(env, db.selfScope(owner), { id: booking.client_id })
+    : await db.getClient(env, db.selfScope(owner), { name: booking.client_name });
 
   const body = await readJson(request);
   const to = client && client.email;
 
   const details = {
     to,
-    replyTo: user.email,
+    replyTo: owner.email,
     clientName: (client && client.name) || booking.client_name,
-    advisorName: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email,
-    agencyName: user.agency_name || '',
-    advisorPhone: user.phone || '',
+    advisorName: [owner.first_name, owner.last_name].filter(Boolean).join(' ') || owner.email,
+    agencyName: owner.agency_name || '',
+    advisorPhone: owner.phone || '',
     amountCents: payment.amount_cents,
     dueDate: payment.due_date,
     hard: payment.payment_class === 'hard',
@@ -280,10 +284,12 @@ export async function handlePaymentReminder(request, env, id) {
   await env.DB.prepare(
     `UPDATE booking_payments SET reminded_at = ?, reminder_count = reminder_count + 1, updated_at = ?
       WHERE id = ? AND user_id = ?`
-  ).bind(now(), now(), id, user.id).run();
+  ).bind(now(), now(), id, owner.id).run();
 
-  await db.logActivity(env, user.id, 'payment.remind',
-    `Reminded ${details.clientName} about ${details.hard ? 'a vendor deadline' : 'a balance'}`,
+  await db.logActivity(env, owner.id, 'payment.remind',
+    db.byHand(
+      `Reminded ${details.clientName} about ${details.hard ? 'a vendor deadline' : 'a balance'}`,
+      user, owner),
     { paymentId: id, bookingId: booking.id });
 
   return json({ ok: true, sentTo: to });
@@ -296,19 +302,26 @@ export async function handleCreatePayment(request, env) {
   const { fields, error } = parsePayment(await readJson(request));
   if (error) return badRequest(error);
 
-  // The booking has to be this advisor's, or one advisor could attach a
-  // payment to another's booking.
-  const booking = await db.getBooking(env, fields.bookingId, user.id);
+  // Which booking, and therefore whose. The reservation comes from the body
+  // here rather than the path, so the check is the same one and it happens
+  // after the body has been read. A payment goes on as the advisor whose
+  // reservation it is, whoever posted it.
+  const owner = await db.writerForBooking(env, user, fields.bookingId);
+  if (!owner) return notFound('Booking not found.');
+
+  const booking = await db.getBooking(env, fields.bookingId, owner.id);
   if (!booking) return notFound('Booking not found.');
 
-  const problem = (await creditProblem(env, user.id, fields.creditId, null))
-    || (await payerProblem(env, user.id, fields.bookingId, fields.paidBy));
+  const problem = (await creditProblem(env, owner.id, fields.creditId, null))
+    || (await payerProblem(env, owner.id, fields.bookingId, fields.paidBy));
   if (problem) return badRequest(problem);
 
-  const payment = await db.createPayment(env, user.id, fields);
-  await settleCredit(env, user.id, payment, null);
-  await db.logActivity(env, user.id, 'payment.create',
-    `${fields.paidDate ? 'Recorded' : 'Scheduled'} ${fields.kind} for ${booking.client_name}`,
+  const payment = await db.createPayment(env, owner.id, fields);
+  await settleCredit(env, owner.id, payment, null);
+  await db.logActivity(env, owner.id, 'payment.create',
+    db.byHand(
+      `${fields.paidDate ? 'Recorded' : 'Scheduled'} ${fields.kind} for ${booking.client_name}`,
+      user, owner),
     { bookingId: fields.bookingId });
   return json({ ok: true, payment }, 201);
 }
@@ -317,20 +330,24 @@ export async function handleUpdatePayment(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'booking_payments', id);
+  if (!owner) return notFound('Payment not found.');
+
   const body = await readJson(request);
   const { fields, error } = parsePayment(body);
   if (error) return badRequest(error);
 
-  // The payment itself is scoped by user, but the booking it points at comes
+  // The payment itself is scoped by owner, but the booking it points at comes
   // from the request. Without this an advisor could move their own payment
   // onto someone else's booking and corrupt that booking's balance. Create
   // already checked this; update did not.
-  const booking = await db.getBooking(env, fields.bookingId, user.id);
+  const booking = await db.getBooking(env, fields.bookingId, owner.id);
   if (!booking) return notFound('Booking not found.');
 
   // Read before writing, because the credit this payment used to spend has to
   // be put back if it is no longer the one being spent.
-  const existing = await db.getPayment(env, id, user.id);
+  const existing = await db.getPayment(env, id, owner.id);
   if (!existing) return notFound('Payment not found.');
 
   // An update writes every column, so a form that does not carry these fields
@@ -346,24 +363,25 @@ export async function handleUpdatePayment(request, env, id) {
   // it: a payment nobody has received was not received by any means.
   if (body.method === undefined && fields.paidDate) fields.method = existing.method || null;
 
-  const problem = (await creditProblem(env, user.id, fields.creditId, id))
-    || (await payerProblem(env, user.id, fields.bookingId, fields.paidBy));
+  const problem = (await creditProblem(env, owner.id, fields.creditId, id))
+    || (await payerProblem(env, owner.id, fields.bookingId, fields.paidBy));
   if (problem) return badRequest(problem);
 
-  const payment = await db.updatePayment(env, id, user.id, fields);
+  const payment = await db.updatePayment(env, id, owner.id, fields);
   if (!payment) return notFound('Payment not found.');
-  await settleCredit(env, user.id, payment, existing.credit_id || null);
+  await settleCredit(env, owner.id, payment, existing.credit_id || null);
   // The same resync Mark paid does. Editing a row to fill in its paid date is
   // the other way money gets recorded, and it left the reminder behind: the
   // vendor's line was settled, its soft twin was not, and the balance went on
   // reading as owed and overdue on a reservation that was paid in full.
-  await syncSoftReminder(env, user, existing.booking_id, existing.kind);
+  await syncSoftReminder(env, owner, existing.booking_id, existing.kind);
   if (fields.kind !== existing.kind) {
     // A row moved between kinds leaves the reminder for the kind it left.
-    await syncSoftReminder(env, user, existing.booking_id, fields.kind);
+    await syncSoftReminder(env, owner, existing.booking_id, fields.kind);
   }
 
-  await db.logActivity(env, user.id, 'payment.update', 'Updated a payment', { id });
+  await db.logActivity(env, owner.id, 'payment.update',
+    db.byHand('Updated a payment', user, owner), { id });
   return json({ ok: true, payment });
 }
 
@@ -421,8 +439,12 @@ export async function handleMarkPaid(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'booking_payments', id);
+  if (!owner) return notFound('Payment not found.');
+
   const body = await readJson(request);
-  let existing = await db.getPayment(env, id, user.id);
+  let existing = await db.getPayment(env, id, owner.id);
   if (!existing) return notFound('Payment not found.');
 
   // You cannot pay a reminder.
@@ -434,7 +456,7 @@ export async function handleMarkPaid(request, env, id) {
   // deadline still asked for all of it. So the posting is moved to the row it
   // was really about.
   if (existing.payment_class === 'soft') {
-    const siblings = await db.listPayments(env, db.selfScope(user),
+    const siblings = await db.listPayments(env, db.selfScope(owner),
       { bookingId: existing.booking_id });
     const realOne = siblings.find((r) => r.kind === existing.kind
       && r.payment_class === 'hard' && !r.paid_date);
@@ -452,8 +474,8 @@ export async function handleMarkPaid(request, env, id) {
   const paidBy = body.paidBy === undefined
     ? (existing.paid_by || null) : (clean(body.paidBy, 64) || null);
 
-  const problem = (await creditProblem(env, user.id, creditId, id))
-    || (await payerProblem(env, user.id, existing.booking_id, paidBy));
+  const problem = (await creditProblem(env, owner.id, creditId, id))
+    || (await payerProblem(env, owner.id, existing.booking_id, paidBy));
   if (problem) return badRequest(problem);
 
   // How much actually arrived. Blank or absent means all of it, which is the
@@ -475,7 +497,7 @@ export async function handleMarkPaid(request, env, id) {
   if (received <= 0) return badRequest('Enter how much was received.');
   const remainder = due - received;
 
-  const payment = await db.updatePayment(env, id, user.id, {
+  const payment = await db.updatePayment(env, id, owner.id, {
     kind: existing.kind,
     paymentClass: existing.payment_class,
     amountCents: received,
@@ -493,13 +515,13 @@ export async function handleMarkPaid(request, env, id) {
     reference: clean(body.reference, 80) || existing.reference,
     notes: existing.notes,
   });
-  await settleCredit(env, user.id, payment, existing.credit_id || null);
+  await settleCredit(env, owner.id, payment, existing.credit_id || null);
 
   // What is still owed, carried on its own line so the deadline it was due by
   // is not quietly lost with the part that was paid.
   let rest = null;
   if (remainder > 0) {
-    rest = await db.createPayment(env, user.id, {
+    rest = await db.createPayment(env, owner.id, {
       bookingId: existing.booking_id,
       kind: existing.kind,
       paymentClass: existing.payment_class,
@@ -516,12 +538,12 @@ export async function handleMarkPaid(request, env, id) {
     });
   }
 
-  await syncSoftReminder(env, user, existing.booking_id, existing.kind);
+  await syncSoftReminder(env, owner, existing.booking_id, existing.kind);
 
-  await db.logActivity(env, user.id, 'payment.paid',
-    remainder > 0
+  await db.logActivity(env, owner.id, 'payment.paid',
+    db.byHand(remainder > 0
       ? `Recorded a part payment, ${remainder} cents still due`
-      : 'Marked a payment received',
+      : 'Marked a payment received', user, owner),
     { id, received, remainder });
   return json({ ok: true, payment, remainder: rest });
 }
@@ -529,14 +551,19 @@ export async function handleMarkPaid(request, env, id) {
 export async function handleDeletePayment(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  const existing = await db.getPayment(env, id, user.id);
-  const removed = await db.deletePayment(env, id, user.id);
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'booking_payments', id);
+  if (!owner) return notFound('Payment not found.');
+  const existing = await db.getPayment(env, id, owner.id);
+  const removed = await db.deletePayment(env, id, owner.id);
   if (!removed) return notFound('Payment not found.');
   // The credit that payment spent goes back to the client.
   if (existing && existing.credit_id) {
-    await releaseCredit(env, user.id, existing.credit_id, id);
+    await releaseCredit(env, owner.id, existing.credit_id, id);
   }
-  await db.logActivity(env, user.id, 'payment.delete', 'Removed a payment', { id });
+  await db.logActivity(env, owner.id, 'payment.delete',
+    db.byHand('Removed a payment', user, owner), { id });
   return json({ ok: true });
 }
 
@@ -738,10 +765,14 @@ export async function handleGenerateSchedule(request, env, bookingId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const booking = await db.getBooking(env, bookingId, user.id);
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, bookingId);
+  if (!owner) return notFound('Booking not found.');
+
+  const booking = await db.getBooking(env, bookingId, owner.id);
   if (!booking) return notFound('Booking not found.');
 
-  const { created, short, have } = await buildSchedule(env, user, booking);
+  const { created, short, have } = await buildSchedule(env, owner, booking);
 
   if (!created.length) {
     // Say which of the three reasons it was. "Nothing happened" sent people
@@ -765,8 +796,8 @@ export async function handleGenerateSchedule(request, env, bookingId) {
     return json({ ok: true, created: [], message });
   }
 
-  await db.logActivity(env, user.id, 'payment.schedule',
-    `Built a payment schedule for ${booking.client_name}`, { bookingId });
+  await db.logActivity(env, owner.id, 'payment.schedule',
+    db.byHand(`Built a payment schedule for ${booking.client_name}`, user, owner), { bookingId });
   return json({ ok: true, created }, 201);
 }
 
@@ -775,13 +806,17 @@ export async function handleSetBookingStatus(request, env, bookingId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, bookingId);
+  if (!owner) return notFound('Booking not found.');
+
   const body = await readJson(request);
   const status = oneOf(body.status, ['booked', 'quoted', 'travelled', 'cancelled']);
 
-  const booking = await db.getBooking(env, bookingId, user.id);
+  const booking = await db.getBooking(env, bookingId, owner.id);
   if (!booking) return notFound('Booking not found.');
 
-  const updated = await db.updateBooking(env, bookingId, user.id, {
+  const updated = await db.updateBooking(env, bookingId, owner.id, {
     ghlContactId: booking.ghl_contact_id,
     ghlOpportunityId: booking.ghl_opportunity_id,
     clientName: booking.client_name,
@@ -803,7 +838,7 @@ export async function handleSetBookingStatus(request, env, bookingId) {
     notes: booking.notes,
   });
 
-  await db.logActivity(env, user.id, 'booking.status',
-    `Marked ${booking.client_name} ${status}`, { bookingId, status });
+  await db.logActivity(env, owner.id, 'booking.status',
+    db.byHand(`Marked ${booking.client_name} ${status}`, user, owner), { bookingId, status });
   return json({ ok: true, booking: updated });
 }

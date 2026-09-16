@@ -740,16 +740,43 @@ async function main() {
   check(narrowedIds.includes(theirBookingId) && !narrowedIds.includes(ownerBookingId),
     'and narrowing to one advisor shows only theirs', `${narrowedIds.length} reservation(s)`);
 
-  // Seeing is not editing. This is the distinction the code keeps by using a
-  // separate scope for writes, and it is worth proving rather than assuming.
+  // An owner may correct an associate's reservation, and the row stays the
+  // associate's. Both halves are the rule: the first is what the owner asked
+  // for, the second is the thing that must not quietly come with it, because a
+  // correction that moved the trip onto the owner's book would move the
+  // production and the commission with it.
   const ownerRead = await call(admin, 'GET', `/api/bookings/${theirBookingId}`);
   check(ownerRead.status === 200, 'an owner can open an associate\'s reservation', `status ${ownerRead.status}`);
+
+  // The page reads the record endpoint, not this one, and it is the record
+  // that decides whether a button is drawn. Asking the wrong endpoint is how
+  // you get a green check on a screen with no buttons on it.
+  const ownerPage = await call(admin, 'GET', `/api/bookings/${theirBookingId}/record`);
+  check(ownerPage.data?.editable === true, 'and the page offers them the buttons',
+    `editable ${ownerPage.data?.editable}`);
+  check(typeof ownerPage.data?.onBehalfOf === 'string' && ownerPage.data.onBehalfOf.length > 0,
+    'and says whose reservation they are working on', String(ownerPage.data?.onBehalfOf));
+
   const ownerWrite = await call(admin, 'PUT', `/api/bookings/${theirBookingId}`,
-    { clientName: 'Should not apply' });
-  check(ownerWrite.status === 404, 'but cannot write to it', `status ${ownerWrite.status}`);
+    { clientName: `Corrected By Owner ${stamp}`, supplier: 'Cunard', productType: 'cruise' });
+  check(ownerWrite.status === 200, 'and can correct it', `status ${ownerWrite.status}`);
+
   const stillTheirs = await call(advisor, 'GET', `/api/bookings/${theirBookingId}`);
-  check(stillTheirs.data?.booking?.client_name === `Associate Client ${stamp}`,
-    'and the record is unchanged', stillTheirs.data?.booking?.client_name);
+  check(stillTheirs.data?.booking?.client_name === `Corrected By Owner ${stamp}`,
+    'the correction lands', stillTheirs.data?.booking?.client_name);
+  check(stillTheirs.data?.booking?.user_id === created.id,
+    'and the reservation is still the associate\'s', String(stillTheirs.data?.booking?.user_id));
+  const theirPage = await call(advisor, 'GET', `/api/bookings/${theirBookingId}/record`);
+  check(theirPage.data?.editable === true && theirPage.data?.onBehalfOf === null,
+    'who can still edit their own, with nothing to announce about it',
+    `editable ${theirPage.data?.editable}, onBehalfOf ${theirPage.data?.onBehalfOf}`);
+
+  // The other direction is still shut. An associate reading is refused, so an
+  // associate writing never gets the chance.
+  const peerWrite = await call(advisor, 'PUT', `/api/bookings/${ownerBookingId}`,
+    { clientName: 'Should not apply', supplier: 'Cunard', productType: 'cruise' });
+  check(peerWrite.status === 404, 'an associate cannot write to the owner\'s reservation',
+    `status ${peerWrite.status}`);
 
   const associateRead = await call(advisor, 'GET', `/api/bookings/${ownerBookingId}`);
   check(associateRead.status === 404,
@@ -1142,8 +1169,12 @@ async function main() {
   const unpinned = await call(advisor, 'PUT', `/api/tasks/${t2.data.task.id}`, { pinned: false });
   check(unpinned.data?.task?.pinned_at === null, 'and unpinned again', unpinned.data?.task?.pinned_at);
 
+  // An owner may correct an associate's reservation and may tick off a task
+  // hanging on one, because that is the work on the trip. This task hangs on
+  // nothing: it is somebody's own list, and that stays their own.
   const notMine = await call(admin, 'PUT', `/api/tasks/${taskId}`, { done: false });
-  check(notMine.status === 404, 'an owner cannot tick off an associate\'s task', `status ${notMine.status}`);
+  check(notMine.status === 404, 'an owner cannot tick off an associate\'s own to-do',
+    `status ${notMine.status}`);
   // Asked for that advisor rather than the whole agency: the list is capped,
   // so on a big book "is it in there" is a question about how many tasks exist
   // rather than about who can see what. Narrowing to one advisor is also the
@@ -1496,9 +1527,10 @@ async function main() {
     const dead = await call(null, 'GET', `/t/${code}`);
     check(dead.status === 404, 'and the link stops working at once', `status ${dead.status}`);
 
-    const notMine = await call(admin, 'POST', `/api/bookings/${bookingId}/share`, { on: true });
-    check(notMine.status === 404, 'and only the advisor whose trip it is can share it',
-      `status ${notMine.status}`);
+    const byOwner = await call(admin, 'POST', `/api/bookings/${bookingId}/share`, { on: true });
+    check(byOwner.status === 200, 'an owner can share an associate\'s trip for them',
+      `status ${byOwner.status}`);
+    await call(advisor, 'POST', `/api/bookings/${bookingId}/share`, { on: false });
   }
 
   // ------------------------------------------ chasing the client for money --
@@ -1930,6 +1962,29 @@ async function main() {
 
     // There is no public join link left to close, so nothing to check here.
     // Access is a decision the agency makes one account at a time.
+
+    // An owner may correct a reservation in their own agency. This is the
+    // other side of that: the widening is by agency, so an owner of a
+    // different agency is exactly as far away as they were before it existed.
+    // Checked while the smoke advisor is still in the house agency and the
+    // rival is not, which is the only moment in the suite where both are true.
+    const reachRead = await call(rival, 'GET', `/api/bookings/${theirBookingId}`);
+    check(reachRead.status === 404,
+      'another agency\'s owner cannot even open a reservation here',
+      `status ${reachRead.status}`);
+    const reachWrite = await call(rival, 'PUT', `/api/bookings/${theirBookingId}`,
+      { clientName: 'Hijacked', supplier: 'Cunard', productType: 'cruise' });
+    check(reachWrite.status === 404, 'nor correct one', `status ${reachWrite.status}`);
+    const reachQuick = await call(rival, 'POST', `/api/bookings/${theirBookingId}/quick`,
+      { gross: '1.00' });
+    check(reachQuick.status === 404, 'nor change a figure on one', `status ${reachQuick.status}`);
+    const reachPay = await call(rival, 'POST', '/api/payments',
+      { bookingId: theirBookingId, kind: 'deposit', amount: '1.00', dueDate: isoDay(5) });
+    check(reachPay.status === 404, 'nor put money on one', `status ${reachPay.status}`);
+    const reachTraveller = await call(rival, 'POST', `/api/bookings/${theirBookingId}/travellers`,
+      { name: 'Intruder' });
+    check(reachTraveller.status === 404, 'nor add somebody to one',
+      `status ${reachTraveller.status}`);
 
     // Put the smoke advisor back where the rest of the suite expects them.
     await call(admin, 'PUT', `/api/admin/advisors/${advisorId}/agency`,
@@ -3128,9 +3183,17 @@ async function main() {
   check((rec6.data?.amenities || [])[0]?.status === 'applied',
     'and it can be moved along without resending the whole thing');
 
-  const notYours2 = await call(admin, 'POST', `/api/bookings/${tripId}/travellers`, { name: 'Intruder' });
-  check(notYours2.status === 404, 'an owner cannot add a traveller to an associate\'s reservation',
-    `status ${notYours2.status}`);
+  // The owner may add to an associate's reservation, and what they add belongs
+  // to the associate. A traveller filed under the owner would be invisible to
+  // the advisor whose trip it is, which is worse than not being able to add it.
+  const byOwner = await call(admin, 'POST', `/api/bookings/${tripId}/travellers`,
+    { name: `Added By Owner ${stamp}` });
+  check(byOwner.status === 201, 'an owner can add a traveller to an associate\'s reservation',
+    `status ${byOwner.status}`);
+  const rec7 = await call(advisor, 'GET', `/api/bookings/${tripId}/record`);
+  check((rec7.data?.travellers || []).some((t) => t.name === `Added By Owner ${stamp}`),
+    'and the associate sees it on their own reservation',
+    (rec7.data?.travellers || []).map((t) => t.name).join(', '));
   }
 
   // ------------------------------------------------------------- vendors ----
@@ -3687,9 +3750,12 @@ async function main() {
   check(chasePaid.status === 400, 'a payment already posted cannot be chased',
     `status ${chasePaid.status}`);
 
-  const notYourPayment = await call(admin, 'POST', `/api/payments/${chasePayment.id}/remind`, { preview: true });
-  check(notYourPayment.status === 404, 'and an owner cannot chase on an associate\'s behalf',
-    `status ${notYourPayment.status}`);
+  // An owner chasing for an associate is the Saturday case this exists for.
+  // The message still goes out over the associate's name and reply-to, because
+  // it is their client who will answer it.
+  const byOwner = await call(admin, 'POST', `/api/payments/${chasePayment.id}/remind`, { preview: true });
+  check(byOwner.status === 200, 'an owner can chase on an associate\'s behalf',
+    `status ${byOwner.status}`);
   }
 
   // -------------------------------------------------- filling in the gaps ---
@@ -3737,9 +3803,12 @@ async function main() {
   check(empty.status === 400, 'a request that names no known field changes nothing',
     `status ${empty.status}`);
 
-  const notYours = await call(admin, 'POST', `/api/bookings/${bareId}/quick`, { gross: '1.00' });
-  check(notYours.status === 404, 'and an owner cannot quick edit an associate\'s reservation',
-    `status ${notYours.status}`);
+  const byOwner = await call(admin, 'POST', `/api/bookings/${bareId}/quick`, { gross: '4300.00' });
+  check(byOwner.status === 200, 'and an owner can quick edit an associate\'s reservation',
+    `status ${byOwner.status}`);
+  const afterOwner = await call(advisor, 'GET', `/api/bookings/${bareId}`);
+  check(afterOwner.data?.booking?.gross_cents === 430000,
+    'the correction lands on the associate\'s record', String(afterOwner.data?.booking?.gross_cents));
 
   // ---------------------------------------------------- the client record ---
   step('One client on one screen');

@@ -242,6 +242,30 @@ function sqlStatements(src) {
   return out;
 }
 
+/**
+ * A statement whose table name is not written down.
+ *
+ * Every rule in this file reads the table out of the SQL, so a statement that
+ * interpolates its table name is invisible to all of them: tablesIn finds
+ * nothing, the loop moves on, and a query that could reach any table in the
+ * database is the one query nobody checked.
+ *
+ * There is exactly one, db.writerFor, and of all the statements to leave
+ * unchecked it is the worst: it is the one that decides who may write to a
+ * reservation. So it is pinned here by its own text. The name it interpolates
+ * comes from a set written out in db.js and never from a request, and the
+ * predicate below is read by the ordinary rules. A second interpolated table
+ * name appearing anywhere fails this check until somebody writes down why.
+ */
+const INTERPOLATED_TABLE = /\b(?:FROM|JOIN|UPDATE|DELETE\s+FROM|INTO)\s+\$\{/i;
+
+const INTERPOLATED_ALLOWED = [
+  ['SELECT t.user_id AS user_id FROM ${table} t',
+    'db.writerFor, which resolves whose a reservation row is. The table comes from '
+    + 'the WRITABLE set in db.js and nowhere else; the statement names t.user_id and '
+    + 'joins users so the agency fence is in the SQL rather than in an if after it'],
+];
+
 /** Every table named by a FROM, JOIN, UPDATE, INSERT INTO or DELETE FROM. */
 function tablesIn(sql) {
   const found = new Set();
@@ -266,6 +290,29 @@ for (const file of files) {
   const src = readFileSync(join(ROOT, 'src', file), 'utf8');
 
   for (const { sql, line } of sqlStatements(src)) {
+    // Before the table rules, because these statements have no table to read.
+    if (INTERPOLATED_TABLE.test(sql)) {
+      checked += 1;
+      const pinned = INTERPOLATED_ALLOWED.find(([fragment]) => sql.includes(fragment));
+      if (!pinned) {
+        problems += 1;
+        const message = 'builds its table name, so no rule in this checker can see '
+          + 'what it touches. Pin it in INTERPOLATED_ALLOWED with the reason, or '
+          + 'write the table out.';
+        console.log(`FAIL  src/${file}:${line}  ${message}`);
+        console.log(`        ${sql.replace(/\s+/g, ' ').trim().slice(0, 140)}`);
+        annotate({ file: `src/${file}`, line, message });
+        continue;
+      }
+      if (!/\buser_id\b/.test(sql)) {
+        problems += 1;
+        const message = 'is pinned in INTERPOLATED_ALLOWED and names no user_id.';
+        console.log(`FAIL  src/${file}:${line}  ${message}`);
+        annotate({ file: `src/${file}`, line, message });
+      }
+      continue;
+    }
+
     const all = tablesIn(sql);
     const tables = [...all].filter((t) => OWNED.has(t));
     const byAgency = [...all].filter((t) => AGENCY_OWNED.has(t));
@@ -291,10 +338,16 @@ for (const file of files) {
 
     // The other half of the rule, and the half that is a privilege bug rather
     // than a privacy one. A read may widen to the whole agency when an owner
-    // asks; a write may not, ever. An owner may see an associate's
-    // reservation and may not change it, and the two would quietly become one
-    // permission the moment a write borrowed the reading scope. Every write in
-    // this codebase names user_id outright, and this keeps it that way.
+    // asks by interpolating a scope; a write may never widen that way. Every
+    // write in this codebase names user_id outright, and this keeps it that
+    // way.
+    //
+    // An agency owner may now correct an advisor's reservation, which sounds
+    // like the thing this rule forbids and is not. The widening happens once,
+    // in db.writerFor, which answers whose the row is and hands back that
+    // advisor; the write then names user_id and binds the advisor, so the row
+    // stays theirs. One statement decides it, it is pinned above, and the
+    // forty writes downstream are as narrow as they ever were.
     if (writeRuleApplies && /^\s*(INSERT|UPDATE|DELETE)/i.test(sql)) {
       if (namesUser && !viaHelper) continue;
       const excused = ALLOWED.find(([fragment]) => sql.includes(fragment));

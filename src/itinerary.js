@@ -171,7 +171,7 @@ export async function handleListItinerary(request, env, bookingId) {
     departDate: booking.depart_date || null,
     returnDate: booking.return_date || null,
     shared: Boolean(booking.itinerary_shared),
-    editable: booking.user_id === user.id,
+    editable: db.mayWriteBooking(user, booking),
   });
 }
 
@@ -179,9 +179,13 @@ export async function handleSaveItem(request, env, bookingId, id = null) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  // Own reservation only. Seeing somebody's trip is not the same as writing
-  // the plan for it.
-  const booking = await db.getBooking(env, bookingId, user.id);
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, bookingId);
+  if (!owner) return notFound('Reservation not found.');
+
+  // Whose plan this is. An advisor writes their own; an owner may also write
+  // an advisor's in their own agency, and it stays that advisor's.
+  const booking = await db.getBooking(env, bookingId, owner.id);
   if (!booking) return notFound('Reservation not found.');
 
   const { fields, error } = parse(await readJson(request));
@@ -195,14 +199,14 @@ export async function handleSaveItem(request, env, bookingId, id = null) {
        WHERE id = ? AND booking_id = ? AND user_id = ?`
     ).bind(fields.dayNumber, fields.startTime, fields.endTime, fields.kind, fields.title,
            fields.location, fields.detail, fields.confirmation, fields.imageUrl, ts,
-           id, bookingId, user.id).run();
+           id, bookingId, owner.id).run();
     if (!res.meta || res.meta.changes === 0) return notFound('Item not found.');
-    return json({ ok: true, items: await listItems(env, bookingId, db.selfScope(user)) });
+    return json({ ok: true, items: await listItems(env, bookingId, db.selfScope(owner)) });
   }
 
   const count = await env.DB.prepare(
     'SELECT COUNT(*) AS n FROM itinerary_items WHERE booking_id = ? AND user_id = ?'
-  ).bind(bookingId, user.id).first();
+  ).bind(bookingId, owner.id).first();
   if ((count?.n || 0) >= 400) {
     return badRequest('Four hundred items is enough for any trip.');
   }
@@ -211,11 +215,11 @@ export async function handleSaveItem(request, env, bookingId, id = null) {
     `INSERT INTO itinerary_items (id, booking_id, user_id, day_number, start_time, end_time,
        kind, title, location, detail, confirmation, image_url, sort_order, created_at, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).bind(uid(), bookingId, user.id, fields.dayNumber, fields.startTime, fields.endTime,
+  ).bind(uid(), bookingId, owner.id, fields.dayNumber, fields.startTime, fields.endTime,
          fields.kind, fields.title, fields.location, fields.detail, fields.confirmation,
          fields.imageUrl, count?.n || 0, ts, ts).run();
 
-  return json({ ok: true, items: await listItems(env, bookingId, db.selfScope(user)) }, 201);
+  return json({ ok: true, items: await listItems(env, bookingId, db.selfScope(owner)) }, 201);
 }
 
 /**
@@ -234,7 +238,11 @@ export async function handleReorderItinerary(request, env, bookingId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const booking = await db.getBooking(env, bookingId, user.id);
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, bookingId);
+  if (!owner) return notFound('Reservation not found.');
+
+  const booking = await db.getBooking(env, bookingId, owner.id);
   if (!booking) return notFound('Reservation not found.');
 
   const body = await readJson(request);
@@ -248,7 +256,7 @@ export async function handleReorderItinerary(request, env, bookingId) {
     const res = await env.DB.prepare(
       `UPDATE itinerary_items SET sort_order = ?, updated_at = ?
         WHERE id = ? AND booking_id = ? AND user_id = ?`
-    ).bind(i, ts, itemId, bookingId, user.id).run();
+    ).bind(i, ts, itemId, bookingId, owner.id).run();
     if (res.meta && res.meta.changes) moved += 1;
   }
 
@@ -258,11 +266,15 @@ export async function handleReorderItinerary(request, env, bookingId) {
 export async function handleDeleteItem(request, env, bookingId, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, bookingId);
+  if (!owner) return notFound('Reservation not found.');
   const res = await env.DB.prepare(
     'DELETE FROM itinerary_items WHERE id = ? AND booking_id = ? AND user_id = ?'
-  ).bind(id, bookingId, user.id).run();
+  ).bind(id, bookingId, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Item not found.');
-  return json({ ok: true, items: await listItems(env, bookingId, db.selfScope(user)) });
+  return json({ ok: true, items: await listItems(env, bookingId, db.selfScope(owner)) });
 }
 
 /**
@@ -276,11 +288,15 @@ export async function handleShareItinerary(request, env, bookingId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, bookingId);
+  if (!owner) return notFound('Reservation not found.');
+
   const body = await readJson(request);
   const on = body.shared === true || body.shared === 'on';
   const res = await env.DB.prepare(
     'UPDATE bookings SET itinerary_shared = ?, updated_at = ? WHERE id = ? AND user_id = ?'
-  ).bind(on ? 1 : 0, now(), bookingId, user.id).run();
+  ).bind(on ? 1 : 0, now(), bookingId, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Reservation not found.');
 
   return json({ ok: true, shared: on });

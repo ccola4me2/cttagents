@@ -65,7 +65,11 @@ export async function handleAddComponent(request, env, bookingId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const booking = await db.getBooking(env, bookingId, user.id);
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, bookingId);
+  if (!owner) return notFound('Reservation not found.');
+
+  const booking = await db.getBooking(env, bookingId, owner.id);
   if (!booking) return notFound('Reservation not found.');
 
   const { fields, error } = parse(await readJson(request));
@@ -73,7 +77,7 @@ export async function handleAddComponent(request, env, bookingId) {
 
   // Through the same vendor list as everything else, so air booked with a
   // consolidator lands under one spelling in the reports rather than three.
-  const vendorId = await resolveVendor(env, user.id, fields.supplier);
+  const vendorId = await resolveVendor(env, owner.id, fields.supplier);
 
   const id = uid();
   const ts = now();
@@ -82,12 +86,14 @@ export async function handleAddComponent(request, env, bookingId) {
        (id, booking_id, user_id, kind, vendor_id, supplier, product_name,
         confirmation_number, start_date, end_date, notes, sort_order, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, bookingId, user.id, fields.kind, vendorId, fields.supplier,
+  ).bind(id, bookingId, owner.id, fields.kind, vendorId, fields.supplier,
          fields.productName, fields.confirmationNumber, fields.startDate,
          fields.endDate, fields.notes, fields.sortOrder, ts, ts).run();
 
-  await db.logActivity(env, user.id, 'component.add',
-    `Added ${fields.kind} with ${fields.supplier} to ${booking.client_name}'s trip`,
+  await db.logActivity(env, owner.id, 'component.add',
+    db.byHand(
+      `Added ${fields.kind} with ${fields.supplier} to ${booking.client_name}'s trip`,
+      user, owner),
     { bookingId });
   return json({ ok: true, id }, 201);
 }
@@ -96,10 +102,14 @@ export async function handleUpdateComponent(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'components', id);
+  if (!owner) return notFound('Component not found.');
+
   const { fields, error } = parse(await readJson(request));
   if (error) return badRequest(error);
 
-  const vendorId = await resolveVendor(env, user.id, fields.supplier);
+  const vendorId = await resolveVendor(env, owner.id, fields.supplier);
   const res = await env.DB.prepare(
     `UPDATE components SET kind = ?, vendor_id = ?, supplier = ?, product_name = ?,
             confirmation_number = ?, start_date = ?, end_date = ?, notes = ?,
@@ -107,7 +117,7 @@ export async function handleUpdateComponent(request, env, id) {
       WHERE id = ? AND user_id = ?`
   ).bind(fields.kind, vendorId, fields.supplier, fields.productName,
          fields.confirmationNumber, fields.startDate, fields.endDate, fields.notes,
-         fields.sortOrder, now(), id, user.id).run();
+         fields.sortOrder, now(), id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Component not found.');
   return json({ ok: true });
 }
@@ -124,18 +134,23 @@ export async function handleDeleteComponent(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'components', id);
+  if (!owner) return notFound('Component not found.');
+
   const row = await env.DB.prepare(
     'SELECT id, booking_id FROM components WHERE id = ? AND user_id = ?'
-  ).bind(id, user.id).first();
+  ).bind(id, owner.id).first();
   if (!row) return notFound('Component not found.');
 
   await env.DB.prepare(
     'UPDATE booking_pricing SET component_id = NULL, updated_at = ? WHERE component_id = ? AND user_id = ?'
-  ).bind(now(), id, user.id).run();
+  ).bind(now(), id, owner.id).run();
   await env.DB.prepare('DELETE FROM components WHERE id = ? AND user_id = ?')
-    .bind(id, user.id).run();
+    .bind(id, owner.id).run();
 
-  await db.logActivity(env, user.id, 'component.delete',
-    'Removed a component, keeping what it cost', { bookingId: row.booking_id });
+  await db.logActivity(env, owner.id, 'component.delete',
+    db.byHand('Removed a component, keeping what it cost',
+      user, owner), { bookingId: row.booking_id });
   return json({ ok: true });
 }

@@ -166,13 +166,17 @@ export async function handleUpdateTier(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'penalty_tiers', id);
+  if (!owner) return notFound('Tier not found.');
+
   const { fields, error } = parse(await readJson(request));
   if (error) return badRequest(error);
 
   const res = await env.DB.prepare(
     `UPDATE penalty_tiers SET from_days = ?, pct = ?, amount_cents = ?, note = ?,
             updated_at = ? WHERE id = ? AND user_id = ?`
-  ).bind(fields.fromDays, fields.pct, fields.amountCents, fields.note, now(), id, user.id).run();
+  ).bind(fields.fromDays, fields.pct, fields.amountCents, fields.note, now(), id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Tier not found.');
   return json({ ok: true });
 }
@@ -180,8 +184,12 @@ export async function handleUpdateTier(request, env, id) {
 export async function handleDeleteTier(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'penalty_tiers', id);
+  if (!owner) return notFound('Tier not found.');
   const res = await env.DB.prepare('DELETE FROM penalty_tiers WHERE id = ? AND user_id = ?')
-    .bind(id, user.id).run();
+    .bind(id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Tier not found.');
   return json({ ok: true });
 }
@@ -201,18 +209,22 @@ export async function handleApplyVendorTerms(request, env, bookingId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const booking = await db.getBooking(env, bookingId, user.id);
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, bookingId);
+  if (!owner) return notFound('Reservation not found.');
+
+  const booking = await db.getBooking(env, bookingId, owner.id);
   if (!booking) return notFound('Reservation not found.');
   if (!booking.vendor_id) {
     return badRequest('This reservation is not linked to a vendor, so there are no terms to copy.');
   }
 
-  const self = db.selfScope(user);
+  const self = db.selfScope(owner);
   const tiers = await listTiers(env, self, { vendorId: booking.vendor_id });
   if (!tiers.length) return badRequest('That vendor has no cancellation terms recorded yet.');
 
   await env.DB.prepare('DELETE FROM penalty_tiers WHERE booking_id = ? AND user_id = ?')
-    .bind(bookingId, user.id).run();
+    .bind(bookingId, owner.id).run();
 
   const ts = now();
   for (const t of tiers) {
@@ -220,11 +232,13 @@ export async function handleApplyVendorTerms(request, env, bookingId) {
       `INSERT INTO penalty_tiers
          (id, user_id, vendor_id, booking_id, from_days, pct, amount_cents, note, created_at, updated_at)
        VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(uid(), user.id, bookingId, t.from_days, t.pct, t.amount_cents, t.note, ts, ts).run();
+    ).bind(uid(), owner.id, bookingId, t.from_days, t.pct, t.amount_cents, t.note, ts, ts).run();
   }
 
-  await db.logActivity(env, user.id, 'penalty.apply',
-    `Copied ${booking.supplier || 'the vendor'}'s cancellation terms onto ${booking.client_name}'s trip`,
+  await db.logActivity(env, owner.id, 'penalty.apply',
+    db.byHand(
+      `Copied ${booking.supplier || 'the vendor'}'s cancellation terms onto ${booking.client_name}'s trip`,
+      user, owner),
     { bookingId, tiers: tiers.length });
   return json({ ok: true, copied: tiers.length }, 201);
 }

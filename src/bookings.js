@@ -381,8 +381,11 @@ export async function handleBookingRecord(request, env, id) {
       };
     })(),
     // Whether this reader may change any of it, so the page does not offer
-    // buttons that would fail.
-    editable: booking.user_id === user.id,
+    // buttons that would fail. An owner may correct an advisor's reservation;
+    // it stays the advisor's, and the page says whose it is while they do.
+    editable: db.mayWriteBooking(user, booking),
+    // Null when it is the reader's own, so the page has nothing to announce.
+    onBehalfOf: booking.user_id === user.id ? null : (booking.advisor_name || 'another advisor'),
     today: new Date().toISOString().slice(0, 10),
   });
 }
@@ -516,6 +519,10 @@ export async function handleQuickUpdate(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, id);
+  if (!owner) return notFound('Reservation not found.');
+
   const body = await readJson(request);
   const sets = [];
   const binds = [];
@@ -527,7 +534,7 @@ export async function handleQuickUpdate(request, env, id) {
   }
   if (!sets.length) return badRequest('Nothing to change.');
 
-  const before = await db.getBooking(env, id, user.id);
+  const before = await db.getBooking(env, id, owner.id);
   if (!before) return notFound('Reservation not found.');
 
   // Checked against what will actually be stored rather than what was sent,
@@ -551,31 +558,31 @@ export async function handleQuickUpdate(request, env, id) {
 
   await env.DB.prepare(
     `UPDATE bookings SET ${sets.join(', ')}, updated_at = ? WHERE id = ? AND user_id = ?`
-  ).bind(...binds, Math.floor(Date.now() / 1000), id, user.id).run();
+  ).bind(...binds, Math.floor(Date.now() / 1000), id, owner.id).run();
 
-  const after = await db.getBooking(env, id, user.id);
+  const after = await db.getBooking(env, id, owner.id);
 
   // The schedule follows the reservation, the way the headline totals already
   // follow the pricing grid. Moving a vendor deadline and leaving the payment
   // row on the old date is how the reservations list and the payments page
   // came to disagree about the same money.
-  const moved = await followBookingDates(env, user, before, after);
+  const moved = await followBookingDates(env, owner, before, after);
 
   // Typed beside the vendor's date, so it is written after the rows have
   // followed: setting both at once must land on what was asked for, not on
   // what ten days before the new deadline happens to be.
   if (Object.prototype.hasOwnProperty.call(body, 'softPaymentDue')) {
-    await setChaseDate(env, user, after, cleanDate(body.softPaymentDue));
+    await setChaseDate(env, owner, after, cleanDate(body.softPaymentDue));
   }
 
   // And fills itself in. A reservation with a cost and a date has a schedule
   // whether or not anybody remembered to press a button, which is the step
   // quietly missing from every booking taken in a hurry.
-  const built = await buildSchedule(env, user, after);
+  const built = await buildSchedule(env, owner, after);
 
   return json({
     ok: true,
-    booking: await db.getBooking(env, id, user.id),
+    booking: await db.getBooking(env, id, owner.id),
     // Said rather than done silently. A date that moves on its own is helpful
     // once it is announced and alarming until then.
     moved,
@@ -586,6 +593,10 @@ export async function handleQuickUpdate(request, env, id) {
 export async function handleUpdateBooking(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, id);
+  if (!owner) return notFound('Booking not found.');
 
   // Kept, not consumed. The chase date is not a column on this table, so
   // parseBooking has nothing to say about it and it has to be read from what
@@ -598,26 +609,26 @@ export async function handleUpdateBooking(request, env, id) {
   // writes this column from the parsed fields, so leaving it to the request
   // would let an advisor clear an agreed override simply by saving the page,
   // and let them set one by posting it.
-  const before = await db.getBooking(env, id, user.id);
+  const before = await db.getBooking(env, id, owner.id);
   if (!before) return notFound('Booking not found.');
   fields.advisorSplitPct = before.advisor_split_pct === null
     || before.advisor_split_pct === undefined ? null : Number(before.advisor_split_pct);
 
-  fields.clientId = await db.resolveClient(env, user.id, fields.clientName,
+  fields.clientId = await db.resolveClient(env, owner.id, fields.clientName,
     { ghlContactId: fields.ghlContactId });
-  fields.vendorId = await resolveVendor(env, user.id, fields.supplier);
-  const booking = await db.updateBooking(env, id, user.id, fields);
+  fields.vendorId = await resolveVendor(env, owner.id, fields.supplier);
+  const booking = await db.updateBooking(env, id, owner.id, fields);
   if (!booking) return notFound('Booking not found.');
-  await db.logActivity(env, user.id, 'booking.update',
-    `Updated booking for ${booking.client_name}`, { id });
+  await db.logActivity(env, owner.id, 'booking.update',
+    db.byHand(`Updated booking for ${booking.client_name}`, user, owner), { id });
 
   // The same two rules the quick save follows, so editing a date on the full
   // form and editing it on the money block cannot end up doing different things.
-  const moved = await followBookingDates(env, user, before, booking);
+  const moved = await followBookingDates(env, owner, before, booking);
   if (Object.prototype.hasOwnProperty.call(raw, 'softPaymentDue')) {
-    await setChaseDate(env, user, booking, cleanDate(raw.softPaymentDue));
+    await setChaseDate(env, owner, booking, cleanDate(raw.softPaymentDue));
   }
-  const built = await buildSchedule(env, user, booking);
+  const built = await buildSchedule(env, owner, booking);
 
   return json({
     ok: true, booking, moved,
@@ -637,7 +648,11 @@ export async function handleWelcomed(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const booking = await db.getBooking(env, id, user.id);
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, id);
+  if (!owner) return notFound('Reservation not found.');
+
+  const booking = await db.getBooking(env, id, owner.id);
   if (!booking) return notFound('Reservation not found.');
 
   const body = await readJson(request);
@@ -648,11 +663,11 @@ export async function handleWelcomed(request, env, id) {
 
   await env.DB.prepare(
     'UPDATE bookings SET welcomed_at = ?, updated_at = ? WHERE id = ? AND user_id = ?'
-  ).bind(done, now(), id, user.id).run();
+  ).bind(done, now(), id, owner.id).run();
 
-  await db.logActivity(env, user.id, 'booking.welcomed',
-    done ? `Rang ${booking.client_name} after their trip`
-         : `Cleared the welcome home note for ${booking.client_name}`,
+  await db.logActivity(env, owner.id, 'booking.welcomed',
+    db.byHand(done ? `Rang ${booking.client_name} after their trip`
+                   : `Cleared the welcome home note for ${booking.client_name}`, user, owner),
     { bookingId: id });
   return json({ ok: true, welcomedAt: done });
 }
@@ -661,29 +676,34 @@ export async function handleDeleteBooking(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, id);
+  if (!owner) return notFound('Booking not found.');
+
   // Read before deleting: the payments go with the reservation, and with them
   // any record of which credits they spent.
   const spent = await env.DB.prepare(
     `SELECT DISTINCT credit_id FROM booking_payments
       WHERE booking_id = ? AND user_id = ? AND credit_id IS NOT NULL`
-  ).bind(id, user.id).all().catch(() => ({ results: [] }));
+  ).bind(id, owner.id).all().catch(() => ({ results: [] }));
 
-  const removed = await db.deleteBooking(env, id, user.id);
+  const removed = await db.deleteBooking(env, id, owner.id);
   if (!removed) return notFound('Booking not found.');
 
   // A credit spent on a trip that no longer exists was spent on nothing, so it
   // goes back to the client. Released after the delete, so the check for
   // another payment still spending it sees only the payments that survived.
   for (const row of spent.results || []) {
-    await releaseCredit(env, user.id, row.credit_id, null);
+    await releaseCredit(env, owner.id, row.credit_id, null);
   }
   // And nothing keeps pointing at a reservation that has gone.
   await env.DB.prepare(
     'UPDATE client_credits SET booking_id = NULL, updated_at = ? WHERE booking_id = ? AND user_id = ?'
     // Seconds, like every other timestamp. This wrote milliseconds, which
     // sorts and compares as a date ~55,000 years from now.
-  ).bind(now(), id, user.id).run();
+  ).bind(now(), id, owner.id).run();
 
-  await db.logActivity(env, user.id, 'booking.delete', 'Deleted a booking', { id });
+  await db.logActivity(env, owner.id, 'booking.delete',
+    db.byHand('Deleted a booking', user, owner), { id });
   return json({ ok: true });
 }
