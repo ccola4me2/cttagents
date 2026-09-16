@@ -231,6 +231,20 @@ export function cleanDate(value) {
   return when.toISOString().slice(0, 10) === s ? s : null;
 }
 
+/**
+ * Was a date typed, and is it unusable?
+ *
+ * cleanDate answers "give me the date or nothing", which is what a caller
+ * wants when the field is optional. It cannot tell a box somebody left empty
+ * from a box somebody typed 0206-09-09 into, and on a save that writes every
+ * column those two mean opposite things: one is "no date", the other is "stop,
+ * that is wrong". This is the second question, asked only where it matters.
+ */
+export function badDate(value) {
+  const s = String(value ?? '').trim();
+  return Boolean(s) && cleanDate(s) === null;
+}
+
 /** Dollars (string or number) to integer cents. Negative and NaN become 0. */
 /**
  * The next time a month and day comes round, on or after a given day.

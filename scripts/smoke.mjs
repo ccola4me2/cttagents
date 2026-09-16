@@ -4042,12 +4042,31 @@ async function main() {
   // in departing the ninth of September, 206: it sorted above everything,
   // counted as eighteen hundred years overdue, and printed as "Sep 9, 206",
   // where it reads as the screen being broken rather than the data being wrong.
+  const hadDate = (await call(advisor, 'GET', `/api/bookings/${bareId}`))
+    .data?.booking?.depart_date;
   const mistyped = await call(advisor, 'POST', `/api/bookings/${bareId}/quick`,
     { departDate: '0206-09-09' });
   const afterMistype = await call(advisor, 'GET', `/api/bookings/${bareId}`);
   check(afterMistype.data?.booking?.depart_date !== '0206-09-09',
     'a year of 206 does not become a departure date',
     `${mistyped.status} -> ${afterMistype.data?.booking?.depart_date}`);
+
+  // And the refusal leaves what was there. Refusing the value and then writing
+  // nothing over the good one turns a wrong date into a missing one, which is
+  // harder to spot and impossible to correct from what is left. That happened
+  // to a real reservation between one deploy and the next.
+  const fullSave = await call(advisor, 'PUT', `/api/bookings/${bareId}`, {
+    clientName: `Bare ${stamp}`, supplier: 'Cunard', productType: 'cruise',
+    status: 'booked', departDate: '0206-09-09',
+  });
+  check(fullSave.status === 400, 'a full save carrying it is refused outright',
+    `status ${fullSave.status}`);
+  check(/date/i.test(fullSave.data?.error || ''), 'and says which field to look at',
+    String(fullSave.data?.error));
+  const survived = await call(advisor, 'GET', `/api/bookings/${bareId}`);
+  check(survived.data?.booking?.depart_date === hadDate,
+    'leaving the date that was already on file alone',
+    `${hadDate} -> ${survived.data?.booking?.depart_date}`);
 
   // And a day that never existed. The shape test took both of these happily,
   // and a Date built from either rolls quietly into a different day.

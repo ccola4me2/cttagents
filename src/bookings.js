@@ -6,7 +6,7 @@
 // opportunity it came from.
 
 import {
-  json, badRequest, notFound, clean, cleanDate, toCents, oneOf, readJson, now,
+  json, badRequest, notFound, clean, cleanDate, badDate, toCents, oneOf, readJson, now,
 } from './util.js';
 import { requireUser, isAdmin } from './auth.js';
 import { tenantFor } from './tenant.js';
@@ -63,6 +63,23 @@ function parseBooking(body) {
   if (!clientName) return { error: 'Client name is required.' };
 
   const travellers = Math.max(1, Math.min(Number(body.travellers) || 1, 999));
+
+  // A date that was typed and is not a date stops the save.
+  //
+  // This endpoint writes every column, so a field that fails to parse is
+  // written as nothing. That turned one reservation's mistyped departure into
+  // no departure at all: a wrong date is at least visible and correctable, and
+  // a missing one is neither. Named field by field, because "check your dates"
+  // on a form with four of them is not help.
+  for (const [key, what] of [['departDate', 'departure date'],
+                             ['returnDate', 'return date'],
+                             ['depositDue', 'deposit due date'],
+                             ['finalPaymentDue', 'final payment date']]) {
+    if (badDate(body[key])) {
+      return { error: `That ${what} is not a real date. Check the year.` };
+    }
+  }
+
   const departDate = cleanDate(body.departDate);
   const returnDate = cleanDate(body.returnDate);
   if (departDate && returnDate && returnDate < departDate) {
