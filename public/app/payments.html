@@ -108,8 +108,17 @@ const statsEl = document.getElementById('stats');
 const dlg = document.getElementById('pay-dialog');
 const form = document.getElementById('pay-form');
 const delBtn = document.getElementById('delete-pay');
-let state = 'outstanding';
-let payClass = '';
+// Opened from somewhere else, on a figure somebody has just clicked.
+//
+// The dashboard says "$4,200 at risk of cancelling" and the useful next thing
+// is the four rows that make it up, not this page's default view with the
+// number nowhere on it. So the two tabs read from the address, which also
+// means the filtered view can be linked to, bookmarked and sent to somebody.
+const opened = new URLSearchParams(location.search);
+const STATES = ['outstanding', 'paid', 'all'];
+const CLASSES = ['', 'soft', 'hard'];
+let state = STATES.includes(opened.get('state')) ? opened.get('state') : 'outstanding';
+let payClass = CLASSES.includes(opened.get('class')) ? opened.get('class') : '';
 let editingId = null;
 let data = null;
 let bookings = [];
@@ -239,11 +248,15 @@ function render(d) {
         // canPick is the same question the scope picker asks: an owner, in an
         // agency, not sitting in somebody else's seat.
         const mine = p.user_id === ME || Boolean(d.scope && d.scope.canPick);
+        // The client and the trip both open the reservation they belong to.
+        // Every question this page raises is answered on that page, and until
+        // now the only way there was to remember the name and go looking.
+        const trip = `/app/reservation?id=${encodeURIComponent(p.booking_id)}`;
         return `<tr>
-          <td><span class="name">${esc(p.client_name)}</span>
+          <td><a class="row-link name" href="${trip}">${esc(p.client_name)}</a>
             <div class="muted">${esc(p.depart_date ? 'Departs ' + dateFmt(p.depart_date) : '')}</div></td>
           ${showAdvisor ? `<td class="muted">${esc(p.advisor_name || '-')}</td>` : ''}
-          <td>${esc(p.product_name || p.supplier || '-')}
+          <td><a class="row-link" href="${trip}">${esc(p.product_name || p.supplier || '-')}</a>
             <div class="muted">${esc(p.product_name && p.supplier ? p.supplier : '')}</div></td>
           <td><span class="badge ${p.payment_class === 'hard' ? 'badge-coral' : 'badge-navy'}">${
               esc(p.payment_class === 'hard' ? 'Hard' : 'Soft')}</span>
@@ -316,7 +329,8 @@ function render(d) {
         <thead><tr><th>Reservation</th><th class="num">Trip cost</th><th class="num">Posted</th>
           <th class="num">Scheduled</th><th class="num">Not scheduled</th><th></th></tr></thead>
         <tbody>${d.balances.map((b) => `<tr>
-          <td><span class="name">${esc(b.client_name)}</span>
+          <td><a class="row-link name" href="/app/reservation?id=${esc(encodeURIComponent(b.id))}"
+              >${esc(b.client_name)}</a>
             <div class="muted">${esc([b.product_name || b.supplier, b.depart_date ? dateFmt(b.depart_date) : ''].filter(Boolean).join('  ·  '))}</div></td>
           <td class="num">${money(b.gross_cents)}</td>
           <td class="num">${money(b.paid_cents)}</td>
@@ -404,6 +418,15 @@ async function load() {
   }
   catch (err) { statsEl.innerHTML = ''; showError(document.getElementById('err'), err); panel.innerHTML = ''; }
 }
+
+// The tabs start where the address says, not where the markup says. Without
+// this a link to the hard rows would fetch the hard rows and draw "All types"
+// as the selected tab, which reads as the filter having been ignored.
+document.querySelectorAll('[data-state]').forEach((x) =>
+  x.setAttribute('aria-selected', String(x.dataset.state === state)));
+document.querySelectorAll('[data-class]').forEach((x) =>
+  x.setAttribute('aria-selected', String(x.dataset.class === payClass)));
+
 await load();
 </script>
 </body></html>

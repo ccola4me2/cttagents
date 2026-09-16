@@ -186,17 +186,37 @@ function build() {
   const p = d.payStats;
 
   document.getElementById('greeting').textContent = `${d.user.name}, here is where things stand.`;
+  // Every figure here is a question, and the answer is a list on another
+  // screen. Each card is the link to its own answer, filtered to the rows the
+  // number is actually counting, so reading one and then going to find them by
+  // hand stops being the slowest part of the morning.
+  //
+  // The advisor goes with it where the card is a money figure. An owner
+  // looking at the agency who clicks "at risk of cancelling" wants the agency's
+  // deadlines, not their own; one looking at a single advisor wants that
+  // advisor's. So the scope on screen is the scope that travels.
+  const advisor = d.scope && !d.scope.all && d.scope.advisorId
+    ? `&advisor=${encodeURIComponent(d.scope.advisorId)}` : '';
+
   document.getElementById('stats').innerHTML = `
-    <div class="stat"><p class="label">Chase this week</p><p class="value">${money(p.softDueCents)}</p>
-      <p class="meta">${p.softCount} client${p.softCount === 1 ? '' : 's'} to ring in the next 7 days</p></div>
-    <div class="stat"><p class="label">At risk of cancelling</p>
+    <a class="stat" href="/app/payments?state=outstanding&class=soft${advisor}">
+      <p class="label">Chase this week</p><p class="value">${money(p.softDueCents)}</p>
+      <p class="meta">${p.softCount} client${p.softCount === 1 ? '' : 's'} to ring in the next 7 days</p>
+      <span class="go">See who to ring</span></a>
+    <a class="stat" href="/app/payments?state=outstanding&class=hard${advisor}">
+      <p class="label">At risk of cancelling</p>
       <p class="value" style="${p.hardDueCents ? 'color:var(--red-600);' : ''}">${money(p.hardDueCents)}</p>
-      <p class="meta">${p.hardCount} vendor deadline${p.hardCount === 1 ? '' : 's'} in the next 14 days</p></div>
-    <div class="stat"><p class="label">Active reservations</p><p class="value">${s.booked}</p>
-      <p class="meta">${s.quoted} quoted, ${s.travelled} travelled</p></div>
-    <div class="stat"><p class="label">${everyone ? 'Agency earnings' : 'Your earnings'}</p>
+      <p class="meta">${p.hardCount} vendor deadline${p.hardCount === 1 ? '' : 's'} in the next 14 days</p>
+      <span class="go">See the deadlines</span></a>
+    <a class="stat" href="/app/reservations?status=booked${advisor}">
+      <p class="label">Active reservations</p><p class="value">${s.booked}</p>
+      <p class="meta">${s.quoted} quoted, ${s.travelled} travelled</p>
+      <span class="go">Open the list</span></a>
+    <a class="stat" href="/app/commissions${advisor ? `?${advisor.slice(1)}` : ''}">
+      <p class="label">${everyone ? 'Agency earnings' : 'Your earnings'}</p>
       <p class="value">${money(s.commissionCents)}</p>
-      <p class="meta">${money(s.commissionPaidCents)} paid out</p></div>`;
+      <p class="meta">${money(s.commissionPaidCents)} paid out</p>
+      <span class="go">See what is owed</span></a>`;
 
   // Said once, in plain words, because the same balance appears in both
   // figures days apart and that is not obvious from two numbers side by side.

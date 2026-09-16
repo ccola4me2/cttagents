@@ -347,6 +347,43 @@ textarea { min-height: 90px; resize: vertical; }
 .stat .value { font-size: 1.75rem; font-weight: 680; color: var(--navy-800); margin-top: .35rem; line-height: 1.1; }
 .stat .meta { font-size: .8rem; color: var(--ink-500); margin-top: .25rem; }
 
+/* A figure you can open.
+ *
+ * Every number on a dashboard is a question whose answer is a list somewhere
+ * else, and reading one only to go and find those rows by hand is the slowest
+ * part of using the thing. A stat that leads somewhere is a real link, so it
+ * drags, opens in a new tab, and reads to a screen reader as what it is.
+ *
+ * Not styled like a link. The card already looks like a card, and four blue
+ * underlined headings would be worse than what is there; it says so by lifting
+ * under the cursor, which is the language the rest of the portal already uses
+ * for something that opens. */
+a.stat {
+  display: block; color: inherit; text-decoration: none;
+  transition: border-color .12s, box-shadow .12s, transform .12s;
+}
+a.stat:hover, a.stat:focus-visible {
+  border-color: var(--navy-300); box-shadow: 0 2px 10px rgba(16, 42, 67, .09);
+  transform: translateY(-1px);
+}
+a.stat:focus-visible { outline: 2px solid var(--navy-800); outline-offset: 2px; }
+/* Said once per card, under the meta line, rather than four repetitions of the
+ * word "View" shouting across the row. */
+a.stat .go { display: block; font-size: .78rem; font-weight: 600; color: var(--navy-800); margin-top: .5rem; }
+a.stat:hover .go { text-decoration: underline; }
+@media (prefers-reduced-motion: reduce) {
+  a.stat { transition: none; }
+  a.stat:hover, a.stat:focus-visible { transform: none; }
+}
+
+/* A row that opens the thing it names.
+ *
+ * Reservations are listed on eight screens and were openable from two. The
+ * name is the link rather than the whole row, so selecting text in a cell
+ * still works and a row with two things in it can lead to both. */
+a.row-link { color: inherit; text-decoration: none; }
+a.row-link:hover, a.row-link:focus-visible { text-decoration: underline; color: var(--navy-800); }
+
 /* --------------------------------------------------------------- tables -- */
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: .875rem; }

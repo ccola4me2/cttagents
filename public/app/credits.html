@@ -134,7 +134,13 @@ function render(d) {
         : left === null ? 'no expiry'
         : left < 0 ? 'lapsed' : `${left}d left`;
       return `<tr>
-        <td><span class="name">${esc(c.client_name)}</span>
+        <td>${c.booking_id
+          // A credit that has been spent says which trip took it, and that is
+          // the page anybody reading this row wants next. One with no trip yet
+          // is just a name, so it stays a name.
+          ? `<a class="row-link name" href="/app/reservation?id=${
+              esc(encodeURIComponent(c.booking_id))}">${esc(c.client_name)}</a>`
+          : `<span class="name">${esc(c.client_name)}</span>`}
           <div class="muted">${esc(c.reference || '')}</div></td>
         ${showAdvisor ? `<td class="muted">${esc(c.advisor_name || '-')}</td>` : ''}
         <td>${esc(c.vendor || '-')}</td>

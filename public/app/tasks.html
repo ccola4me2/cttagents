@@ -189,7 +189,11 @@ function render(d) {
               t.repeat_rule && t.repeat_rule !== 'none'
                 ? `<span class="badge badge-navy">${esc(t.repeat_rule)}</span>` : '',
               t.client_name ? esc(t.client_name) : '',
-              t.booking_client ? `${esc(t.booking_client)}${t.booking_supplier ? ' &middot; ' + esc(t.booking_supplier) : ''}` : '',
+              // A task against a reservation opens it. Half of these say "ring
+              // them about the balance", and the balance is on that page.
+              t.booking_client ? `<a class="row-link" href="/app/reservation?id=${
+                esc(encodeURIComponent(t.booking_id))}">${esc(t.booking_client)}${
+                t.booking_supplier ? ' &middot; ' + esc(t.booking_supplier) : ''}</a>` : '',
               t.group_name ? `group: ${esc(t.group_name)}` : '',
               showAdvisor && t.advisor_name ? esc(t.advisor_name) : '',
               t.assigned_by_name && t.assigned_by !== t.user_id

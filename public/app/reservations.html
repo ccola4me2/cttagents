@@ -154,6 +154,19 @@ statusFilter.addEventListener('change', load);
 
 
 const params = new URLSearchParams(location.search);
+
+// Opened on a figure somebody has just clicked. The dashboard says "9 active
+// reservations", and the useful next thing is those nine rather than all of
+// them with the nine to be picked out by hand.
+//
+// Set on the dropdown before the first load, so the list arrives filtered
+// rather than loading twice, and so the screen says which nine these are.
+// load() reads the dropdown rather than the address, which makes the dropdown
+// the validator: a status it does not offer leaves it on the blank option and
+// shows everything, and there is no second list of statuses to keep in step.
+const askedStatus = params.get('status');
+if (askedStatus) statusFilter.value = askedStatus;
+
 await load();
 
 // Arriving from search: open the reservation that was picked. It may not be in
