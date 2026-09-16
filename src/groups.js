@@ -202,25 +202,29 @@ export async function handleBookRegistration(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'group_registrations', id);
+  if (!owner) return notFound('No such registration.');
+
   const reg = await env.DB.prepare(
     `SELECT r.*, g.name AS group_name, g.vendor, g.product_name, g.destination,
             g.depart_date, g.return_date, g.group_type
        FROM group_registrations r JOIN travel_groups g ON g.id = r.group_id
       WHERE r.id = ? AND r.user_id = ?`
-  ).bind(id, user.id).first();
+  ).bind(id, owner.id).first();
   if (!reg) return notFound('No such registration.');
   if (reg.booking_id) return badRequest('That one is already on a reservation.');
 
-  const clientId = await db.resolveClient(env, user.id, reg.name, {});
+  const clientId = await db.resolveClient(env, owner.id, reg.name, {});
   if (clientId && (reg.email || reg.phone)) {
     await env.DB.prepare(
       `UPDATE clients SET email = COALESCE(NULLIF(email, ''), ?),
          phone = COALESCE(NULLIF(phone, ''), ?), updated_at = ?
        WHERE id = ? AND user_id = ?`
-    ).bind(reg.email || null, reg.phone || null, now(), clientId, user.id).run();
+    ).bind(reg.email || null, reg.phone || null, now(), clientId, owner.id).run();
   }
 
-  const booking = await db.createBooking(env, user.id, {
+  const booking = await db.createBooking(env, owner.id, {
     clientName: reg.name,
     clientId: clientId || null,
     supplier: reg.vendor || null,
@@ -245,17 +249,18 @@ export async function handleBookRegistration(request, env, id) {
 
   await env.DB.prepare(
     'UPDATE group_registrations SET booking_id = ? WHERE id = ? AND user_id = ?'
-  ).bind(booking.id, id, user.id).run();
+  ).bind(booking.id, id, owner.id).run();
 
   await env.DB.prepare(
     `INSERT INTO travellers (id, booking_id, user_id, name, email, phone, is_lead,
        created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`
-  ).bind(uid(), booking.id, user.id, reg.name, reg.email || null, reg.phone || null,
+  ).bind(uid(), booking.id, owner.id, reg.name, reg.email || null, reg.phone || null,
          now(), now()).run();
 
-  await db.logActivity(env, user.id, 'group.book',
-    `Booked ${reg.name} onto ${reg.group_name}`, { groupId: reg.group_id, bookingId: booking.id });
+  await db.logActivity(env, owner.id, 'group.book',
+    db.byHand(`Booked ${reg.name} onto ${reg.group_name}`,
+      user, owner), { groupId: reg.group_id, bookingId: booking.id });
 
   return json({ ok: true, bookingId: booking.id });
 }
@@ -306,6 +311,10 @@ export async function handleUpdateGroup(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'travel_groups', id);
+  if (!owner) return notFound('Group not found.');
+
   const { fields, error } = parse(await readJson(request));
   if (error) return badRequest(error);
   if (await codeTaken(env, fields.groupCode, id)) {
@@ -321,22 +330,26 @@ export async function handleUpdateGroup(request, env, id) {
   ).bind(fields.name, fields.vendor, fields.productName, fields.destination, fields.groupCode,
          fields.departDate, fields.returnDate, fields.optionDate, fields.cabinsHeld,
          fields.status, fields.notes, fields.groupType, fields.registrationOpen,
-         fields.registrationBlurb, now(), id, user.id).run();
+         fields.registrationBlurb, now(), id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Group not found.');
 
-  return json({ ok: true, group: await getGroup(env, id, user.id) });
+  return json({ ok: true, group: await getGroup(env, id, owner.id) });
 }
 
 export async function handleDeleteGroup(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'travel_groups', id);
+  if (!owner) return notFound('Group not found.');
+
   // Reservations survive their group. Deleting a block should not delete the
   // bookings made out of it, which are real trips people have paid for.
   await env.DB.prepare('UPDATE bookings SET group_id = NULL WHERE group_id = ? AND user_id = ?')
-    .bind(id, user.id).run();
+    .bind(id, owner.id).run();
   const res = await env.DB.prepare('DELETE FROM travel_groups WHERE id = ? AND user_id = ?')
-    .bind(id, user.id).run();
+    .bind(id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Group not found.');
   return json({ ok: true });
 }

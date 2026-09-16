@@ -184,7 +184,7 @@ export async function handleGetSpecial(request, env, id) {
   return json({
     special,
     leads: results || [],
-    editable: special.user_id === user.id,
+    editable: db.mayWrite(user, special),
     productTypes: PRODUCT_TYPES,
     priceBasis: PRICE_BASIS,
     appUrl: (env.APP_URL || 'https://cttagents.com').replace(/\/$/, ''),
@@ -219,6 +219,10 @@ export async function handleUpdateSpecial(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'specials', id);
+  if (!owner) return notFound('Deal not found.');
+
   const { fields, error } = parse(await readJson(request));
   if (error) return badRequest(error);
 
@@ -231,24 +235,28 @@ export async function handleUpdateSpecial(request, env, id) {
   ).bind(fields.headline, fields.vendor, fields.vendorId, fields.productType,
          fields.ship, fields.destination, fields.departDate, fields.returnDate, fields.nights,
          fields.priceCents, fields.priceBasis, fields.inclusions, fields.terms, fields.blurb,
-         fields.startsOn, fields.endsOn, fields.published, now(), id, user.id).run();
+         fields.startsOn, fields.endsOn, fields.published, now(), id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Special not found.');
 
-  return json({ ok: true, special: await getSpecial(env, id, user.id) });
+  return json({ ok: true, special: await getSpecial(env, id, owner.id) });
 }
 
 export async function handleDeleteSpecial(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'specials', id);
+  if (!owner) return notFound('Deal not found.');
+
   // Counted first, because "deleted" reporting one row when it took four names
   // with it is the kind of number that stops people trusting the rest.
   const { results } = await env.DB.prepare(
     'SELECT id FROM special_leads WHERE special_id = ? AND user_id = ?'
-  ).bind(id, user.id).all();
+  ).bind(id, owner.id).all();
 
   const res = await env.DB.prepare('DELETE FROM specials WHERE id = ? AND user_id = ?')
-    .bind(id, user.id).run();
+    .bind(id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Special not found.');
 
   // Said outright rather than left to ON DELETE CASCADE. The constraint is
@@ -258,7 +266,7 @@ export async function handleDeleteSpecial(request, env, id) {
   // baulked at it, would silently leave every enquiry behind pointing at a
   // deal that no longer exists.
   await env.DB.prepare('DELETE FROM special_leads WHERE special_id = ? AND user_id = ?')
-    .bind(id, user.id).run();
+    .bind(id, owner.id).run();
 
   return json({ ok: true, enquiriesRemoved: (results || []).length });
 }
@@ -268,17 +276,21 @@ export async function handleBookEnquiry(request, env, leadId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'special_leads', leadId);
+  if (!owner) return notFound('Enquiry not found.');
+
   const lead = await env.DB.prepare(
     `SELECT l.id, l.name, l.email, l.phone, l.party_size, l.special_id, l.booking_id,
             s.vendor, s.vendor_id, s.product_type, s.ship, s.destination,
             s.depart_date, s.return_date, s.headline
        FROM special_leads l JOIN specials s ON s.id = l.special_id
       WHERE l.id = ? AND l.user_id = ?`
-  ).bind(leadId, user.id).first();
+  ).bind(leadId, owner.id).first();
   if (!lead) return notFound('Enquiry not found.');
   if (lead.booking_id) return badRequest('That enquiry is already on a reservation.');
 
-  const clientId = await db.resolveClient(env, user.id, lead.name);
+  const clientId = await db.resolveClient(env, owner.id, lead.name);
   const id = uid();
   const ts = now();
   await env.DB.prepare(
@@ -288,15 +300,15 @@ export async function handleBookEnquiry(request, env, leadId) {
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'quoted',?,?,
        (SELECT u.default_split_pct FROM users u WHERE u.id = ?),
        (SELECT u.lead_split_pct FROM users u WHERE u.id = ?))`
-  ).bind(id, user.id, lead.name, clientId, lead.vendor, lead.vendor_id,
+  ).bind(id, owner.id, lead.name, clientId, lead.vendor, lead.vendor_id,
          lead.product_type, lead.headline, lead.destination,
          lead.depart_date, lead.return_date, lead.party_size || null, ts, ts,
          // The agreement as it stands for this advisor today, stamped now so a
          // later change to their record does not restate this trip.
-         user.id, user.id).run();
+         owner.id, owner.id).run();
 
   await env.DB.prepare('UPDATE special_leads SET booking_id = ? WHERE id = ? AND user_id = ?')
-    .bind(id, leadId, user.id).run();
+    .bind(id, leadId, owner.id).run();
 
   // The client's contact details came in on the enquiry and would otherwise
   // stop at the deal's page, leaving a reservation for somebody with no way
@@ -306,19 +318,24 @@ export async function handleBookEnquiry(request, env, leadId) {
       `UPDATE clients SET email = COALESCE(NULLIF(email,''), ?),
                           phone = COALESCE(NULLIF(phone,''), ?), updated_at = ?
         WHERE id = ? AND user_id = ?`
-    ).bind(lead.email || null, lead.phone || null, ts, clientId, user.id).run();
+    ).bind(lead.email || null, lead.phone || null, ts, clientId, owner.id).run();
   }
 
-  await db.logActivity(env, user.id, 'special.book',
-    `Turned an enquiry into a reservation for ${lead.name}`, { id, leadId });
+  await db.logActivity(env, owner.id, 'special.book',
+    db.byHand(`Turned an enquiry into a reservation for ${lead.name}`,
+      user, owner), { id, leadId });
   return json({ ok: true, bookingId: id }, 201);
 }
 
 export async function handleDeleteEnquiry(request, env, leadId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'special_leads', leadId);
+  if (!owner) return notFound('Enquiry not found.');
   const res = await env.DB.prepare('DELETE FROM special_leads WHERE id = ? AND user_id = ?')
-    .bind(leadId, user.id).run();
+    .bind(leadId, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Enquiry not found.');
   return json({ ok: true });
 }

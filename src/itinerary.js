@@ -171,7 +171,7 @@ export async function handleListItinerary(request, env, bookingId) {
     departDate: booking.depart_date || null,
     returnDate: booking.return_date || null,
     shared: Boolean(booking.itinerary_shared),
-    editable: db.mayWriteBooking(user, booking),
+    editable: db.mayWrite(user, booking),
   });
 }
 

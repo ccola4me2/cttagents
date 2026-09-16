@@ -561,7 +561,11 @@ export async function handleListTaskItems(request, env, taskId) {
 export async function handleCreateTaskItem(request, env, taskId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  if (!(await ownTask(env, taskId, user.id))) return notFound('Task not found.');
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForTask(env, user, taskId);
+  if (!owner) return notFound('Task not found.');
+  if (!(await ownTask(env, taskId, owner.id))) return notFound('Task not found.');
 
   const body = await readJson(request);
   const label = clean(body.label, 200);
@@ -571,7 +575,7 @@ export async function handleCreateTaskItem(request, env, taskId) {
   // become a project and wants to be tasks of its own.
   const count = await env.DB.prepare(
     'SELECT COUNT(*) AS n FROM task_items WHERE task_id = ? AND user_id = ?'
-  ).bind(taskId, user.id).first();
+  ).bind(taskId, owner.id).first();
   if ((count?.n || 0) >= 20) {
     return badRequest('Twenty steps is enough. Anything longer wants to be its own tasks.');
   }
@@ -580,14 +584,18 @@ export async function handleCreateTaskItem(request, env, taskId) {
   await env.DB.prepare(
     `INSERT INTO task_items (id, task_id, user_id, label, position, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`
-  ).bind(id, taskId, user.id, label, count?.n || 0, now()).run();
+  ).bind(id, taskId, owner.id, label, count?.n || 0, now()).run();
 
-  return json({ ok: true, items: await listTaskItems(env, taskId, user.id) }, 201);
+  return json({ ok: true, items: await listTaskItems(env, taskId, owner.id) }, 201);
 }
 
 export async function handleUpdateTaskItem(request, env, itemId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'task_items', itemId);
+  if (!owner) return notFound('That step is not here.');
 
   const body = await readJson(request);
   const sets = [];
@@ -606,23 +614,27 @@ export async function handleUpdateTaskItem(request, env, itemId) {
 
   const res = await env.DB.prepare(
     `UPDATE task_items SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`
-  ).bind(...binds, itemId, user.id).run();
+  ).bind(...binds, itemId, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Step not found.');
 
   const row = await env.DB.prepare('SELECT task_id FROM task_items WHERE id = ? AND user_id = ?')
-    .bind(itemId, user.id).first();
-  return json({ ok: true, items: await listTaskItems(env, row.task_id, user.id) });
+    .bind(itemId, owner.id).first();
+  return json({ ok: true, items: await listTaskItems(env, row.task_id, owner.id) });
 }
 
 export async function handleDeleteTaskItem(request, env, itemId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'task_items', itemId);
+  if (!owner) return notFound('That step is not here.');
   const row = await env.DB.prepare('SELECT task_id FROM task_items WHERE id = ? AND user_id = ?')
-    .bind(itemId, user.id).first();
+    .bind(itemId, owner.id).first();
   if (!row) return notFound('Step not found.');
   await env.DB.prepare('DELETE FROM task_items WHERE id = ? AND user_id = ?')
-    .bind(itemId, user.id).run();
-  return json({ ok: true, items: await listTaskItems(env, row.task_id, user.id) });
+    .bind(itemId, owner.id).run();
+  return json({ ok: true, items: await listTaskItems(env, row.task_id, owner.id) });
 }
 
 export async function handleDeleteTask(request, env, id) {

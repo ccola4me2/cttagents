@@ -582,28 +582,54 @@ export async function getBookingUnscoped(env, id) {
  *
  * Written out rather than derived, because the table name is interpolated into
  * the statement below and a name that came from anywhere near a request would
- * be a hole. Everything here is a reservation or something hanging off one.
+ * be a hole.
  */
 const WRITABLE = new Set([
+  // A reservation and everything hanging off one.
   'bookings', 'booking_payments', 'booking_pricing', 'quote_options',
   'penalty_tiers', 'documents', 'components', 'travellers', 'amenities',
   'itinerary_items', 'trip_messages',
+  // The book behind it: the people, the households they sit in, the groups
+  // they travel with, and the money owed either way.
+  'clients', 'households', 'travel_groups', 'group_registrations',
+  'client_credits', 'commission_statements', 'commission_receipts',
+  // The work: a checklist item under a task, the deals an advisor publishes,
+  // the enquiries those pull, a saved list and a mailing.
+  'task_items', 'specials', 'special_leads', 'segments', 'broadcasts',
+  // Deliberately not here, each for its own reason rather than by oversight:
+  //
+  //   vendors and itinerary_library are already the agency's, so there is
+  //   nothing left to widen.
+  //
+  //   user_prefs is which columns somebody hid on a screen, and
+  //   hotlist_actions is which row they put away until Thursday. Both are one
+  //   person working rather than a record of anything, and reaching into them
+  //   would change an advisor's screen while they were looking at it.
+  //
+  //   task_templates already has a narrower rule of its own for the shared
+  //   ones, and it stays.
 ]);
 
 /**
  * Who a write belongs to, which is not always who is making it.
  *
  * An advisor writes to their own records and nobody else's. An agency owner
- * may also write to an advisor's reservation in their own agency: they are the
- * person who fixes a wrong date on a Saturday while the advisor is on a ship
- * with no signal, and a portal where the owner can read that reservation and
+ * may also write to anything belonging to anybody in their own agency: they
+ * are the person who fixes a wrong date on a Saturday while the advisor is on
+ * a ship with no signal, and a portal where the owner can read that record and
  * not correct it is a portal the correction gets made outside of.
  *
- * What it returns is the advisor, not the owner. The row stays whose it was:
+ * Anybody, including another owner. The question this asks is which agency a
+ * record is in, never what rank its holder is, so two owners of one agency
+ * reach each other's work the same way either reaches an associate's. An
+ * agency with two people running it should not need one of them to be the
+ * only person who can fix their own typo.
+ *
+ * What it returns is the holder, not the caller. The row stays whose it was:
  * the reservation, the commission and the production all belong to the person
- * who sold it, and an owner touching it is a correction, not a transfer. Every
- * caller writes as the returned user, and logs the real one alongside, so the
- * activity line says who actually did it.
+ * who sold it, and somebody else touching it is a correction, not a transfer.
+ * Every caller writes as the returned user, and logs the real one alongside,
+ * so the activity line says who actually did it.
  *
  * Null means "not yours", which every caller turns into the same not found it
  * would have given before. A reader who may not have it is not told it exists.
@@ -678,16 +704,17 @@ export function byHand(message, actor, owner) {
 }
 
 /**
- * May this reader change this reservation?
+ * May this reader change this record?
  *
  * For the page, which needs the answer before it draws a button rather than
- * after somebody presses one. Takes a booking already loaded through the read
- * scope, which is agency-fenced, so an owner who can see it is an owner who is
- * in its agency and no second query is needed to prove it.
+ * after somebody presses one. Takes a row already loaded through the read
+ * scope, which is agency-fenced, so a reader who can see it is a reader who is
+ * inside its agency and no second query is needed to prove it. That is the
+ * whole reason this can be a plain function while writerFor has to be a query.
  */
-export function mayWriteBooking(user, booking) {
-  if (!booking) return false;
-  if (booking.user_id === user.id) return true;
+export function mayWrite(user, row) {
+  if (!row) return false;
+  if (row.user_id === user.id) return true;
   return user.role === 'admin' && Boolean(user.agency_id);
 }
 

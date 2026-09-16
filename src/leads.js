@@ -209,6 +209,10 @@ export async function handleUpdateLead(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'clients', id);
+  if (!owner) return notFound('That lead is not here.');
+
   const { fields, error } = parse(await readJson(request));
   if (error) return badRequest(error);
 
@@ -220,7 +224,7 @@ export async function handleUpdateLead(request, env, id) {
       WHERE id = ? AND user_id = ?`
   ).bind(fields.name, fields.email, fields.phone, fields.source,
          fields.sourceKind, fields.referredBy, fields.stage,
-         fields.askedAbout, fields.nextStep, fields.nextStepOn, now(), id, user.id).run();
+         fields.askedAbout, fields.nextStep, fields.nextStepOn, now(), id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('That lead is not here.');
   return json({ ok: true });
 }
@@ -236,13 +240,17 @@ export async function handleMoveLead(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'clients', id);
+  if (!owner) return notFound('That lead is not here.');
+
   const body = await readJson(request);
   const stage = oneOf(body.stage, STAGE_IDS);
   if (!stage) return badRequest('That is not one of the columns.');
 
   const res = await env.DB.prepare(
     'UPDATE clients SET lead_stage = ?, updated_at = ? WHERE id = ? AND user_id = ?'
-  ).bind(stage, now(), id, user.id).run();
+  ).bind(stage, now(), id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('That lead is not here.');
   return json({ ok: true, stage });
 }
@@ -257,11 +265,15 @@ export async function handleMoveLead(request, env, id) {
 export async function handleCloseLead(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'clients', id);
+  if (!owner) return notFound('That lead is not here.');
   const res = await env.DB.prepare(
     `UPDATE clients SET lead_stage = NULL, lead_next_step = NULL,
             lead_next_step_on = NULL, updated_at = ?
       WHERE id = ? AND user_id = ?`
-  ).bind(now(), id, user.id).run();
+  ).bind(now(), id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('That lead is not here.');
   return json({ ok: true });
 }

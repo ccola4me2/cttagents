@@ -1097,9 +1097,14 @@ async function main() {
   check(groupList.data?.stats?.held >= 20 && groupList.data.stats.sold >= 1,
     'held and sold roll up across groups', JSON.stringify(groupList.data?.stats));
 
-  const ownerEdit = await call(admin, 'PUT', `/api/groups/${groupId}`, { name: 'Not yours' });
-  check(ownerEdit.status === 404, 'an owner cannot rewrite an associate\'s group',
+  const ownerEdit = await call(admin, 'PUT', `/api/groups/${groupId}`,
+    { name: `Renamed By Owner ${stamp}` });
+  check(ownerEdit.status === 200, 'an owner can rename an associate\'s group',
     `status ${ownerEdit.status}`);
+  const groupAfter = await call(advisor, 'GET', `/api/groups/${groupId}`);
+  check(groupAfter.data?.group?.name === `Renamed By Owner ${stamp}`,
+    'and the associate sees the new name on their own group',
+    groupAfter.data?.group?.name);
 
   // A block is a commercial arrangement; the trips sold out of it are real
   // holidays people have paid for. Deleting one must not delete the other.
@@ -1692,9 +1697,12 @@ async function main() {
       // The button on the page, which takes almost no body and so answers
       // about the row rather than about what was sent.
       const posted = await call(admin, 'POST', `/api/payments/${theirs.id}/paid`, {});
-      check(posted.status === 404,
-        'and an owner cannot post an associate\'s payment as paid',
+      check(posted.status === 200,
+        'and an owner can post an associate\'s payment as paid',
         `status ${posted.status}`);
+      check(posted.data?.payment?.user_id === advisorId,
+        'with the payment still on the associate\'s book',
+        String(posted.data?.payment?.user_id));
     } else {
       check(false, 'the suite made an associate payment for this to be about');
     }
@@ -2252,11 +2260,12 @@ async function main() {
     check(/Nothing planned/.test(on),
       'with the empty days saying so, because a gap in a numbered list is a question');
 
-    // Somebody else's trip is not yours to plan.
+    // An associate's trip is not theirs to plan; the agency's owner may.
     const theirs = await call(admin, 'POST', `/api/bookings/${tripId}/itinerary`, {
-      dayNumber: 1, title: 'Not mine',
+      dayNumber: 1, title: `Added By Owner ${stamp}`,
     });
-    check(theirs.status === 404, 'another advisor cannot add to it', `status ${theirs.status}`);
+    check(theirs.status === 200 || theirs.status === 201,
+      'the agency owner can add to it', `status ${theirs.status}`);
   }
 
   // ----------------------------------------------- the page on paper ------
@@ -2937,9 +2946,9 @@ async function main() {
     'but keeps it on the record');
 
   const ownerCredit = await call(admin, 'PUT', `/api/credits/${creditId}`, {
-    clientName: 'Not yours', amount: '1',
+    clientName: `Corrected By Owner ${stamp}`, amount: '1',
   });
-  check(ownerCredit.status === 404, 'an owner cannot rewrite an associate\'s credit',
+  check(ownerCredit.status === 200, 'an owner can correct an associate\'s credit',
     `status ${ownerCredit.status}`);
 
   // ------------------------------------------------------ worth a call ------
@@ -3863,7 +3872,7 @@ async function main() {
     'which filters the list');
 
   const notTheirClient = await call(admin, 'PUT', `/api/clients/${madeClient.id}`, { pinned: false });
-  check(notTheirClient.status === 404, 'an owner cannot pin an associate\'s client',
+  check(notTheirClient.status === 200, 'an owner can unpin an associate\'s client',
     `status ${notTheirClient.status}`);
 
   const rec2 = await call(advisor, 'GET', `/api/client?id=${madeClient.id}`);
@@ -3957,14 +3966,21 @@ async function main() {
   });
   check(marked.data?.changed === 2, 'several move to invoiced at once', marked.data?.changed);
 
-  // An owner may read an associate's commission but not declare it paid, and
-  // the response says how many actually moved rather than how many were asked
-  // for, so a silent no-op is impossible.
+  // An owner may declare an associate's commission paid, and the response says
+  // how many actually moved rather than how many were asked for, so a silent
+  // no-op is impossible either way.
+  //
+  // The receipt matters as much as the label. If the status widened and the
+  // money did not, the trip would read as paid with nothing received against
+  // it, and that is the hardest kind of wrong number to find months later.
   const notTheirs = await call(admin, 'POST', '/api/commissions/status', {
     ids: [recent.data.booking.id], status: 'paid',
   });
-  check(notTheirs.data?.changed === 0 && notTheirs.data?.requested === 1,
-    'an owner cannot mark an associate\'s commission paid',
+  check(notTheirs.data?.changed === 1 && notTheirs.data?.requested === 1,
+    'an owner can mark an associate\'s commission paid',
+    JSON.stringify(notTheirs.data));
+  check(notTheirs.data?.recorded === 1,
+    'and the money is recorded as received, not just the label moved',
     JSON.stringify(notTheirs.data));
 
   const paidOff = await call(advisor, 'POST', '/api/commissions/status', {
@@ -4282,13 +4298,26 @@ async function main() {
     'a reservation already settled is not offered as a line',
     `${cands.data?.candidates?.length} candidate(s)`);
 
-  // Somebody else's reservation cannot be given a receipt, whatever the
-  // browser sends.
+  // An owner may file a cheque that covers an associate's trip. It has to land
+  // on the associate's book: filed under the owner it would come off the
+  // associate's statement and leave the trip reading as never paid.
   const receiptNotMine = await call(admin, 'POST', '/api/commissions/receipts', {
     bookingId: shortId, amount: 100,
   });
-  check(receiptNotMine.status === 404, 'a receipt cannot be filed against another advisor\'s reservation',
+  check(receiptNotMine.status === 200,
+    'an owner can file a receipt against an associate\'s reservation',
     `status ${receiptNotMine.status}`);
+  const theirReceipts = await call(advisor, 'GET', `/api/commissions/receipts?bookingId=${shortId}`);
+  check((theirReceipts.data?.receipts || []).some((r) => r.amount_cents === 10000),
+    'and the associate sees it against their own trip',
+    JSON.stringify((theirReceipts.data?.receipts || []).map((r) => r.amount_cents)));
+
+  // And taken off again, by the associate, which is the other half of the same
+  // rule and leaves the totals below reading what they were written to read.
+  const unfiled = await call(advisor, 'DELETE',
+    `/api/commissions/receipts/${receiptNotMine.data?.id}`);
+  check(unfiled.status === 200, 'and can take one off that the owner put on',
+    `status ${unfiled.status}`);
 
   await call(advisor, 'DELETE', `/api/commissions/statements/${stmtId}`);
   const afterDelete = await call(advisor, 'GET', '/api/commissions');
@@ -4658,9 +4687,11 @@ async function main() {
     'and states what has been received and what is due, in one line',
     invPrev.data?.statement?.standing);
 
+  // Over the associate's name and reply-to, whoever pressed the button: it is
+  // their client who answers it.
   const notYours = await call(admin, 'POST', `/api/bookings/${stId}/statement`, { preview: true });
-  check(notYours.status === 404,
-    'and an owner cannot send a statement over an associate\'s name',
+  check(notYours.status === 200,
+    'and an owner can send a statement for an associate',
     `status ${notYours.status}`);
   }
 
@@ -4963,8 +4994,8 @@ async function main() {
     'its charges are detached rather than deleted');
 
   const notYours = await call(admin, 'POST', `/api/bookings/${tripId}/components`,
-    { kind: 'air', supplier: 'Intruder' });
-  check(notYours.status === 404, 'an owner cannot add a vendor to an associate\'s trip',
+    { kind: 'air', supplier: `Added By Owner ${stamp}` });
+  check(notYours.status === 201, 'an owner can add a vendor to an associate\'s trip',
     `status ${notYours.status}`);
   }
 
@@ -5127,7 +5158,7 @@ async function main() {
     afterStranger.data?.pricing?.length);
 
   const notYours = await call(admin, 'PUT', `/api/bookings/${cabinId}/pricing`, { cells: [] });
-  check(notYours.status === 404, 'an owner cannot price an associate\'s trip',
+  check(notYours.status === 200, 'an owner can price an associate\'s trip',
     `status ${notYours.status}`);
   }
 
@@ -5386,7 +5417,7 @@ async function main() {
 
   const notYours = await call(admin, 'POST', '/api/penalties',
     { bookingId: penId, fromDays: 10, pct: 100 });
-  check(notYours.status === 404, 'an owner cannot write terms onto an associate\'s trip',
+  check(notYours.status === 201, 'an owner can write terms onto an associate\'s trip',
     `status ${notYours.status}`);
   }
 
@@ -5546,8 +5577,8 @@ async function main() {
   check(moved.status === 200, 'and that is one request, not a clear and a set');
 
   const notYours = await call(admin, 'POST', `/api/bookings/${optId}/options`,
-    { label: 'Intruder', amount: '1' });
-  check(notYours.status === 404, 'an owner cannot add an option to an associate\'s quote',
+    { label: `Added By Owner ${stamp}`, amount: '1' });
+  check(notYours.status === 201, 'an owner can add an option to an associate\'s quote',
     `status ${notYours.status}`);
   }
 

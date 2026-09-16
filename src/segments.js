@@ -293,6 +293,10 @@ export async function handleSaveSegment(request, env, id = null) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = id ? await db.writerFor(env, user, 'segments', id) : user;
+  if (!owner) return notFound('That list is not here.');
+
   const body = await readJson(request);
   const name = clean(body.name, 80);
   if (!name) return badRequest('Give the list a name.');
@@ -309,7 +313,7 @@ export async function handleSaveSegment(request, env, id = null) {
   if (id) {
     const res = await env.DB.prepare(
       'UPDATE segments SET name = ?, rules_json = ?, updated_at = ? WHERE id = ? AND user_id = ?'
-    ).bind(name, JSON.stringify(rules), ts, id, user.id).run();
+    ).bind(name, JSON.stringify(rules), ts, id, owner.id).run();
     if (!res.meta || !res.meta.changes) return badRequest('That list is not yours.');
     return json({ ok: true, id });
   }
@@ -318,16 +322,20 @@ export async function handleSaveSegment(request, env, id = null) {
   await env.DB.prepare(
     `INSERT INTO segments (id, user_id, name, rules_json, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?)`
-  ).bind(newId, user.id, name, JSON.stringify(rules), ts, ts).run();
+  ).bind(newId, owner.id, name, JSON.stringify(rules), ts, ts).run();
   return json({ ok: true, id: newId }, 201);
 }
 
 export async function handleDeleteSegment(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'segments', id);
+  if (!owner) return notFound('That list is not here.');
   const res = await env.DB.prepare(
     'DELETE FROM segments WHERE id = ? AND user_id = ?'
-  ).bind(id, user.id).run();
+  ).bind(id, owner.id).run();
   if (!res.meta || !res.meta.changes) return badRequest('That list is not yours.');
   return json({ ok: true });
 }

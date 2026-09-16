@@ -169,7 +169,11 @@ export async function handleAskReview(request, env, bookingId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const booking = await db.getBooking(env, bookingId, user.id);
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, bookingId);
+  if (!owner) return notFound('Booking not found.');
+
+  const booking = await db.getBooking(env, bookingId, owner.id);
   if (!booking) return notFound('Booking not found.');
 
   const today = new Date().toISOString().slice(0, 10);
@@ -184,23 +188,23 @@ export async function handleAskReview(request, env, bookingId) {
 
   const client = booking.client_id
     ? await env.DB.prepare('SELECT name, email FROM clients WHERE id = ? AND user_id = ?')
-        .bind(booking.client_id, user.id).first()
+        .bind(booking.client_id, owner.id).first()
     : null;
   const to = client && client.email;
   if (!to) return badRequest('That client has no email address on file.');
 
   const ts = now();
-  const existing = await reviewFor(env, booking.id, user.id);
+  const existing = await reviewFor(env, booking.id, owner.id);
   const appUrl = (env.APP_URL || 'https://cttagents.com').replace(/\/$/, '');
 
   try {
     await sendReviewRequest(env, {
       to,
-      replyTo: user.notify_email || user.email,
+      replyTo: owner.notify_email || owner.email,
       clientName: (client && client.name) || booking.client_name,
-      advisorName: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email,
-      agencyName: user.agency_name || '',
-      advisorPhone: user.phone || '',
+      advisorName: [owner.first_name, owner.last_name].filter(Boolean).join(' ') || owner.email,
+      agencyName: owner.agency_name || '',
+      advisorPhone: owner.phone || '',
       tripName: booking.itinerary || booking.product_name || '',
       href: `${appUrl}/t/${encodeURIComponent(booking.share_code)}`,
     });
@@ -213,17 +217,18 @@ export async function handleAskReview(request, env, bookingId) {
     await env.DB.prepare(
       `UPDATE reviews SET asked_at = ?, asked_count = asked_count + 1, updated_at = ?
         WHERE id = ? AND user_id = ?`
-    ).bind(ts, ts, existing.id, user.id).run();
+    ).bind(ts, ts, existing.id, owner.id).run();
   } else {
     await env.DB.prepare(
       `INSERT INTO reviews (id, booking_id, user_id, client_id, asked_at, asked_count,
          created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, 1, ?, ?)`
-    ).bind(uid(), booking.id, user.id, booking.client_id || null, ts, ts, ts).run();
+    ).bind(uid(), booking.id, owner.id, booking.client_id || null, ts, ts, ts).run();
   }
 
-  await db.logActivity(env, user.id, 'review.ask',
-    `Asked ${booking.client_name} how the trip was`, { bookingId: booking.id });
+  await db.logActivity(env, owner.id, 'review.ask',
+    db.byHand(`Asked ${booking.client_name} how the trip was`,
+      user, owner), { bookingId: booking.id });
   return json({ ok: true, to });
 }
 

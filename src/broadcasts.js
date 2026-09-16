@@ -212,6 +212,10 @@ export async function handleSaveBroadcast(request, env, id = null) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = id ? await db.writerFor(env, user, 'broadcasts', id) : user;
+  if (!owner) return notFound('That message is not here.');
+
   const body = await readJson(request);
   const name = clean(body.name, 80);
   const subject = clean(body.subject, 160);
@@ -221,7 +225,7 @@ export async function handleSaveBroadcast(request, env, id = null) {
   if (!text) return badRequest('The message is empty.');
 
   const segmentId = clean(body.segmentId, 40) || null;
-  const rules = await rulesFor(env, user, { segmentId, rules: body.rules });
+  const rules = await rulesFor(env, owner, { segmentId, rules: body.rules });
   if (rules === null) return badRequest('That list is not yours.');
   if (!buildWhere(rules).length) {
     // Same refusal the saved lists make, at the same point: when it is named,
@@ -231,7 +235,7 @@ export async function handleSaveBroadcast(request, env, id = null) {
 
   const ts = now();
   if (id) {
-    const existing = await one(env, user, id);
+    const existing = await one(env, owner, id);
     if (!existing) return notFound('No such message.');
     // A sent message is a record of something that happened. Editing the
     // subject afterwards would make the record say something the recipients
@@ -240,17 +244,17 @@ export async function handleSaveBroadcast(request, env, id = null) {
     await env.DB.prepare(
       `UPDATE broadcasts SET name = ?, subject = ?, body = ?, segment_id = ?, rules_json = ?,
               updated_at = ? WHERE id = ? AND user_id = ?`
-    ).bind(name, subject, text, segmentId, JSON.stringify(rules), ts, id, user.id).run();
+    ).bind(name, subject, text, segmentId, JSON.stringify(rules), ts, id, owner.id).run();
     return json({ ok: true, id });
   }
 
-  const agency = await agencyFor(env, user);
+  const agency = await agencyFor(env, owner);
   const newId = uid();
   await env.DB.prepare(
     `INSERT INTO broadcasts (id, user_id, agency_id, name, subject, body, segment_id,
             rules_json, status, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`
-  ).bind(newId, user.id, agency.id, name, subject, text, segmentId,
+  ).bind(newId, owner.id, agency.id, name, subject, text, segmentId,
          JSON.stringify(rules), ts, ts).run();
   return json({ ok: true, id: newId }, 201);
 }
@@ -258,6 +262,10 @@ export async function handleSaveBroadcast(request, env, id = null) {
 export async function handleDeleteBroadcast(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'broadcasts', id);
+  if (!owner) return notFound('That message is not here.');
   // A draft, or a send that was stopped before anything went out. A message
   // that reached even one person is the record of that, and removing it would
   // make the portal quietly disagree with somebody's inbox. A send cancelled
@@ -266,13 +274,13 @@ export async function handleDeleteBroadcast(request, env, id) {
   const res = await env.DB.prepare(
     `DELETE FROM broadcasts WHERE id = ? AND user_id = ?
        AND (status = 'draft' OR (status = 'cancelled' AND sent_count = 0))`
-  ).bind(id, user.id).run();
+  ).bind(id, owner.id).run();
   if (!res.meta || !res.meta.changes) {
     return badRequest('This went out to somebody, so it stays as the record of that.');
   }
   await env.DB.prepare(
     'DELETE FROM broadcast_recipients WHERE broadcast_id = ? AND user_id = ?'
-  ).bind(id, user.id).run();
+  ).bind(id, owner.id).run();
   return json({ ok: true });
 }
 
@@ -322,12 +330,16 @@ export async function handlePreviewBroadcast(request, env) {
 export async function handleTestBroadcast(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  const row = await one(env, user, id);
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'broadcasts', id);
+  if (!owner) return notFound('That message is not here.');
+  const row = await one(env, owner, id);
   if (!row) return notFound('No such message.');
 
-  const agency = await agencyFor(env, user);
-  const me = { name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'You' };
-  const to = user.notify_email || user.email;
+  const agency = await agencyFor(env, owner);
+  const me = { name: `${owner.first_name || ''} ${owner.last_name || ''}`.trim() || 'You' };
+  const to = owner.notify_email || owner.email;
 
   await sendAutomationEmail(env, to, `[Test] ${merge(row.subject, me).text}`,
     merge(row.body, me).text, {
@@ -355,7 +367,11 @@ export async function handleTestBroadcast(request, env, id) {
 export async function handleSendBroadcast(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  const row = await one(env, user, id);
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'broadcasts', id);
+  if (!owner) return notFound('That message is not here.');
+  const row = await one(env, owner, id);
   if (!row) return notFound('No such message.');
   if (row.status !== 'draft') return badRequest('This has already been sent.');
 
@@ -366,7 +382,7 @@ export async function handleSendBroadcast(request, env, id) {
   // viewing. An owner looking at "all advisors" is reading somebody else's
   // clients, and a marketing email from the wrong person is worse than a
   // report from the wrong person.
-  const out = await resolveSegment(env, db.selfScope(user), rules, { limit: 2000 });
+  const out = await resolveSegment(env, db.selfScope(owner), rules, { limit: 2000 });
   if (!out.people.length) return badRequest('Nobody is on this list right now.');
 
   const ts = now();
@@ -379,7 +395,7 @@ export async function handleSendBroadcast(request, env, id) {
     rows.push(env.DB.prepare(
       `INSERT OR IGNORE INTO broadcast_recipients (id, broadcast_id, user_id, client_id, email, name, status)
        VALUES (?, ?, ?, ?, ?, ?, 'queued')`
-    ).bind(uid(), id, user.id, p.id, email, p.name || null));
+    ).bind(uid(), id, owner.id, p.id, email, p.name || null));
   }
   if (!rows.length) return badRequest('Nobody on this list has an email address.');
   await env.DB.batch(rows);
@@ -387,7 +403,7 @@ export async function handleSendBroadcast(request, env, id) {
   await env.DB.prepare(
     `UPDATE broadcasts SET status = 'sending', total = ?, started_at = ?, updated_at = ?
       WHERE id = ? AND user_id = ?`
-  ).bind(rows.length, ts, ts, id, user.id).run();
+  ).bind(rows.length, ts, ts, id, owner.id).run();
 
   // The resolver caps at two thousand, so a book bigger than that would
   // otherwise queue two thousand people while the confirmation said the real
@@ -400,15 +416,19 @@ export async function handleSendBroadcast(request, env, id) {
 export async function handleCancelBroadcast(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'broadcasts', id);
+  if (!owner) return notFound('That message is not here.');
   const res = await env.DB.prepare(
     `UPDATE broadcasts SET status = 'cancelled', finished_at = ?, updated_at = ?
       WHERE id = ? AND user_id = ? AND status = 'sending'`
-  ).bind(now(), now(), id, user.id).run();
+  ).bind(now(), now(), id, owner.id).run();
   if (!res.meta || !res.meta.changes) return badRequest('That message is not sending.');
   await env.DB.prepare(
     `UPDATE broadcast_recipients SET status = 'skipped', detail = 'send cancelled'
       WHERE broadcast_id = ? AND user_id = ? AND status = 'queued'`
-  ).bind(id, user.id).run();
+  ).bind(id, owner.id).run();
   return json({ ok: true });
 }
 

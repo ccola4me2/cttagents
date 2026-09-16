@@ -218,6 +218,10 @@ export async function handleUpdateHousehold(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'households', id);
+  if (!owner) return notFound('Household not found.');
+
   const body = await readJson(request);
   const name = clean(body.name, 120);
   if (!name) return badRequest('The household needs a name.');
@@ -226,7 +230,7 @@ export async function handleUpdateHousehold(request, env, id) {
     `UPDATE households SET name = ?, address = ?, phone = ?, notes = ?, updated_at = ?
       WHERE id = ? AND user_id = ?`
   ).bind(name, cleanText(body.address, 300) || null, clean(body.phone, 40) || null,
-         cleanText(body.notes, 2000) || null, now(), id, user.id).run();
+         cleanText(body.notes, 2000) || null, now(), id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Household not found.');
 
   return json({ ok: true });
@@ -254,7 +258,7 @@ export async function handleHouseholdRecord(request, env, id) {
     household: house,
     members,
     lifetimeCents: members.reduce((n, m) => n + (m.lifetime_cents || 0), 0),
-    editable: house.user_id === user.id,
+    editable: db.mayWrite(user, house),
   });
 }
 
@@ -263,18 +267,22 @@ export async function handleAddMember(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'households', id);
+  if (!owner) return notFound('Household not found.');
+
   const house = await env.DB.prepare(
     'SELECT id FROM households WHERE id = ? AND user_id = ?'
-  ).bind(id, user.id).first();
+  ).bind(id, owner.id).first();
   if (!house) return notFound('Household not found.');
 
   const body = await readJson(request);
-  const found = await ownClients(env, user.id, [body.clientId]);
+  const found = await ownClients(env, owner.id, [body.clientId]);
   if (!found.length) return notFound('Client not found.');
 
   await env.DB.prepare(
     'UPDATE clients SET household_id = ?, updated_at = ? WHERE id = ? AND user_id = ?'
-  ).bind(id, now(), found[0].id, user.id).run();
+  ).bind(id, now(), found[0].id, owner.id).run();
 
   return json({ ok: true });
 }
@@ -290,22 +298,26 @@ export async function handleRemoveMember(request, env, id, clientId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'households', id);
+  if (!owner) return notFound('Household not found.');
+
   const res = await env.DB.prepare(
     `UPDATE clients SET household_id = NULL, updated_at = ?
       WHERE id = ? AND user_id = ? AND household_id = ?`
-  ).bind(now(), clientId, user.id, id).run();
+  ).bind(now(), clientId, owner.id, id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('They are not in that household.');
 
   const left = await env.DB.prepare(
     'SELECT COUNT(*) AS n FROM clients WHERE household_id = ? AND user_id = ?'
-  ).bind(id, user.id).first();
+  ).bind(id, owner.id).first();
 
   let dissolved = false;
   if ((left?.n || 0) < 2) {
     await env.DB.prepare('UPDATE clients SET household_id = NULL WHERE household_id = ? AND user_id = ?')
-      .bind(id, user.id).run();
+      .bind(id, owner.id).run();
     await env.DB.prepare('DELETE FROM households WHERE id = ? AND user_id = ?')
-      .bind(id, user.id).run();
+      .bind(id, owner.id).run();
     dissolved = true;
   }
 
@@ -317,14 +329,18 @@ export async function handleDeleteHousehold(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'households', id);
+  if (!owner) return notFound('Household not found.');
+
   const res = await env.DB.prepare('DELETE FROM households WHERE id = ? AND user_id = ?')
-    .bind(id, user.id).run();
+    .bind(id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Household not found.');
 
   // Said outright rather than left to a foreign key, which is a setting on the
   // database and not a fact about this code.
   await env.DB.prepare('UPDATE clients SET household_id = NULL WHERE household_id = ? AND user_id = ?')
-    .bind(id, user.id).run();
+    .bind(id, owner.id).run();
 
   return json({ ok: true });
 }

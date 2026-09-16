@@ -160,18 +160,22 @@ export async function handleAddReceipt(request, env) {
   const { fields, error } = parseReceipt(body);
   if (error) return badRequest(error);
 
-  // The reservation and the statement must both be the caller's own. Checked
-  // rather than assumed: a booking id arrives from the browser, and a receipt
-  // filed against somebody else's reservation would be money on the wrong book.
+  // Money lands on the book the reservation is on. An owner filing a cheque
+  // that covers an advisor's trip files it against that advisor, because it is
+  // their commission: filing it under the owner would take the money off the
+  // advisor's statement and leave the trip looking unpaid forever.
+  const owner = await db.writerForBooking(env, user, fields.bookingId);
+  if (!owner) return notFound('No such reservation.');
+
   const booking = await env.DB.prepare(
     'SELECT id FROM bookings WHERE id = ? AND user_id = ?'
-  ).bind(fields.bookingId, user.id).first();
+  ).bind(fields.bookingId, owner.id).first();
   if (!booking) return notFound('No such reservation.');
 
   if (fields.statementId) {
     const stmt = await env.DB.prepare(
       'SELECT id FROM commission_statements WHERE id = ? AND user_id = ?'
-    ).bind(fields.statementId, user.id).first();
+    ).bind(fields.statementId, owner.id).first();
     if (!stmt) return notFound('No such statement.');
   }
 
@@ -183,13 +187,14 @@ export async function handleAddReceipt(request, env) {
         reference, notes, kind, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
-    id, user.id, fields.bookingId, fields.statementId, fields.amountCents,
+    id, owner.id, fields.bookingId, fields.statementId, fields.amountCents,
     fields.receivedOn, fields.reference, fields.notes, fields.kind, ts, ts
   ).run();
 
-  await syncCommissionStatus(env, user.id, fields.bookingId);
-  await db.logActivity(env, user.id, 'commission.receipt',
-    'Recorded commission received', { bookingId: fields.bookingId, amountCents: fields.amountCents });
+  await syncCommissionStatus(env, owner.id, fields.bookingId);
+  await db.logActivity(env, owner.id, 'commission.receipt',
+    db.byHand('Recorded commission received',
+      user, owner), { bookingId: fields.bookingId, amountCents: fields.amountCents });
 
   return json({ ok: true, id });
 }
@@ -198,16 +203,20 @@ export async function handleDeleteReceipt(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'commission_receipts', id);
+  if (!owner) return notFound('Receipt not found.');
+
   const row = await env.DB.prepare(
     'SELECT booking_id FROM commission_receipts WHERE id = ? AND user_id = ?'
-  ).bind(id, user.id).first();
+  ).bind(id, owner.id).first();
   if (!row) return notFound('No such receipt.');
 
   await env.DB.prepare(
     'DELETE FROM commission_receipts WHERE id = ? AND user_id = ?'
-  ).bind(id, user.id).run();
+  ).bind(id, owner.id).run();
 
-  await syncCommissionStatus(env, user.id, row.booking_id);
+  await syncCommissionStatus(env, owner.id, row.booking_id);
   return json({ ok: true });
 }
 
@@ -318,6 +327,10 @@ export async function handleUpdateStatement(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'commission_statements', id);
+  if (!owner) return notFound('Statement not found.');
+
   const body = await readJson(request);
   const { fields, error } = parseStatement(body);
   if (error) return badRequest(error);
@@ -329,7 +342,7 @@ export async function handleUpdateStatement(request, env, id) {
       WHERE id = ? AND user_id = ?`
   ).bind(
     fields.vendorId, fields.vendorName, fields.reference, fields.statementDate,
-    fields.totalCents, fields.notes, now(), id, user.id
+    fields.totalCents, fields.notes, now(), id, owner.id
   ).run();
 
   if (!result.meta.changes) return notFound('No such statement.');
@@ -340,16 +353,20 @@ export async function handleDeleteStatement(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'commission_statements', id);
+  if (!owner) return notFound('Statement not found.');
+
   // The receipts survive, detached. Money that arrived did arrive; deleting the
   // paperwork it came with does not unmake it, and silently deleting the
   // receipts would take real money off the books to tidy up a filing mistake.
   await env.DB.prepare(
     'UPDATE commission_receipts SET statement_id = NULL, updated_at = ? WHERE statement_id = ? AND user_id = ?'
-  ).bind(now(), id, user.id).run();
+  ).bind(now(), id, owner.id).run();
 
   const result = await env.DB.prepare(
     'DELETE FROM commission_statements WHERE id = ? AND user_id = ?'
-  ).bind(id, user.id).run();
+  ).bind(id, owner.id).run();
 
   if (!result.meta.changes) return notFound('No such statement.');
   return json({ ok: true });

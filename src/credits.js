@@ -114,11 +114,19 @@ export async function handleCreateCredit(request, env) {
 
   const { fields, error } = parse(await readJson(request));
   if (error) return badRequest(error);
-  if (fields.bookingId && !(await db.getBooking(env, fields.bookingId, user.id))) {
+
+  // A credit spent on a reservation goes on the book that reservation is on,
+  // so an owner recording one against an advisor's trip files it with the
+  // advisor rather than with themselves. A credit against no reservation is
+  // the caller's own note about their own client.
+  const owner = fields.bookingId
+    ? await db.writerForBooking(env, user, fields.bookingId) : user;
+  if (!owner) return badRequest('That reservation is not yours.');
+  if (fields.bookingId && !(await db.getBooking(env, fields.bookingId, owner.id))) {
     return badRequest('That reservation is not yours.');
   }
 
-  const clientId = await db.resolveClient(env, user.id, fields.clientName);
+  const clientId = await db.resolveClient(env, owner.id, fields.clientName);
   const id = uid();
   const ts = now();
   await env.DB.prepare(
@@ -126,26 +134,30 @@ export async function handleCreateCredit(request, env) {
        reference, amount_cents, issued_on, expires_on, used_on, booking_id, notes,
        created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, user.id, fields.clientName, clientId, fields.contactId, fields.vendor, fields.kind,
+  ).bind(id, owner.id, fields.clientName, clientId, fields.contactId, fields.vendor, fields.kind,
          fields.reference, fields.amountCents, fields.issuedOn, fields.expiresOn,
          fields.usedOn, fields.bookingId, fields.notes, ts, ts).run();
 
-  await db.logActivity(env, user.id, 'credit.create',
-    `Recorded a credit for ${fields.clientName}`, { id });
-  return json({ ok: true, credit: await getCredit(env, id, user.id) }, 201);
+  await db.logActivity(env, owner.id, 'credit.create',
+    db.byHand(`Recorded a credit for ${fields.clientName}`, user, owner), { id });
+  return json({ ok: true, credit: await getCredit(env, id, owner.id) }, 201);
 }
 
 export async function handleUpdateCredit(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'client_credits', id);
+  if (!owner) return notFound('Credit not found.');
+
   const { fields, error } = parse(await readJson(request));
   if (error) return badRequest(error);
-  if (fields.bookingId && !(await db.getBooking(env, fields.bookingId, user.id))) {
+  if (fields.bookingId && !(await db.getBooking(env, fields.bookingId, owner.id))) {
     return badRequest('That reservation is not yours.');
   }
 
-  const clientId = await db.resolveClient(env, user.id, fields.clientName);
+  const clientId = await db.resolveClient(env, owner.id, fields.clientName);
   const res = await env.DB.prepare(
     `UPDATE client_credits SET client_name = ?, client_id = ?, contact_id = ?, vendor = ?, kind = ?,
        reference = ?, amount_cents = ?, issued_on = ?, expires_on = ?, used_on = ?,
@@ -153,17 +165,21 @@ export async function handleUpdateCredit(request, env, id) {
      WHERE id = ? AND user_id = ?`
   ).bind(fields.clientName, clientId, fields.contactId, fields.vendor, fields.kind, fields.reference,
          fields.amountCents, fields.issuedOn, fields.expiresOn, fields.usedOn,
-         fields.bookingId, fields.notes, now(), id, user.id).run();
+         fields.bookingId, fields.notes, now(), id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Credit not found.');
 
-  return json({ ok: true, credit: await getCredit(env, id, user.id) });
+  return json({ ok: true, credit: await getCredit(env, id, owner.id) });
 }
 
 export async function handleDeleteCredit(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'client_credits', id);
+  if (!owner) return notFound('Credit not found.');
   const res = await env.DB.prepare('DELETE FROM client_credits WHERE id = ? AND user_id = ?')
-    .bind(id, user.id).run();
+    .bind(id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Credit not found.');
   return json({ ok: true });
 }

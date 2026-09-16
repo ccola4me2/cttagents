@@ -144,7 +144,12 @@ export async function handleAddTier(request, env) {
   if (Boolean(vendorId) === Boolean(bookingId)) {
     return badRequest('A tier belongs to a vendor or to a reservation, not both.');
   }
-  if (!(await ownsTarget(env, user.id, { vendorId, bookingId }))) {
+  // A tier on a reservation follows that reservation, so an owner may record
+  // what an advisor's trip was actually sold on. A tier on a vendor is the
+  // supplier directory, which is already the agency's.
+  const owner = bookingId ? await db.writerForBooking(env, user, bookingId) : user;
+  if (!owner) return notFound('That vendor or reservation is not yours.');
+  if (!(await ownsTarget(env, owner.id, { vendorId, bookingId }))) {
     return notFound('That vendor or reservation is not yours.');
   }
 
@@ -157,7 +162,7 @@ export async function handleAddTier(request, env) {
     `INSERT INTO penalty_tiers
        (id, user_id, vendor_id, booking_id, from_days, pct, amount_cents, note, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, user.id, vendorId, bookingId, fields.fromDays, fields.pct,
+  ).bind(id, owner.id, vendorId, bookingId, fields.fromDays, fields.pct,
          fields.amountCents, fields.note, ts, ts).run();
   return json({ ok: true, id }, 201);
 }

@@ -383,7 +383,7 @@ export async function handleBookingRecord(request, env, id) {
     // Whether this reader may change any of it, so the page does not offer
     // buttons that would fail. An owner may correct an advisor's reservation;
     // it stays the advisor's, and the page says whose it is while they do.
-    editable: db.mayWriteBooking(user, booking),
+    editable: db.mayWrite(user, booking),
     // Null when it is the reader's own, so the page has nothing to announce.
     onBehalfOf: booking.user_id === user.id ? null : (booking.advisor_name || 'another advisor'),
     today: new Date().toISOString().slice(0, 10),

@@ -237,10 +237,20 @@ export async function handleSetCommissionStatus(request, env) {
   if (!ids.length) return badRequest('Nothing was selected.');
 
   const marks = ids.map(() => '?').join(',');
+
+  // The only widened write that cannot resolve one owner first: the screen
+  // marks up to two hundred reservations at once and they need not all be one
+  // person's. So the same predicate writerFor uses goes into the statement,
+  // written out rather than borrowed from a viewing scope, and it still names
+  // user_id: yours always, anybody in your agency's when you are its owner,
+  // and nobody else's ever. An owner with no agency widens to nothing, the
+  // same way every other fence here fails shut.
+  const mayWiden = user.role === 'admin' && user.agency_id ? 1 : 0;
   const res = await env.DB.prepare(
     `UPDATE bookings SET commission_status = ?, updated_at = ?
-      WHERE user_id = ? AND id IN (${marks})`
-  ).bind(status, now(), user.id, ...ids).run();
+      WHERE id IN (${marks})
+        AND (user_id = ? OR (? = 1 AND user_id IN (SELECT id FROM users WHERE agency_id = ?)))`
+  ).bind(status, now(), ...ids, user.id, mayWiden, user.agency_id || '').run();
 
   const changed = res.meta ? res.meta.changes || 0 : 0;
 
@@ -253,7 +263,7 @@ export async function handleSetCommissionStatus(request, env) {
   // the person clicking it means, it keeps the one-click batch workflow, and
   // the figure lands somewhere it can later be corrected line by line.
   let recorded = 0;
-  if (status === 'paid') recorded = await recordExpectedAsReceived(env, user.id, ids);
+  if (status === 'paid') recorded = await recordExpectedAsReceived(env, user, ids);
   await db.logActivity(env, user.id, 'commission.status',
     `Marked ${changed} reservation${changed === 1 ? '' : 's'} ${status}`, { status, count: changed });
 
@@ -269,15 +279,23 @@ export async function handleSetCommissionStatus(request, env) {
  * up rather than double counting what has already arrived. A reservation with
  * nothing outstanding is skipped rather than given a zero receipt.
  */
-async function recordExpectedAsReceived(env, userId, ids) {
+async function recordExpectedAsReceived(env, user, ids) {
   const marks = ids.map(() => '?').join(',');
+  // The same reach as the status update this follows, and for the same reason:
+  // if the label widened to the agency and the money did not, an owner marking
+  // an advisor's batch paid would leave every one of those trips reading as
+  // paid with nothing received against it, which is the hardest kind of wrong
+  // number to find later. Each receipt is filed under whoever the reservation
+  // belongs to, so it lands on their statement and not on the owner's.
+  const mayWiden = user.role === 'admin' && user.agency_id ? 1 : 0;
   const { results } = await env.DB.prepare(
-    `SELECT b.id, b.commission_cents,
+    `SELECT b.id, b.user_id, b.commission_cents,
             COALESCE((SELECT SUM(r.amount_cents) FROM commission_receipts r
                        WHERE r.booking_id = b.id), 0) AS received_cents
        FROM bookings b
-      WHERE b.user_id = ? AND b.id IN (${marks})`
-  ).bind(userId, ...ids).all();
+      WHERE b.id IN (${marks})
+        AND (b.user_id = ? OR (? = 1 AND b.user_id IN (SELECT id FROM users WHERE agency_id = ?)))`
+  ).bind(...ids, user.id, mayWiden, user.agency_id || '').all();
 
   const ts = now();
   const today = isoDay(0);
@@ -290,7 +308,7 @@ async function recordExpectedAsReceived(env, userId, ids) {
          (id, user_id, booking_id, statement_id, amount_cents, received_on,
           reference, notes, created_at, updated_at)
        VALUES (?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?)`
-    ).bind(uid(), userId, b.id, outstanding, today,
+    ).bind(uid(), b.user_id, b.id, outstanding, today,
       'Recorded by marking the commission paid', ts, ts));
   }
 
