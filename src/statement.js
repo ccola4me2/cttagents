@@ -444,8 +444,12 @@ export async function handleStatement(request, env, id) {
   const body = await readJson(request);
   const issuing = booking.status === 'booked' || booking.status === 'travelled';
 
+  // `user:` written out rather than shorthand. buildStatement destructures a
+  // property of that name, so the shorthand was a key as much as a value, and
+  // renaming the variable silently renamed the key: every statement became a
+  // 500 that read as a variable rename.
   const build = () => buildStatement({
-    booking, pricing, travellers, amenities, payments, options, client, owner,
+    booking, pricing, travellers, amenities, payments, options, client, user: owner,
   });
 
   let statement = build();

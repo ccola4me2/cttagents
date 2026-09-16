@@ -778,6 +778,14 @@ async function main() {
   check(peerWrite.status === 404, 'an associate cannot write to the owner\'s reservation',
     `status ${peerWrite.status}`);
 
+  // And the name goes back, because a check further down searches for this
+  // reservation by the name it was created with. A test that changes a fixture
+  // other tests read has to put it back, or it fails them instead of itself.
+  const putBack = await call(advisor, 'PUT', `/api/bookings/${theirBookingId}`,
+    { clientName: `Associate Client ${stamp}`, supplier: 'Cunard', productType: 'cruise' });
+  check(putBack.status === 200, 'and the associate can set their own client name back',
+    `status ${putBack.status}`);
+
   const associateRead = await call(advisor, 'GET', `/api/bookings/${ownerBookingId}`);
   check(associateRead.status === 404,
     'an associate cannot open the owner\'s reservation', `status ${associateRead.status}`);
@@ -4366,11 +4374,15 @@ async function main() {
   check((withTask.data?.tasks || []).some((t) => t.id === recTask.data?.task?.id),
     'a task added against the trip shows on its record');
 
-  // An owner may read an associate's trip, and its schedule with it, but the
-  // record says plainly that they cannot change it.
+  // An owner may read an associate's trip, and its schedule with it, and may
+  // change it. The record says whose it is while they do, which is the part
+  // that has to be there now that the buttons are.
   const ownerRec = await call(admin, 'GET', `/api/bookings/${bookingId}/record`);
-  check(ownerRec.status === 200 && ownerRec.data?.editable === false,
-    'an owner sees the record read only', `status ${ownerRec.status}, editable ${ownerRec.data?.editable}`);
+  check(ownerRec.status === 200 && ownerRec.data?.editable === true,
+    'an owner sees the record as something they can change',
+    `status ${ownerRec.status}, editable ${ownerRec.data?.editable}`);
+  check(typeof ownerRec.data?.onBehalfOf === 'string' && ownerRec.data.onBehalfOf.length > 0,
+    'and is told whose reservation it is', String(ownerRec.data?.onBehalfOf));
   check((ownerRec.data?.payments || []).length === (rec.data?.payments || []).length,
     'with the same schedule, not an empty one',
     `${ownerRec.data?.payments?.length} vs ${rec.data?.payments?.length}`);

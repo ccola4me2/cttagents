@@ -16,7 +16,7 @@
 // Every rule narrows. Combining them is AND, which is what "and" means when
 // somebody says "everyone sailing in sixty days who still owes money".
 
-import { json, badRequest, clean, uid, now, readJson } from './util.js';
+import { json, badRequest, notFound, clean, uid, now, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 
