@@ -569,6 +569,13 @@ export async function handleCreateBooking(request, env) {
   // reservation form asks for the cost and both dates now, so the commonest
   // booking arrives complete and never needed a second visit to be chased.
   const built = await buildSchedule(env, user, booking);
+  // The chase date is read straight off the body rather than through the
+  // field table or the parser, so it needs the check saying so. A typo here
+  // does not store a wrong date: it passes null and takes the reminder off,
+  // quietly, during a save about something else entirely.
+  if (badDate(raw.softPaymentDue)) {
+    return badRequest('That chase date is not a real date. Check the year.');
+  }
   if (Object.prototype.hasOwnProperty.call(raw, 'softPaymentDue')) {
     await setChaseDate(env, user, booking, cleanDate(raw.softPaymentDue));
   }
@@ -595,10 +602,13 @@ const QUICK_FIELDS = {
   gross: ['gross_cents', (v) => toCents(v)],
   commission: ['commission_cents', (v) => toCents(v)],
   deposit: ['deposit_cents', (v) => toCents(v)],
-  departDate: ['depart_date', (v) => cleanDate(v)],
-  returnDate: ['return_date', (v) => cleanDate(v)],
-  depositDue: ['deposit_due', (v) => cleanDate(v)],
-  finalPaymentDue: ['final_payment_due', (v) => cleanDate(v)],
+  // The third entry marks a date and names it for the refusal below. Kept
+  // beside the field rather than in a list somewhere else, because a list
+  // somewhere else is what falls behind when a field is added.
+  departDate: ['depart_date', (v) => cleanDate(v), 'departure date'],
+  returnDate: ['return_date', (v) => cleanDate(v), 'return date'],
+  depositDue: ['deposit_due', (v) => cleanDate(v), 'deposit due date'],
+  finalPaymentDue: ['final_payment_due', (v) => cleanDate(v), 'final payment date'],
   confirmationNumber: ['confirmation_number', (v) => clean(v, 80)],
   cabin: ['cabin', (v) => clean(v, 40)],
   cabinCategory: ['cabin_category', (v) => clean(v, 120)],
@@ -640,8 +650,16 @@ export async function handleQuickUpdate(request, env, id) {
   const sets = [];
   const binds = [];
 
-  for (const [key, [column, coerce]] of Object.entries(QUICK_FIELDS)) {
+  for (const [key, [column, coerce, dateLabel]] of Object.entries(QUICK_FIELDS)) {
     if (!Object.prototype.hasOwnProperty.call(body, key)) continue;
+    // A date that was typed and is not a date stops the save, the same as on
+    // the full form. cleanDate hands back null for a typo and this writes what
+    // it is given, so without this a mistyped year quietly becomes no date at
+    // all: worse than the wrong one, because the value that would have told
+    // you what it should be has gone.
+    if (dateLabel && badDate(body[key])) {
+      return badRequest(`That ${dateLabel} is not a real date. Check the year.`);
+    }
     sets.push(`${column} = ?`);
     binds.push(coerce(body[key]));
   }
@@ -684,6 +702,13 @@ export async function handleQuickUpdate(request, env, id) {
   // Typed beside the vendor's date, so it is written after the rows have
   // followed: setting both at once must land on what was asked for, not on
   // what ten days before the new deadline happens to be.
+  // The chase date is read straight off the body rather than through the
+  // field table or the parser, so it needs the check saying so. A typo here
+  // does not store a wrong date: it passes null and takes the reminder off,
+  // quietly, during a save about something else entirely.
+  if (badDate(body.softPaymentDue)) {
+    return badRequest('That chase date is not a real date. Check the year.');
+  }
   if (Object.prototype.hasOwnProperty.call(body, 'softPaymentDue')) {
     await setChaseDate(env, owner, after, cleanDate(body.softPaymentDue));
   }
@@ -744,6 +769,13 @@ export async function handleUpdateBooking(request, env, id) {
   // The same two rules the quick save follows, so editing a date on the full
   // form and editing it on the money block cannot end up doing different things.
   const moved = await followBookingDates(env, owner, before, booking);
+  // The chase date is read straight off the body rather than through the
+  // field table or the parser, so it needs the check saying so. A typo here
+  // does not store a wrong date: it passes null and takes the reminder off,
+  // quietly, during a save about something else entirely.
+  if (badDate(raw.softPaymentDue)) {
+    return badRequest('That chase date is not a real date. Check the year.');
+  }
   if (Object.prototype.hasOwnProperty.call(raw, 'softPaymentDue')) {
     await setChaseDate(env, owner, booking, cleanDate(raw.softPaymentDue));
   }
