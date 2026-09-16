@@ -347,16 +347,57 @@ async function main() {
         () => call(advisor, 'DELETE', `/api/bookings/${theirBooking}`));
     }
 
-    // Only downward. Acting as another admin would be borrowing authority
-    // rather than doing somebody's filing.
     const adminSelf = await call(admin, 'POST', `/api/admin/act/${adminId}`, {});
-    check(adminSelf.status >= 400, 'an admin cannot work as another admin',
+    check(adminSelf.status >= 400, 'nobody works as themselves',
       `status ${adminSelf.status}`);
 
     // And an advisor cannot use any of it.
     const advisorTries = await call(advisor, 'POST', `/api/admin/act/${adminId}`, {});
     check(advisorTries.status === 403, 'and an advisor cannot work as anybody',
       `status ${advisorTries.status}`);
+
+    // A second owner of the same agency. This is the case the check above once
+    // claimed to cover and did not: it asked to work as the caller's own
+    // account, which is a different refusal with a different message, so there
+    // was never a second owner here for it to try.
+    const mateEmail = `co-owner-${stamp}@test.dev`;
+    const mate = await makeAdvisor(admin, mateEmail, 'co-owner-test-12345',
+      { firstName: 'Co', lastName: 'Owner' });
+    check(Boolean(mate), 'the agency takes on a second owner');
+    const everyone = await call(admin, 'GET', '/api/admin/advisors');
+    const mateUser = (everyone.data?.users || []).find((u) => u.email === mateEmail);
+    await call(admin, 'PUT', `/api/admin/advisors/${mateUser.id}/agency`,
+      { agencyId: 'agency-house', platformOwner: false, role: 'admin' });
+    cleanup('the second owner', () => call(admin, 'PUT',
+      `/api/admin/advisors/${mateUser.id}/status`, { status: 'suspended' }));
+
+    const asMate = await call(admin, 'POST', `/api/admin/act/${mateUser.id}`, {});
+    check(asMate.status === 200, 'an owner can work as another owner in their agency',
+      `status ${asMate.status}`);
+
+    // The thing that makes it safe, checked rather than argued: the admin
+    // screens are shut for the whole of it, whoever is being worked as. So
+    // sitting in a fellow owner's seat is a lateral move into their advisor
+    // side, not a way to borrow anything.
+    const stillShut = await call(admin, 'GET', '/api/admin/advisors');
+    check(stillShut.status === 403,
+      'and the admin screens stay shut even in another owner\'s seat',
+      `status ${stillShut.status}`);
+    const splitShut = await call(admin, 'PUT', `/api/admin/bookings/${theirBooking}/split`,
+      { advisorSplitPct: 100 });
+    check(splitShut.status === 403, 'so a commission split cannot be set from there',
+      `status ${splitShut.status}`);
+
+    await call(admin, 'DELETE', '/api/admin/act', {});
+
+    // The one account that is never a seat to sit in. It reaches every agency
+    // on the portal, so working as it would be borrowing the platform itself.
+    const mateJar = jar();
+    await call(mateJar, 'POST', '/api/auth/login',
+      { email: mateEmail, password: 'co-owner-test-12345' });
+    const reachPlatform = await call(mateJar, 'POST', `/api/admin/act/${adminId}`, {});
+    check(reachPlatform.status === 403, 'but nobody can work as whoever runs the portal',
+      `status ${reachPlatform.status}`);
   }
 
   // ------------------------------------------ reservation and its schedule --
@@ -3827,6 +3868,29 @@ async function main() {
   const empty = await call(advisor, 'POST', `/api/bookings/${bareId}/quick`, { nonsense: 1 });
   check(empty.status === 400, 'a request that names no known field changes nothing',
     `status ${empty.status}`);
+
+  // A full save that does not mention status leaves it alone. oneOf falls back
+  // to its first value, which is 'quoted', so this endpoint used to demote a
+  // booked trip to a quote every time somebody corrected a name without
+  // sending a status with it. Nothing on screen did that, so nothing ever saw
+  // it; a test did, three thousand lines away, and it read as an unrelated
+  // dashboard failure.
+  const wasBooked = await call(advisor, 'GET', `/api/bookings/${bareId}`);
+  const quietSave = await call(advisor, 'PUT', `/api/bookings/${bareId}`,
+    { clientName: wasBooked.data?.booking?.client_name, supplier: 'Cunard' });
+  check(quietSave.status === 200, 'a full save that names no status is accepted',
+    `status ${quietSave.status}`);
+  check(quietSave.data?.booking?.status === wasBooked.data?.booking?.status,
+    'and leaves the status exactly as it found it',
+    `${wasBooked.data?.booking?.status} -> ${quietSave.data?.booking?.status}`);
+
+  const saidQuoted = await call(advisor, 'PUT', `/api/bookings/${bareId}`,
+    { clientName: wasBooked.data?.booking?.client_name, supplier: 'Cunard', status: 'quoted' });
+  check(saidQuoted.data?.booking?.status === 'quoted',
+    'while a save that does name one still sets it', saidQuoted.data?.booking?.status);
+  await call(advisor, 'PUT', `/api/bookings/${bareId}`,
+    { clientName: wasBooked.data?.booking?.client_name, supplier: 'Cunard',
+      status: wasBooked.data?.booking?.status });
 
   const byOwner = await call(admin, 'POST', `/api/bookings/${bareId}/quick`, { gross: '4300.00' });
   check(byOwner.status === 200, 'and an owner can quick edit an associate\'s reservation',

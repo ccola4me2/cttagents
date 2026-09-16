@@ -369,8 +369,9 @@ export async function handleBookingRecord(request, env, id) {
         leadPct: booking.lead_split_pct === null || booking.lead_split_pct === undefined
           ? null : Number(booking.lead_split_pct),
         // Only an admin may move a trip between the two, or write a figure
-        // over the top of both.
-        canChange: isAdmin(user),
+        // over the top of both, and not while acting as somebody: that endpoint
+        // goes through requireAdmin, which refuses for the whole of it.
+        canChange: isAdmin(user) && !user.acting_as,
         // "No commission" means this trip pays nobody, so both halves are
         // zero rather than the advisor's share of a figure the agency is
         // never going to see. The percentage still shows, because it is the
@@ -613,6 +614,19 @@ export async function handleUpdateBooking(request, env, id) {
   if (!before) return notFound('Booking not found.');
   fields.advisorSplitPct = before.advisor_split_pct === null
     || before.advisor_split_pct === undefined ? null : Number(before.advisor_split_pct);
+
+  // And whatever status it already carries, unless this request names one.
+  //
+  // oneOf falls back to the first value it is given when it is handed nothing,
+  // and the first booking status is 'quoted'. This endpoint saves the whole
+  // record, so a save that left status out did not leave it alone: it silently
+  // demoted a booked trip to a quote. The form has always sent one, so nothing
+  // was ever seen to do it, and it cost an afternoon when a test did.
+  //
+  // A quote is also where a reservation starts, so the wrong answer here reads
+  // as normal on every screen it reaches. The same rule as the split above:
+  // what the record holds is kept unless somebody actually said otherwise.
+  if (!Object.prototype.hasOwnProperty.call(raw, 'status')) fields.status = before.status;
 
   fields.clientId = await db.resolveClient(env, owner.id, fields.clientName,
     { ghlContactId: fields.ghlContactId });

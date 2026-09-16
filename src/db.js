@@ -375,7 +375,11 @@ export function agencyScope(user) {
 export function scopeLabel(scope, user) {
   // viewerId so the picker can tell "an advisor's records" from "my own", and
   // offer to work as them only in the first case.
-  const base = { canPick: user.role === 'admin', viewerId: user.id };
+  // Not while acting as somebody. requireAdmin refuses for the whole of that
+  // stretch, so an owner sitting in a colleague's seat who was still offered
+  // the picker would get a Work as button that answers "stop working as an
+  // advisor first". One seat at a time, and the screen says so by having one.
+  const base = { canPick: user.role === 'admin' && !user.acting_as, viewerId: user.id };
   if (scope.all) return { ...base, all: true, advisorId: null, label: 'All advisors' };
   if (scope.self) return { ...base, all: false, advisorId: user.id, label: 'Just me' };
   return { ...base, all: false, advisorId: scope.userId, label: 'One advisor' };
@@ -397,6 +401,9 @@ export async function advisorOptions(env, user) {
       id: u.id,
       name: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email,
       role: u.role,
+      // So the picker can offer Work as for everybody it would actually work
+      // for, and withhold it on the one account it would not.
+      platformOwner: Boolean(u.platform_owner),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

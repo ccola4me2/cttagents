@@ -206,18 +206,28 @@ export async function handleStartActing(request, env, userId) {
   const target = reach.target;
 
   if (target.id === admin.id) return badRequest('You are already yourself.');
-  // Only downward. Acting as another admin, or as the portal owner, would be
-  // a way to borrow authority rather than to do somebody's filing, and an
-  // agency owner could use it to reach an account they are not allowed to
-  // change directly.
-  if (target.role === 'admin' || target.platform_owner) {
-    // Named, because the old wording said "You can only work as an advisor",
-    // which an owner reads as a claim about their own account rather than
-    // about the one they picked.
+
+  // Anybody in your own agency, owner or associate. reachable() above is the
+  // agency fence; this is about what working as somebody can be used for.
+  //
+  // It used to refuse any owner, for two reasons. One has stopped being true:
+  // an owner could not change another owner's records directly, so acting as
+  // them was a way round that. Owners now work on the whole agency, so acting
+  // as a fellow owner borrows nothing they did not already have.
+  //
+  // The other reason is what keeps this safe, and it is not this check: while
+  // a session is acting, requireAdmin refuses outright, so the admin screens
+  // and the commission split are shut whoever is being worked as. Acting as a
+  // fellow owner is a lateral move into their advisor seat, not a way up.
+  //
+  // The portal owner stays out of reach. That account reaches every agency
+  // here, so acting as it is the one case that would really be borrowing
+  // authority, and reachable() lets it past the agency fence by design.
+  if (target.platform_owner) {
     const who = [target.first_name, target.last_name].filter(Boolean).join(' ') || target.email;
-    return forbidden(`${who} is an owner, so there is nothing to work as. `
-      + 'Working as somebody is for doing an advisor\'s filing, not for reaching '
-      + 'another owner\'s account.');
+    return forbidden(`${who} runs the portal itself, so that account is not one `
+      + 'to work as. Working as somebody is for doing their filing inside your '
+      + 'agency, not for reaching the platform.');
   }
   if (target.status !== 'active') return badRequest('That account is not active.');
 
