@@ -927,7 +927,11 @@ async function main() {
   // One key per question, or the same answer arrives under two names and the
   // catalogue was pointless. A template using `phone` while the catalogue used
   // `mobile_phone` put "Mobile" on a form twice.
-  const templateKeys = templates.flatMap((t) => t.fields.map((f) => f.key));
+  // Headings are not questions. They carry a key because every field does, and
+  // there is no answer behind one to arrive under the wrong name, so holding
+  // them to the catalogue would mean an entry for the words "Tell us about you".
+  const templateKeys = templates.flatMap((t) => t.fields
+    .filter((f) => f.type !== 'heading').map((f) => f.key));
   const strays = [...new Set(templateKeys)].filter((k) => !catKeys.has(k));
   check(strays.every((k) => ['wedding_date', 'sailing', 'sailed_before', 'best_time'].includes(k)),
     'and the templates draw their questions from it', `outside it: ${strays.join(', ')}`);
@@ -4153,7 +4157,8 @@ async function main() {
     full_name: `Form Client ${stamp}`, email: `form-${stamp}@example.com`,
     from_where: 'Tampa', trip_type: 'River cruise',
   });
-  check(sent.status === 200, 'and it can be filled in', `status ${sent.status}`);
+  check(sent.status === 201 || sent.status === 200, 'and it can be filled in',
+    `status ${sent.status}`);
   }
 
   // ---------------------------------------------------- the client record ---

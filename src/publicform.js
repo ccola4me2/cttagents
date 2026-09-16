@@ -87,9 +87,31 @@ export async function renderPublicForm(request, env, slug) {
   }
 
   const f = found.form;
+
+  // How much of this is actually compulsory, said before anybody starts.
+  //
+  // Nothing on a form here is required beyond a name and an address, and a
+  // reader cannot know that until they have scrolled to the end. A dozen boxes
+  // reads as a dozen obligations, so people either answer everything or close
+  // the tab, and the form wanted neither.
+  //
+  // Only where it is news. A form of four questions does not need telling, and
+  // one where everything is required would be lying if it said this.
+  const asked = f.fields.filter((x) => x.type !== 'heading');
+  const must = asked.filter((x) => x.required);
+  const optional = asked.length - must.length;
+  const sayOptional = asked.length >= 8 && optional >= 4
+    ? `<p class="optional-note">${must.length
+        ? `Only ${must.map((x) => x.label.toLowerCase()).join(' and ')} ${
+            must.length === 1 ? 'is' : 'are'} needed.`
+        : 'Nothing here is compulsory.'} Answer what you like and skip the rest; we will
+        ask about the others when we speak.</p>`
+    : '';
+
   const body = `
     <h1>${esc(f.headline || f.name)}</h1>
     ${f.description ? `<p class="lede">${esc(f.description)}</p>` : ''}
+    ${sayOptional}
     <div class="note error" id="err" hidden></div>
     <div class="note ok" id="ok" hidden></div>
     <form id="form" novalidate>
@@ -714,6 +736,9 @@ function page(title, body, brand) {
   .form-section:first-child{margin-top:0;}
   .form-section-note{margin:.4rem 0 0;font-size:.85rem;color:#5b6b78;}
   .hint{margin:.1rem 0 .4rem;font-size:.84rem;color:#5b6b78;line-height:1.45;}
+  .optional-note{margin:0 0 1.4rem;padding:.7rem .9rem;background:#f2f7fb;
+    border-left:3px solid #1f4d70;border-radius:4px;font-size:.88rem;color:#3d4d5a;
+    line-height:1.5;}
   input,select,textarea{width:100%;font:inherit;padding:.65rem .8rem;border:1px solid #c2d6e8;
         border-radius:9px;background:#fff;color:#0f1c2b}
   input:focus,select:focus,textarea:focus{outline:2px solid var(--teal);outline-offset:1px;border-color:transparent}
