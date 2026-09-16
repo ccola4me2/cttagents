@@ -389,3 +389,44 @@ async function syncBookingTotals(env, bookingId, userId) {
     // and the database holding another, with the save reported as a success.
   ).bind(s.clientTotalCents, s.commissionCents, now(), bookingId, userId).run();
 }
+
+/**
+ * Puts the headline totals back when they have drifted from the breakdown.
+ *
+ * The rule above only runs when somebody saves the grid, which is fine while
+ * nothing else can write those two columns. Something else could: the
+ * whole-record save wrote a zero over both for ten days, and a reservation
+ * left that way stays wrong until somebody happens to open its grid and press
+ * save. Nothing tells them to. What they see is a trip with no money on it and
+ * a breakdown underneath that adds up perfectly, which reads as the portal
+ * losing figures rather than as one column being stale.
+ *
+ * So the record puts it right on the way past. Only when there is a breakdown,
+ * because then the breakdown is the arithmetic and the columns are a cache of
+ * it; a reservation with no breakdown keeps whatever was typed and is not
+ * touched. Only when they actually disagree, so an ordinary read writes
+ * nothing. And as the advisor who owns the reservation, not whoever is
+ * looking, so an owner opening somebody's trip repairs it without taking it.
+ *
+ * Returns the corrected figures so the page can render them rather than the
+ * stale pair it was handed, and never throws: a reservation that will not
+ * self-repair should still open.
+ */
+export async function reconcileBookingTotals(env, booking, summary) {
+  if (!booking || !summary) return null;
+  const gross = summary.clientTotalCents;
+  const commission = summary.commissionCents;
+  if ((booking.gross_cents || 0) === gross && (booking.commission_cents || 0) === commission) {
+    return null;
+  }
+  try {
+    await env.DB.prepare(
+      `UPDATE bookings SET gross_cents = ?, commission_cents = ?, updated_at = ?
+        WHERE id = ? AND user_id = ?`
+    ).bind(gross, commission, now(), booking.id, booking.user_id).run();
+  } catch (e) {
+    console.error('reconcile totals', e);
+    return null;
+  }
+  return { grossCents: gross, commissionCents: commission };
+}

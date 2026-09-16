@@ -24,7 +24,7 @@ import { listOptions } from './options.js';
 import { listTiers, penaltyToday } from './penalties.js';
 import { listDocuments, docsReady, CATEGORIES as DOC_CATEGORIES } from './documents.js';
 import { listComponents, COMPONENT_KINDS } from './components.js';
-import { listPricing, summarise, PRICE_KINDS } from './pricing.js';
+import { listPricing, summarise, reconcileBookingTotals, PRICE_KINDS } from './pricing.js';
 
 // The taxonomy a travel agency actually reports on. Five buckets could not
 // tell a transfer from a tour from travel insurance, which meant "travel by
@@ -326,6 +326,20 @@ export async function handleBookingRecord(request, env, id) {
         .bind(booking.vendor_id).first()
     : null;
 
+  // Where there is a breakdown, it is the arithmetic and the two columns on the
+  // reservation are a cache of it. Anything that left them stale is put right
+  // here, on the way past, rather than waiting for somebody to think of opening
+  // the grid and pressing save. `booking` is updated in place so the rest of
+  // this payload, and the headline figures the page draws from it, are the
+  // corrected pair rather than the one that was just overwritten.
+  const summary = priceLines.length
+    ? summarise(priceLines, vendor && vendor.commission_pct) : null;
+  const mended = await reconcileBookingTotals(env, booking, summary);
+  if (mended) {
+    booking.gross_cents = mended.grossCents;
+    booking.commission_cents = mended.commissionCents;
+  }
+
   // Hard rows only. A soft row is a reminder to chase the same balance ten days
   // before its vendor deadline, not a second amount owed, so totalling both
   // reports a $5,000 trip as owing $9,500.
@@ -383,8 +397,7 @@ export async function handleBookingRecord(request, env, id) {
     priceKinds: PRICE_KINDS,
     // Null when there is no breakdown: an empty summary reads as zero, and
     // zero is a claim rather than an absence.
-    priceSummary: priceLines.length
-      ? summarise(priceLines, vendor && vendor.commission_pct) : null,
+    priceSummary: summary,
     vendorRate: vendor ? vendor.commission_pct : null,
     travellers,
     amenities: extras || [],

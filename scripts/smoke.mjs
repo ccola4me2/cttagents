@@ -3920,6 +3920,64 @@ async function main() {
     { clientName: wasBooked.data?.booking?.client_name, supplier: 'Cunard',
       status: wasBooked.data?.booking?.status });
 
+  // Where there is a breakdown, the headline follows it, and a headline that
+  // has driftEmptied is put right the next time the record is driftOpened.
+  //
+  // Taken from a real one. A hotel in Madrid was driftPriced through the grid, then
+  // something else wrote zero over gross_cents and commission_cents, and the
+  // reservation showed no money at all above a breakdown that added up
+  // perfectly. Nothing would have repaired it: the sync only runs when
+  // somebody saves the grid, and nobody had a reason to.
+  const driftId = (await call(advisor, 'POST', '/api/bookings', {
+    clientName: `Drift ${stamp}`, supplier: 'Expedia', productType: 'hotel',
+    status: 'booked', departDate: isoDay(60), gross: '100.00', commission: '10.00',
+  })).data?.booking?.id;
+  if (driftId) cleanup('the driftEmptied reservation',
+    () => call(advisor, 'DELETE', `/api/bookings/${driftId}`));
+
+  await call(advisor, 'PUT', `/api/bookings/${driftId}/pricing`, {
+    cells: [{ kind: 'fare', amount: '463.71', commissionable: true },
+            { kind: 'taxes', amount: '46.37', commissionable: false }],
+    commissions: [{ kind: 'base', amount: '45.91' }],
+  });
+  const driftPriced = await call(advisor, 'GET', `/api/bookings/${driftId}`);
+  check(driftPriced.data?.booking?.gross_cents === 51008,
+    'the grid sets the headline when it is saved', String(driftPriced.data?.booking?.gross_cents));
+
+  // Drift it the way the whole-record save used to: the grid keeps its lines,
+  // the two columns go to nothing.
+  await call(advisor, 'POST', `/api/bookings/${driftId}/quick`,
+    { gross: '0', commission: '0' });
+  const driftEmptied = await call(advisor, 'GET', `/api/bookings/${driftId}`);
+  check(driftEmptied.data?.booking?.gross_cents === 0,
+    'and a reservation can still end up with its headline emptied',
+    String(driftEmptied.data?.booking?.gross_cents));
+
+  const driftOpened = await call(advisor, 'GET', `/api/bookings/${driftId}/record`);
+  check(driftOpened.data?.booking?.gross_cents === 51008
+        && driftOpened.data?.booking?.commission_cents === 4591,
+    'opening the record puts the headline back from the breakdown',
+    `${driftOpened.data?.booking?.gross_cents} / ${driftOpened.data?.booking?.commission_cents}`);
+
+  const driftStored = await call(advisor, 'GET', `/api/bookings/${driftId}`);
+  check(driftStored.data?.booking?.gross_cents === 51008,
+    'and it is written, not only shown', String(driftStored.data?.booking?.gross_cents));
+
+  // A reservation with no breakdown keeps whatever was typed. The grid is only
+  // the arithmetic where there is a grid; everywhere else the typed figure is
+  // the only figure there is, and repairing from an empty breakdown would
+  // zero every hotel somebody entered as a single number.
+  const typedId = (await call(advisor, 'POST', '/api/bookings', {
+    clientName: `Typed ${stamp}`, supplier: 'Expedia', productType: 'hotel',
+    status: 'booked', departDate: isoDay(60), gross: '875.00', commission: '87.50',
+  })).data?.booking?.id;
+  if (typedId) cleanup('the typed reservation',
+    () => call(advisor, 'DELETE', `/api/bookings/${typedId}`));
+  const typedRecord = await call(advisor, 'GET', `/api/bookings/${typedId}/record`);
+  check(typedRecord.data?.booking?.gross_cents === 87500,
+    'a reservation with no breakdown keeps the figure that was typed',
+    String(typedRecord.data?.booking?.gross_cents));
+
   const byOwner = await call(admin, 'POST', `/api/bookings/${bareId}/quick`, { gross: '4300.00' });
   check(byOwner.status === 200, 'and an owner can quick edit an associate\'s reservation',
     `status ${byOwner.status}`);
