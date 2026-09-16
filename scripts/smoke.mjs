@@ -757,8 +757,13 @@ async function main() {
   check(typeof ownerPage.data?.onBehalfOf === 'string' && ownerPage.data.onBehalfOf.length > 0,
     'and says whose reservation they are working on', String(ownerPage.data?.onBehalfOf));
 
+  // status goes with it. This endpoint saves the whole record, and a status
+  // left out is not a status left alone: oneOf falls back to the first allowed
+  // value, which is 'quoted', so correcting a name would demote a booked trip
+  // to a quote and put it on a dashboard list three thousand lines below here.
   const ownerWrite = await call(admin, 'PUT', `/api/bookings/${theirBookingId}`,
-    { clientName: `Corrected By Owner ${stamp}`, supplier: 'Cunard', productType: 'cruise' });
+    { clientName: `Corrected By Owner ${stamp}`, supplier: 'Cunard',
+      productType: 'cruise', status: 'booked' });
   check(ownerWrite.status === 200, 'and can correct it', `status ${ownerWrite.status}`);
 
   const stillTheirs = await call(advisor, 'GET', `/api/bookings/${theirBookingId}`);
@@ -774,7 +779,8 @@ async function main() {
   // The other direction is still shut. An associate reading is refused, so an
   // associate writing never gets the chance.
   const peerWrite = await call(advisor, 'PUT', `/api/bookings/${ownerBookingId}`,
-    { clientName: 'Should not apply', supplier: 'Cunard', productType: 'cruise' });
+    { clientName: 'Should not apply', supplier: 'Cunard',
+      productType: 'cruise', status: 'booked' });
   check(peerWrite.status === 404, 'an associate cannot write to the owner\'s reservation',
     `status ${peerWrite.status}`);
 
@@ -782,7 +788,8 @@ async function main() {
   // reservation by the name it was created with. A test that changes a fixture
   // other tests read has to put it back, or it fails them instead of itself.
   const putBack = await call(advisor, 'PUT', `/api/bookings/${theirBookingId}`,
-    { clientName: `Associate Client ${stamp}`, supplier: 'Cunard', productType: 'cruise' });
+    { clientName: `Associate Client ${stamp}`, supplier: 'Cunard',
+      productType: 'cruise', status: 'booked' });
   check(putBack.status === 200, 'and the associate can set their own client name back',
     `status ${putBack.status}`);
 
@@ -1989,7 +1996,8 @@ async function main() {
       'another agency\'s owner cannot even open a reservation here',
       `status ${reachRead.status}`);
     const reachWrite = await call(rival, 'PUT', `/api/bookings/${theirBookingId}`,
-      { clientName: 'Hijacked', supplier: 'Cunard', productType: 'cruise' });
+      { clientName: 'Hijacked', supplier: 'Cunard',
+        productType: 'cruise', status: 'booked' });
     check(reachWrite.status === 404, 'nor correct one', `status ${reachWrite.status}`);
     const reachQuick = await call(rival, 'POST', `/api/bookings/${theirBookingId}/quick`,
       { gross: '1.00' });

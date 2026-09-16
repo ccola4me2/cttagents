@@ -123,6 +123,15 @@ jobs:
       # constants against the schema; this reads what the JavaScript actually
       # reaches for, because a property that is not there is undefined rather
       # than an error, and the field is simply always blank.
+      # Plain JavaScript has no compiler to notice that a call hands a
+      # function a key it does not take. In shorthand the name is the property
+      # as well as the variable, so renaming the variable renames the key, and
+      # the callee reads undefined. That cost a 500 on every statement, every
+      # invoice and every preview, and the smoke test reported it three times
+      # as the word "undefined".
+      - name: Calls pass the keys the function takes
+        run: npm run check:shapes
+
       - name: Every column a handler reads is real
         run: npm run check:reads
 
