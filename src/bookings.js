@@ -345,7 +345,11 @@ export async function handleBookingRecord(request, env, id) {
   // A grid with one column and two people on the reservation leaves the second
   // one with nowhere to be priced, which is half of how a trip ends up with
   // the wrong total in the first place.
-  const counted = await reconcileTravellerCount(env, booking, travellers);
+  // `people`, not `travellers`. The rows come out of the Promise.all as people
+  // and are only turned into `travellers` sixty lines below this, so naming
+  // that here reached a const before it existed and threw on every reservation
+  // the moment it deployed.
+  const counted = await reconcileTravellerCount(env, booking, people);
   if (counted) booking.travellers = counted;
 
   // Hard rows only. A soft row is a reminder to chase the same balance ten days
