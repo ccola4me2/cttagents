@@ -202,10 +202,33 @@ export function cleanText(value, maxLength = 4000) {
     .slice(0, maxLength);
 }
 
-/** Accepts yyyy-mm-dd only. Returns null for anything else, including ''. */
+/** Accepts a real yyyy-mm-dd day in a plausible year. Null for anything else. */
 export function cleanDate(value) {
   const s = String(value ?? '').trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+
+  // A year outside this range is a typo, not a date.
+  //
+  // A browser date field turns a mistyped "206" into "0206-09-09", which is
+  // four digits and passes the shape test above. A reservation went in
+  // departing the ninth of September, 206: it sorted to the top of every list
+  // ordered by date, counted as eighteen hundred years overdue anywhere days
+  // are subtracted, and printed as "Sep 9, 206", where it reads as the screen
+  // being broken rather than as the data being wrong.
+  //
+  // The floor is 1900 rather than anything nearer because this also cleans a
+  // passport holder's date of birth, and the ceiling leaves room for a cruise
+  // booked further ahead than any vendor sells.
+  const year = Number(s.slice(0, 4));
+  if (year < 1900 || year > 2100) return null;
+
+  // And the day has to be one that existed. The shape test takes 2026-02-30
+  // and 2026-13-01 happily, and a Date built from either rolls quietly forward
+  // into a different day from the one somebody typed. Round-tripping it back
+  // to a string is what catches that, the same way nextDue does above.
+  const when = new Date(`${s}T00:00:00Z`);
+  if (!Number.isFinite(when.getTime())) return null;
+  return when.toISOString().slice(0, 10) === s ? s : null;
 }
 
 /** Dollars (string or number) to integer cents. Negative and NaN become 0. */

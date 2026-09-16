@@ -4035,6 +4035,41 @@ async function main() {
   check(afterOwner.data?.booking?.gross_cents === 430000,
     'the correction lands on the associate\'s record', String(afterOwner.data?.booking?.gross_cents));
 
+  // A year that cannot be right is refused rather than stored.
+  //
+  // A browser date field turns a mistyped "206" into "0206-09-09", which is
+  // four digits and used to be all the check asked for. One reservation went
+  // in departing the ninth of September, 206: it sorted above everything,
+  // counted as eighteen hundred years overdue, and printed as "Sep 9, 206",
+  // where it reads as the screen being broken rather than the data being wrong.
+  const mistyped = await call(advisor, 'POST', `/api/bookings/${bareId}/quick`,
+    { departDate: '0206-09-09' });
+  const afterMistype = await call(advisor, 'GET', `/api/bookings/${bareId}`);
+  check(afterMistype.data?.booking?.depart_date !== '0206-09-09',
+    'a year of 206 does not become a departure date',
+    `${mistyped.status} -> ${afterMistype.data?.booking?.depart_date}`);
+
+  // And a day that never existed. The shape test took both of these happily,
+  // and a Date built from either rolls quietly into a different day.
+  await call(advisor, 'POST', `/api/bookings/${bareId}/quick`,
+    { departDate: '2027-02-30' });
+  const afterNoSuchDay = await call(advisor, 'GET', `/api/bookings/${bareId}`);
+  check(afterNoSuchDay.data?.booking?.depart_date !== '2027-02-30',
+    'nor does the thirtieth of February',
+    String(afterNoSuchDay.data?.booking?.depart_date));
+
+  // The dates people actually type still go through, including the leap day
+  // and a date of birth from before anybody reading this was working.
+  const realLeap = await call(advisor, 'POST', `/api/bookings/${bareId}/quick`,
+    { departDate: '2028-02-29' });
+  check(realLeap.data?.booking?.depart_date === '2028-02-29',
+    'while a real leap day is stored', String(realLeap.data?.booking?.depart_date));
+
+  const born = await call(advisor, 'POST', `/api/bookings/${bareId}/travellers`,
+    { name: `Born Long Ago ${stamp}`, dob: '1940-03-11' });
+  check(born.status === 201, 'and a passport holder born in 1940 is still a person',
+    `status ${born.status}`);
+
   // ---------------------------------------------------- the client record ---
   step('One client on one screen');
 
