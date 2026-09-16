@@ -16,7 +16,8 @@ import { applyTemplates } from './tasktemplates.js';
 import { PRODUCT_TYPES } from './producttypes.js';
 import { buildStatement, statementFingerprint } from './statement.js';
 import { resolveVendor } from './vendors.js';
-import { listTravellers, listAmenities, passportProblem } from './travellers.js';
+import { listTravellers, listAmenities, passportProblem,
+  reconcileTravellerCount } from './travellers.js';
 import { PAYMENT_TYPES, releaseCredit, buildSchedule, followBookingDates,
   chaseDateOf, setChaseDate } from './payments.js';
 import { COMPANY_LEAD, NO_COMMISSION, splitPct, shareOf, UNSPLIT_COMMISSION_KINDS } from './split.js';
@@ -339,6 +340,13 @@ export async function handleBookingRecord(request, env, id) {
     booking.gross_cents = mended.grossCents;
     booking.commission_cents = mended.commissionCents;
   }
+
+  // And the headcount, which drifted the same way and for the same ten days.
+  // A grid with one column and two people on the reservation leaves the second
+  // one with nowhere to be priced, which is half of how a trip ends up with
+  // the wrong total in the first place.
+  const counted = await reconcileTravellerCount(env, booking, travellers);
+  if (counted) booking.travellers = counted;
 
   // Hard rows only. A soft row is a reminder to chase the same balance ten days
   // before its vendor deadline, not a second amount owed, so totalling both

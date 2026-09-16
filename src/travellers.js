@@ -164,7 +164,7 @@ export async function handleDeleteTraveller(request, env, id) {
   return json({ ok: true });
 }
 
-async function syncTravellerCount(env, bookingId, userId) {
+export async function syncTravellerCount(env, bookingId, userId) {
   const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM travellers WHERE booking_id = ?')
     .bind(bookingId).first();
   const n = row ? row.n : 0;
@@ -173,6 +173,32 @@ async function syncTravellerCount(env, bookingId, userId) {
   // traveller with no column to be priced in.
   await env.DB.prepare('UPDATE bookings SET travellers = ?, updated_at = ? WHERE id = ? AND user_id = ?')
     .bind(n, now(), bookingId, userId).run();
+}
+
+/**
+ * Puts the count back when it has drifted from the people on the record.
+ *
+ * Same shape as the totals mending its own drift, and there for the same
+ * reason: the whole-record save wrote a 1 over this for ten days, and a
+ * reservation left that way has a pricing grid with one column and two people
+ * to put in it. Nothing would ever correct it, because the only thing that
+ * writes this is adding or removing a traveller.
+ *
+ * Only where there are traveller rows to count. A reservation with none keeps
+ * the number that was typed, the same way one with no breakdown keeps the
+ * total that was typed. Never throws: a count that will not mend should not
+ * stop the page opening.
+ */
+export async function reconcileTravellerCount(env, booking, people) {
+  if (!booking || !people || !people.length) return null;
+  if (booking.travellers === people.length) return null;
+  try {
+    await syncTravellerCount(env, booking.id, booking.user_id);
+  } catch (e) {
+    console.error('reconcile travellers', e);
+    return null;
+  }
+  return people.length;
 }
 
 export async function handleAddAmenity(request, env, bookingId) {
