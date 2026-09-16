@@ -45,21 +45,37 @@ function fieldMarkup(f) {
   const id = `f_${esc(f.key)}`;
   const req = f.required ? ' required' : '';
   const ph = f.placeholder ? ` placeholder="${esc(f.placeholder)}"` : '';
+
+  // Not a question. A long form that arrives as one unbroken column of boxes
+  // is a form people close, and this is the line that makes it three parts
+  // instead. It carries no input, so nothing is submitted for it.
+  if (f.type === 'heading') {
+    return `<h2 class="form-section">${esc(f.label)}</h2>${
+      f.hint ? `<p class="form-section-note">${esc(f.hint)}</p>` : ''}`;
+  }
+
+  // The small line under the question. "Where are you from originally?" is a
+  // different question with "hometown, school, college" underneath it, and on
+  // an interview form that line is doing most of the work.
+  const hint = f.hint ? `<p class="hint" id="${id}_hint">${esc(f.hint)}</p>` : '';
+  const described = f.hint ? ` aria-describedby="${id}_hint"` : '';
+
   let input;
   if (f.type === 'textarea') {
-    input = `<textarea id="${id}" name="${esc(f.key)}"${req}${ph}></textarea>`;
+    input = `<textarea id="${id}" name="${esc(f.key)}"${req}${ph}${described}></textarea>`;
   } else if (f.type === 'select') {
-    input = `<select id="${id}" name="${esc(f.key)}"${req}>
+    input = `<select id="${id}" name="${esc(f.key)}"${req}${described}>
       <option value="">Choose one</option>
       ${f.options.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join('')}
     </select>`;
   } else if (f.type === 'checkbox') {
     return `<label class="check"><input type="checkbox" id="${id}" name="${esc(f.key)}" value="yes"${req}>
-      <span>${esc(f.label)}</span></label>`;
+      <span>${esc(f.label)}</span></label>${hint}`;
   } else {
-    input = `<input type="${esc(f.type)}" id="${id}" name="${esc(f.key)}"${req}${ph}>`;
+    input = `<input type="${esc(f.type)}" id="${id}" name="${esc(f.key)}"${req}${ph}${described}>`;
   }
-  return `<div class="field"><label for="${id}">${esc(f.label)}${f.required ? ' <span class="req">*</span>' : ''}</label>${input}</div>`;
+  return `<div class="field"><label for="${id}">${esc(f.label)}${
+    f.required ? ' <span class="req">*</span>' : ''}</label>${hint}${input}</div>`;
 }
 
 export async function renderPublicForm(request, env, slug) {
@@ -507,6 +523,10 @@ export async function handlePublicSubmit(request, env, slug) {
 
   const data = {};
   for (const f of form.fields) {
+    // A heading is not a question and has no answer to read. Skipped outright
+    // rather than relying on nothing being posted for it, so a crafted request
+    // cannot put a value against one.
+    if (f.type === 'heading') continue;
     const raw = clean(body[f.key], f.type === 'textarea' ? 4000 : 300);
     if (f.required && !raw) return badRequest(`${f.label} is required.`);
     if (f.type === 'email' && raw && !isValidEmail(raw)) {
@@ -689,6 +709,11 @@ function page(title, body, brand) {
   .field{margin-bottom:1.1rem}
   label{display:block;font-size:.85rem;font-weight:600;color:var(--navy);margin-bottom:.35rem}
   .req{color:var(--teal)}
+  .form-section{font-size:1.05rem;margin:2.2rem 0 .2rem;padding-bottom:.5rem;
+    border-bottom:2px solid #1f4d70;color:#1f4d70;}
+  .form-section:first-child{margin-top:0;}
+  .form-section-note{margin:.4rem 0 0;font-size:.85rem;color:#5b6b78;}
+  .hint{margin:.1rem 0 .4rem;font-size:.84rem;color:#5b6b78;line-height:1.45;}
   input,select,textarea{width:100%;font:inherit;padding:.65rem .8rem;border:1px solid #c2d6e8;
         border-radius:9px;background:#fff;color:#0f1c2b}
   input:focus,select:focus,textarea:focus{outline:2px solid var(--teal);outline-offset:1px;border-color:transparent}

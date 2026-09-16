@@ -4089,6 +4089,73 @@ async function main() {
   check(born.status === 201, 'and a passport holder born in 1940 is still a person',
     `status ${born.status}`);
 
+  // A form longer than a stand at a bridal show.
+  //
+  // The planning interview runs to forty questions in three parts and leans on
+  // the small line under each one for most of its meaning. All three of those
+  // were things the builder could not carry: it capped a form at forty fields,
+  // had no way to say "this is a heading", and dropped anything a field held
+  // that the editing screen did not show.
+  {
+  step('A long form keeps its parts');
+
+  const longFields = [
+    { label: 'Your name', key: 'full_name', type: 'text', required: true },
+    { label: 'Email', key: 'email', type: 'email', required: true },
+    { label: 'Tell us about you', key: 'part_one', type: 'heading',
+      hint: 'The part that decides the rest.', required: true },
+    { label: 'Where are you from?', key: 'from_where', type: 'text',
+      hint: 'Hometown, school, college.' },
+    { label: 'What sort of trip?', key: 'trip_type', type: 'select',
+      options: ['Ocean cruise', 'River cruise', 'Not sure yet'] },
+  ];
+  for (let i = 0; i < 45; i += 1) {
+    longFields.push({ label: `Filler question ${i}`, key: `filler_${i}`, type: 'text' });
+  }
+
+  const madeForm = await call(advisor, 'POST', '/api/myforms', {
+    name: `Interview ${stamp}`, headline: 'Let us plan this properly',
+    description: 'A few questions.', fields: longFields, active: true,
+  });
+  const formId = madeForm.data?.form?.id;
+  if (formId) cleanup('the long form', () => call(advisor, 'DELETE', `/api/myforms/${formId}`));
+  check(madeForm.status === 201 && formId, 'a fifty question form is accepted',
+    `status ${madeForm.status}`);
+
+  const built = await call(advisor, 'GET', `/api/myforms/${formId}`);
+  const kept = built.data?.form?.fields || [];
+  check(kept.length === longFields.length,
+    'and keeps every question rather than stopping at forty',
+    `${longFields.length} sent, ${kept.length} kept`);
+
+  const heading = kept.find((f) => f.key === 'part_one');
+  check(heading && heading.type === 'heading', 'a heading stays a heading',
+    String(heading && heading.type));
+  check(heading && heading.required === false,
+    'and cannot be made required, because there is nothing to answer',
+    String(heading && heading.required));
+  check(kept.find((f) => f.key === 'from_where')?.hint === 'Hometown, school, college.',
+    'the line under a question survives the trip through the builder',
+    String(kept.find((f) => f.key === 'from_where')?.hint));
+
+  // The public page draws it, and draws the heading as a heading rather than
+  // as a box asking somebody to type "Tell us about you".
+  const slug = built.data?.form?.slug;
+  const page = await call(null, 'GET', `/f/${slug}`);
+  check(page.status === 200, 'the form has a page', `status ${page.status}`);
+  const html = page.raw || '';
+  check(html.includes('form-section') && html.includes('Tell us about you'),
+    'with the heading drawn as a heading');
+  check(html.includes('Hometown, school, college.'), 'and the hints on it');
+
+  // A submission ignores the heading rather than refusing over it.
+  const sent = await call(null, 'POST', `/api/public/forms/${slug}`, {
+    full_name: `Form Client ${stamp}`, email: `form-${stamp}@example.com`,
+    from_where: 'Tampa', trip_type: 'River cruise',
+  });
+  check(sent.status === 200, 'and it can be filled in', `status ${sent.status}`);
+  }
+
   // ---------------------------------------------------- the client record ---
   step('One client on one screen');
 

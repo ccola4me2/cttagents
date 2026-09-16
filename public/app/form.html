@@ -195,7 +195,12 @@ function drawTemplatePicker() {
 let chosen = [];          // the questions on the form, in order
 let dragKey = null;
 
-const TYPES = ['text', 'email', 'tel', 'textarea', 'select', 'date', 'number', 'checkbox'];
+// 'heading' is here so a long form can be broken into parts from this screen
+// as well as from a template. It asks nothing: it is the line that turns forty
+// questions into three sets of a dozen, which is the difference between a form
+// somebody finishes and one they close.
+const TYPES = ['text', 'email', 'tel', 'textarea', 'select',
+  'date', 'number', 'checkbox', 'heading'];
 
 function count() {
   document.getElementById('chosen-count').textContent =
@@ -226,10 +231,15 @@ function drawChosen() {
           <input class="lab" value="${esc(f.label)}" maxlength="120" aria-label="Label">
           <span class="k">${esc(f.key)}${f.custom ? ' · your own' : ''}</span>
         </span>
-        <label style="display:flex;align-items:center;gap:.35rem;font-weight:400;font-size:.78rem;margin:0;">
+        ${f.type === 'heading'
+          // A heading has nothing to answer, so it is not offered a tick that
+          // the server would ignore. Named instead, because a row with no
+          // controls on it otherwise reads as one that failed to draw.
+          ? '<span class="muted" style="font-size:.78rem;">section heading</span>'
+          : `<label style="display:flex;align-items:center;gap:.35rem;font-weight:400;font-size:.78rem;margin:0;">
           <input type="checkbox" class="req"${f.required ? ' checked' : ''}>
           must answer
-        </label>
+        </label>`}
         <button class="btn btn-ghost btn-sm" type="button" data-drop="${esc(f.key)}">Remove</button>
       </li>`).join('')
     : '<li class="muted" style="padding:.6rem 0;">No questions yet. Pick some from the right.</li>';
@@ -389,9 +399,14 @@ document.getElementById('save').addEventListener('click', async () => {
     notifyEmail: f.notifyEmail.value, source: f.source.value,
     startsOn: f.startsOn.value, endsOn: f.endsOn.value,
     active: f.active.checked,
+    // Every part, not only the parts this screen shows. It edits a label and a
+    // tick; the hint under the question, the placeholder inside it and the
+    // choices behind a dropdown are all invisible here, and mapping only what
+    // is on screen would erase them on the first save.
     fields: chosen.map((x) => ({
       key: x.key, label: x.label, type: x.type,
       required: Boolean(x.required), options: x.options || [],
+      hint: x.hint || '', placeholder: x.placeholder || '',
     })),
   };
 

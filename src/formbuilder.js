@@ -16,7 +16,12 @@ import { requireUser } from './auth.js';
 import { tenantFor } from './tenant.js';
 import * as db from './db.js';
 
-const FIELD_TYPES = ['text', 'email', 'tel', 'textarea', 'select', 'date', 'number', 'checkbox'];
+// 'heading' is not a question. It asks nothing and stores nothing: it is the
+// line that breaks forty questions into three parts somebody can face. Kept in
+// the same list so it travels through the builder, the catalogue and the
+// public page as an ordinary field rather than as a second concept.
+const FIELD_TYPES = ['text', 'email', 'tel', 'textarea', 'select',
+  'date', 'number', 'checkbox', 'heading'];
 
 function slugify(s) {
   return String(s || '').toLowerCase().trim()
@@ -30,7 +35,11 @@ function parseFields(raw) {
   const list = Array.isArray(raw) ? raw : [];
   const out = [];
   const seen = new Set();
-  for (const f of list.slice(0, 40)) {
+  // Forty was plenty while every form was a stand at a bridal show. A planning
+  // interview is three times that and is the reason somebody builds a form at
+  // all, so the cap is where a form stops being a form rather than where the
+  // shortest one happened to end.
+  for (const f of list.slice(0, 120)) {
     const label = clean(f.label, 120);
     if (!label) continue;
     let key = clean(f.key, 60) || slugify(label).replace(/-/g, '_');
@@ -39,12 +48,20 @@ function parseFields(raw) {
     let n = 2;
     while (seen.has(key)) key = `${key}_${n++}`;
     seen.add(key);
+    const type = oneOf(f.type, FIELD_TYPES);
     out.push({
       key,
       label,
-      type: oneOf(f.type, FIELD_TYPES),
-      required: Boolean(f.required),
+      type,
+      // A heading asks nothing, so it cannot be required. Left settable it
+      // would refuse every submission with "Tell me about you is required",
+      // which is a sentence nobody could act on.
+      required: type === 'heading' ? false : Boolean(f.required),
       placeholder: clean(f.placeholder, 120),
+      // The small line under the question. Most of what a good interview
+      // question means lives here: "Where are you from originally?" is a
+      // different question with "hometown, school, college" underneath it.
+      hint: clean(f.hint, 200),
       options: Array.isArray(f.options)
         ? f.options.map((o) => clean(o, 80)).filter(Boolean).slice(0, 40)
         : [],
@@ -248,6 +265,98 @@ const REACH = [
 ];
 
 export const FORM_TEMPLATES = [
+  {
+    key: 'planning_interview',
+    label: 'Travel planning interview',
+    blurb: 'The long one. Everything worth knowing before a proposal is written.',
+    headline: 'Let us plan this properly',
+    description: 'These questions are how a trip stops being a brochure and starts being '
+      + 'yours. Answer what you can, skip what you would rather talk through, and we will '
+      + 'take it from there.',
+    fields: [
+      ...REACH,
+
+      { label: 'Tell us about you', key: 'part_one', type: 'heading',
+        hint: 'The part that has nothing to do with travel, and decides most of it.' },
+      { label: 'How did you hear about us?', key: 'heard_about', type: 'text',
+        hint: 'If somebody sent you, we would love to know who so we can thank them.' },
+      { label: 'Where are you from originally?', key: 'from_originally', type: 'text',
+        hint: 'Hometown, school, college.' },
+      { label: 'Where do you live now, and what took you there?', key: 'live_now', type: 'text',
+        hint: 'Family, work, retirement.' },
+      { label: 'Did you serve in the military?', key: 'military', type: 'text',
+        hint: 'Branch and years, if you would like us to know. Some lines offer benefits.' },
+      { label: 'What is, or was, your career?', key: 'career', type: 'text' },
+      { label: 'What do you do with your free time?', key: 'hobbies', type: 'textarea',
+        hint: 'Sports, clubs, causes, anything you would rather be doing right now.' },
+      { label: 'Favourite restaurant, and what sort of food?', key: 'restaurant', type: 'text' },
+      { label: 'What do you like to drink?', key: 'drinks', type: 'text',
+        hint: 'Wine, whisky, beer, or none of the above.' },
+      { label: 'Music, shows, books or podcasts you love?', key: 'culture', type: 'textarea' },
+      { label: 'What does luxury mean to you?', key: 'luxury', type: 'textarea',
+        hint: 'It does not have to be about travel. Most of the good answers are not.' },
+
+      { label: 'Trips you have already taken', key: 'part_two', type: 'heading',
+        hint: 'What worked and what did not is the fastest way to get the next one right.' },
+      { label: 'Tell us about your last holiday.', key: 'last_trip', type: 'textarea',
+        hint: 'Best, worst, most memorable. When, and why it stayed with you.' },
+      { label: 'Favourite destination, and least favourite?', key: 'destinations', type: 'textarea' },
+      { label: 'Have you cruised before?', key: 'cruised_before', type: 'select',
+        options: ['Never', 'Once', 'A few times', 'Many times'] },
+      { label: 'What kinds of travel have you tried?', key: 'travel_kinds', type: 'text',
+        hint: 'Ocean or river cruise, expedition, all-inclusive, escorted tour, on your own.' },
+      { label: 'Who do you usually travel with?', key: 'usually_with', type: 'textarea',
+        hint: 'Names, ages and what they enjoy, if they are coming again.' },
+      { label: 'Which cruise lines, hotels or tour companies have you used?',
+        key: 'brands_used', type: 'textarea' },
+      { label: 'Which did you like most, and least?', key: 'brands_opinion', type: 'textarea',
+        hint: 'Particular ships, rooms or properties are especially useful.' },
+      { label: 'What do you actually like doing on holiday?', key: 'like_doing', type: 'textarea',
+        hint: 'Excursions, dining, museums, sightseeing, or a chair and a book.' },
+      { label: 'Your favourite meal away from home?', key: 'dining', type: 'textarea',
+        hint: 'What made it: the service, the setting, the food?' },
+      { label: 'What do you like to do in the evenings?', key: 'nightlife', type: 'text',
+        hint: 'Shows, dancing, a quiet bar, an early night.' },
+      { label: 'Tell us a holiday memory you still talk about.', key: 'best_memory', type: 'textarea' },
+      { label: 'How have you booked trips before?', key: 'booked_before', type: 'select',
+        options: ['Online by myself', 'Direct with the cruise line or hotel',
+                  'Through a travel advisor', 'A mix of all of these'] },
+      { label: 'What would you want from working with an advisor?',
+        key: 'advisor_expectation', type: 'textarea' },
+
+      { label: 'The trip you are thinking about', key: 'part_three', type: 'heading',
+        hint: 'Even a rough answer is worth more than a blank. We will fill in the rest.' },
+      { label: 'Somewhere in mind, or open to ideas?', key: 'destination_idea', type: 'textarea',
+        hint: 'Destination, kind of trip, time of year, a brand you have your eye on.' },
+      { label: 'What do you want to see or do?', key: 'want_to_do', type: 'textarea' },
+      { label: 'Have you looked into it already?', key: 'research', type: 'textarea',
+        hint: 'Where you looked and what you found. It saves us going over old ground.' },
+      { label: 'Are your dates fixed, or is there room to move?', key: 'dates', type: 'text',
+        hint: 'Season, how long, and whether the time off is already agreed.' },
+      { label: 'What sort of trip appeals?', key: 'trip_type', type: 'select',
+        options: ['Ocean cruise', 'River cruise', 'Expedition', 'All-inclusive resort',
+                  'Escorted tour', 'Independent travel', 'Not sure yet'] },
+      { label: 'Who is coming with you?', key: 'who_coming', type: 'textarea',
+        hint: 'Names and ages, and whether it is one room or several.' },
+      { label: 'What matters about where you stay?', key: 'accommodation', type: 'textarea',
+        hint: 'Suite, balcony, view, location, a butler, or none of it.' },
+      { label: 'Are you celebrating something?', key: 'celebrating', type: 'text',
+        hint: 'An anniversary, a birthday, a milestone. Tell us and we will mark it.' },
+      { label: 'What do you most want to come home with?', key: 'want_most', type: 'textarea',
+        hint: 'Rest, adventure, time together, a good story.' },
+      { label: 'If you are flying, where from?', key: 'flying_from', type: 'text',
+        hint: 'Airport, cabin you prefer, and whether you want us to book it.' },
+      { label: 'Is there a budget we should work to?', key: 'budget', type: 'text',
+        hint: 'A range is fine. It narrows things down rather than limiting them.' },
+      { label: 'Is anyone else part of the decision?', key: 'decision_makers', type: 'text',
+        hint: 'If so, we are glad to have them on the call.' },
+      { label: 'Anything we should plan around?', key: 'special_needs', type: 'text',
+        hint: 'Mobility, dietary, medical, or anything else. Say who it is for.' },
+      { label: 'Anyone else you would love to bring?', key: 'others_to_bring', type: 'textarea',
+        hint: 'Groups are often cheaper per person, not dearer.' },
+      { label: 'Anything else you want us to know?', key: 'anything_else', type: 'textarea' },
+    ],
+  },
   {
     key: 'bridal',
     label: 'Bridal show',
