@@ -374,6 +374,15 @@ function checkCalls(root) {
           if (nameOnly) declared.add(nameOnly);
         }
       }
+      // A default import, and a namespace one. Only the braced form was read,
+      // so `import qrcode from './qrcode.js'` looked like a name the page used
+      // and never declared, which is this checker's own failure message.
+      for (const d of body.matchAll(/import\s+([A-Za-z_$][\w$]*)\s*(?:,|from)/g)) {
+        declared.add(d[1]);
+      }
+      for (const d of body.matchAll(/import\s*\*\s*as\s+([A-Za-z_$][\w$]*)/g)) {
+        declared.add(d[1]);
+      }
       // Destructured bindings and parameters, taken loosely: a name bound
       // anywhere in the script counts, since this is not a scope analyser.
       for (const d of body.matchAll(/(?:const|let|var)\s*[{[]([^}\]]*)[}\]]/g)) {
