@@ -1237,9 +1237,12 @@ async function main() {
     'only an appointment is ever shown before it happens',
     bellAhead.map((i) => i.kind).join(', ') || 'none ahead');
 
-  const bellSeen = await call(advisor, 'POST', '/api/alerts/bellSeen');
+  const bellSeen = await call(advisor, 'POST', '/api/alerts/seen');
+  // The body as well as the code. A 404 here said only "404", and the cause
+  // was a corrupted path in this very line; the server's own words would have
+  // said "No such endpoint" and pointed straight at it.
   check(bellSeen.status === 200 && bellSeen.data?.seenAt, 'the bell can be cleared',
-    `status ${bellSeen.status}`);
+    `status ${bellSeen.status} ${bellSeen.raw}`);
 
   const bellQuiet = await call(advisor, 'GET', '/api/alerts');
   check(bellQuiet.data?.unread === 0, 'and goes quiet once it has been',
