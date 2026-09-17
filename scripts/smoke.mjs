@@ -1159,10 +1159,19 @@ async function main() {
   check(apptOnGrid[0] && apptOnGrid[0].time === '14:00' && apptOnGrid[0].who === 'Smoke Client',
     'with its time and who it is with', JSON.stringify(apptOnGrid[0]));
 
-  // Five different things, each owned by a different screen, on one grid.
+  // Different things, each owned by a different screen, on one grid. The
+  // smoke reservation departs in 120 days, which is outside this window on
+  // purpose: a month view that reached that far would be answering a question
+  // nobody asked.
   const apptKinds = new Set(evs.map((e) => e.kind));
-  check(apptKinds.has('appointment') && apptKinds.has('departure'),
-    'alongside the trips that depart in the window', [...apptKinds].join(', '));
+  check(apptKinds.has('appointment') && apptKinds.has('payment'),
+    'alongside the vendor deadlines in the window', [...apptKinds].join(', '));
+
+  const outbound = await call(advisor, 'GET',
+    `/api/calendar?from=${isoDay(118)}&to=${isoDay(130)}`);
+  check((outbound.data?.events || []).some((e) => e.kind === 'departure'),
+    'and a trip lands on the day it departs',
+    [...new Set((outbound.data?.events || []).map((e) => e.kind))].join(', '));
   // Read only: every one of these carries a way back to the screen that owns
   // it, because acting on it happens there.
   check(evs.every((e) => e.href), 'and every one of them leads somewhere');
