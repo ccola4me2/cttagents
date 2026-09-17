@@ -13,7 +13,6 @@
 // hears nothing has no way to tell "it worked" from "it went in the bin", and
 // the bin is where a silent inbound integration puts everybody's trust.
 
-import { now, uid } from './util.js';
 import { parseInvite, calendarPartOf } from './ics.js';
 import { applyInvite, zoneOf } from './appointments.js';
 import * as db from './db.js';
@@ -78,30 +77,4 @@ export async function handleInboundInvite(env, { to, raw }) {
     { uid: invite.uid, from: 'email' });
 
   return { user, outcome: res.outcome, invite };
-}
-
-/**
- * The address to give an advisor, and the token behind it.
- *
- * Made on request rather than for everybody at once: an address nobody has
- * asked for is an address nobody is watching, and there is no reason for one
- * to exist before somebody wants it.
- */
-export async function inviteAddressFor(env, user, { make = false } = {}) {
-  let token = user.invite_token || null;
-  if (!token && make) {
-    // Two randomUUIDs of hex, which is the same source the session tokens and
-    // the form invite ids come from.
-    token = (uid() + uid()).replace(/-/g, '').slice(0, 32);
-    await env.DB.prepare('UPDATE users SET invite_token = ?, updated_at = ? WHERE id = ?')
-      .bind(token, now(), user.id).run();
-  }
-  if (!token) return { address: null, domain: inviteDomain(env) };
-  return { address: `appt-${token}@${inviteDomain(env)}`, domain: inviteDomain(env) };
-}
-
-/** Where forwarded invites are received. Its own subdomain, so the agency's
- *  ordinary mail is not touched by any of this. */
-export function inviteDomain(env) {
-  return env.INVITE_DOMAIN || '';
 }

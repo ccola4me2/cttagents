@@ -450,3 +450,57 @@ export async function handleImportInvite(request, env) {
     unconverted: Boolean(invite.unconverted),
   }, 200);
 }
+
+/**
+ * The address to give an advisor, and the token behind it.
+ *
+ * Made on request rather than for everybody at once: an address nobody has
+ * asked for is an address nobody is watching, and there is no reason for one
+ * to exist before somebody wants it.
+ */
+export async function inviteAddressFor(env, user, { make = false } = {}) {
+  let token = user.invite_token || null;
+  if (!token && make) {
+    // Two randomUUIDs of hex, which is the same source the session tokens and
+    // the form invite ids come from.
+    token = (uid() + uid()).replace(/-/g, '').slice(0, 32);
+    await env.DB.prepare('UPDATE users SET invite_token = ?, updated_at = ? WHERE id = ?')
+      .bind(token, now(), user.id).run();
+  }
+  if (!token) return { address: null, domain: inviteDomain(env) };
+  return { address: `appt-${token}@${inviteDomain(env)}`, domain: inviteDomain(env) };
+}
+
+/** Where forwarded invites are received. Its own subdomain, so the agency's
+ *  ordinary mail is not touched by any of this. */
+export function inviteDomain(env) {
+  return env.INVITE_DOMAIN || '';
+}
+
+/**
+ * Where to forward meeting invites, for the advisor asking.
+ *
+ * GET says what it is, or that there is not one yet. POST makes one. Split so
+ * that looking at the page does not quietly create a credential nobody asked
+ * for.
+ */
+export async function handleInviteAddress(request, env, make) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const domain = inviteDomain(env);
+  if (!domain) {
+    return json({
+      ready: false,
+      address: null,
+      // Said plainly rather than shown as a broken address. Until the office
+      // has pointed a subdomain at this Worker there is nowhere for an invite
+      // to arrive, and a token issued now would be a promise nothing keeps.
+      why: 'Forwarding is not set up for this portal yet. The office has to point '
+        + 'an address at it first.',
+    });
+  }
+
+  const { address } = await inviteAddressFor(env, user, { make });
+  return json({ ready: true, address, domain });
+}
