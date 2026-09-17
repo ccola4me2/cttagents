@@ -110,7 +110,13 @@ export async function pushTo(env, sub) {
     },
   });
 
-  if (res.status === 404 || res.status === 410) {
+  // 404 and 410 mean the browser has forgotten it. 403 means the push service
+  // will not accept us as this subscriber, which since the request is signed
+  // means it was made against a different key. All three are answers rather
+  // than failures to retry, and all three make this row dead to us: without
+  // the third, the hourly knock goes on for ever against something that can
+  // never answer.
+  if (res.status === 404 || res.status === 410 || res.status === 403) {
     await env.DB.prepare(
       `UPDATE push_subscriptions SET failed_at = ?, updated_at = ?
         WHERE id = ? AND user_id = ?`

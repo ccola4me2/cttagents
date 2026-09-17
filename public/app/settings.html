@@ -372,6 +372,22 @@ async function currentSubscription() {
   return reg.pushManager.getSubscription();
 }
 
+/**
+ * Is this subscription signed to the key the portal is using now?
+ *
+ * Keys get replaced, and a subscription made against the old pair is refused
+ * by the push service with a 403. Nothing about it looks wrong from here: it
+ * is present, it has an endpoint, and it will never receive anything again.
+ */
+function subscribedToKey(sub, key) {
+  if (!sub || !key) return false;
+  const have = sub.options && sub.options.applicationServerKey;
+  if (!have) return false;
+  const a = new Uint8Array(have);
+  const b = urlBase64ToUint8Array(key);
+  return a.length === b.length && a.every((n, i) => n === b[i]);
+}
+
 async function drawPush() {
   if (!pushSupported) {
     pushState.textContent = 'This browser cannot';
@@ -388,10 +404,20 @@ async function drawPush() {
     return;
   }
   const sub = await currentSubscription();
-  pushState.textContent = sub ? 'On for this device' : 'Off for this device';
-  pushOn.hidden = Boolean(sub);
+  // Against the key in use now, not merely present. A subscription signed to a
+  // key that has been replaced is refused by the push service, and saying "on"
+  // about it is the portal telling somebody they will be told things they will
+  // not be told.
+  let live = Boolean(sub);
+  if (sub) {
+    const { key } = await api('/api/push/key').catch(() => ({}));
+    live = subscribedToKey(sub, key);
+  }
+  pushState.textContent = live ? 'On for this device'
+    : sub ? 'Needs turning on again' : 'Off for this device';
+  pushOn.hidden = live;
   pushOff.hidden = !sub;
-  pushTest.hidden = !sub;
+  pushTest.hidden = !live;
 }
 
 // Because everything between this switch and a notification fails quietly:
@@ -437,6 +463,18 @@ pushOn.addEventListener('click', async () => {
 
     const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
     await navigator.serviceWorker.ready;
+
+    // An existing subscription against a different key has to go first.
+    // subscribe() hands back the one it already has where it can, so without
+    // this, turning it off and on again returns the same dead subscription and
+    // nothing ever arrives.
+    const had = await reg.pushManager.getSubscription();
+    if (had && !subscribedToKey(had, key)) {
+      await api('/api/push/subscribe', { method: 'DELETE', body: { endpoint: had.endpoint } })
+        .catch(() => null);
+      await had.unsubscribe();
+    }
+
     const sub = await reg.pushManager.subscribe({
       // Not a preference: the browser grants this on the promise that every
       // push shows something, and quietly showing nothing is how the
