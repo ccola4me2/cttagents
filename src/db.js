@@ -1363,6 +1363,44 @@ export async function openTasksBetween(env, scope, { from, to }) {
  * derived stage cannot disagree with the reservation it came from, because it
  * is read from it.
  */
+/**
+ * What became of the reservations raised in a window.
+ *
+ * Created in the window, by what they are now. There is no column recording
+ * when a reservation closed, so "closed this year" cannot be answered and is
+ * not claimed: this is the intake of the window and what came of it.
+ *
+ * Quotes still open are counted apart. Silence is not a loss, and a rate that
+ * treats it as one reads as decisive when it is only unknown.
+ */
+export async function closedSince(env, scope, sinceIso) {
+  const scoped = scopeWhere(scope, 'b.user_id');
+  const row = await env.DB.prepare(
+    `SELECT
+       SUM(CASE WHEN b.status IN ('booked','travelled') THEN 1 ELSE 0 END) AS won,
+       SUM(CASE WHEN b.status IN ('booked','travelled') THEN COALESCE(b.gross_cents,0) ELSE 0 END)
+         AS won_cents,
+       SUM(CASE WHEN b.status = 'cancelled' THEN 1 ELSE 0 END) AS lost,
+       SUM(CASE WHEN b.status = 'quoted' THEN 1 ELSE 0 END) AS still_open
+     FROM bookings b
+     WHERE ${scoped.sql} AND b.created_at >= ?`
+  ).bind(...scoped.binds, Math.floor(Date.parse(`${sinceIso}T00:00:00Z`) / 1000))
+    .first().catch(() => null);
+
+  const won = Number(row?.won || 0);
+  const lost = Number(row?.lost || 0);
+  const decided = won + lost;
+  return {
+    won,
+    wonValue: Math.round(Number(row?.won_cents || 0) / 100),
+    lost,
+    abandoned: Number(row?.still_open || 0),
+    // Null rather than nought when nothing has been decided either way: a
+    // closing rate of 0% and no data at all are different things.
+    closingRate: decided ? Math.round((won / decided) * 100) : null,
+  };
+}
+
 export const RESERVATION_STAGES = [
   { id: 'inquiry', name: 'Inquiry' },
   { id: 'quote_sent', name: 'Quote sent' },
@@ -1432,8 +1470,10 @@ export async function calendarMonth(env, scope, { from, to }) {
   const p = scopeWhere(scope, 'p.user_id');
   const t = scopeWhere(scope, 't.user_id');
   const g = scopeWhere(scope, 'g.user_id');
+  const a = scopeWhere(scope, 'a.user_id');
+  const c = scopeWhere(scope, 'c.user_id');
 
-  const [departs, returns, payments, tasks, options] = await Promise.all([
+  const [departs, returns, payments, tasks, options, appts, leadSteps] = await Promise.all([
     env.DB.prepare(
       `SELECT b.id, b.depart_date AS on_date, b.client_name, b.supplier
          FROM bookings b WHERE ${b.sql} AND b.status IN ('quoted','booked','travelled')
@@ -1465,9 +1505,41 @@ export async function calendarMonth(env, scope, { from, to }) {
          FROM travel_groups g WHERE ${g.sql} AND g.status = 'open'
           AND g.option_date BETWEEN ? AND ?`
     ).bind(...g.binds, from, to).all().catch(() => ({ results: [] })),
+
+    env.DB.prepare(
+      `SELECT a.id, a.on_date, a.start_time, a.end_time, a.title, a.location,
+              cl.name AS client_name
+         FROM appointments a
+         LEFT JOIN clients cl ON cl.id = a.client_id
+        WHERE ${a.sql} AND a.cancelled_at IS NULL AND a.on_date BETWEEN ? AND ?`
+    ).bind(...a.binds, from, to).all().catch(() => ({ results: [] })),
+
+    // Somebody who has booked is off the lead board on their own, so they are
+    // off this too: the follow-up date stopped mattering when the trip existed.
+    env.DB.prepare(
+      `SELECT c.id, c.lead_next_step_on AS on_date, c.name, c.lead_next_step
+         FROM clients c
+        WHERE ${c.sql} AND c.lead_stage IS NOT NULL
+          AND c.lead_next_step_on BETWEEN ? AND ?
+          AND NOT EXISTS (SELECT 1 FROM bookings x
+                           WHERE x.client_id = c.id AND x.status IN ('booked','travelled'))`
+    ).bind(...c.binds, from, to).all().catch(() => ({ results: [] })),
   ]);
 
+  const appointmentRows = appts.results || [];
+  const leadRows = leadSteps.results || [];
+
   const out = [];
+  for (const r of appointmentRows) {
+    const when = [r.start_time, r.end_time].filter(Boolean).join(' to ');
+    out.push({ date: r.on_date, kind: 'appointment', title: r.title,
+               detail: [when, r.client_name, r.location].filter(Boolean).join(' · '),
+               href: '/app/calendar' });
+  }
+  for (const r of leadRows) {
+    out.push({ date: r.on_date, kind: 'lead', title: r.lead_next_step || `Follow up with ${r.name}`,
+               detail: r.name, href: '/app/leads' });
+  }
   for (const r of departs.results || []) {
     out.push({ date: r.on_date, kind: 'depart', title: r.client_name,
                detail: `Departs${r.supplier ? ' · ' + r.supplier : ''}`, href: '/app/reservation?id=' + r.id });

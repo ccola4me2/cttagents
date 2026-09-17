@@ -344,12 +344,13 @@ const PANELS = {
       return `<div style="padding:.9rem 1rem;">
         <p style="font-size:.82rem;margin:0 0 .7rem;">Closing rate
           <strong style="font-size:1.4rem;">${c.closingRate === null ? '-' : c.closingRate + '%'}</strong>
-          <span class="muted">won against won plus lost, last 12 months</span></p>
+          <span class="muted">of the reservations raised in the last 12 months,
+            won against won plus lost</span></p>
         <div class="stage-row"><span style="min-width:6rem;">Won</span>
           <span class="n">${c.won} &middot; ${esc(money(c.wonValue * 100))}</span></div>
         <div class="stage-row"><span style="min-width:6rem;">Lost</span><span class="n">${c.lost}</span></div>
-        <div class="stage-row"><span style="min-width:6rem;">Went quiet</span>
-          <span class="n">${c.abandoned}<span class="muted"> (not counted in the rate)</span></span></div>
+        <div class="stage-row"><span style="min-width:6rem;">Still quoted</span>
+          <span class="n">${c.abandoned}<span class="muted"> (undecided, so not in the rate)</span></span></div>
       </div>`;
     } },
     { key: 'active', label: 'Open', render: () => {
@@ -563,11 +564,12 @@ const everyoneNow = () => Boolean(d.scope && d.scope.all);
 // forty two divs and a date loop.
 const KIND_TONE = {
   depart: 'depart', return: 'return', hard: 'hard', soft: 'soft', task: 'task',
-  option: 'option',
+  option: 'option', appointment: 'appointment', lead: 'lead',
 };
 const KIND_NAME = {
   depart: 'Departure', return: 'Return', hard: 'Vendor deadline',
   soft: 'Reminder', task: 'Task', option: 'Group option date',
+  appointment: 'Appointment', lead: 'Lead follow-up',
 };
 
 // 09:00 reads as 9am to everyone and as nine hundred hours to nobody.
@@ -697,7 +699,15 @@ async function drawMonth(host) {
   if (opening) show(opening);
   else detail.innerHTML = '<p class="cal-none">Nothing dated this month.</p>';
 }
-const openTasks = () => (d.tasks || []).filter((t) => !t.done_at);
+// Everything due, not everything written down as a task. A lead's follow-up
+// and an hour in the diary are due on a day in exactly the way a task is, and
+// a card that says nothing needs you while a follow-up is a day late is worse
+// than no card at all.
+const openTasks = () => [
+  ...(d.tasks || []),
+  ...(d.leads || []),
+  ...(d.appointments || []),
+].filter((t) => !t.done_at);
 
 /**
  * Tasks tick off in place. Going to another screen and back to record that you
@@ -707,17 +717,35 @@ function taskRows(list) {
   if (!list.length) return '';
   return `<ul class="rows task-rows">${list.map((t) => {
     const late = t.due_date && t.due_date < d.today;
+    const marks = [
+      t.due_date ? `<span class="${late ? 'late' : ''}">${esc(fmtShort(t.due_date))}${
+        t.due_time ? ` ${esc(t.due_time)}` : ''}</span>` : 'no date',
+      t.lead ? '<span class="badge badge-navy">Lead</span>' : '',
+      t.appointment ? '<span class="badge badge-navy">Appointment</span>' : '',
+      t.priority === 'high' && !t.lead ? '<span class="badge badge-coral">high</span>' : '',
+      t.client_name && (t.lead || t.appointment) ? esc(t.client_name) : '',
+      t.booking_client ? esc(t.booking_client) : '',
+      everyoneNow() && t.advisor_name ? esc(t.advisor_name) : '',
+    ].filter(Boolean).join(' &middot; ');
+
+    // Only a task has a tick. A lead's follow-up and an appointment go to the
+    // screen that owns them, where ending one is a deliberate choice rather
+    // than a checkbox that has to guess what you meant.
+    if (t.lead || t.appointment) {
+      return `<li><a class="task-tick" style="text-decoration:none;"
+        href="${t.lead ? '/app/leads' : '/app/calendar'}">
+        <span>
+          <span class="t" style="font-size:.84rem;">${esc(t.title)}</span>
+          <span class="m">${marks}</span>
+        </span></a></li>`;
+    }
+
     return `<li${rowLink(t.booking_id && `/app/reservation?id=${t.booking_id}`)}>
       <label class="task-tick">
         <input type="checkbox" data-task="${esc(t.id)}">
         <span>
           <span class="t" style="font-size:.84rem;">${esc(t.title)}</span>
-          <span class="m">${[
-            t.due_date ? `<span class="${late ? 'late' : ''}">${esc(fmtShort(t.due_date))}</span>` : 'no date',
-            t.priority === 'high' ? '<span class="badge badge-coral">high</span>' : '',
-            t.booking_client ? esc(t.booking_client) : '',
-            everyoneNow() && t.advisor_name ? esc(t.advisor_name) : '',
-          ].filter(Boolean).join(' &middot; ')}</span>
+          <span class="m">${marks}</span>
         </span>
       </label></li>`;
   }).join('')}</ul>`;

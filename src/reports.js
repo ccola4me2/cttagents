@@ -12,6 +12,8 @@ import { tenantFor } from './tenant.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 import { readLayout, PANELS } from './prefs.js';
+import { dueLeads } from './tasks.js';
+import { dueAppointments } from './appointments.js';
 import { listTasks } from './tasks.js';
 import { documentWatch, upcomingBirthdays } from './travellers.js';
 import { listGroups } from './groups.js';
@@ -63,6 +65,41 @@ async function panel(failed, name, work, fallback) {
     failed.push(hint ? { name, hint } : { name });
     return fallback;
   }
+}
+
+/**
+ * The reservation board, counted.
+ *
+ * Open is everything still being worked: away and home are outcomes rather
+ * than opportunities, and leaving them in would make the pipeline look
+ * healthier every time somebody came back from a trip.
+ *
+ * Closing is deliberately narrow. Won is what has been booked, lost is what
+ * was cancelled, and a quote nobody answered is neither: counting silence as
+ * a loss makes the rate look decisive when it is only unknown, so it is shown
+ * beside the rate and left out of it.
+ */
+async function pipelineSummary(env, scope, today) {
+  const cards = await db.reservationPipeline(env, scope, today);
+  const OPEN = new Set(['inquiry', 'quote_sent', 'deposit_due', 'deposit_paid',
+    'final_due', 'final_paid']);
+  const open = cards.filter((c) => OPEN.has(c.stageId));
+
+  const stages = db.RESERVATION_STAGES
+    .filter((st) => OPEN.has(st.id))
+    .map((st) => ({ id: st.id, name: st.name,
+      count: open.filter((c) => c.stageId === st.id).length }))
+    .filter((st) => st.count);
+
+  const year = isoDay(-365);
+  const closed = await db.closedSince(env, scope, year).catch(() => null);
+
+  return {
+    openCount: open.length,
+    openValue: open.reduce((n, c) => n + (c.monetaryValue || 0), 0),
+    stages,
+    closed,
+  };
 }
 
 export async function handleDashboard(request, env) {
@@ -124,6 +161,17 @@ export async function handleDashboard(request, env) {
     byType: await db.productionBreakdown(env, scope, isoDay(0), 'type'),
     byVendor: await db.productionBreakdown(env, scope, isoDay(0), 'vendor'),
     tasks: await panel(failed, 'tasks', listTasks(env, scope, { state: 'open', limit: 25 }), []),
+    // The other two things that are due on a day. They joined the sidebar
+    // drawer and the morning email and not this, so the card on the dashboard
+    // said nothing needed you while a follow-up was a day late.
+    leads: await panel(failed, 'tasks',
+      dueLeads(env, scope, { today, until: isoDay(7) }), []),
+    appointments: await panel(failed, 'tasks',
+      dueAppointments(env, scope, { until: isoDay(7) }), []),
+    // What the CRM widget used to show, from the board that replaced it. The
+    // stage is worked out from the reservation rather than dragged, so this
+    // cannot drift from the book of business the way a copy did.
+    pipeline: await panel(failed, 'deals', pipelineSummary(env, scope, today), null),
     groups: await panel(failed, 'groups', listGroups(env, scope, { status: 'open', limit: 12 }), []),
     rebook: await panel(failed, 'rebook', db.rebookCandidates(env, scope, { today, limit: 12 }), []),
     // Quotes nobody has answered, and quotes nobody has sent. Neither shows up

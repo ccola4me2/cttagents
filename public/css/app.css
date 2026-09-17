@@ -961,6 +961,8 @@ table.grid input:focus { border-color: var(--navy-400); background: #fff; }
 .dot.soft { background: var(--amber-600); }
 .dot.task { background: var(--green-600); }
 .dot.option { background: var(--red-600); }
+.dot.appointment { background: var(--coral-600); }
+.dot.lead { background: var(--amber-600); }
 
 /* The day a calendar detail panel is showing, named rather than implied. */
 .cal-day-head {
