@@ -860,14 +860,54 @@ export async function handleSendForm(request, env, id) {
     if (!client) return notFound('That client is not on your books.');
   }
 
-  const to = normalizeEmail(client ? client.email : body.email);
+  // The record wins where it has one, so naming a client cannot be used to
+  // post their questions somewhere else. Where it has none there is nothing to
+  // redirect away from, so a typed address is taken and then kept.
+  const onFile = client ? normalizeEmail(client.email) : '';
+  const to = onFile || normalizeEmail(body.email);
   if (!to || !isValidEmail(to)) {
     return badRequest(client
-      ? `${client.name} has no email address on file. Add one and send again.`
+      ? `${client.name} has no email address on file. Type one and I will save it.`
       : 'A valid email address, please.');
+  }
+  if (client && !onFile) {
+    await env.DB.prepare(
+      `UPDATE clients SET email = COALESCE(NULLIF(email, ''), ?), updated_at = ?
+        WHERE id = ? AND user_id = ?`
+    ).bind(to, now(), client.id, user.id).run().catch(() => null);
   }
   const name = clean(client ? client.name : body.name, 120) || null;
   const note = cleanText(body.note, 400);
+
+  // Somebody new gets a record before the form does. A lead with no name is
+  // not a lead, so this is the one thing asked for rather than assumed.
+  if (!client) {
+    if (!name) {
+      return badRequest('A name as well, so they go on your book as somebody to '
+        + 'chase rather than just an address in a log.');
+    }
+    const before = await env.DB.prepare(
+      'SELECT id FROM clients WHERE user_id = ? AND name = ?'
+    ).bind(user.id, name).first();
+    const id = await db.resolveClient(env, user.id, name);
+    if (id) {
+      // Only what was blank, and only a stage for somebody genuinely new:
+      // a client already being worked is not dragged back to New because a
+      // form went out to them.
+      await env.DB.prepare(
+        `UPDATE clients
+            SET email = COALESCE(NULLIF(email, ''), ?),
+                lead_stage = COALESCE(lead_stage, ?),
+                lead_at = COALESCE(lead_at, ?),
+                lead_asked_about = COALESCE(NULLIF(lead_asked_about, ''), ?),
+                updated_at = ?
+          WHERE id = ? AND user_id = ?`
+      ).bind(to, before ? null : 'new', now(),
+             `Sent the ${form.name} form`.slice(0, 500), now(), id, user.id)
+        .run().catch(() => null);
+      client = await db.getClient(env, db.selfScope(user), { id });
+    }
+  }
 
   const inviteId = uid();
   const ts = now();

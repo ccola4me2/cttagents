@@ -47,19 +47,17 @@
     <div class="card-pad">
       <div class="notice notice-error" hidden></div>
       <p class="muted" id="send-what" style="margin:0 0 .9rem;"></p>
-      <div class="field"><label for="send-client">Who is it for</label>
-        <select id="send-client" name="clientId"></select>
-        <p class="field-hint">Somebody on your books, so their answers land on their record
-          rather than being matched by name. Or leave it on "somebody new" and type an
-          address.</p></div>
-      <div class="field" id="send-new" hidden>
-        <div class="field-row">
-          <div class="field"><label for="send-name">Their name</label>
-            <input id="send-name" name="name" maxlength="120"></div>
-          <div class="field"><label for="send-email">Their email</label>
-            <input id="send-email" name="email" type="email" maxlength="254"></div>
-        </div>
+      <div class="field-row">
+        <div class="field"><label for="send-who">Who is it for</label>
+          <input id="send-who" name="name" list="send-people" autocomplete="off"
+            maxlength="120" placeholder="Start typing a name">
+          <datalist id="send-people"></datalist></div>
+        <div class="field"><label for="send-email">Their email</label>
+          <input id="send-email" name="email" type="email" maxlength="254"></div>
       </div>
+      <p class="field-hint" id="send-who-hint" style="margin:-.5rem 0 .9rem;">Somebody on
+        your books, so their answers land on their record rather than being matched by
+        name. A name you have not used before goes on your book as somebody to chase.</p>
       <div class="field"><label for="send-note">A line from you</label>
         <textarea id="send-note" name="note" maxlength="400" rows="2"
           placeholder="Lovely speaking with you this morning."></textarea>
@@ -256,13 +254,56 @@ await load();
 // afterwards whether they filled it in.
 const sendDlg = document.getElementById('send-dlg');
 const sendForm = document.getElementById('send-form');
-const sendClient = document.getElementById('send-client');
+const sendWho = document.getElementById('send-who');
+const sendEmail = document.getElementById('send-email');
+const sendWhoHint = document.getElementById('send-who-hint');
+const NEW_HINT = sendWhoHint.textContent;
 let sending = null;
 let people = [];
 
-sendClient.addEventListener('change', () => {
-  document.getElementById('send-new').hidden = Boolean(sendClient.value);
-});
+/**
+ * The clients whose name is what was typed.
+ *
+ * Plural on purpose. Two people called John Smith is not a rare thing on a
+ * book of any size, and quietly picking the first would send one person's
+ * questions onto the other's record, which is the exact confusion this whole
+ * feature exists to remove.
+ */
+function matches(typed) {
+  const want = typed.trim().toLowerCase();
+  if (!want) return [];
+  return people.filter((c) => (c.name || '').trim().toLowerCase() === want);
+}
+
+function readWho() {
+  const hit = matches(sendWho.value);
+  const typedEmail = sendEmail.value.trim().toLowerCase();
+  const narrowed = hit.length > 1 && typedEmail
+    ? hit.filter((c) => (c.email || '').toLowerCase() === typedEmail)
+    : hit;
+
+  if (narrowed.length === 1) {
+    if (!sendEmail.value && narrowed[0].email) sendEmail.value = narrowed[0].email;
+    sendWhoHint.textContent = narrowed[0].email
+      ? 'On your books. Their answers land on their record.'
+      : `${narrowed[0].name} is on your books with no email on file. Type one and it `
+        + 'gets saved to their record.';
+    return narrowed[0];
+  }
+  if (hit.length > 1) {
+    sendWhoHint.textContent = `${hit.length} people on your books have that name. `
+      + 'Type their email as well and I will know which.';
+    return null;
+  }
+  sendWhoHint.textContent = sendWho.value.trim()
+    ? `${sendWho.value.trim()} is not on your books yet. Sending this puts them on it, `
+      + 'on your lead board, as somebody to chase.'
+    : NEW_HINT;
+  return null;
+}
+
+sendWho.addEventListener('input', readWho);
+sendEmail.addEventListener('input', readWho);
 document.querySelector('[data-close-send]').addEventListener('click', () => sendDlg.close());
 
 async function openSend(formId, formName) {
@@ -271,14 +312,17 @@ async function openSend(formId, formName) {
   sendForm.querySelector('.notice-error').hidden = true;
   document.getElementById('send-what').textContent =
     `${formName} goes out over your name, and replies come back to you.`;
+  // Yours, not the agency's. An owner's client list is everybody's, and the
+  // endpoint behind this takes your own clients and nothing else, so anyone
+  // else's would be offered here and refused on the next click.
   if (!people.length) {
-    people = await api('/api/clients?limit=500').then((d) => d.clients || []).catch(() => []);
+    people = await api('/api/clients?mine=1&limit=500')
+      .then((d) => d.clients || []).catch(() => []);
   }
-  sendClient.innerHTML = '<option value="">Somebody new</option>'
-    + people.filter((c) => c.email)
-        .map((c) => `<option value="${esc(c.id)}">${esc(c.name)} &middot; ${esc(c.email)}</option>`)
-        .join('');
-  document.getElementById('send-new').hidden = false;
+  document.getElementById('send-people').innerHTML = people
+    .map((c) => `<option value="${esc(c.name)}">${esc(c.email || 'no email on file')}</option>`)
+    .join('');
+  sendWhoHint.textContent = NEW_HINT;
   sendDlg.showModal();
 }
 
@@ -290,9 +334,9 @@ sendForm.addEventListener('submit', async (e) => {
     const res = await api(`/api/myforms/${encodeURIComponent(sending)}/send`, {
       method: 'POST',
       body: {
-        clientId: sendClient.value || undefined,
-        name: sendForm.elements.name.value,
-        email: sendForm.elements.email.value,
+        clientId: readWho()?.id,
+        name: sendWho.value,
+        email: sendEmail.value,
         note: sendForm.elements.note.value,
       },
     });

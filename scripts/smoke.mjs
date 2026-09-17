@@ -1011,6 +1011,52 @@ async function main() {
       `status ${badToken.status}`);
   }
 
+  // Somebody nobody has met yet. The point of doing this at send time rather
+  // than at submit time is the half who never answer: an address in a sent log
+  // is not something anybody rings, and a lead is.
+  const strangerName = `Stranger ${stamp}`;
+  const toStranger = await call(advisor, 'POST', `/api/myforms/${sendable.id}/send`, {
+    name: strangerName, email: `stranger-${stamp}@test.dev`,
+  });
+  check(toStranger.status === 201, 'a form can go to somebody not on the book',
+    `status ${toStranger.status} ${JSON.stringify(toStranger.data)}`);
+
+  const book = await call(advisor, 'GET',
+    `/api/clients?mine=1&q=${encodeURIComponent(strangerName)}`);
+  const madeLead = (book.data?.clients || []).find((c) => c.name === strangerName);
+  check(madeLead, 'and puts them on the book', `${(book.data?.clients || []).length} match(es)`);
+  check(madeLead && madeLead.lead_stage === 'new',
+    'as somebody to chase, not just an address in a log', madeLead && madeLead.lead_stage);
+  // A client has one origin and the portal does not know what conversation led
+  // to this. A guessed channel is worse than a blank one: it reads as an answer.
+  check(madeLead && !madeLead.source_kind,
+    'with the channel left for the advisor to say', madeLead && madeLead.source_kind);
+
+  const sendNoName = await call(advisor, 'POST', `/api/myforms/${sendable.id}/send`, {
+    email: `nameless-${stamp}@test.dev`,
+  });
+  check(sendNoName.status === 400, 'an address with no name is refused, since a lead needs one',
+    `status ${sendNoName.status}`);
+
+  // A client with nothing on file can be given an address, which is not the
+  // same as redirecting one who has it.
+  const sendBlankClient = await call(advisor, 'POST', '/api/clients',
+    { name: `No Address ${stamp}` });
+  const sendBlankId = sendBlankClient.data?.client?.id;
+  if (sendBlankId) {
+    const sendFilled = await call(advisor, 'POST', `/api/myforms/${sendable.id}/send`, {
+      clientId: sendBlankId, email: `filled-${stamp}@test.dev`,
+    });
+    check(sendFilled.data?.to === `filled-${stamp}@test.dev`,
+      'a client with no address on file can be given one', sendFilled.data?.to);
+    const afterFill = await call(advisor, 'GET',
+      `/api/clients?mine=1&q=${encodeURIComponent(`No Address ${stamp}`)}`);
+    const sendKeptRow = (afterFill.data?.clients || []).find((c) => c.id === sendBlankId);
+    check(sendKeptRow && sendKeptRow.email === `filled-${stamp}@test.dev`,
+      'and it is kept, so nobody types it twice', sendKeptRow && sendKeptRow.email);
+  }
+
+
   // ------------------------------------------------------ the lead report --
   step('What the forms brought in');
 
