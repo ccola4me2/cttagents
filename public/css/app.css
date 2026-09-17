@@ -1301,3 +1301,16 @@ th.num .th-sort { justify-content: flex-end; }
   .cal-grid { min-width: 42rem; }
   .cal-day { min-height: 5rem; }
 }
+
+/* ----------------------------------------------------------------- bell -- */
+.alert-rows li { padding: 0; }
+.alert-row { display: block; padding: .6rem .35rem; text-decoration: none; color: inherit; }
+.alert-row:hover { background: var(--navy-50); }
+.alert-row .t { display: block; font-size: .84rem; color: var(--navy-800); }
+.alert-row .m { display: block; margin-top: .2rem; font-size: .74rem; color: var(--ink-500); }
+.alert-row .m .tag { margin-right: .35rem; }
+
+/* Unread, marked down the edge rather than with a colour on the words: the
+   words already carry late and due, and a third meaning on the same text is
+   one nobody reads. */
+.alert-row.fresh { border-left: 3px solid var(--coral-500); padding-left: .55rem; }

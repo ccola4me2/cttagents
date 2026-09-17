@@ -151,6 +151,7 @@ import {
   handleDeleteAppointment,
 } from './appointments.js';
 import { handleCalendar } from './calendar.js';
+import { handleAlerts, handleAlertsSeen } from './alerts.js';
 import {
   renderPublicForm,
   handlePublicSubmit,
@@ -699,6 +700,13 @@ async function routeApi(request, env, path, method) {
   if (bookingMatch && method === 'DELETE') return handleDeleteBooking(request, env, bookingMatch[1]);
 
   // ---- conversations ----------------------------------------------------
+
+  // ---- the bell ---------------------------------------------------------
+
+  // What needs somebody, and what has arrived. Reading it changes nothing;
+  // clearing it is the only write, and it writes one timestamp.
+  if (path === '/api/alerts' && method === 'GET') return handleAlerts(request, env);
+  if (path === '/api/alerts/seen' && method === 'POST') return handleAlertsSeen(request, env);
 
   // ---- calendar ---------------------------------------------------------
 

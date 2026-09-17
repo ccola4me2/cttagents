@@ -356,6 +356,134 @@ function mountSearch(sidebar) {
  * Sections are the ones that describe an actual working day: what you pinned,
  * what is late, what is due today, what is coming this week.
  */
+/**
+ * The bell.
+ *
+ * What needs somebody and what has arrived, in one list, newest first. It goes
+ * quiet once read, which is the difference between it and the To do count
+ * beside it: a count is a number you act on and does not stop being true
+ * because you looked at it.
+ *
+ * Read only. Every line goes to the screen that owns it, because that is where
+ * the words for doing something about it already are.
+ */
+function mountBell(sidebar) {
+  const button = sidebar.querySelector('#open-bell');
+  const badge = sidebar.querySelector('#bell-count');
+  if (!button) return;
+
+  let panel = null;
+  let state = { items: [], unread: 0, off: false };
+
+  const KIND = {
+    task: 'Task', lead: 'Lead', appointment: 'Appointment', form: 'Form',
+  };
+
+  /** "3 days ago", "in 2 hours": how somebody would say it out loud. */
+  function ago(at, nowSecs) {
+    const secs = nowSecs - at;
+    const ahead = secs < 0;
+    const n = Math.abs(secs);
+    if (n < 90) return 'just now';
+    // A day either way is a word, not an arithmetic result. "in 24 hours" is
+    // how nobody says tomorrow.
+    if (n >= 64800 && n < 129600) return ahead ? 'tomorrow' : 'yesterday';
+    const say = n < 5400 ? `${Math.round(n / 60)} minutes`
+      : n < 64800 ? `${Math.round(n / 3600)} hours`
+        : `${Math.round(n / 86400)} days`;
+    return ahead ? `in ${say}` : `${say} ago`;
+  }
+
+  async function refresh() {
+    try {
+      state = await api('/api/alerts');
+      badge.textContent = String(state.unread || 0);
+      badge.hidden = !state.unread;
+      badge.classList.toggle('late', Boolean(state.unread));
+    } catch { /* the bell is a nicety, not a feature */ }
+  }
+
+  function draw() {
+    const nowSecs = state.now || Math.floor(Date.now() / 1000);
+    const seen = state.seenAt || 0;
+    const body = panel.querySelector('.drawer-body');
+
+    if (state.off) {
+      body.innerHTML = `<div class="empty"><h3>The bell is switched off</h3>
+        <p>Turn it back on under <a href="/app/settings">Settings</a>.</p></div>`;
+      return;
+    }
+    if (!state.items.length) {
+      body.innerHTML = '<div class="empty"><h3>Nothing waiting</h3>'
+        + '<p>Nothing is due and nothing has come in.</p></div>';
+      return;
+    }
+    body.innerHTML = `<ul class="rows alert-rows">${state.items.map((i) => `<li>
+      <a href="${esc(i.href)}" class="alert-row${
+        i.at > seen && i.at <= nowSecs ? ' fresh' : ''}">
+        <span>
+          <span class="t">${esc(i.title)}</span>
+          <span class="m">
+            <span class="tag">${esc(KIND[i.kind] || i.kind)}</span>
+            <span class="when${i.late ? ' late' : ''}">${esc(ago(i.at, nowSecs))}</span>
+            ${i.detail ? `&middot; ${esc(i.detail)}` : ''}
+          </span>
+        </span>
+      </a></li>`).join('')}</ul>`;
+  }
+
+  function build() {
+    panel = document.createElement('div');
+    panel.className = 'drawer';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'Alerts');
+    panel.innerHTML = `
+      <div class="drawer-panel">
+        <header class="drawer-head">
+          <h2>Alerts</h2>
+          <div>
+            <a class="btn btn-ghost btn-sm" href="/app/settings">Settings</a>
+            <button class="btn btn-ghost btn-sm" type="button" data-close>Close</button>
+          </div>
+        </header>
+        <div class="drawer-body"></div>
+      </div>`;
+    document.body.appendChild(panel);
+    panel.addEventListener('click', (e) => {
+      if (e.target === panel || e.target.closest('[data-close]')) close();
+    });
+  }
+
+  function close() {
+    panel.classList.remove('open');
+    document.body.classList.remove('drawer-open');
+  }
+
+  button.addEventListener('click', async () => {
+    if (!panel) build();
+    await refresh();
+    draw();
+    panel.classList.add('open');
+    document.body.classList.add('drawer-open');
+    // Read on opening, not on closing. Somebody who opens it and is called
+    // away has still seen it, and a bell that stays lit after being read is
+    // one people stop believing.
+    if (state.unread) {
+      try {
+        const res = await api('/api/alerts/seen', { method: 'POST' });
+        state.seenAt = res.seenAt;
+        badge.hidden = true;
+        badge.classList.remove('late');
+      } catch { /* it will clear next time */ }
+    }
+  });
+
+  refresh();
+  // Often enough to be worth having, rarely enough that a tab left open all
+  // day is not a load on anything.
+  setInterval(refresh, 5 * 60 * 1000);
+}
+
 function mountTodo(sidebar, user) {
   const button = sidebar.querySelector('#open-todo');
   const badge = sidebar.querySelector('#todo-count');
@@ -832,6 +960,12 @@ export async function mountShell({ admin = false } = {}) {
         <path d="M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>
       <span>To do</span><span class="todo-count" id="todo-count" hidden></span>
     </button>
+    <button type="button" class="nav-todo" id="open-bell">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+      <span>Alerts</span><span class="todo-count" id="bell-count" hidden></span>
+    </button>
     <div class="nav-search">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
            stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-3.5-3.5"/></svg>
@@ -855,7 +989,13 @@ export async function mountShell({ admin = false } = {}) {
     window.location.href = '/login';
   });
 
-  if (!admin) { mountSearch(sidebar); mountTodo(sidebar, user); }
+  // The bell rides with the To do count: both are an advisor's own, and an
+  // admin screen has neither.
+  if (!admin) {
+    mountSearch(sidebar);
+    mountTodo(sidebar, user);
+    mountBell(sidebar);
+  }
   watchMoneyFields();
 
   sidebar.querySelectorAll('.hub-toggle').forEach((button) => {

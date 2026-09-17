@@ -1203,6 +1203,63 @@ async function main() {
       'but is still in the diary, marked, because cancelling is a thing that happened');
   }
 
+  // ------------------------------------------------------------- the bell --
+  step('The bell says what needs somebody');
+
+  const bell = await call(advisor, 'GET', '/api/alerts');
+  check(bell.status === 200 && Array.isArray(bell.data?.items), 'the bell answers',
+    `status ${bell.status}`);
+  check(bell.data?.off === false, 'and is on unless somebody turned it off',
+    JSON.stringify(bell.data?.off));
+
+  // The overdue lead made earlier. A follow-up that is late is the thing the
+  // bell exists for: nothing else would have told anybody.
+  const bellLead = (bell.data?.items || []).find((i) => i.kind === 'lead'
+    && i.detail && i.detail.includes(`Due Lead ${stamp}`));
+  check(bellLead, 'carrying the lead whose next step is late',
+    `${(bell.data?.items || []).length} item(s)`);
+  check(bellLead && bellLead.late === true, 'marked late rather than merely due',
+    JSON.stringify(bellLead && bellLead.late));
+  check(bellLead && String(bellLead.id).startsWith('lead:') && bellLead.href === '/app/leads',
+    'and pointing at the screen that can do something about it',
+    JSON.stringify(bellLead && bellLead.href));
+
+  // Newest first. A bell is read from the top and the rest is scrolled past.
+  const ats = (bell.data?.items || []).map((i) => i.at);
+  check(ats.every((n, i) => i === 0 || ats[i - 1] >= n), 'newest first',
+    ats.slice(0, 4).join(', '));
+
+  // Something still ahead is upcoming, not new. Without this an appointment on
+  // Thursday is later than any moment the bell could have been read, so it
+  // would sit there unread for ever and the bell could never be silenced.
+  const bellAhead = (bell.data?.items || []).filter((i) => i.at > (bell.data?.now || 0));
+  check(bellAhead.every((i) => i.kind === 'appointment'),
+    'only an appointment is ever shown before it happens',
+    bellAhead.map((i) => i.kind).join(', ') || 'none ahead');
+
+  const bellSeen = await call(advisor, 'POST', '/api/alerts/bellSeen');
+  check(bellSeen.status === 200 && bellSeen.data?.seenAt, 'the bell can be cleared',
+    `status ${bellSeen.status}`);
+
+  const bellQuiet = await call(advisor, 'GET', '/api/alerts');
+  check(bellQuiet.data?.unread === 0, 'and goes quiet once it has been',
+    `${bellQuiet.data?.unread} still unread`);
+  check((bellQuiet.data?.items || []).length === (bell.data?.items || []).length,
+    'without losing what it was carrying: read is not the same as dealt with');
+
+  // Off means off, and says so. A bell that is quiet because you switched it
+  // off and one that is quiet because nothing needs you are different answers.
+  await call(advisor, 'PUT', '/api/auth/profile', { alertsFeed: false });
+  const hushed = await call(advisor, 'GET', '/api/alerts');
+  check(hushed.data?.off === true && !(hushed.data?.items || []).length,
+    'switched off, it carries nothing and says that is why',
+    JSON.stringify(hushed.data?.off));
+  await call(advisor, 'PUT', '/api/auth/profile', { alertsFeed: true });
+  const bellBack = await call(advisor, 'GET', '/api/alerts');
+  check(bellBack.data?.off === false && (bellBack.data?.items || []).length,
+    'and comes back with everything when it is switched on again',
+    `${(bellBack.data?.items || []).length} item(s)`);
+
   // ------------------------------------------------------ the lead report --
   step('What the forms brought in');
 
