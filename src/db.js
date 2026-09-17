@@ -15,6 +15,10 @@ const USER_COLUMNS = `
   agency_address, seller_of_travel,
   notify_email, auto_remind_clients, weekly_call_list, call_list_sent_at,
   task_digest, alerts_feed, push_alerts, alerts_seen_at,
+  -- The zone an advisor's day is in, and the address invites are
+  -- forwarded to. Absent from here, zoneOf would have read undefined and
+  -- quietly used the portal default for everybody, for ever.
+  timezone, invite_token,
   agency_id, platform_owner
 `;
 
