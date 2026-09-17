@@ -77,6 +77,22 @@ jobs:
       - name: Every lookup has something behind it
         run: npm run check:dom
 
+      # And declares it on every path. check-dom said yes about a checkbox that
+      # exists in one arm of a ternary, the script bound to it for every row,
+      # and a heading row had no checkbox: querySelector returned null,
+      # addEventListener threw inside a forEach, and the rest of the render
+      # went with it.
+      - name: Declared on every branch, not just one
+        run: npm run check:conditional
+
+      # A named import that is gone is a build error and never ships. A member
+      # of a namespace import that is gone is undefined, and undefined is only
+      # a problem at the instant somebody calls it. trip-vara's Pipeline page
+      # threw on every load for four days because db.reservationPipeline had
+      # stopped existing and nothing was looking.
+      - name: Every namespace member is really exported
+        run: npm run check:members
+
       # The other portal, so a fix that crossed the fork and a fix that crossed
       # half of it can be told apart. Both repositories are public, so this
       # needs no token. If it ever cannot be fetched the check says it skipped

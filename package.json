@@ -10,6 +10,8 @@
     "check:dashes": "node scripts/check-dashes.mjs",
     "check:reads": "node scripts/check-reads.mjs",
     "check:dom": "node scripts/check-dom.mjs",
+    "check:conditional": "node scripts/check-conditional.mjs",
+    "check:members": "node scripts/check-members.mjs",
     "check:fork": "node scripts/check-fork.mjs",
     "check:contracts": "node scripts/check-contracts.mjs",
     "check:scope": "node scripts/check-scope.mjs",

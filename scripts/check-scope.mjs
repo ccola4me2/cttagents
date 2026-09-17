@@ -321,14 +321,14 @@ for (const file of files) {
           + 'write the table out.';
         console.log(`FAIL  src/${file}:${line}  ${message}`);
         console.log(`        ${sql.replace(/\s+/g, ' ').trim().slice(0, 140)}`);
-        annotate({ file: `src/${file}`, line, message });
+        annotate('Scope', `src/${file}:${line} ${message}`);
         continue;
       }
       if (!/\buser_id\b/.test(sql)) {
         problems += 1;
         const message = 'is pinned in INTERPOLATED_ALLOWED and names no user_id.';
         console.log(`FAIL  src/${file}:${line}  ${message}`);
-        annotate({ file: `src/${file}`, line, message });
+        annotate('Scope', `src/${file}:${line} ${message}`);
       }
       continue;
     }
