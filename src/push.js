@@ -222,3 +222,37 @@ export async function handlePushUnsubscribe(request, env) {
   }
   return json({ ok: true, devices: left.length });
 }
+
+/**
+ * A knock on your own devices, on purpose.
+ *
+ * No recipient argument, so there is no shape of this request that reaches
+ * somebody else's phone. What arrives is the ordinary notification, built by
+ * the service worker from whatever is actually waiting, because a test that
+ * takes a different path from the real thing tests the wrong path.
+ */
+export async function handlePushTest(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  if (!pushReady(env)) {
+    return badRequest('Notifications are not switched on for this portal yet.');
+  }
+
+  const devices = await devicesFor(env, user.id);
+  if (!devices.length) {
+    return badRequest('No device has said yes yet. Turn it on here first.');
+  }
+
+  let sent = 0;
+  let gone = 0;
+  const failed = [];
+  for (const device of devices) {
+    const res = await pushTo(env, device).catch((e) => ({ failed: true, why: String(e.message) }));
+    if (res.sent) sent += 1;
+    else if (res.gone) gone += 1;
+    // The push service's own answer, because "it did not work" is not
+    // something anybody can act on and "410" is.
+    else failed.push(res.status || res.why || 'unknown');
+  }
+  return json({ ok: true, sent, gone, failed, devices: devices.length });
+}

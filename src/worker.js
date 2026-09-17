@@ -152,7 +152,9 @@ import {
 } from './appointments.js';
 import { handleCalendar } from './calendar.js';
 import { handleAlerts, handleAlertsSeen, pushWaiting } from './alerts.js';
-import { handlePushKey, handlePushSubscribe, handlePushUnsubscribe } from './push.js';
+import {
+  handlePushKey, handlePushSubscribe, handlePushUnsubscribe, handlePushTest,
+} from './push.js';
 import {
   renderPublicForm,
   handlePublicSubmit,
@@ -724,6 +726,7 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/push/subscribe' && method === 'DELETE') {
     return handlePushUnsubscribe(request, env);
   }
+  if (path === '/api/push/test' && method === 'POST') return handlePushTest(request, env);
 
   // ---- calendar ---------------------------------------------------------
 

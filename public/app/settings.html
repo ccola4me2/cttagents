@@ -153,6 +153,7 @@
             notification sits on a lock screen where anybody standing there can read it.
           </p>
           <button class="btn btn-primary btn-sm" type="button" id="push-on">Turn it on here</button>
+          <button class="btn btn-ghost btn-sm" type="button" id="push-test" hidden>Send me one now</button>
           <button class="btn btn-ghost btn-sm" type="button" id="push-off" hidden>Turn it off here</button>
         </div>
       </section>
@@ -351,6 +352,7 @@ liveSwitch({
 // that will not stay ticked.
 const pushOn = document.getElementById('push-on');
 const pushOff = document.getElementById('push-off');
+const pushTest = document.getElementById('push-test');
 const pushState = document.getElementById('push-state');
 const pushErr = document.getElementById('push-err');
 
@@ -389,7 +391,35 @@ async function drawPush() {
   pushState.textContent = sub ? 'On for this device' : 'Off for this device';
   pushOn.hidden = Boolean(sub);
   pushOff.hidden = !sub;
+  pushTest.hidden = !sub;
 }
+
+// Because everything between this switch and a notification fails quietly:
+// two permissions, a service worker, a key pair and somebody else's push
+// service. Better to find out now than at seven tomorrow morning.
+pushTest.addEventListener('click', async () => {
+  pushErr.hidden = true;
+  pushTest.disabled = true;
+  const was = pushTest.textContent;
+  pushTest.textContent = 'Sending...';
+  try {
+    const res = await api('/api/push/test', { method: 'POST' });
+    if (res.sent) {
+      pushTest.textContent = res.sent === 1
+        ? 'Sent, watch for it' : `Sent to ${res.sent} devices`;
+    } else {
+      throw new Error(res.gone
+        ? 'This browser has forgotten the subscription. Turn it off and on again here.'
+        : `The push service refused it: ${(res.failed || []).join(', ') || 'no reason given'}.`);
+    }
+  } catch (e) {
+    pushErr.textContent = e.message;
+    pushErr.hidden = false;
+    pushTest.textContent = was;
+  } finally {
+    setTimeout(() => { pushTest.disabled = false; pushTest.textContent = was; }, 4000);
+  }
+});
 
 pushOn.addEventListener('click', async () => {
   pushErr.hidden = true;
