@@ -1260,7 +1260,16 @@ th.num .th-sort { justify-content: flex-end; }
 .cal-bar { align-items: center; gap: .5rem; flex-wrap: wrap; }
 .cal-key { display: flex; gap: .85rem; flex-wrap: wrap; margin-left: auto;
   font-size: .74rem; color: var(--ink-500); }
-.cal-key-item { display: inline-flex; align-items: center; gap: .3rem; }
+/* The key is a control, not a legend. */
+.cal-key-item { background: none; border: 1px solid transparent; border-radius: 999px;
+  padding: .15rem .5rem; font: inherit; font-size: .74rem; color: var(--ink-500);
+  cursor: pointer; display: inline-flex; align-items: center; gap: .3rem; }
+.cal-key-item:hover { background: var(--navy-50); border-color: var(--navy-100); }
+.cal-key-item b { font-weight: 600; color: var(--navy-800); }
+.cal-key-item.off { opacity: .45; }
+.cal-key-item.off i { background: var(--navy-200) !important; }
+.cal-key-item:focus-visible { outline: 2px solid var(--coral-600); outline-offset: 1px; }
+.cal-key-all { border-color: var(--navy-200); color: var(--navy-700); }
 .cal-key-item i { width: .6rem; height: .6rem; border-radius: 2px; display: inline-block; }
 
 /* Scrolls sideways rather than squeezing: seven columns under about 40rem

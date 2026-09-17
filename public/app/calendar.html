@@ -137,6 +137,14 @@ const addDays = (s, n) => iso(new Date(Date.parse(`${s}T00:00:00Z`) + n * 864000
 
 let cursor = new Date();
 let events = [];
+// Which kinds are drawn. Kept per browser: somebody who wants only their own
+// appointments wants that tomorrow too, and a filter that resets every morning
+// is one nobody uses twice.
+let showing = new Set(KINDS.map(([k]) => k));
+try {
+  const saved = JSON.parse(localStorage.getItem('cal-kinds') || 'null');
+  if (Array.isArray(saved) && saved.length) showing = new Set(saved);
+} catch { /* a browser with storage switched off still gets a calendar */ }
 let people = [];
 let today = iso(new Date());
 let editing = null;
@@ -170,9 +178,15 @@ async function load() {
   } catch (e) { showError(err, e); grid.innerHTML = ''; }
 }
 
+/** Kept where it was set, and never allowed to fail the page. */
+function saveKinds() {
+  try { localStorage.setItem('cal-kinds', JSON.stringify([...showing])); }
+  catch { /* private window, or storage switched off */ }
+}
+
 function draw(from) {
   const byDay = new Map();
-  for (const e of events) {
+  for (const e of events.filter((e) => showing.has(e.kind))) {
     if (!byDay.has(e.date)) byDay.set(e.date, []);
     byDay.get(e.date).push(e);
   }
@@ -209,14 +223,48 @@ function draw(from) {
   grid.querySelectorAll('[data-day]').forEach((b) =>
     b.addEventListener('click', () => showDay(b.dataset.day)));
 
+  // A legend that is also the control. Each one says how many it is hiding or
+  // showing, because a filter whose effect you cannot see is one people forget
+  // they left on.
+  const counts = new Map();
+  for (const e of events) counts.set(e.kind, (counts.get(e.kind) || 0) + 1);
   document.getElementById('key').innerHTML = KINDS
-    .map(([k, label]) => `<span class="cal-key-item"><i class="ev-${k}"></i>${esc(label)}</span>`)
-    .join('');
+    .map(([k, label]) => `<button type="button" class="cal-key-item${
+      showing.has(k) ? '' : ' off'}" data-kind="${k}"
+      aria-pressed="${showing.has(k)}"
+      title="${showing.has(k) ? 'Hide' : 'Show'} ${esc(label.toLowerCase())}">
+      <i class="ev-${k}"></i>${esc(label)}${
+        counts.get(k) ? ` <b>${counts.get(k)}</b>` : ''}</button>`)
+    .join('')
+    + `<button type="button" class="cal-key-item cal-key-all" id="key-all">${
+      showing.size === KINDS.length ? 'Only appointments' : 'Show everything'}</button>`;
+
+  document.getElementById('key').querySelectorAll('[data-kind]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const k = b.dataset.kind;
+      if (showing.has(k)) showing.delete(k); else showing.add(k);
+      // Never all off: a blank grid looks broken rather than filtered.
+      if (!showing.size) showing = new Set(KINDS.map(([x]) => x));
+      saveKinds();
+      draw(from);
+      if (openDay) showDay(openDay);
+    }));
+
+  document.getElementById('key-all').addEventListener('click', () => {
+    showing = showing.size === KINDS.length
+      ? new Set(['appointment'])
+      : new Set(KINDS.map(([k]) => k));
+    saveKinds();
+    draw(from);
+    if (openDay) showDay(openDay);
+  });
 }
 
 function showDay(day) {
   openDay = day;
-  const list = events.filter((e) => e.date === day);
+  // The same filter as the grid. A day panel listing things the month above it
+  // is not drawing is the screen disagreeing with itself.
+  const list = events.filter((e) => e.date === day && showing.has(e.kind));
   dayCard.hidden = false;
   document.getElementById('day-title').textContent = dateFmt(day);
   // The date is in hand, so putting something on it should not mean typing it

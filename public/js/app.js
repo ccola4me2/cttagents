@@ -139,6 +139,7 @@ const I = {
   book: 'M4 5.5A1.5 1.5 0 0 1 5.5 4H11v15H5.5A1.5 1.5 0 0 1 4 17.5Zm16 0A1.5 1.5 0 0 0 18.5 4H13v15h5.5a1.5 1.5 0 0 0 1.5-1.5Z',
   back: 'M10 19l-7-7 7-7M3 12h18',
   chevron: 'm6 9 6 6 6-6',
+  calendar: 'M8 3v3m8-3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z',
   handshake: 'M7 11.5 4 8.5l3-2.5h4l2 1.5 2-1.5h4l3 2.5-3 3-1.5-1.2-3.2 3.4a1.6 1.6 0 0 1-2.3 0l-.6-.6-.9.8a1.5 1.5 0 0 1-2.1-2.1M7 11.5l2 2',
 };
 
@@ -146,6 +147,9 @@ const I = {
 // of the business you are working in, then the screen inside it.
 const NAV = [
   { href: '/app/', label: 'Dashboard', icon: I.home },
+  // Up here rather than inside a hub. A day is not a kind of client, and this
+  // is opened as often as the dashboard is.
+  { href: '/app/calendar', label: 'Calendar', icon: I.calendar },
   {
     hub: 'Reservation', icon: I.ship, items: [
       { href: '/app/reservations', label: 'Reservations' },
@@ -179,7 +183,6 @@ const NAV = [
       { href: '/app/segments', label: 'Lists' },
       { href: '/app/broadcasts', label: 'Emails' },
       { href: '/app/tasks', label: 'To do' },
-      { href: '/app/calendar', label: 'Calendar' },
       { href: '/app/hotlists', label: 'Who to call' },
       { href: '/app/credits', label: 'Client credits' },
     ],
