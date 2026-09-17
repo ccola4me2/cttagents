@@ -153,6 +153,7 @@ import {
 } from './appointments.js';
 import { handleCalendar } from './calendar.js';
 import { handleAlerts, handleAlertsSeen, pushWaiting } from './alerts.js';
+import { handleInboundInvite, inviteAddressFor, inviteDomain } from './inbound.js';
 import {
   handlePushKey, handlePushSubscribe, handlePushUnsubscribe, handlePushTest,
 } from './push.js';
@@ -453,6 +454,42 @@ export default {
 
   // Keeps the local CRM copy current and drops expired sessions. Both are
   // resumable or cheap, so an idle run costs almost nothing.
+  /**
+   * A forwarded meeting invite, arriving as mail.
+   *
+   * Cloudflare hands this the message; everything it means is worked out in
+   * inbound.js, which takes a string and can therefore be run without a mail
+   * server. This is the part that turns one into the other.
+   *
+   * A refusal bounces with the reason. An advisor who forwards something and
+   * hears nothing cannot tell "it worked" from "it went in the bin", and
+   * silence is how an inbound integration loses everybody's trust.
+   */
+  async email(message, env, ctx) {
+    try {
+      // A meeting invite is a few kilobytes. Anything of this size is a
+      // newsletter, a photo, or somebody's mailbox pointed at us by mistake.
+      if (message.rawSize > 1024 * 1024) {
+        message.setReject('That message is too large to be a meeting invite.');
+        return;
+      }
+      const raw = await new Response(message.raw).text();
+      const res = await handleInboundInvite(env, { to: message.to, raw });
+      if (res.reject) {
+        message.setReject(res.reject);
+        return;
+      }
+      // Nothing to send back on success. The appointment turning up on the
+      // calendar, and in the bell, is the confirmation; a reply to every
+      // forward is a second inbox to ignore.
+      ctx.waitUntil(Promise.resolve());
+    } catch (e) {
+      console.error('inbound invite', e);
+      message.setReject('That invite could not be read. Try adding it from the '
+        + 'Calendar page instead.');
+    }
+  },
+
   async scheduled(event, env, ctx) {
     // Every job goes through runJob, which records when it last ran and when
     // it last ran without throwing. The catch each of these used to carry was
@@ -543,6 +580,34 @@ async function routeRequest(request, env, ctx) {
 // ---------------------------------------------------------------------------
 // API
 // ---------------------------------------------------------------------------
+/**
+ * Where to forward meeting invites, for the advisor asking.
+ *
+ * GET says what it is, or that there is not one yet. POST makes one. Split so
+ * that looking at the page does not quietly create a credential nobody asked
+ * for.
+ */
+async function handleInviteAddress(request, env, make) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const domain = inviteDomain(env);
+  if (!domain) {
+    return json({
+      ready: false,
+      address: null,
+      // Said plainly rather than shown as a broken address. Until the office
+      // has pointed a subdomain at this Worker there is nowhere for an invite
+      // to arrive, and a token issued now would be a promise nothing keeps.
+      why: 'Forwarding is not set up for this portal yet. The office has to point '
+        + 'an address at it first.',
+    });
+  }
+
+  const { address } = await inviteAddressFor(env, user, { make });
+  return json({ ready: true, address, domain });
+}
+
 async function routeApi(request, env, path, method) {
   // /api/leads/<id>/notes and /api/leads/<id>
   const leadMatch = path.match(/^\/api\/leads\/([^/]+)$/);
@@ -747,6 +812,10 @@ async function routeApi(request, env, path, method) {
   // as an appointment id.
   if (path === '/api/appointments/invite' && method === 'POST') {
     return handleImportInvite(request, env);
+  }
+  // The address to forward invites to, and making one on request.
+  if (path === '/api/appointments/address' && (method === 'GET' || method === 'POST')) {
+    return handleInviteAddress(request, env, method === 'POST');
   }
   if (apptMatch && method === 'PUT') return handleUpdateAppointment(request, env, apptMatch[1]);
   if (apptMatch && method === 'DELETE') {

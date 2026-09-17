@@ -138,6 +138,34 @@
           </label>
         </div>
       </section>
+      <section class="card" id="fwd-card">
+        <div class="card-head"><h2>Meeting invites by email</h2>
+          <span id="fwd-state" class="muted"></span></div>
+        <div class="card-pad">
+          <div class="notice notice-error" id="fwd-err" hidden></div>
+          <p style="margin:0 0 .6rem;">
+            <strong style="color:var(--navy-800);">Forward an invite and it lands on your
+              calendar</strong></p>
+          <p class="field-hint" style="margin:0 0 .9rem;">
+            Your own address, which nobody else has. Forward a meeting to it and the
+            appointment appears; forward the same meeting again after it moves and the
+            appointment moves rather than doubling. A rule in your mail can do the
+            forwarding for you, which makes it hands-off.
+          </p>
+          <div id="fwd-has" hidden>
+            <div class="field">
+              <label for="fwd-address">Your address</label>
+              <input id="fwd-address" readonly>
+            </div>
+            <button class="btn btn-ghost btn-sm" type="button" id="fwd-copy">Copy it</button>
+            <p class="field-hint" style="margin:.6rem 0 0;">Treat it like a password.
+              Anything arriving at it goes in your diary, whoever sent it.</p>
+          </div>
+          <button class="btn btn-primary btn-sm" type="button" id="fwd-make">Give me an
+            address</button>
+          <p class="field-hint" id="fwd-why" hidden style="margin:.6rem 0 0;"></p>
+        </div>
+      </section>
       <section class="card" id="push-card">
         <div class="card-head"><h2>On this device</h2>
           <span id="push-state" class="muted"></span></div>
@@ -677,5 +705,58 @@ onSubmit(document.getElementById('password-form'), async (values) => {
   const ok = document.getElementById('pw-ok');
   ok.hidden = false;
 }, { errorBox: document.getElementById('pw-err') });
+
+// ------------------------------------------ an address for meeting invites --
+//
+// Made on request rather than for everybody. An address nobody asked for is a
+// credential nobody is watching, and there is no reason for one to exist
+// before somebody wants it.
+const fwdState = document.getElementById('fwd-state');
+const fwdErr = document.getElementById('fwd-err');
+const fwdHas = document.getElementById('fwd-has');
+const fwdAddress = document.getElementById('fwd-address');
+const fwdMake = document.getElementById('fwd-make');
+const fwdWhy = document.getElementById('fwd-why');
+
+function drawFwd(d) {
+  fwdErr.hidden = true;
+  if (!d.ready) {
+    // Said plainly rather than shown as a broken address. Nothing has been
+    // pointed at this Worker yet, so an address issued now leads nowhere.
+    fwdState.textContent = 'Not set up yet';
+    fwdMake.hidden = true;
+    fwdHas.hidden = true;
+    fwdWhy.textContent = d.why || '';
+    fwdWhy.hidden = !d.why;
+    return;
+  }
+  fwdWhy.hidden = true;
+  fwdState.textContent = d.address ? 'On' : 'Off';
+  fwdHas.hidden = !d.address;
+  fwdMake.hidden = Boolean(d.address);
+  if (d.address) fwdAddress.value = d.address;
+}
+
+fwdMake.addEventListener('click', async () => {
+  fwdMake.disabled = true;
+  try {
+    drawFwd(await api('/api/appointments/address', { method: 'POST' }));
+  } catch (e) {
+    fwdErr.textContent = e.message;
+    fwdErr.hidden = false;
+  } finally { fwdMake.disabled = false; }
+});
+
+document.getElementById('fwd-copy').addEventListener('click', async (e) => {
+  try { await navigator.clipboard.writeText(fwdAddress.value); e.target.textContent = 'Copied'; }
+  catch { fwdAddress.select(); }
+  setTimeout(() => { e.target.textContent = 'Copy it'; }, 2000);
+});
+
+// Looked at, not created. Opening this page should not quietly issue anybody
+// a credential.
+api('/api/appointments/address').then(drawFwd).catch(() => {
+  fwdState.textContent = 'Could not be read';
+});
 </script>
 </body></html>

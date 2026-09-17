@@ -51,6 +51,20 @@ bucket_name = "cttagents-docs"
 # Non-secret config. Secrets (RESEND_API_KEY, UNSUBSCRIBE_SECRET) are set in the
 # dashboard under Settings > Variables and Secrets. Never committed.
 [vars]
+# Where forwarded meeting invites are received.
+#
+# Its own subdomain, because this zone's ordinary mail is somewhere else and
+# Email Routing takes over the MX of whatever it is enabled on. Nothing about
+# the agency's real mail is touched by pointing a subdomain here.
+#
+# Commented out on purpose until the DNS and the Email Routing rule exist. The
+# Settings card reads this: absent, it says forwarding is not set up, which is
+# true. Present with nothing behind it, it would hand advisors an address that
+# silently swallows everything they forward to it.
+#
+# Uncomment when: cal.cttagents.com has an MX pointing at Cloudflare Email Routing, and a rule
+# there sends that address to this Worker.
+# INVITE_DOMAIN = "cal.cttagents.com"
 # The host people are sent to from outside the portal: client trip pages,
 # quote and statement emails, public form and specials links, password resets,
 # and the unsubscribe link in the footer of every marketing email.

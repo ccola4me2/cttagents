@@ -1475,6 +1475,35 @@ async function main() {
   const icsEmpty = await call(advisor, 'POST', '/api/appointments/invite', { text: '' });
   check(icsEmpty.status === 400, 'as does an empty one', `status ${icsEmpty.status}`);
 
+  // ------------------------------------------- forwarding invites by email --
+  step('The forwarding address says whether it exists');
+
+  const fwd = await call(advisor, 'GET', '/api/appointments/address');
+  check(fwd.status === 200, 'the address can be asked about', `status ${fwd.status}`);
+  check(typeof fwd.data?.ready === 'boolean',
+    'and says plainly whether forwarding is set up at all', JSON.stringify(fwd.data));
+
+  if (fwd.data?.ready === false) {
+    check(fwd.data?.address === null, 'with no address offered while it is not',
+      JSON.stringify(fwd.data?.address));
+    check(fwd.data?.why, 'and a reason somebody can act on', fwd.data?.why);
+    // Asking for one changes nothing while there is nowhere for mail to land.
+    const fwdMake = await call(advisor, 'POST', '/api/appointments/address');
+    check(fwdMake.data?.ready === false && !fwdMake.data?.address,
+      'and asking for one does not invent it', JSON.stringify(fwdMake.data));
+  } else {
+    // Where it is configured: looking does not issue one, asking does.
+    check(fwd.data?.address === null || String(fwd.data.address).includes('@'),
+      'looking does not quietly create a credential', JSON.stringify(fwd.data?.address));
+    const fwdMade = await call(advisor, 'POST', '/api/appointments/address');
+    check(String(fwdMade.data?.address || '').includes('@'),
+      'asking gives one', fwdMade.data?.address);
+    const fwdAgain = await call(advisor, 'POST', '/api/appointments/address');
+    check(fwdAgain.data?.address === fwdMade.data?.address,
+      'and asking twice gives the same one, not a second',
+      `${fwdMade.data?.address} vs ${fwdAgain.data?.address}`);
+  }
+
   // ------------------------------------------------------ the lead report --
   step('What the forms brought in');
 
