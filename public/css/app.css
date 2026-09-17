@@ -1330,3 +1330,10 @@ th.num .th-sort { justify-content: flex-end; }
 .cal-add input { flex: 1 1 10rem; min-width: 0; font-size: .84rem;
   padding: .4rem .55rem; border: 1px solid var(--navy-200); border-radius: 7px; }
 .cal-add input:focus-visible { outline: 2px solid var(--coral-600); outline-offset: 1px; }
+
+/* A location that is a meeting link. The URL is on the href; the row shows
+   what it is, because a Teams join link is longer than the row it sits in. */
+.cal-day-list .where, .rows .where { overflow-wrap: anywhere; }
+.where-link { color: var(--coral-600); font-weight: 500; text-decoration: none;
+  border-bottom: 1px solid currentColor; }
+.where-link:hover { border-bottom-width: 2px; }
