@@ -76,10 +76,33 @@ export async function remindTasks(env, { at = now(), force = false } = {}) {
     due_date: r.lead_next_step_on,
   }));
 
-  if (!(results || []).length && !leads.length) return { sent: 0, tasks: 0 };
+  // Today's diary. Not stamped either: a meeting this afternoon belongs in
+  // this morning's message whether or not yesterday's mentioned it, and it
+  // leaves on its own when the day passes.
+  const { results: apptRows } = await env.DB.prepare(
+    `SELECT a.id, a.user_id, a.title, a.on_date, a.start_time, a.end_time, a.location,
+            c.name AS client_name
+       FROM appointments a
+       LEFT JOIN clients c ON c.id = a.client_id
+      WHERE a.on_date = ? AND a.cancelled_at IS NULL AND a.done_at IS NULL
+      ORDER BY a.start_time ASC
+      LIMIT 500`
+  ).bind(today).all().catch(() => ({ results: [] }));
+
+  const appts = (apptRows || []).map((r) => ({
+    id: `appt:${r.id}`,
+    appointment: true,
+    user_id: r.user_id,
+    title: r.title,
+    client_name: [r.client_name, r.location].filter(Boolean).join('  ·  '),
+    due_date: r.on_date,
+    due_time: [r.start_time, r.end_time].filter(Boolean).join(' to '),
+  }));
+
+  if (!(results || []).length && !leads.length && !appts.length) return { sent: 0, tasks: 0 };
 
   const byUser = new Map();
-  for (const t of [...(results || []), ...leads]) {
+  for (const t of [...(results || []), ...leads, ...appts]) {
     if (!byUser.has(t.user_id)) byUser.set(t.user_id, []);
     byUser.get(t.user_id).push(t);
   }
@@ -100,9 +123,9 @@ export async function remindTasks(env, { at = now(), force = false } = {}) {
     // advisor wants one. An address that bounces every morning would otherwise
     // re-send the same list forever, and somebody who switches the email back
     // on should get today's list rather than a month of mornings at once.
-    // Leads carry no stamp, so they are not in this.
-    for (const t of due) if (!t.lead) stampToday.push(t.id);
-    for (const t of late) if (!t.lead) stampLate.push(t.id);
+    // Leads and appointments carry no stamp, so neither is in this.
+    for (const t of due) if (!t.lead && !t.appointment) stampToday.push(t.id);
+    for (const t of late) if (!t.lead && !t.appointment) stampLate.push(t.id);
 
     // Their own choice, and off means off. A message nobody asked for is the
     // one they learn to ignore, and an advisor who has learned to ignore one

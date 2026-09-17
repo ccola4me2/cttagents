@@ -54,6 +54,10 @@ const OWNED = new Set([
   // A browser that agreed to be notified. It belongs to the advisor signed in
   // on it, and nothing reads one except to push to its owner.
   'push_subscriptions',
+  // An hour in somebody's diary. Read through the ordinary visibility scope so
+  // an owner can see who is busy on Thursday; written only by the advisor
+  // whose diary it is, since nobody asked to move somebody else's two o'clock.
+  'appointments',
   'advisor_billing',
   // A saved list is one advisor's question about their own book. The rules
   // it holds are run inside that advisor's scope, so the list itself is

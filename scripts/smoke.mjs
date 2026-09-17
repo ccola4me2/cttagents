@@ -1097,6 +1097,103 @@ async function main() {
   check(!(todoAgain.data?.leads || []).some((l) => l.client_name === `Unplanned Lead ${stamp}`),
     'is not counted as due, because nothing was planned for it');
 
+  // --------------------------------------------- the diary and the month --
+  step('An appointment goes in the diary');
+
+  const apptDay = isoDay(2);
+  const apptMade = await call(advisor, 'POST', '/api/appointments', {
+    title: `Planning call ${stamp}`, onDate: apptDay, startTime: '14:00', endTime: '15:00',
+    clientId, kind: 'call', location: 'Zoom', notes: 'Alaska cabins',
+  });
+  const apptId = apptMade.data?.appointment?.id;
+  check(apptMade.status === 201 && apptId, 'an appointment is made',
+    `status ${apptMade.status} ${JSON.stringify(apptMade.data)}`);
+  if (apptId) {
+    cleanup('the appointment', () => call(advisor, 'DELETE', `/api/appointments/${apptId}`));
+  }
+  check(apptMade.data?.appointment?.clientName === 'Smoke Client',
+    'against the person it is with, by name rather than an id',
+    apptMade.data?.appointment?.clientName);
+
+  // An id is not a permission. Pointing one at a client who is not yours would
+  // otherwise be a way to find out whether their id is real.
+  const notMine2 = await call(advisor, 'POST', '/api/appointments', {
+    title: 'Somebody else\'s client', onDate: apptDay, startTime: '09:00',
+    clientId: 'no-such-client',
+  });
+  check(notMine2.status === 404, 'a client who is not yours is not one to book with',
+    `status ${notMine2.status}`);
+
+  // A typo rather than a preference: an hour that runs backwards draws as a
+  // negative box on the grid.
+  const apptBackwards = await call(advisor, 'POST', '/api/appointments', {
+    title: 'Backwards', onDate: apptDay, startTime: '15:00', endTime: '14:00',
+  });
+  check(apptBackwards.status === 400, 'and an end before its start is refused',
+    `status ${apptBackwards.status}`);
+
+  // An hour blocked out with nobody is still an hour that is not free.
+  const apptAlone = await call(advisor, 'POST', '/api/appointments', {
+    title: `Write proposals ${stamp}`, onDate: apptDay, startTime: '08:00',
+  });
+  check(apptAlone.status === 201, 'an hour with nobody in it is still an appointment',
+    `status ${apptAlone.status}`);
+  if (apptAlone.data?.appointment?.id) {
+    cleanup('the blocked hour',
+      () => call(advisor, 'DELETE', `/api/appointments/${apptAlone.data.appointment.id}`));
+  }
+
+  const diary = await call(advisor, 'GET', `/api/appointments?from=${apptDay}&to=${apptDay}`);
+  const onDay = diary.data?.appointments || [];
+  check(onDay.length >= 2, 'the day reads back', `${onDay.length} in the diary`);
+  check(onDay[0] && onDay[0].startTime === '08:00',
+    'earliest first, because a diary is read down the day', onDay[0] && onDay[0].startTime);
+
+  step('The calendar gathers what lands on a day');
+
+  const month = await call(advisor, 'GET',
+    `/api/calendar?from=${isoDay(-1)}&to=${isoDay(40)}`);
+  const evs = month.data?.events || [];
+  const apptOnGrid = evs.filter((e) => e.kind === 'appointment' && e.id === apptId);
+  check(apptOnGrid.length === 1, 'the appointment is on it', `${evs.length} event(s) in the window`);
+  check(apptOnGrid[0] && apptOnGrid[0].time === '14:00' && apptOnGrid[0].who === 'Smoke Client',
+    'with its time and who it is with', JSON.stringify(apptOnGrid[0]));
+
+  // Five different things, each owned by a different screen, on one grid.
+  const apptKinds = new Set(evs.map((e) => e.kind));
+  check(apptKinds.has('appointment') && apptKinds.has('departure'),
+    'alongside the trips that depart in the window', [...apptKinds].join(', '));
+  // Read only: every one of these carries a way back to the screen that owns
+  // it, because acting on it happens there.
+  check(evs.every((e) => e.href), 'and every one of them leads somewhere');
+
+  // The window is clamped rather than obeyed. A request for five years would
+  // otherwise be five years of five queries.
+  const greedy = await call(advisor, 'GET', `/api/calendar?from=${isoDay(0)}&to=${isoDay(900)}`);
+  check(greedy.data?.truncated === true, 'a greedy range is cut and says so',
+    JSON.stringify({ to: greedy.data?.to, truncated: greedy.data?.truncated }));
+
+  if (apptId) {
+    const todo2 = await call(advisor, 'GET',
+      `/api/tasks?state=open&advisor=${encodeURIComponent(advisorId)}`);
+    const apptDue = (todo2.data?.appointments || []).find((a) => a.appointment_id === apptId);
+    check(apptDue, 'and the appointment is something due, beside the tasks',
+      `${(todo2.data?.appointments || []).length} apptDue`);
+    check(apptDue && String(apptDue.id).startsWith('appt:'),
+      'under an id nothing can tick as though it were a task', apptDue && apptDue.id);
+
+    // Cancelled is not the same as never booked, so the row stays and stops
+    // being something due.
+    await call(advisor, 'PUT', `/api/appointments/${apptId}`, { cancelled: true });
+    const todo3 = await call(advisor, 'GET',
+      `/api/tasks?state=open&advisor=${encodeURIComponent(advisorId)}`);
+    check(!(todo3.data?.appointments || []).some((a) => a.appointment_id === apptId),
+      'a cancelled hour stops being due');
+    const apptStill = await call(advisor, 'GET', `/api/appointments?from=${apptDay}&to=${apptDay}`);
+    check((apptStill.data?.appointments || []).some((a) => a.id === apptId && a.cancelledAt),
+      'but is still in the diary, marked, because cancelling is a thing that happened');
+  }
+
   // ------------------------------------------------------ the lead report --
   step('What the forms brought in');
 

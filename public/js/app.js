@@ -179,6 +179,7 @@ const NAV = [
       { href: '/app/segments', label: 'Lists' },
       { href: '/app/broadcasts', label: 'Emails' },
       { href: '/app/tasks', label: 'To do' },
+      { href: '/app/calendar', label: 'Calendar' },
       { href: '/app/hotlists', label: 'Who to call' },
       { href: '/app/credits', label: 'Client credits' },
     ],
@@ -403,7 +404,7 @@ function mountTodo(sidebar, user) {
       // whole drawer is. They arrive shaped like tasks and are merged here, so
       // the count on the sidebar means everything needing you rather than
       // everything needing you that somebody remembered to write as a task.
-      tasks = [...(d.tasks || []), ...(d.leads || [])];
+      tasks = [...(d.tasks || []), ...(d.leads || []), ...(d.appointments || [])];
       today = d.today || today;
       setBadge();
     } catch { /* the badge is a nicety, not a feature */ }
@@ -455,9 +456,35 @@ function mountTodo(sidebar, user) {
     </li>`;
   }
 
+  /**
+   * An hour in the diary, in the same list as the things due.
+   *
+   * No tick and no pin, for the same reason a lead has neither: ticking off
+   * two o'clock is not a thing anybody does, and the calendar is where
+   * cancelling it and marking it done are both said out loud.
+   */
+  function apptRow(t, late) {
+    const when = [t.due_time, t.end_time].filter(Boolean).join(' to ');
+    const about = [t.client_name, t.location].filter(Boolean).join('  ·  ');
+    return `<li class="appt-row">
+      <a href="/app/calendar" class="task-tick" style="text-decoration:none;">
+        <span>
+          <span class="t">${esc(t.title)}</span>
+          ${about ? `<span class="who">${esc(about)}</span>` : ''}
+          <span class="marks">
+            <span class="when${late ? ' late' : ''}">${esc(whenWords(t.due_date))}${
+              when ? ` ${esc(when)}` : ''}</span>
+            <span class="tag">Appointment</span>
+          </span>
+        </span>
+      </a>
+    </li>`;
+  }
+
   function row(t) {
     const late = t.due_date && t.due_date < today;
     if (t.lead) return leadRow(t, late);
+    if (t.appointment) return apptRow(t, late);
     // What the task is about, in the order somebody would say it. Only the
     // first one that exists: three of these on one line is a paragraph, and
     // the drawer is meant to be scanned.

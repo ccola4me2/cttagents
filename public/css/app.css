@@ -1253,3 +1253,49 @@ th.num .th-sort { justify-content: flex-end; }
   text-transform: uppercase; color: var(--ink-400);
 }
 .form-group:first-child { margin-top: 0; }
+
+/* ------------------------------------------------------------- calendar -- */
+.cal-bar { align-items: center; gap: .5rem; flex-wrap: wrap; }
+.cal-key { display: flex; gap: .85rem; flex-wrap: wrap; margin-left: auto;
+  font-size: .74rem; color: var(--ink-500); }
+.cal-key-item { display: inline-flex; align-items: center; gap: .3rem; }
+.cal-key-item i { width: .6rem; height: .6rem; border-radius: 2px; display: inline-block; }
+
+/* Scrolls sideways rather than squeezing: seven columns under about 40rem
+   makes every day too narrow to carry a word, and a day you cannot read is
+   worse than one you have to scroll to. */
+.cal-wrap { overflow-x: auto; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(6.5rem, 1fr));
+  gap: 1px; background: var(--navy-100); min-width: 46rem; }
+.cal-head { background: var(--navy-50); padding: .45rem .5rem; font-size: .72rem;
+  font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-500); }
+
+.cal-day { background: #fff; border: 0; text-align: left; padding: .4rem .45rem .55rem;
+  min-height: 6.2rem; display: flex; flex-direction: column; gap: .18rem; cursor: pointer;
+  font: inherit; color: inherit; }
+.cal-day:hover { background: var(--navy-50); }
+.cal-day:focus-visible { outline: 2px solid var(--coral-600); outline-offset: -2px; }
+.cal-day .d { font-size: .82rem; font-weight: 600; color: var(--navy-800); }
+/* Outside this month: still there, still clickable, visibly not the point. */
+.cal-day.away { background: var(--navy-50); }
+.cal-day.away .d, .cal-day.away .ev { opacity: .5; }
+.cal-day.is-today .d { background: var(--coral-600); color: #fff;
+  border-radius: 999px; padding: 0 .4rem; align-self: flex-start; }
+
+.cal-day .ev { font-size: .72rem; line-height: 1.25; padding: .1rem .3rem; border-radius: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-day .ev b { font-weight: 600; }
+.cal-day .ev.off { text-decoration: line-through; opacity: .55; }
+.cal-day .ev.more { color: var(--ink-500); padding-left: .3rem; }
+
+.ev-appointment { background: var(--coral-50); color: var(--coral-600); }
+.ev-task { background: var(--navy-50); color: var(--navy-800); }
+.ev-lead { background: var(--amber-50); color: var(--amber-600); }
+.ev-payment { background: var(--red-50); color: var(--red-600); }
+.ev-departure { background: var(--green-50); color: var(--green-600); }
+.ev-return { background: var(--navy-100); color: var(--navy-700); }
+
+@media (max-width: 40rem) {
+  .cal-grid { min-width: 42rem; }
+  .cal-day { min-height: 5rem; }
+}

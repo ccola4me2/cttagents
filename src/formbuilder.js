@@ -889,8 +889,8 @@ export async function handleSendForm(request, env, id) {
     const before = await env.DB.prepare(
       'SELECT id FROM clients WHERE user_id = ? AND name = ?'
     ).bind(user.id, name).first();
-    const id = await db.resolveClient(env, user.id, name);
-    if (id) {
+    const newClientId = await db.resolveClient(env, user.id, name);
+    if (newClientId) {
       // Only what was blank, and only a stage for somebody genuinely new:
       // a client already being worked is not dragged back to New because a
       // form went out to them.
@@ -903,9 +903,9 @@ export async function handleSendForm(request, env, id) {
                 updated_at = ?
           WHERE id = ? AND user_id = ?`
       ).bind(to, before ? null : 'new', now(),
-             `Sent the ${form.name} form`.slice(0, 500), now(), id, user.id)
+             `Sent the ${form.name} form`.slice(0, 500), now(), newClientId, user.id)
         .run().catch(() => null);
-      client = await db.getClient(env, db.selfScope(user), { id });
+      client = await db.getClient(env, db.selfScope(user), { id: newClientId });
     }
   }
 

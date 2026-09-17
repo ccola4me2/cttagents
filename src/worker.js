@@ -145,6 +145,13 @@ import {
   handleReservationFromLead,
 } from './formbuilder.js';
 import {
+  handleListAppointments,
+  handleCreateAppointment,
+  handleUpdateAppointment,
+  handleDeleteAppointment,
+} from './appointments.js';
+import { handleCalendar } from './calendar.js';
+import {
   renderPublicForm,
   handlePublicSubmit,
   renderGroupPage,
@@ -370,6 +377,7 @@ const PAGE_FILES = {
   '/app': '/app/index.html',
   '/app/': '/app/index.html',
   '/app/payments': '/app/payments.html',
+  '/app/calendar': '/app/calendar.html',
   '/app/formbuilder': '/app/formbuilder.html',
   '/app/automations': '/app/automations.html',
   '/app/pipeline': '/app/pipeline.html',
@@ -555,6 +563,7 @@ async function routeApi(request, env, path, method) {
   const tierMatch = path.match(/^\/api\/penalties\/([^/]+)$/);
   const applyTermsMatch = path.match(/^\/api\/bookings\/([^/]+)\/penalties\/apply$/);
   const priceLineMatch = path.match(/^\/api\/pricing\/([^/]+)$/);
+  const apptMatch = path.match(/^\/api\/appointments\/([^/]+)$/);
   const ownFormMatch = path.match(/^\/api\/myforms\/([^/]+)$/);
   const formSendMatch = path.match(/^\/api\/myforms\/([^/]+)\/send$/);
   const formInvitesMatch = path.match(/^\/api\/myforms\/([^/]+)\/invites$/);
@@ -692,6 +701,22 @@ async function routeApi(request, env, path, method) {
   // ---- conversations ----------------------------------------------------
 
   // ---- calendar ---------------------------------------------------------
+
+  // Everything that happens on a day, from five places that each own one kind
+  // of it. Read only: acting on any of it happens on the screen that owns it.
+  if (path === '/api/calendar' && method === 'GET') return handleCalendar(request, env);
+
+  if (path === '/api/appointments' && method === 'GET') {
+    return handleListAppointments(request, env);
+  }
+  if (path === '/api/appointments' && method === 'POST') {
+    return handleCreateAppointment(request, env);
+  }
+  if (apptMatch && method === 'PUT') return handleUpdateAppointment(request, env, apptMatch[1]);
+  if (apptMatch && method === 'DELETE') {
+    return handleDeleteAppointment(request, env, apptMatch[1]);
+  }
+
 
   // ---- forms and workflows ----------------------------------------------
 

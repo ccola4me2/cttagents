@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calendar | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Calendar</h1><p class="sub">Your appointments, and everything else that lands on a day.</p></div>
+      <div class="toolbar" style="margin:0;">
+        <span id="scope"></span>
+        <button class="btn btn-primary btn-sm" id="add">Add an appointment</button>
+      </div>
+    </header>
+    <div class="content">
+      <div class="notice notice-error" id="err" hidden></div>
+      <div class="toolbar cal-bar">
+        <button class="btn btn-ghost btn-sm" id="prev" aria-label="The month before">&larr;</button>
+        <strong id="month-name" style="min-width:11rem;text-align:center;"></strong>
+        <button class="btn btn-ghost btn-sm" id="next" aria-label="The month after">&rarr;</button>
+        <button class="btn btn-ghost btn-sm" id="today-btn">Today</button>
+        <span class="cal-key" id="key"></span>
+      </div>
+      <section class="card"><div class="cal-wrap"><div id="grid" class="cal-grid">
+        <p class="spinner">Loading the month...</p></div></div></section>
+      <section class="card" id="day-card" hidden>
+        <div class="card-head"><h2 id="day-title"></h2>
+          <button class="btn btn-ghost btn-sm" id="day-close">Close</button></div>
+        <div class="card-pad" id="day-body"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<dialog id="dlg">
+  <form id="appt-form" method="dialog">
+    <div class="card-head"><h2 id="dlg-title">Add an appointment</h2>
+      <button class="btn btn-ghost btn-sm" type="button" id="close">Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" hidden></div>
+      <div class="field"><label for="title">What is it</label>
+        <input id="title" name="title" maxlength="160" required
+          placeholder="Planning call about Alaska"></div>
+      <div class="field"><label for="clientName">Who it is with</label>
+        <input id="clientName" name="clientName" maxlength="120" autocomplete="off"
+          list="appt-people" placeholder="Start typing a name">
+        <datalist id="appt-people"></datalist>
+        <input type="hidden" id="clientId" name="clientId">
+        <p class="field-hint" id="who-hint">Somebody on your books, or a lead. Leave it empty
+          for an hour that is yours: time blocked out is still time that is not free.</p></div>
+      <div class="field-row">
+        <div class="field"><label for="onDate">Day</label>
+          <input id="onDate" name="onDate" type="date" required></div>
+        <div class="field"><label for="startTime">From</label>
+          <input id="startTime" name="startTime" type="time" required></div>
+        <div class="field"><label for="endTime">Until</label>
+          <input id="endTime" name="endTime" type="time">
+          <p class="field-hint">Optional.</p></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="kind">How</label>
+          <select id="kind" name="kind">
+            <option value="">Not said</option>
+            <option value="call">Call</option>
+            <option value="video">Video</option>
+            <option value="in person">In person</option>
+            <option value="other">Something else</option>
+          </select></div>
+        <div class="field"><label for="location">Where</label>
+          <input id="location" name="location" maxlength="200"
+            placeholder="A room, an address, a number, a link"></div>
+      </div>
+      <div class="field"><label for="notes">Notes</label>
+        <textarea id="notes" name="notes" maxlength="2000" rows="3"></textarea></div>
+    </div>
+    <div class="card-foot">
+      <button class="btn btn-ghost" type="button" id="drop" hidden>Delete</button>
+      <button class="btn btn-primary" type="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module">
+import { api, mountShell, esc, dateFmt, showError, onSubmit,
+         mountScopePicker, advisorParam } from '/js/app.js';
+const ME = (await mountShell()).id;
+
+const grid = document.getElementById('grid');
+const err = document.getElementById('err');
+const dlg = document.getElementById('dlg');
+const form = document.getElementById('appt-form');
+const monthName = document.getElementById('month-name');
+const dayCard = document.getElementById('day-card');
+
+// What each kind is, in the order the key reads and the grid stacks them. An
+// appointment is the only one you made on purpose, so it leads.
+const KINDS = [
+  ['appointment', 'Appointment'],
+  ['task', 'Task'],
+  ['lead', 'Lead follow-up'],
+  ['payment', 'Payment due'],
+  ['departure', 'Departs'],
+  ['return', 'Returns'],
+];
+
+const iso = (d) => d.toISOString().slice(0, 10);
+const addDays = (s, n) => iso(new Date(Date.parse(`${s}T00:00:00Z`) + n * 86400000));
+
+let cursor = new Date();
+let events = [];
+let people = [];
+let today = iso(new Date());
+let editing = null;
+let openDay = null;
+
+/** The Monday on or before the first of this month, so the grid starts whole. */
+function gridStart(date) {
+  const first = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+  // getUTCDay is 0 for Sunday. The week here starts on Monday, which is how a
+  // working week is actually spoken about.
+  const back = (first.getUTCDay() + 6) % 7;
+  return addDays(iso(first), -back);
+}
+
+function monthLabel(date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1))
+    .toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' });
+}
+
+async function load() {
+  err.hidden = true;
+  const from = gridStart(cursor);
+  const to = addDays(from, 41);
+  monthName.textContent = monthLabel(cursor);
+  try {
+    const d = await api(`/api/calendar?from=${from}&to=${to}${advisorParam()}`);
+    events = d.events || [];
+    today = d.today || today;
+    draw(from);
+    if (openDay) showDay(openDay);
+  } catch (e) { showError(err, e); grid.innerHTML = ''; }
+}
+
+function draw(from) {
+  const byDay = new Map();
+  for (const e of events) {
+    if (!byDay.has(e.date)) byDay.set(e.date, []);
+    byDay.get(e.date).push(e);
+  }
+
+  const head = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    .map((d) => `<div class="cal-head">${d}</div>`).join('');
+
+  const month = cursor.getUTCMonth();
+  const cells = [];
+  for (let i = 0; i < 42; i += 1) {
+    const day = addDays(from, i);
+    const here = new Date(`${day}T00:00:00Z`).getUTCMonth() === month;
+    // Sorted here as well as on the server. Only three fit in a cell, so which
+    // three you see depends on the order, and a cell that hides the two
+    // o'clock because the rows arrived in another order is a quiet wrong
+    // answer rather than a visible one.
+    const list = (byDay.get(day) || [])
+      .slice()
+      .sort((a, b) => (a.time || '99:99').localeCompare(b.time || '99:99'));
+    // Three, then a count. A cell that lists nine things is a cell nobody can
+    // read, and the day panel below is one click away.
+    const shown = list.slice(0, 3);
+    const more = list.length - shown.length;
+    cells.push(`<button type="button" class="cal-day${here ? '' : ' away'}${
+      day === today ? ' is-today' : ''}${list.length ? '' : ' empty'}" data-day="${day}">
+      <span class="d">${Number(day.slice(8, 10))}</span>
+      ${shown.map((e) => `<span class="ev ev-${esc(e.kind)}${e.muted ? ' off' : ''}">${
+        e.time ? `<b>${esc(e.time)}</b> ` : ''}${esc(e.title)}</span>`).join('')}
+      ${more > 0 ? `<span class="ev more">${more} more</span>` : ''}
+    </button>`);
+  }
+
+  grid.innerHTML = head + cells.join('');
+  grid.querySelectorAll('[data-day]').forEach((b) =>
+    b.addEventListener('click', () => showDay(b.dataset.day)));
+
+  document.getElementById('key').innerHTML = KINDS
+    .map(([k, label]) => `<span class="cal-key-item"><i class="ev-${k}"></i>${esc(label)}</span>`)
+    .join('');
+}
+
+function showDay(day) {
+  openDay = day;
+  const list = events.filter((e) => e.date === day);
+  dayCard.hidden = false;
+  document.getElementById('day-title').textContent = dateFmt(day);
+  document.getElementById('day-body').innerHTML = list.length
+    ? `<ul class="rows">${list.map((e) => `<li>
+        <div>
+          <span class="badge badge-navy">${esc(KIND_LABEL[e.kind] || e.kind)}</span>
+          <span class="name" style="margin-left:.45rem;">${
+            e.time ? `${esc(e.time)}${e.endTime ? ` to ${esc(e.endTime)}` : ''} &middot; ` : ''}${
+            esc(e.title)}</span>
+          <div class="muted">${esc([e.who, e.where, e.note].filter(Boolean).join('  ·  '))}</div>
+        </div>
+        <div>${e.kind === 'appointment'
+          ? `<button class="btn btn-ghost btn-sm" data-edit="${esc(e.id)}">Edit</button>`
+          : `<a class="btn btn-ghost btn-sm" href="${esc(e.href)}">Open</a>`}</div>
+      </li>`).join('')}</ul>`
+    : '<div class="empty"><p>Nothing on this day.</p></div>';
+
+  document.getElementById('day-body').querySelectorAll('[data-edit]').forEach((b) =>
+    b.addEventListener('click', () => openAppt(b.dataset.edit)));
+  dayCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+const KIND_LABEL = Object.fromEntries(KINDS);
+
+document.getElementById('day-close').addEventListener('click', () => {
+  dayCard.hidden = true; openDay = null;
+});
+document.getElementById('prev').addEventListener('click', () => {
+  cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() - 1, 1));
+  openDay = null; dayCard.hidden = true; load();
+});
+document.getElementById('next').addEventListener('click', () => {
+  cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
+  openDay = null; dayCard.hidden = true; load();
+});
+document.getElementById('today-btn').addEventListener('click', () => {
+  cursor = new Date(); openDay = null; dayCard.hidden = true; load();
+});
+
+// ------------------------------------------------------- the appointment --
+const clientName = document.getElementById('clientName');
+const clientId = document.getElementById('clientId');
+const whoHint = document.getElementById('who-hint');
+const REST_HINT = whoHint.textContent;
+
+function matchPerson() {
+  const want = clientName.value.trim().toLowerCase();
+  const hit = people.filter((c) => (c.name || '').trim().toLowerCase() === want);
+  if (hit.length === 1) {
+    clientId.value = hit[0].id;
+    whoHint.textContent = 'On your books.';
+    return;
+  }
+  clientId.value = '';
+  if (hit.length > 1) {
+    whoHint.textContent = `${hit.length} people on your books have that name. `
+      + 'Open the one you mean from Clients and add it there.';
+    return;
+  }
+  whoHint.textContent = clientName.value.trim()
+    ? `${clientName.value.trim()} is not on your books, so this is just a note of the name.`
+    : REST_HINT;
+}
+clientName.addEventListener('input', matchPerson);
+
+async function openAppt(id) {
+  editing = id || null;
+  form.reset();
+  form.querySelector('.notice-error').hidden = true;
+  clientId.value = '';
+  whoHint.textContent = REST_HINT;
+  document.getElementById('dlg-title').textContent = id ? 'Edit appointment' : 'Add an appointment';
+  document.getElementById('drop').hidden = !id;
+
+  // Yours, not the agency's: an appointment is written against your own book,
+  // and a colleague's client would be refused on save.
+  if (!people.length) {
+    people = await api('/api/clients?mine=1&limit=500').then((d) => d.clients || []).catch(() => []);
+  }
+  document.getElementById('appt-people').innerHTML = people
+    .map((c) => `<option value="${esc(c.name)}">${esc(c.email || '')}</option>`).join('');
+
+  if (id) {
+    const one = (await api(`/api/appointments?from=${openDay}&to=${openDay}`)).appointments
+      .find((a) => a.id === id);
+    if (one) {
+      form.elements.title.value = one.title;
+      form.elements.onDate.value = one.onDate;
+      form.elements.startTime.value = one.startTime;
+      form.elements.endTime.value = one.endTime;
+      form.elements.location.value = one.location;
+      form.elements.kind.value = one.kind;
+      form.elements.notes.value = one.notes;
+      clientName.value = one.clientName;
+      clientId.value = one.clientId || '';
+      matchPerson();
+    }
+  } else {
+    form.elements.onDate.value = openDay || today;
+  }
+  dlg.showModal();
+}
+
+document.getElementById('add').addEventListener('click', () => openAppt(null));
+document.getElementById('close').addEventListener('click', () => dlg.close());
+
+onSubmit(form, async () => {
+  const body = {
+    title: form.elements.title.value,
+    clientId: clientId.value || undefined,
+    onDate: form.elements.onDate.value,
+    startTime: form.elements.startTime.value,
+    endTime: form.elements.endTime.value,
+    kind: form.elements.kind.value,
+    location: form.elements.location.value,
+    notes: form.elements.notes.value,
+  };
+  await api(editing ? `/api/appointments/${encodeURIComponent(editing)}` : '/api/appointments',
+    { method: editing ? 'PUT' : 'POST', body });
+  dlg.close();
+  await load();
+});
+
+document.getElementById('drop').addEventListener('click', async () => {
+  if (!editing) return;
+  const box = form.querySelector('.notice-error');
+  try {
+    await api(`/api/appointments/${encodeURIComponent(editing)}`, { method: 'DELETE' });
+    dlg.close();
+    await load();
+  } catch (e) { box.textContent = e.message; box.hidden = false; }
+});
+
+mountScopePicker(document.getElementById('scope'), load);
+await load();
+</script>
+</body></html>
