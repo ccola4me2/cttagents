@@ -262,6 +262,42 @@ let sending = null;
 let people = [];
 
 /**
+ * What to file a name under.
+ *
+ * The last word is usually the surname and sometimes is not. A suffix is not
+ * a surname, and a surname that starts with a particle takes the particle
+ * with it, so "Ana de la Cruz" belongs under D and not under C.
+ *
+ * Compared case-insensitively, because a book that has been typed into for
+ * years has "John BASCOM" on it and he belongs next to Bascom.
+ */
+const NAME_SUFFIX = new Set(['jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv', 'v',
+  'md', 'm.d.', 'phd', 'ph.d.', 'esq', 'esq.', 'dds', 'cpa', 'ret', 'ret.']);
+const NAME_PARTICLE = new Set(['van', 'von', 'de', 'del', 'della', 'der', 'den',
+  'da', 'di', 'du', 'la', 'le', 'los', 'las', 'st', 'st.', 'saint', 'ter', 'ten',
+  'af', 'av', 'bin', 'ibn', 'al', 'abu']);
+
+function fileUnder(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  while (parts.length > 1 && NAME_SUFFIX.has(parts[parts.length - 1].toLowerCase())) {
+    parts.pop();
+  }
+  if (!parts.length) return { last: '', first: '' };
+  let at = parts.length - 1;
+  while (at > 0 && NAME_PARTICLE.has(parts[at - 1].toLowerCase())) at -= 1;
+  return {
+    last: parts.slice(at).join(' ').toLowerCase(),
+    first: parts.slice(0, at).join(' ').toLowerCase(),
+  };
+}
+
+function bySurname(a, b) {
+  const x = fileUnder(a.name);
+  const y = fileUnder(b.name);
+  return x.last.localeCompare(y.last) || x.first.localeCompare(y.first);
+}
+
+/**
  * The clients whose name is what was typed.
  *
  * Plural on purpose. Two people called John Smith is not a rare thing on a
@@ -319,7 +355,7 @@ async function openSend(formId, formName) {
     people = await api('/api/clients?mine=1&limit=500')
       .then((d) => d.clients || []).catch(() => []);
   }
-  document.getElementById('send-people').innerHTML = people
+  document.getElementById('send-people').innerHTML = [...people].sort(bySurname)
     .map((c) => `<option value="${esc(c.name)}">${esc(c.email || 'no email on file')}</option>`)
     .join('');
   sendWhoHint.textContent = NEW_HINT;
