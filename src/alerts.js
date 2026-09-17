@@ -20,6 +20,7 @@
 import { json, now } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
+import { pushReady, pushTo, devicesFor } from './push.js';
 
 /** Midnight UTC on a plain date, as seconds. When a due thing became due. */
 function dayStart(iso) {
@@ -32,17 +33,15 @@ function momentOf(iso, time) {
   return Math.floor(Date.parse(`${iso}T${at}:00Z`) / 1000);
 }
 
-export async function handleAlerts(request, env) {
-  const { user, response } = await requireUser(request, env);
-  if (response) return response;
-
-  // Switched off means off, and says so rather than coming back empty: a bell
-  // that is quiet because you turned it off and a bell that is quiet because
-  // nothing needs you should not look the same.
-  if (user.alerts_feed === 0) {
-    return json({ off: true, items: [], unread: 0, seenAt: user.alerts_seen_at || null });
-  }
-
+/**
+ * Everything waiting for one advisor, newest first.
+ *
+ * Split out so the bell and the notification that wakes somebody up cannot
+ * disagree. A push that says three things are waiting, followed by a bell
+ * showing two, is the portal contradicting itself, and the next one is not
+ * believed.
+ */
+export async function gather(env, user) {
   const today = new Date().toISOString().slice(0, 10);
   const week = new Date(Date.parse(`${today}T00:00:00Z`) + 7 * 86400000)
     .toISOString().slice(0, 10);
@@ -162,18 +161,39 @@ export async function handleAlerts(request, env) {
   // Newest first, and a cap: a bell is read from the top, and the hundredth
   // line is one nobody will ever reach.
   items.sort((x, y) => y.at - x.at);
-  const seenAt = user.alerts_seen_at || 0;
-  const at = now();
+  return items;
+}
 
+/**
+ * Of those, the ones that have happened and have not been seen.
+ *
+ * Both halves matter. An appointment on Thursday is always later than any
+ * moment the bell could have been read, so without the first test it would sit
+ * there unread for ever and the bell could never be silenced.
+ */
+export function unseen(items, since, at = now()) {
+  return items.filter((i) => i.at > (since || 0) && i.at <= at);
+}
+
+export async function handleAlerts(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  // Switched off means off, and says so rather than coming back empty: a bell
+  // that is quiet because you turned it off and a bell that is quiet because
+  // nothing needs you should not look the same.
+  if (user.alerts_feed === 0) {
+    return json({ off: true, items: [], unread: 0, seenAt: user.alerts_seen_at || null });
+  }
+
+  const items = await gather(env, user);
+  const at = now();
   return json({
     off: false,
     items: items.slice(0, 60),
-    // Happened, and since the bell was last cleared. Without the first half an
-    // appointment on Thursday is always later than any moment you could have
-    // read the bell, so it would sit there unread for ever.
-    unread: items.filter((i) => i.at > seenAt && i.at <= at).length,
+    unread: unseen(items, user.alerts_seen_at, at).length,
     seenAt: user.alerts_seen_at || null,
-    now: now(),
+    now: at,
   });
 }
 
@@ -193,4 +213,45 @@ export async function handleAlertsSeen(request, env) {
   await env.DB.prepare('UPDATE users SET alerts_seen_at = ?, updated_at = ? WHERE id = ?')
     .bind(at, at, user.id).run();
   return json({ ok: true, seenAt: at });
+}
+
+/**
+ * Knock on the devices of anybody who has something waiting.
+ *
+ * Safe on every tick. It is a no-op for an advisor with nothing new, for a
+ * device knocked within the hour, and for the whole portal while VAPID is not
+ * configured.
+ */
+export async function pushWaiting(env, { at = now(), quietFor = 3600 } = {}) {
+  if (!pushReady(env)) return { sent: 0, skipped: 'no vapid' };
+
+  const { results } = await env.DB.prepare(
+    `SELECT DISTINCT u.id FROM users u
+       JOIN push_subscriptions s ON s.user_id = u.id AND s.failed_at IS NULL
+      WHERE u.push_alerts = 1 AND u.alerts_feed = 1 AND u.status = 'active'
+        AND (s.last_sent_at IS NULL OR s.last_sent_at < ?)
+      LIMIT 200`
+  ).bind(at - quietFor).all().catch(() => ({ results: [] }));
+
+  let sent = 0;
+  for (const row of results || []) {
+    const user = await db.getUserById(env, row.id);
+    if (!user) continue;
+
+    const devices = (await devicesFor(env, user.id))
+      .filter((d) => !d.last_sent_at || d.last_sent_at < at - quietFor);
+    if (!devices.length) continue;
+
+    // The watermark is the later of the two: something read in the bell is not
+    // something to wake somebody for, and something already pushed to this
+    // device is not worth pushing twice.
+    const items = await gather(env, user);
+    for (const device of devices) {
+      const since = Math.max(user.alerts_seen_at || 0, device.last_sent_at || 0);
+      if (!unseen(items, since, at).length) continue;
+      const res = await pushTo(env, device).catch(() => ({ failed: true }));
+      if (res && res.sent) sent += 1;
+    }
+  }
+  return { sent };
 }

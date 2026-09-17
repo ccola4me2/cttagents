@@ -1263,6 +1263,64 @@ async function main() {
     'and comes back with everything when it is switched on again',
     `${(bellBack.data?.items || []).length} item(s)`);
 
+  // --------------------------------------------------------------- push --
+  //
+  // No VAPID keys in this environment, and that is the case worth covering:
+  // every portal starts without them, and the difference between "not set up"
+  // and "broken" has to be visible from the outside.
+  step('Push says whether it is switched on at all');
+
+  const pushKey = await call(advisor, 'GET', '/api/push/key');
+  check(pushKey.status === 200, 'the browser can ask what it needs', `status ${pushKey.status}`);
+  check(typeof pushKey.data?.ready === 'boolean',
+    'and is told plainly whether there is anything to ask for',
+    JSON.stringify(pushKey.data));
+  // The key is public by design: it goes to every browser that subscribes.
+  // What must never appear is the other half.
+  check(!JSON.stringify(pushKey.data || {}).includes('PRIVATE'),
+    'without the half that signs');
+
+  if (pushKey.data?.ready === false) {
+    const pushEarly = await call(advisor, 'POST', '/api/push/subscribe', {
+      endpoint: 'https://fcm.googleapis.com/fcm/send/abc',
+      keys: { p256dh: 'x'.repeat(87), auth: 'y'.repeat(22) },
+    });
+    check(pushEarly.status === 400,
+      'and refuses a subscription it could never knock on',
+      `status ${pushEarly.status} ${pushEarly.raw}`);
+  }
+
+  // Rubbish is refused whether or not the keys are set, because a row that
+  // cannot be pushed to is a row that fails once an hour for ever.
+  const pushJunk = await call(advisor, 'POST', '/api/push/subscribe',
+    { endpoint: 'http://not-https.example.com/x', keys: { p256dh: 'a', auth: 'b' } });
+  check(pushJunk.status === 400 || pushJunk.status === 404,
+    'a subscription that is not https is not one', `status ${pushJunk.status}`);
+
+  const pushNone = await call(advisor, 'POST', '/api/push/subscribe', {});
+  check(pushNone.status === 400 || pushNone.status === 404,
+    'and neither is an empty one', `status ${pushNone.status}`);
+
+  // Unsubscribing with nothing subscribed is a no-op rather than an error:
+  // switching something off that is already off is a normal thing to do.
+  const pushGone = await call(advisor, 'DELETE', '/api/push/subscribe', {});
+  check(pushGone.status === 200 && pushGone.data?.devices === 0,
+    'turning it off when it was never on is not an error',
+    `status ${pushGone.status} ${pushGone.raw}`);
+
+  // The service worker has to be reachable without a session, or a browser
+  // cannot register it, and it has to be served as script.
+  const pushSw = await fetch(`${BASE}/sw.js`);
+  check(pushSw.status === 200, 'the service worker is served', `status ${pushSw.status}`);
+  check(/javascript/.test(pushSw.headers.get('content-type') || ''),
+    'as a script rather than as a page',
+    pushSw.headers.get('content-type'));
+  const pushSwBody = await pushSw.text();
+  check(pushSwBody.includes("addEventListener('push'"), 'and is the one that listens for a push');
+  // Every path in it ends in a notification. A browser grants push on that
+  // promise and takes it back when a push shows nothing.
+  check(pushSwBody.includes('showNotification'), 'and always shows something when one arrives');
+
   // ------------------------------------------------------ the lead report --
   step('What the forms brought in');
 

@@ -138,6 +138,24 @@
           </label>
         </div>
       </section>
+      <section class="card" id="push-card">
+        <div class="card-head"><h2>On this device</h2>
+          <span id="push-state" class="muted"></span></div>
+        <div class="card-pad">
+          <div class="notice notice-error" id="push-err" hidden></div>
+          <p style="margin:0 0 .6rem;">
+            <strong style="color:var(--navy-800);">Notify me here when something is due</strong>
+          </p>
+          <p class="field-hint" style="margin:0 0 .9rem;">
+            A notification on this device even with the tab closed. Your browser has to agree
+            first, and it is asked once per device: saying yes here covers this computer, and
+            your phone is a separate yes. At most one an hour, and never more than a name: a
+            notification sits on a lock screen where anybody standing there can read it.
+          </p>
+          <button class="btn btn-primary btn-sm" type="button" id="push-on">Turn it on here</button>
+          <button class="btn btn-ghost btn-sm" type="button" id="push-off" hidden>Turn it off here</button>
+        </div>
+      </section>
       <section class="card" id="weekly-card">
         <div class="card-head"><h2>Your Monday call list</h2>
           <span id="weekly-state" class="muted"></span></div>
@@ -323,6 +341,120 @@ liveSwitch({
   box: 'alertsFeed', state: 'alerts-state', err: 'alerts-err',
   field: 'alertsFeed', read: (u) => u.alertsFeed,
 });
+
+// ----------------------------------------------------- push, per device --
+//
+// Two separate yeses: this portal's switch, and the browser's permission.
+// Both have to be true, only one of them is ours, and the browser's can be
+// refused at the operating system level where nothing on this page can help.
+// So the card reports which of them is missing rather than offering a tick
+// that will not stay ticked.
+const pushOn = document.getElementById('push-on');
+const pushOff = document.getElementById('push-off');
+const pushState = document.getElementById('push-state');
+const pushErr = document.getElementById('push-err');
+
+const pushSupported = 'serviceWorker' in navigator && 'PushManager' in window
+  && 'Notification' in window;
+
+function urlBase64ToUint8Array(b64) {
+  const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+async function currentSubscription() {
+  if (!pushSupported) return null;
+  const reg = await navigator.serviceWorker.getRegistration('/');
+  if (!reg) return null;
+  return reg.pushManager.getSubscription();
+}
+
+async function drawPush() {
+  if (!pushSupported) {
+    pushState.textContent = 'This browser cannot';
+    pushOn.hidden = true;
+    return;
+  }
+  if (Notification.permission === 'denied') {
+    pushState.textContent = 'Blocked by this browser';
+    pushOn.hidden = true;
+    pushOff.hidden = true;
+    pushErr.textContent = 'This browser is set to block notifications from this site. '
+      + 'That is changed in the browser, not here: look for the padlock beside the address.';
+    pushErr.hidden = false;
+    return;
+  }
+  const sub = await currentSubscription();
+  pushState.textContent = sub ? 'On for this device' : 'Off for this device';
+  pushOn.hidden = Boolean(sub);
+  pushOff.hidden = !sub;
+}
+
+pushOn.addEventListener('click', async () => {
+  pushErr.hidden = true;
+  pushOn.disabled = true;
+  try {
+    const { ready, key } = await api('/api/push/key');
+    if (!ready || !key) {
+      throw new Error('Notifications are not switched on for this portal yet. '
+        + 'The office has to add the keys first.');
+    }
+    // Asked before subscribing, so a refusal is a refusal and not a
+    // subscription this portal thinks it has.
+    const granted = await Notification.requestPermission();
+    if (granted !== 'granted') throw new Error('Your browser said no, so nothing was changed.');
+
+    const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({
+      // Not a preference: the browser grants this on the promise that every
+      // push shows something, and quietly showing nothing is how the
+      // permission gets taken back.
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(key),
+    });
+    const raw = sub.toJSON();
+    await api('/api/push/subscribe', {
+      method: 'POST',
+      body: {
+        endpoint: raw.endpoint,
+        keys: raw.keys,
+        // So somebody can tell their phone from their laptop later.
+        label: navigator.userAgent.slice(0, 120),
+      },
+    });
+    await drawPush();
+  } catch (e) {
+    pushErr.textContent = e.message;
+    pushErr.hidden = false;
+  } finally {
+    pushOn.disabled = false;
+  }
+});
+
+pushOff.addEventListener('click', async () => {
+  pushErr.hidden = true;
+  pushOff.disabled = true;
+  try {
+    const sub = await currentSubscription();
+    if (sub) {
+      await api('/api/push/subscribe',
+        { method: 'DELETE', body: { endpoint: sub.endpoint } });
+      // Ours first, then the browser's. The other order leaves a row this
+      // portal would go on knocking at after the browser had forgotten it.
+      await sub.unsubscribe();
+    }
+    await drawPush();
+  } catch (e) {
+    pushErr.textContent = e.message;
+    pushErr.hidden = false;
+  } finally {
+    pushOff.disabled = false;
+  }
+});
+
+drawPush();
 
 // ------------------------------------------------ tasks that follow a trip --
 //

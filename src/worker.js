@@ -151,7 +151,8 @@ import {
   handleDeleteAppointment,
 } from './appointments.js';
 import { handleCalendar } from './calendar.js';
-import { handleAlerts, handleAlertsSeen } from './alerts.js';
+import { handleAlerts, handleAlertsSeen, pushWaiting } from './alerts.js';
+import { handlePushKey, handlePushSubscribe, handlePushUnsubscribe } from './push.js';
 import {
   renderPublicForm,
   handlePublicSubmit,
@@ -479,6 +480,12 @@ export default {
     // costs one query on almost every tick.
     job('task reminders', () => remindTasks(env));
 
+    // And the same thing for anybody who asked to be told on their phone.
+    // Timeliness is the only reason this exists, so it runs on the ordinary
+    // tick rather than once in the morning; at most one knock an hour per
+    // device, because the thing worth protecting is somebody leaving it on.
+    job('push waiting', () => pushWaiting(env));
+
     // And the client side of the same idea: the money is due on a date, and
     // the advisor pressing send is the part that does not scale. Only for
     // advisors who turned it on, and only on real vendor deadlines.
@@ -707,6 +714,16 @@ async function routeApi(request, env, path, method) {
   // clearing it is the only write, and it writes one timestamp.
   if (path === '/api/alerts' && method === 'GET') return handleAlerts(request, env);
   if (path === '/api/alerts/seen' && method === 'POST') return handleAlertsSeen(request, env);
+
+  // A notification on a device, with the tab closed. The key is public by
+  // design: it is handed to every browser that subscribes.
+  if (path === '/api/push/key' && method === 'GET') return handlePushKey(request, env);
+  if (path === '/api/push/subscribe' && method === 'POST') {
+    return handlePushSubscribe(request, env);
+  }
+  if (path === '/api/push/subscribe' && method === 'DELETE') {
+    return handlePushUnsubscribe(request, env);
+  }
 
   // ---- calendar ---------------------------------------------------------
 
