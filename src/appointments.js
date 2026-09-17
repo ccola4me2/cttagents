@@ -14,6 +14,7 @@ import { json, badRequest, notFound, clean, cleanText, cleanDate, badDate, oneOf
   from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
+import { parseInvite, calendarPartOf } from './ics.js';
 
 // How it happens, which is worth knowing at a glance: a call and a lunch are
 // not the same commitment. Order matters, since oneOf falls back to the first.
@@ -292,4 +293,160 @@ export async function dueAppointments(env, scope, { until }) {
     done_at: null,
     pinned_at: null,
   }));
+}
+
+/**
+ * The zone an advisor's day is in.
+ *
+ * Their own if they have said, otherwise the portal's, otherwise New York,
+ * which is where both of these agencies are and what the morning email hour
+ * has quietly assumed since it was written. A wrong zone moves every meeting
+ * by hours and says nothing, so this is worth being explicit about rather than
+ * leaving to a default nobody wrote down.
+ */
+export function zoneOf(env, user) {
+  return (user && user.timezone) || env.PORTAL_TZ || 'America/New_York';
+}
+
+/**
+ * Put an invite in the diary, or bring the one already there up to date.
+ *
+ * The UID is what makes this safe to do twice. A moved meeting arrives as the
+ * same invite with a higher sequence, finds its own appointment and changes
+ * the time; the same invite delivered twice changes nothing.
+ *
+ * Returns what happened rather than just whether it worked, because "added",
+ * "moved" and "you already had that" are three different things to say.
+ */
+export async function applyInvite(env, user, invite) {
+  if (invite.error) return { error: invite.error };
+
+  const existing = invite.uid
+    ? await env.DB.prepare(
+        'SELECT * FROM appointments WHERE user_id = ? AND ics_uid = ?'
+      ).bind(user.id, invite.uid).first().catch(() => null)
+    : null;
+
+  // Mail is not a queue. A delivery that arrives after a later one has already
+  // been applied is older news, and applying it would undo the newer change.
+  if (existing && invite.sequence < (existing.ics_sequence || 0)) {
+    return { outcome: 'stale', appointment: existing };
+  }
+
+  const ts = now();
+
+  if (invite.cancelled) {
+    if (!existing) return { outcome: 'unknown' };
+    await env.DB.prepare(
+      `UPDATE appointments SET cancelled_at = ?, ics_sequence = ?, updated_at = ?
+        WHERE id = ? AND user_id = ?`
+    ).bind(ts, invite.sequence, ts, existing.id, user.id).run();
+    return { outcome: 'cancelled', id: existing.id };
+  }
+
+  const fields = [
+    invite.title,
+    invite.onDate,
+    invite.startTime,
+    invite.endTime,
+    invite.location || null,
+    invite.notes || null,
+    invite.organizer || null,
+    invite.sequence,
+  ];
+
+  if (existing) {
+    // Worked out before the write, not after. Comparing a row against the
+    // change just applied to it depends on whether the driver handed back a
+    // detached copy, which is not a thing this should rest on.
+    const moved = existing.on_date !== invite.onDate
+      || (existing.start_time || '') !== (invite.startTime || '');
+    const same = !moved
+      && (existing.title || '') === invite.title
+      && (existing.end_time || '') === (invite.endTime || '')
+      && (existing.location || '') === (invite.location || '')
+      && !existing.cancelled_at;
+    const was = moved ? `${existing.on_date} ${existing.start_time || ''}`.trim() : null;
+
+    await env.DB.prepare(
+      `UPDATE appointments
+          SET title = ?, on_date = ?, start_time = ?, end_time = ?, location = ?,
+              notes = ?, organizer = ?, ics_sequence = ?,
+              -- A meeting that was cancelled and then re-sent is on again.
+              cancelled_at = NULL, updated_at = ?
+        WHERE id = ? AND user_id = ?`
+    ).bind(...fields, ts, existing.id, user.id).run();
+
+    // Three different things to say. "Updated" about a delivery that changed
+    // nothing reads as though something happened.
+    return {
+      outcome: same ? 'unchanged' : moved ? 'moved' : 'updated',
+      id: existing.id,
+      was,
+    };
+  }
+
+  const id = uid();
+  await env.DB.prepare(
+    `INSERT INTO appointments
+       (id, user_id, title, on_date, start_time, end_time, location, notes,
+        organizer, ics_sequence, ics_uid, source, kind, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'invite', ?, ?, ?)`
+  ).bind(id, user.id, ...fields, invite.uid, invite.allDay ? null : 'other', ts, ts).run();
+
+  return { outcome: 'added', id };
+}
+
+/**
+ * An invite pasted in, or dropped on the page.
+ *
+ * Takes the calendar text directly or a whole forwarded email, because
+ * somebody copying an invite out of their mail client gets whichever of those
+ * their client felt like putting on the clipboard.
+ */
+export async function handleImportInvite(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const body = await readJson(request);
+  const text = String(body.text || '');
+  if (!text.trim()) return badRequest('Paste the invite, or drop the .ics file on the box.');
+  if (text.length > 500000) return badRequest('That file is too big to be a meeting invite.');
+
+  const calendar = text.includes('BEGIN:VCALENDAR') ? text : calendarPartOf(text);
+  if (!calendar) {
+    return badRequest('There is no meeting in that. Forward the invite itself, or '
+      + 'save it as a .ics file and drop that on the box.');
+  }
+
+  const invite = parseInvite(calendar, { zone: zoneOf(env, user) });
+  if (invite.error) return badRequest(invite.error);
+
+  const res = await applyInvite(env, user, invite);
+  if (res.error) return badRequest(res.error);
+
+  await db.logActivity(env, user.id, 'appointment.invite',
+    `${res.outcome} ${invite.title} on ${invite.onDate}`, { uid: invite.uid });
+
+  return json({
+    ok: true,
+    outcome: res.outcome,
+    was: res.was || null,
+    // Said back, so somebody can see the portal read the time the same way
+    // they do before they trust it with the next one.
+    appointment: {
+      id: res.id || null,
+      title: invite.title,
+      onDate: invite.onDate,
+      startTime: invite.startTime,
+      endTime: invite.endTime,
+      location: invite.location,
+      organizer: invite.organizer,
+      allDay: invite.allDay,
+    },
+    // The zone it was read in, because that is the one thing that can be
+    // silently wrong and the one thing somebody can check at a glance.
+    zone: zoneOf(env, user),
+    unconverted: Boolean(invite.unconverted),
+  }, 200);
 }

@@ -149,6 +149,7 @@ import {
   handleCreateAppointment,
   handleUpdateAppointment,
   handleDeleteAppointment,
+  handleImportInvite,
 } from './appointments.js';
 import { handleCalendar } from './calendar.js';
 import { handleAlerts, handleAlertsSeen, pushWaiting } from './alerts.js';
@@ -741,6 +742,11 @@ async function routeApi(request, env, path, method) {
   }
   if (path === '/api/appointments' && method === 'POST') {
     return handleCreateAppointment(request, env);
+  }
+  // A meeting somebody else typed. Before the /:id match, or "invite" is read
+  // as an appointment id.
+  if (path === '/api/appointments/invite' && method === 'POST') {
+    return handleImportInvite(request, env);
   }
   if (apptMatch && method === 'PUT') return handleUpdateAppointment(request, env, apptMatch[1]);
   if (apptMatch && method === 'DELETE') {

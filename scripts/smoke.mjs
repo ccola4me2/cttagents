@@ -1395,6 +1395,86 @@ async function main() {
     'while saying so plainly still switches it off',
     JSON.stringify(chaseOff.data?.user?.autoRemindClients));
 
+  // ---------------------------------------------------- a meeting invite --
+  step('An invite goes into the diary');
+
+  const icsOf = (uid, seq, start, summary) =>
+    ['BEGIN:VCALENDAR', 'VERSION:2.0', 'METHOD:REQUEST', 'BEGIN:VEVENT',
+     `UID:${uid}`, `SEQUENCE:${seq}`, `DTSTART:${start}`, `SUMMARY:${summary}`,
+     'LOCATION:Zoom', 'ORGANIZER;CN=Kenna Vale:mailto:kenna@test.dev',
+     'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+
+  const icsUid = `smoke-${stamp}@test.dev`;
+  const icsAdd = await call(advisor, 'POST', '/api/appointments/invite',
+    { text: icsOf(icsUid, 0, '20260917T140000Z', 'Planning call') });
+  check(icsAdd.status === 200 && icsAdd.data?.outcome === 'added',
+    'an invite becomes an appointment',
+    `status ${icsAdd.status} ${icsAdd.raw}`);
+  check(icsAdd.data?.appointment?.title === 'Planning call',
+    'carrying what the meeting is', icsAdd.data?.appointment?.title);
+  check(icsAdd.data?.appointment?.organizer?.includes('kenna@test.dev'),
+    'and who called it', icsAdd.data?.appointment?.organizer);
+  // The zone is the one thing that can be silently wrong, so it is said back.
+  check(icsAdd.data?.zone, 'and says which zone it read the time in', icsAdd.data?.zone);
+
+  const icsAgain = await call(advisor, 'POST', '/api/appointments/invite',
+    { text: icsOf(icsUid, 0, '20260917T140000Z', 'Planning call') });
+  check(icsAgain.data?.outcome === 'unchanged',
+    'the same invite twice is not two appointments', icsAgain.data?.outcome);
+
+  const icsMoved = await call(advisor, 'POST', '/api/appointments/invite',
+    { text: icsOf(icsUid, 1, '20260918T160000Z', 'Planning call') });
+  check(icsMoved.data?.outcome === 'moved', 'a moved meeting moves rather than doubling',
+    icsMoved.data?.outcome);
+  check(icsMoved.data?.was, 'and says where it was', icsMoved.data?.was);
+
+  // Mail is not a queue, so an older delivery can arrive after a newer one.
+  const icsStale = await call(advisor, 'POST', '/api/appointments/invite',
+    { text: icsOf(icsUid, 0, '20260917T140000Z', 'Planning call') });
+  check(icsStale.data?.outcome === 'stale', 'an older copy arriving late is ignored',
+    icsStale.data?.outcome);
+
+  const icsDiary = await call(advisor, 'GET',
+    '/api/appointments?from=2026-09-01&to=2026-09-30');
+  const icsRows = (icsDiary.data?.appointments || [])
+    .filter((a) => a.title === 'Planning call' && a.location === 'Zoom');
+  check(icsRows.length === 1, 'one meeting however many deliveries',
+    `${icsRows.length} in the diary`);
+  check(icsRows[0] && icsRows[0].onDate === '2026-09-18',
+    'sitting on the day it was moved to', icsRows[0] && icsRows[0].onDate);
+
+  const icsCancel = await call(advisor, 'POST', '/api/appointments/invite', {
+    text: ['BEGIN:VCALENDAR', 'METHOD:CANCEL', 'BEGIN:VEVENT', `UID:${icsUid}`,
+           'SEQUENCE:2', 'DTSTART:20260918T160000Z', 'SUMMARY:Planning call',
+           'END:VEVENT', 'END:VCALENDAR'].join('\r\n'),
+  });
+  check(icsCancel.data?.outcome === 'cancelled', 'a cancellation takes it off',
+    icsCancel.data?.outcome);
+  const icsAfter = await call(advisor, 'GET',
+    '/api/appointments?from=2026-09-18&to=2026-09-18');
+  check((icsAfter.data?.appointments || []).some((a) => a.title === 'Planning call'
+    && a.cancelledAt), 'and leaves it marked rather than vanished');
+
+  // A forwarded message rather than a bare calendar file, which is what a mail
+  // client actually puts on the clipboard.
+  const icsMail = await call(advisor, 'POST', '/api/appointments/invite', {
+    text: ['From: somebody@test.dev', 'Subject: FW: Cabins',
+           'Content-Type: multipart/mixed; boundary="b"', '', '--b',
+           'Content-Type: text/plain', '', 'Forwarding this.', '', '--b',
+           'Content-Type: text/calendar', '',
+           icsOf(`fwd-${stamp}@test.dev`, 0, '20260919T150000Z', 'Cabins call'),
+           '', '--b--'].join('\r\n'),
+  });
+  check(icsMail.data?.outcome === 'added', 'an invite inside a forwarded email is found',
+    `${icsMail.status} ${icsMail.raw}`);
+
+  const icsJunk = await call(advisor, 'POST', '/api/appointments/invite',
+    { text: 'Hi Brent, are you free Thursday?' });
+  check(icsJunk.status === 400, 'and a message with no invite in it says so',
+    `status ${icsJunk.status}`);
+  const icsEmpty = await call(advisor, 'POST', '/api/appointments/invite', { text: '' });
+  check(icsEmpty.status === 400, 'as does an empty one', `status ${icsEmpty.status}`);
+
   // ------------------------------------------------------ the lead report --
   step('What the forms brought in');
 

@@ -16,6 +16,7 @@
       <div><h1>Calendar</h1><p class="sub">Your appointments, and everything else that lands on a day.</p></div>
       <div class="toolbar" style="margin:0;">
         <span id="scope"></span>
+        <button class="btn btn-ghost btn-sm" id="paste">Add from an invite</button>
         <button class="btn btn-primary btn-sm" id="add">Add an appointment</button>
       </div>
     </header>
@@ -38,6 +39,27 @@
     </div>
   </div>
 </div>
+
+<dialog id="ics-dlg">
+  <form id="ics-form" method="dialog">
+    <div class="card-head"><h2>Add from an invite</h2>
+      <button class="btn btn-ghost btn-sm" type="button" id="ics-close">Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" hidden></div>
+      <div class="notice notice-ok" id="ics-ok" hidden></div>
+      <p class="field-hint" style="margin:0 0 .8rem;">Forward the meeting to yourself and
+        paste it here, or save the invite as a .ics file and drop it on the box. Sending
+        the same invite again after it moves updates the appointment rather than leaving
+        two.</p>
+      <div class="field">
+        <label for="ics-text">The invite</label>
+        <textarea id="ics-text" name="text" rows="7"
+          placeholder="Paste the forwarded message, or drop the .ics file here"></textarea>
+      </div>
+    </div>
+    <div class="card-foot"><button class="btn btn-primary" type="submit">Read it</button></div>
+  </form>
+</dialog>
 
 <dialog id="dlg">
   <form id="appt-form" method="dialog">
@@ -330,5 +352,64 @@ document.getElementById('drop').addEventListener('click', async () => {
 
 mountScopePicker(document.getElementById('scope'), load);
 await load();
+
+// ------------------------------------------------------- from an invite --
+//
+// A meeting somebody else organised, read rather than retyped. What comes back
+// is said out loud before it is trusted: the one thing that can be silently
+// wrong here is the time zone, and the one thing somebody can check at a
+// glance is the time.
+const icsDlg = document.getElementById('ics-dlg');
+const icsForm = document.getElementById('ics-form');
+const icsText = document.getElementById('ics-text');
+const icsOk = document.getElementById('ics-ok');
+
+const SAID = {
+  added: 'Added',
+  moved: 'Moved',
+  updated: 'Updated',
+  unchanged: 'You already had that one',
+  cancelled: 'Taken off the calendar',
+  stale: 'That is an older copy of one you already have, so nothing changed',
+  unknown: 'That cancels a meeting this calendar never had',
+};
+
+document.getElementById('paste').addEventListener('click', () => {
+  icsForm.reset();
+  icsForm.querySelector('.notice-error').hidden = true;
+  icsOk.hidden = true;
+  icsDlg.showModal();
+  icsText.focus();
+});
+document.getElementById('ics-close').addEventListener('click', () => icsDlg.close());
+
+// Dropping the file is the other half of "paste it". A .ics arrives as a file
+// far more often than as text somebody can select.
+icsText.addEventListener('dragover', (e) => { e.preventDefault(); });
+icsText.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (file) icsText.value = await file.text();
+});
+
+onSubmit(icsForm, async () => {
+  icsOk.hidden = true;
+  const res = await api('/api/appointments/invite', {
+    method: 'POST', body: { text: icsText.value },
+  });
+  const a = res.appointment || {};
+  const when = a.allDay ? `${dateFmt(a.onDate)}, all day`
+    : `${dateFmt(a.onDate)} at ${a.startTime}${a.endTime ? ` to ${a.endTime}` : ''}`;
+  icsOk.innerHTML = `<strong>${esc(SAID[res.outcome] || res.outcome)}.</strong>
+    ${esc(a.title || '')} &middot; ${esc(when)}
+    ${res.was ? `<div class="muted">It was ${esc(res.was)}.</div>` : ''}
+    <div class="muted">Read in ${esc(res.zone)}. If that is the wrong hour, your time
+      zone is what to change.</div>
+    ${res.unconverted ? '<div class="muted">The zone could not be applied, so this is '
+      + 'the time exactly as the invite wrote it.</div>' : ''}`;
+  icsOk.hidden = false;
+  icsText.value = '';
+  await load();
+});
 </script>
 </body></html>
