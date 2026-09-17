@@ -124,6 +124,48 @@ export async function listTasks(env, scope, { state = 'open', query, limit } = {
   return results || [];
 }
 
+/**
+ * Leads whose next step is due, shaped like the tasks they sit beside.
+ *
+ * Only ones with a date, and only within the same week ahead the drawer shows.
+ * A lead with no next step is not overdue, it is unplanned, and belongs on the
+ * board rather than in a list of things due today.
+ *
+ * Somebody who has booked is off the board on their own, so they are off this
+ * too: the follow-up date they were carrying stopped mattering the moment the
+ * reservation existed.
+ */
+export async function dueLeads(env, scope, { today, until }) {
+  const scoped = db.scopeWhere(scope, 'c.user_id');
+  const { results } = await env.DB.prepare(
+    `SELECT c.id, c.user_id, c.name, c.lead_stage, c.lead_next_step, c.lead_next_step_on
+       FROM clients c
+      WHERE ${scoped.sql}
+        AND c.lead_stage IS NOT NULL
+        AND c.lead_next_step_on IS NOT NULL
+        AND c.lead_next_step_on <= ?
+        AND NOT EXISTS (SELECT 1 FROM bookings b
+                         WHERE b.client_id = c.id AND b.status IN ('booked','travelled'))
+      ORDER BY c.lead_next_step_on ASC
+      LIMIT 200`
+  ).bind(...scoped.binds, until).all().catch(() => ({ results: [] }));
+
+  return (results || []).map((r) => ({
+    // Prefixed so nothing can tick, pin or push it as though it were a task.
+    id: `lead:${r.id}`,
+    lead: true,
+    client_id: r.id,
+    client_name: r.name,
+    user_id: r.user_id,
+    title: r.lead_next_step || `Follow up with ${r.name}`,
+    due_date: r.lead_next_step_on,
+    stage: r.lead_stage,
+    done_at: null,
+    pinned_at: null,
+    priority: r.lead_next_step_on < today ? 'high' : 'normal',
+  }));
+}
+
 export async function handleListTasks(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
@@ -140,12 +182,17 @@ export async function handleListTasks(request, env) {
   const { rows: tasks, truncated } = db.capped(found, url.searchParams.get('limit'));
 
   const today = new Date().toISOString().slice(0, 10);
+  // Returned beside the tasks rather than mixed into them. The drawer wants
+  // one list and merges them; the tasks page has bulk actions that only work
+  // on a real task, and handing it rows it cannot act on would be offering
+  // buttons that fail.
+  const leads = await dueLeads(env, scope, { today, until: weekFrom(today) });
   return json({
     tasks,
+    leads,
     truncated,
     cap: db.LIST_CAP,
     kinds: KINDS,
-    advisors: await db.advisorOptions(env, user),
     counts: {
       overdue: tasks.filter((t) => !t.done_at && t.due_date && t.due_date < today).length,
       today: tasks.filter((t) => !t.done_at && t.due_date === today).length,

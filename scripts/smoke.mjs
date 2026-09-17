@@ -1057,6 +1057,46 @@ async function main() {
   }
 
 
+  // -------------------------------------------- a lead that is due ----
+  //
+  // lead_next_step_on was read by the lead board and by nothing else, so a
+  // follow-up date was invisible unless you went and looked at the board,
+  // which is the thing a due date exists to save you from.
+  step('A lead with a follow-up date is something due');
+
+  const dueLead = await call(advisor, 'POST', '/api/leads', {
+    name: `Due Lead ${stamp}`, email: `duelead-${stamp}@test.dev`,
+    stage: 'in_conversation', nextStep: 'Ring about the Alaska cabins',
+    nextStepOn: isoDay(-3),
+  });
+  check(dueLead.status === 200 || dueLead.status === 201, 'a lead with an overdue next step',
+    `status ${dueLead.status} ${JSON.stringify(dueLead.data)}`);
+
+  const todo = await call(advisor, 'GET',
+    `/api/tasks?state=open&advisor=${encodeURIComponent(advisorId)}`);
+  const onTodo = (todo.data?.leads || []).find((l) => l.client_name === `Due Lead ${stamp}`);
+  check(onTodo, 'turns up beside the tasks that are due',
+    `${(todo.data?.leads || []).length} lead(s) due`);
+  // Shaped like a task on purpose: the drawer buckets by due_date, the badge
+  // counts late and today, and the digest renders title and client. A lead
+  // arriving in that shape needs none of them changed.
+  check(onTodo && onTodo.title === 'Ring about the Alaska cabins'
+    && onTodo.due_date === isoDay(-3),
+    'carrying the step and the date it was due', JSON.stringify(onTodo));
+  check(onTodo && String(onTodo.id).startsWith('lead:'),
+    'under an id nothing can tick or pin as though it were a task', onTodo && onTodo.id);
+
+  // A lead with no next step is not overdue, it is unplanned, and belongs on
+  // the board rather than in a list of things due today.
+  const noStep = await call(advisor, 'POST', '/api/leads', {
+    name: `Unplanned Lead ${stamp}`, stage: 'new',
+  });
+  check(noStep.status === 200 || noStep.status === 201, 'and a lead with no next step');
+  const todoAgain = await call(advisor, 'GET',
+    `/api/tasks?state=open&advisor=${encodeURIComponent(advisorId)}`);
+  check(!(todoAgain.data?.leads || []).some((l) => l.client_name === `Unplanned Lead ${stamp}`),
+    'is not counted as due, because nothing was planned for it');
+
   // ------------------------------------------------------ the lead report --
   step('What the forms brought in');
 

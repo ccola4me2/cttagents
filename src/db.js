@@ -14,6 +14,7 @@ const USER_COLUMNS = `
   approved_at, approved_by, default_split_pct, lead_split_pct,
   agency_address, seller_of_travel,
   notify_email, auto_remind_clients, weekly_call_list, call_list_sent_at,
+  task_digest, alerts_feed, push_alerts, alerts_seen_at,
   agency_id, platform_owner
 `;
 
@@ -81,6 +82,11 @@ export async function updateUserProfile(env, id, fields) {
             -- default, so treating a missing field as false would let any save
             -- that predates the switch quietly turn it off.
             weekly_call_list = COALESCE(?, weekly_call_list),
+            -- The same rule for all three: a save that does not mention a
+            -- switch must not be a save that turns it off.
+            task_digest = COALESCE(?, task_digest),
+            alerts_feed = COALESCE(?, alerts_feed),
+            push_alerts = COALESCE(?, push_alerts),
             updated_at = ?
       WHERE id = ?`
   ).bind(
@@ -93,6 +99,9 @@ export async function updateUserProfile(env, id, fields) {
     fields.notifyEmail || null,
     fields.autoRemindClients ? 1 : 0,
     fields.weeklyCallList === undefined ? null : (fields.weeklyCallList ? 1 : 0),
+    fields.taskDigest === undefined ? null : (fields.taskDigest ? 1 : 0),
+    fields.alertsFeed === undefined ? null : (fields.alertsFeed ? 1 : 0),
+    fields.pushAlerts === undefined ? null : (fields.pushAlerts ? 1 : 0),
     now(),
     id
   ).run();

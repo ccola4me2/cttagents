@@ -99,6 +99,42 @@
           </label>
         </div>
       </section>
+      <section class="card" id="digest-card">
+        <div class="card-head"><h2>What is due, every morning</h2>
+          <span id="digest-state" class="muted"></span></div>
+        <div class="card-pad">
+          <div class="notice notice-error" id="digest-err" hidden></div>
+          <label style="display:flex;align-items:flex-start;gap:.6rem;font-weight:400;margin:0;">
+            <input type="checkbox" id="taskDigest" style="width:auto;flex:none;margin-top:.25rem;">
+            <span>
+              <strong style="color:var(--navy-800);">Email me what is due and what is late</strong>
+              <span class="field-hint" style="display:block;margin-top:.35rem;">
+                One message a day, not one per thing: your tasks due today, your tasks already
+                late, and any lead whose next step has come round. A task is mentioned once. A
+                lead stays in it every morning until you move the date or close them, because an
+                overdue follow-up is still overdue tomorrow. A day with nothing due sends
+                nothing.</span>
+            </span>
+          </label>
+        </div>
+      </section>
+      <section class="card" id="alerts-card">
+        <div class="card-head"><h2>The bell</h2>
+          <span id="alerts-state" class="muted"></span></div>
+        <div class="card-pad">
+          <div class="notice notice-error" id="alerts-err" hidden></div>
+          <label style="display:flex;align-items:flex-start;gap:.6rem;font-weight:400;margin:0;">
+            <input type="checkbox" id="alertsFeed" style="width:auto;flex:none;margin-top:.25rem;">
+            <span>
+              <strong style="color:var(--navy-800);">Show the bell in the sidebar</strong>
+              <span class="field-hint" style="display:block;margin-top:.35rem;">
+                The same things the morning email would say, in the portal, with a dot while any
+                of it is new. Switching it off does not switch off the To do count beside it:
+                that is a number on a screen you are already looking at.</span>
+            </span>
+          </label>
+        </div>
+      </section>
       <section class="card" id="weekly-card">
         <div class="card-head"><h2>Your Monday call list</h2>
           <span id="weekly-state" class="muted"></span></div>
@@ -273,6 +309,16 @@ liveSwitch({
 liveSwitch({
   box: 'weeklyCallList', state: 'weekly-state', err: 'weekly-err',
   field: 'weeklyCallList', read: (u) => u.weeklyCallList,
+});
+
+liveSwitch({
+  box: 'taskDigest', state: 'digest-state', err: 'digest-err',
+  field: 'taskDigest', read: (u) => u.taskDigest,
+});
+
+liveSwitch({
+  box: 'alertsFeed', state: 'alerts-state', err: 'alerts-err',
+  field: 'alertsFeed', read: (u) => u.alertsFeed,
 });
 
 // ------------------------------------------------ tasks that follow a trip --

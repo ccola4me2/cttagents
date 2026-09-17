@@ -56,6 +56,13 @@ function publicUser(u) {
     autoRemindClients: Boolean(u.auto_remind_clients),
     // Whether Monday brings them the list of people nothing else is chasing.
     weeklyCallList: u.weekly_call_list === undefined ? true : Boolean(u.weekly_call_list),
+    // On unless switched off. The morning email already goes out, so a row
+    // written before this existed has to read as on rather than as off.
+    taskDigest: u.task_digest === undefined ? true : Boolean(u.task_digest),
+    alertsFeed: u.alerts_feed === undefined ? true : Boolean(u.alerts_feed),
+    // Off until a browser has been asked. There is nothing to push to before
+    // that, so on would be a promise the portal cannot keep.
+    pushAlerts: Boolean(u.push_alerts),
     // Which agency they are in, and whether they run the portal itself.
     agencyId: u.agency_id || null,
     platformOwner: Boolean(u.platform_owner),
@@ -226,6 +233,12 @@ export async function handleUpdateProfile(request, env) {
     // heard of this switch leaves it where the advisor put it.
     weeklyCallList: body.weeklyCallList === undefined ? undefined
       : (body.weeklyCallList === true || body.weeklyCallList === 'on'),
+    taskDigest: body.taskDigest === undefined ? undefined
+      : (body.taskDigest === true || body.taskDigest === 'on'),
+    alertsFeed: body.alertsFeed === undefined ? undefined
+      : (body.alertsFeed === true || body.alertsFeed === 'on'),
+    pushAlerts: body.pushAlerts === undefined ? undefined
+      : (body.pushAlerts === true || body.pushAlerts === 'on'),
   });
   return json({ ok: true, user: publicUser(updated) });
 }

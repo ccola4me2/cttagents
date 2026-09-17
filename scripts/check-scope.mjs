@@ -51,6 +51,9 @@ const OWNED = new Set([
   // read on screens scoped by user_id; the three statements that reach it by
   // its token instead are listed in ALLOWED, with why.
   'form_invites',
+  // A browser that agreed to be notified. It belongs to the advisor signed in
+  // on it, and nothing reads one except to push to its owner.
+  'push_subscriptions',
   'advisor_billing',
   // A saved list is one advisor's question about their own book. The rules
   // it holds are run inside that advisor's scope, so the list itself is

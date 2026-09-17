@@ -399,7 +399,11 @@ function mountTodo(sidebar, user) {
       // ticks off, pins and pushes, and every one of those is refused on
       // somebody else's task. It offered three buttons that could not work.
       const d = await api(`/api/tasks?state=open&advisor=${encodeURIComponent(user.id)}`);
-      tasks = d.tasks || [];
+      // A lead's follow-up date is a thing due on a day, which is what this
+      // whole drawer is. They arrive shaped like tasks and are merged here, so
+      // the count on the sidebar means everything needing you rather than
+      // everything needing you that somebody remembered to write as a task.
+      tasks = [...(d.tasks || []), ...(d.leads || [])];
       today = d.today || today;
       setBadge();
     } catch { /* the badge is a nicety, not a feature */ }
@@ -427,8 +431,33 @@ function mountTodo(sidebar, user) {
     return dateFmt(iso).replace(/,? \d{4}$/, '');
   }
 
+  /**
+   * A lead's next step, in the same list as the tasks.
+   *
+   * No tick and no pin. "Done" on a follow-up is ambiguous, and clearing the
+   * date without setting a new one takes somebody off the board altogether,
+   * which is a worse outcome than leaving them on it. The row opens the board
+   * instead, where moving the date and closing the lead are both said out loud.
+   */
+  function leadRow(t, late) {
+    return `<li class="lead-row">
+      <a href="/app/leads" class="task-tick" style="text-decoration:none;">
+        <span>
+          <span class="t">${esc(t.title)}</span>
+          <span class="who">${esc(t.client_name)}</span>
+          <span class="marks">
+            <span class="when${late ? ' late' : ''}">${esc(whenWords(t.due_date))}</span>
+            <span class="tag">Lead</span>
+            ${t.stage ? `<span class="tag">${esc(t.stage)}</span>` : ''}
+          </span>
+        </span>
+      </a>
+    </li>`;
+  }
+
   function row(t) {
     const late = t.due_date && t.due_date < today;
+    if (t.lead) return leadRow(t, late);
     // What the task is about, in the order somebody would say it. Only the
     // first one that exists: three of these on one line is a paragraph, and
     // the drawer is meant to be scanned.
