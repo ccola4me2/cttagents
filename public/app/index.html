@@ -584,6 +584,34 @@ function clockOf(hhmm) {
 
 let monthCursor = null;
 
+/**
+ * The one-line add under a day.
+ *
+ * A task, because a task is a sentence and typing it is the whole interaction.
+ * An appointment is a form with a time and a person in it, so that goes to the
+ * calendar with the day already chosen rather than growing a second form here.
+ */
+function wireDayAdd(detail) {
+  const form = detail.querySelector('.cal-add');
+  if (!form) return;
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const title = form.elements.title.value.trim();
+    if (!title) return;
+    const button = form.querySelector('button');
+    button.disabled = true;
+    try {
+      await api('/api/tasks', { method: 'POST', body: { title, dueDate: form.dataset.day } });
+      form.elements.title.value = '';
+      // The whole month, because a new task changes the dot on that day as
+      // well as the list under it.
+      await drawMonth(document.getElementById('month-body'), form.dataset.day);
+    } catch (err) {
+      showError(document.getElementById('err'), err);
+    } finally { button.disabled = false; }
+  });
+}
+
 function monthWidget() {
   const el = document.createElement('section');
   el.className = 'widget';
@@ -674,8 +702,18 @@ async function drawMonth(host, reopen) {
         ? `${events.length} thing${events.length === 1 ? '' : 's'}` : 'clear'}</span>
     </div>`;
 
+    // The date is the thing you already have. Sending somebody to another
+    // screen to type it again is the whole reason this was worth adding.
+    const add = `<form class="cal-add" data-day="${esc(iso)}">
+      <input name="title" maxlength="200" autocomplete="off"
+        placeholder="Add a task on this day" aria-label="Add a task on ${esc(label)}">
+      <button class="btn btn-primary btn-sm" type="submit">Add</button>
+      <a class="btn btn-ghost btn-sm" href="/app/calendar?add=${esc(iso)}">Appointment</a>
+    </form>`;
+
     if (!events.length) {
-      detail.innerHTML = `${head}<p class="cal-none">Nothing on this day.</p>`;
+      detail.innerHTML = `${head}<p class="cal-none">Nothing on this day.</p>${add}`;
+      wireDayAdd(detail);
       return;
     }
     detail.innerHTML = `${head}<ul class="rows">${events.map((e) => `<li>
