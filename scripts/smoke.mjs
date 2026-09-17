@@ -916,7 +916,7 @@ async function main() {
   const sendFormRes = await call(advisor, 'POST', '/api/myforms', {
     name: `Smoke sendable ${stamp}`,
     fields: [
-      { label: 'Your name', type: 'text', required: true },
+      { label: 'Full name', type: 'text', required: true },
       { label: 'Email', type: 'email', required: true },
       { label: 'Where to?', type: 'text' },
     ],
@@ -968,7 +968,8 @@ async function main() {
     check(invitedPage.status === 200, 'their link opens the form', `status ${invitedPage.status}`);
     // Asking somebody their own name on a form you sent to them by name reads
     // as though nobody is paying attention.
-    check(invitedHtml.includes(`invited-${stamp}@test.dev`),
+    check(invitedHtml.includes(`invited-${stamp}@test.dev`)
+      && invitedHtml.includes(`value="Invited Person ${stamp}"`),
       'with what the advisor already knows filled in');
     check(invitedHtml.includes(`value="${inviteId}"`),
       'and carries the invite through to the submission');
@@ -982,7 +983,7 @@ async function main() {
 
     const invitedSubmit = await call(null, 'POST', `/api/public/forms/${sendable.slug}`, {
       invite: inviteId,
-      first_name: 'Invited', last_name: 'Person',
+      full_name: `Invited Person ${stamp}`,
       email: `invited-${stamp}@test.dev`, where_to: 'Seville',
     });
     check(invitedSubmit.status === 200 || invitedSubmit.status === 201,
