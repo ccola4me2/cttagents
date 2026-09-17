@@ -910,13 +910,31 @@ async function main() {
   // say afterwards whether they filled it in.
   step('A form sent to a client on the book');
 
+  // Its own form, not the one above. That one has an automation on it, and a
+  // second submission here would be counted by the check that asserts the
+  // automation ran exactly once.
+  const sendFormRes = await call(advisor, 'POST', '/api/myforms', {
+    name: `Smoke sendable ${stamp}`,
+    fields: [
+      { label: 'Your name', type: 'text', required: true },
+      { label: 'Email', type: 'email', required: true },
+      { label: 'Where to?', type: 'text' },
+    ],
+  });
+  const sendable = sendFormRes.data?.form;
+  check(sendFormRes.status === 201 && sendable?.id, 'a form to send',
+    `status ${sendFormRes.status}`);
+  if (sendable?.id) {
+    cleanup('the sendable form', () => call(advisor, 'DELETE', `/api/myforms/${sendable.id}`));
+  }
+
   const invitee = await call(advisor, 'POST', '/api/clients', {
     name: `Invited Person ${stamp}`, email: `invited-${stamp}@test.dev`,
   });
   const inviteeId = invitee.data?.client?.id;
   check(inviteeId, 'a client to send it to', `status ${invitee.status}`);
 
-  const inviteSent = await call(advisor, 'POST', `/api/myforms/${form.id}/send`, {
+  const inviteSent = await call(advisor, 'POST', `/api/myforms/${sendable.id}/send`, {
     clientId: inviteeId, note: 'Lovely speaking with you this morning.',
   });
   check(inviteSent.status === 201 && inviteSent.data?.inviteId, 'the form is sent',
@@ -932,20 +950,20 @@ async function main() {
 
   // An address in the body is ignored when a client is named. Otherwise the
   // send box is a way to post somebody else's questions to anybody.
-  const hijack = await call(advisor, 'POST', `/api/myforms/${form.id}/send`, {
+  const hijack = await call(advisor, 'POST', `/api/myforms/${sendable.id}/send`, {
     clientId: inviteeId, email: 'somebody-else@test.dev',
   });
   check(hijack.data?.to === `invited-${stamp}@test.dev`,
     'a typed address cannot redirect a named client\'s invite', hijack.data?.to);
 
-  const notOnMyBook = await call(advisor, 'POST', `/api/myforms/${form.id}/send`, {
+  const notOnMyBook = await call(advisor, 'POST', `/api/myforms/${sendable.id}/send`, {
     clientId: 'no-such-client',
   });
   check(notOnMyBook.status === 404, 'and a client who is not yours is not one to send to',
     `status ${notOnMyBook.status}`);
 
   if (inviteId) {
-    const invitedPage = await fetch(`${BASE}/f/${form.slug}?i=${inviteId}`);
+    const invitedPage = await fetch(`${BASE}/f/${sendable.slug}?i=${inviteId}`);
     const invitedHtml = await invitedPage.text();
     check(invitedPage.status === 200, 'their link opens the form', `status ${invitedPage.status}`);
     // Asking somebody their own name on a form you sent to them by name reads
@@ -955,14 +973,14 @@ async function main() {
     check(invitedHtml.includes(`value="${inviteId}"`),
       'and carries the invite through to the submission');
 
-    const afterOpen = await call(advisor, 'GET', `/api/myforms/${form.id}/invites`);
+    const afterOpen = await call(advisor, 'GET', `/api/myforms/${sendable.id}/invites`);
     const inviteRow = (afterOpen.data?.invites || []).find((i) => i.id === inviteId);
     check(inviteRow && inviteRow.openedAt, 'the advisor can see they opened it',
       JSON.stringify(inviteRow));
     check(inviteRow && inviteRow.name === `Invited Person ${stamp}` && !inviteRow.submittedAt,
       'and that nothing has come back yet', JSON.stringify(inviteRow));
 
-    const invitedSubmit = await call(null, 'POST', `/api/public/forms/${form.slug}`, {
+    const invitedSubmit = await call(null, 'POST', `/api/public/forms/${sendable.slug}`, {
       invite: inviteId,
       first_name: 'Invited', last_name: 'Person',
       email: `invited-${stamp}@test.dev`, where_to: 'Seville',
@@ -970,7 +988,7 @@ async function main() {
     check(invitedSubmit.status === 200 || invitedSubmit.status === 201,
       'they answer it', `status ${invitedSubmit.status}`);
 
-    const afterSubmit = await call(advisor, 'GET', `/api/myforms/${form.id}/invites`);
+    const afterSubmit = await call(advisor, 'GET', `/api/myforms/${sendable.id}/invites`);
     const inviteDone = (afterSubmit.data?.invites || []).find((i) => i.id === inviteId);
     check(inviteDone && inviteDone.submittedAt, 'and the advisor can see it came back',
       JSON.stringify(inviteDone));
@@ -978,7 +996,7 @@ async function main() {
     // The point of the whole thing. Robert Smith answering a form sent to Bob
     // Smith is one person, and the open link, matching to the book by name,
     // cannot know that. The invite can.
-    const onForm = await call(advisor, 'GET', `/api/myforms/${form.id}`);
+    const onForm = await call(advisor, 'GET', `/api/myforms/${sendable.id}`);
     const landed = (onForm.data?.submissions || [])
       .find((s) => s.email === `invited-${stamp}@test.dev`);
     check(landed && landed.contactId === inviteeId,
@@ -987,7 +1005,7 @@ async function main() {
 
     // A wrong token behaves like the open link rather than refusing. The form
     // still works, which is the failure everybody would prefer.
-    const badToken = await fetch(`${BASE}/f/${form.slug}?i=not-a-real-invite`);
+    const badToken = await fetch(`${BASE}/f/${sendable.slug}?i=not-a-real-invite`);
     check(badToken.status === 200, 'a wrong token falls back to the open form',
       `status ${badToken.status}`);
   }
