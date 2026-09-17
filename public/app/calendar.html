@@ -219,6 +219,15 @@ function showDay(day) {
   const list = events.filter((e) => e.date === day);
   dayCard.hidden = false;
   document.getElementById('day-title').textContent = dateFmt(day);
+  // The date is in hand, so putting something on it should not mean typing it
+  // again on another screen.
+  const add = `<form class="cal-add" id="day-add">
+    <input name="title" maxlength="200" autocomplete="off"
+      placeholder="Add a task on this day" aria-label="Add a task on ${esc(dateFmt(day))}">
+    <button class="btn btn-primary btn-sm" type="submit">Add</button>
+    <button class="btn btn-ghost btn-sm" type="button" id="day-appt">Appointment</button>
+  </form>`;
+
   document.getElementById('day-body').innerHTML = list.length
     ? `<ul class="rows">${list.map((e) => `<li>
         <div>
@@ -231,8 +240,20 @@ function showDay(day) {
         <div>${e.kind === 'appointment'
           ? `<button class="btn btn-ghost btn-sm" data-edit="${esc(e.id)}">Edit</button>`
           : `<a class="btn btn-ghost btn-sm" href="${esc(e.href)}">Open</a>`}</div>
-      </li>`).join('')}</ul>`
-    : '<div class="empty"><p>Nothing on this day.</p></div>';
+      </li>`).join('')}</ul>${add}`
+    : `<div class="empty"><p>Nothing on this day.</p></div>${add}`;
+
+  // An appointment is a form with a time and a person in it, so it opens the
+  // dialog on this day. A task is a sentence, so it is typed here.
+  document.getElementById('day-appt').addEventListener('click', () => openAppt(null));
+  onSubmit(document.getElementById('day-add'), async () => {
+    const box = document.getElementById('day-add').elements.title;
+    const title = box.value.trim();
+    if (!title) return;
+    await api('/api/tasks', { method: 'POST', body: { title, dueDate: day } });
+    box.value = '';
+    await load();
+  });
 
   document.getElementById('day-body').querySelectorAll('[data-edit]').forEach((b) =>
     b.addEventListener('click', () => openAppt(b.dataset.edit)));
@@ -352,6 +373,17 @@ document.getElementById('drop').addEventListener('click', async () => {
 
 mountScopePicker(document.getElementById('scope'), load);
 await load();
+
+// Arriving from the dashboard's month, where somebody pressed Appointment on a
+// day. Landing on the month and making them find that day again would be the
+// screen forgetting what it was just told.
+const asked = new URLSearchParams(location.search).get('add');
+if (asked && /^\d{4}-\d{2}-\d{2}$/.test(asked)) {
+  cursor = new Date(`${asked}T00:00:00Z`);
+  await load();
+  showDay(asked);
+  openAppt(null);
+}
 
 // ------------------------------------------------------- from an invite --
 //

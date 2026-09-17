@@ -594,7 +594,7 @@ function monthWidget() {
   return el;
 }
 
-async function drawMonth(host) {
+async function drawMonth(host, reopen) {
   if (!host) return;
   const month = monthCursor || d.today.slice(0, 7);
   let data;
@@ -684,7 +684,8 @@ async function drawMonth(host) {
         <span><span class="t">${e.at ? `<b class="cal-at">${esc(clockOf(e.at))}</b> ` : ''}${esc(e.title)}</span>
           <span class="m">${esc(KIND_NAME[e.kind] || 'Item')}${e.detail ? ' · ' + esc(e.detail) : ''}${
             e.amountCents ? ' · ' + esc(money(e.amountCents)) : ''}</span></span>
-      </a></li>`).join('')}</ul>`;
+      </a></li>`).join('')}</ul>${add}`;
+    wireDayAdd(detail);
   };
 
   host.querySelectorAll('.cal-day[data-day]').forEach((cell) => {
@@ -693,9 +694,12 @@ async function drawMonth(host) {
 
   // Opens on today when you are looking at this month, and on the first day
   // that has anything when you are not, so paging never lands on a blank list.
-  const opening = data.month === data.today.slice(0, 7)
+  // The day that was open before, where one was: adding a task redraws the
+  // month, and coming back to a different day than you were looking at makes
+  // it feel like the add went somewhere else.
+  const opening = reopen || (data.month === data.today.slice(0, 7)
     ? data.today
-    : (data.events[0] && data.events[0].date);
+    : (data.events[0] && data.events[0].date));
   if (opening) show(opening);
   else detail.innerHTML = '<p class="cal-none">Nothing dated this month.</p>';
 }
