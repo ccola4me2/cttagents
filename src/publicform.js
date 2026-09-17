@@ -41,10 +41,41 @@ async function loadForm(env, slug) {
   return row ? { row, form: hydrateForm(row) } : null;
 }
 
-function fieldMarkup(f) {
+/**
+ * The invite behind a link, if this link came from one.
+ *
+ * A form is public and stays public: the open link works for anybody and is
+ * unchanged. This only says "and we know who this particular link went to",
+ * which is what lets the answers land on the right record instead of being
+ * matched to the book by name.
+ *
+ * Wrong or expired tokens are ignored rather than refused. The form still
+ * works; it simply behaves like the open link, which is the failure everybody
+ * would prefer.
+ */
+async function loadInvite(env, formId, token) {
+  const id = String(token || '').trim();
+  if (!id || id.length > 64) return null;
+  const row = await env.DB.prepare(
+    'SELECT * FROM form_invites WHERE id = ? AND form_id = ?'
+  ).bind(id, formId).first().catch(() => null);
+  return row || null;
+}
+
+function fieldMarkup(f, invite) {
   const id = `f_${esc(f.key)}`;
   const req = f.required ? ' required' : '';
   const ph = f.placeholder ? ` placeholder="${esc(f.placeholder)}"` : '';
+
+  // What the advisor already knows, filled in. Asking somebody their own name
+  // on a form you sent to them by name reads as though nobody is paying
+  // attention. Still editable: the address it went to is not always the one
+  // they want used, and a nickname is not always what is on the passport.
+  const known = invite ? {
+    full_name: invite.name || '', first_name: '', last_name: '',
+    email: invite.email || '',
+  } : {};
+  const value = known[f.key] ? ` value="${esc(known[f.key])}"` : '';
 
   // Not a question. A long form that arrives as one unbroken column of boxes
   // is a form people close, and this is the line that makes it three parts
@@ -72,7 +103,7 @@ function fieldMarkup(f) {
     return `<label class="check"><input type="checkbox" id="${id}" name="${esc(f.key)}" value="yes"${req}>
       <span>${esc(f.label)}</span></label>${hint}`;
   } else {
-    input = `<input type="${esc(f.type)}" id="${id}" name="${esc(f.key)}"${req}${ph}${described}>`;
+    input = `<input type="${esc(f.type)}" id="${id}" name="${esc(f.key)}"${req}${ph}${described}${value}>`;
   }
   return `<div class="field"><label for="${id}">${esc(f.label)}${
     f.required ? ' <span class="req">*</span>' : ''}</label>${hint}${input}</div>`;
@@ -108,6 +139,15 @@ export async function renderPublicForm(request, env, slug) {
         ask about the others when we speak.</p>`
     : '';
 
+  // Followed from an invite rather than off an open link. Their name and
+  // address are already known, so the form says hello and fills those two in
+  // rather than asking somebody for their own name.
+  const invite = await loadInvite(env, f.id, new URL(request.url).searchParams.get('i'));
+  if (invite && !invite.opened_at) {
+    await env.DB.prepare('UPDATE form_invites SET opened_at = ?, updated_at = ? WHERE id = ?')
+      .bind(now(), now(), invite.id).run().catch(() => null);
+  }
+
   const body = `
     <h1>${esc(f.headline || f.name)}</h1>
     ${f.description ? `<p class="lede">${esc(f.description)}</p>` : ''}
@@ -115,7 +155,8 @@ export async function renderPublicForm(request, env, slug) {
     <div class="note error" id="err" hidden></div>
     <div class="note ok" id="ok" hidden></div>
     <form id="form" novalidate>
-      ${f.fields.map(fieldMarkup).join('')}
+      ${invite ? `<input type="hidden" name="invite" value="${esc(invite.id)}">` : ''}
+      ${f.fields.map((x) => fieldMarkup(x, invite)).join('')}
       <!-- Honeypot: a real person never fills this in, a naive bot fills everything. -->
       <div class="hp" aria-hidden="true">
         <label for="company_website">Company website</label>
@@ -614,15 +655,36 @@ export async function handlePublicSubmit(request, env, slug) {
   // Best effort, deliberately. Losing a lead because a write failed would be
   // far worse than a lead arriving without a client record attached, and the
   // submission itself is already saved above.
-  let clientId = null;
+  // Sent to somebody, so we know who without guessing.
+  //
+  // The open link matches to the book by name, which is the best a public page
+  // can do and turns Robert Smith into a second Bob Smith. An invite carries
+  // the client it went to, so the answers go on that record. The invite also
+  // decides whose book: a form is filled in against the advisor who sent it,
+  // not whoever happened to create the form.
+  const invite = await loadInvite(env, form.id, body.invite);
+  let clientId = invite && invite.client_id ? invite.client_id : null;
   let clientIsNew = false;
-  if (name) {
+  const owner = invite ? invite.user_id : row.created_by;
+
+  if (invite) {
+    await env.DB.prepare(
+      `UPDATE form_invites SET submitted_at = ?, submission_id = ?, updated_at = ?
+        WHERE id = ?`
+    ).bind(now(), submissionId, now(), invite.id).run().catch(() => null);
+    if (clientId) {
+      await env.DB.prepare('UPDATE form_submissions SET contact_id = ? WHERE id = ?')
+        .bind(clientId, submissionId).run().catch(() => null);
+    }
+  }
+
+  if (!clientId && name) {
     try {
       const before = await env.DB.prepare(
         'SELECT id FROM clients WHERE user_id = ? AND name = ?'
-      ).bind(row.created_by, name).first();
+      ).bind(owner, name).first();
       clientIsNew = !before;
-      clientId = await db.resolveClient(env, row.created_by, name);
+      clientId = await db.resolveClient(env, owner, name);
       if (clientId) {
         // On the lead board as well as on the book. A lead that lands in a
         // table nobody opens is a lead nobody rings: the board is where the
@@ -646,13 +708,21 @@ export async function handlePublicSubmit(request, env, slug) {
         ).bind(email || null, phone || null, `Form: ${form.name}`.slice(0, 120),
                clientIsNew ? 'new' : null, now(),
                `From the ${form.name} form`.slice(0, 500),
-               now(), clientId, row.created_by).run();
+               now(), clientId, owner).run();
         await env.DB.prepare('UPDATE form_submissions SET contact_id = ? WHERE id = ?')
           .bind(clientId, submissionId).run();
       }
     } catch (e) {
       console.error('form client', e);
     }
+  } else if (clientId) {
+    await env.DB.prepare(
+      `UPDATE clients
+          SET email = COALESCE(NULLIF(email, ''), ?),
+              phone = COALESCE(NULLIF(phone, ''), ?),
+              updated_at = ?
+        WHERE id = ? AND user_id = ?`
+    ).bind(email || null, phone || null, now(), clientId, owner).run().catch(() => null);
   }
 
   // Kick off any automations listening for this. Enqueue only, never execute
@@ -677,7 +747,9 @@ export async function handlePublicSubmit(request, env, slug) {
   // person who asked to be told was not. Where no address is set the form's
   // author is told instead, which is what somebody building a form expects
   // and is the same rule the group pages follow.
-  await notifyOwner(env, row.created_by, {
+  // The advisor who sent it, where it was sent. Telling whoever built the form
+  // that somebody else's client has answered is how a lead sits unread.
+  await notifyOwner(env, owner, {
     to: form.notifyEmail || null,
     what: form.name,
     href: `${appUrl(env)}/app/forms`,

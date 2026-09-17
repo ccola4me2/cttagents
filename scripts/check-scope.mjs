@@ -47,6 +47,10 @@ const OWNED = new Set([
   // statement names the advisor it belongs to anyway.
   'reviews',
   'hotlist_actions', 'specials', 'special_leads', 'households', 'form_templates',
+  // A form sent to one person. It belongs to the advisor who sent it and is
+  // read on screens scoped by user_id; the three statements that reach it by
+  // its token instead are listed in ALLOWED, with why.
+  'form_invites',
   'advisor_billing',
   // A saved list is one advisor's question about their own book. The rules
   // it holds are run inside that advisor's scope, so the list itself is
@@ -213,6 +217,15 @@ const ALLOWED = [
     'a form slug is global because the public URL it serves is global'],
   ['UPDATE form_submissions SET contact_id = ? WHERE id = ?',
     'the id is the submission this request just inserted'],
+  ['SELECT * FROM form_invites WHERE id = ? AND form_id = ?',
+    'the public form page, which has no session to scope to. The id is a randomUUID and '
+    + 'is the credential, the same way a trip share code and a password reset token are: '
+    + 'knowing it is the whole permission. Narrowed by form_id as well, so a token for '
+    + 'one form cannot be replayed against another'],
+  ['UPDATE form_invites SET opened_at = ?, updated_at = ? WHERE id = ?',
+    'the same page stamping the row it just proved it holds the token for'],
+  ['UPDATE form_invites SET submitted_at = ?, submission_id = ?, updated_at = ?',
+    'the same again, on submit, after loadInvite has matched the token to this form'],
   ['AS lifetime_cents',
     'the outer WHERE is built from scopeWhere; the bookings subqueries reach only this user\'s clients'],
 ];

@@ -136,6 +136,8 @@ import {
   handleGetForm,
   handleSaveForm,
   handleDeleteForm,
+  handleSendForm,
+  handleFormInvites,
   handleListMyTemplates,
   handleSaveMyTemplate,
   handleDeleteMyTemplate,
@@ -554,6 +556,8 @@ async function routeApi(request, env, path, method) {
   const applyTermsMatch = path.match(/^\/api\/bookings\/([^/]+)\/penalties\/apply$/);
   const priceLineMatch = path.match(/^\/api\/pricing\/([^/]+)$/);
   const ownFormMatch = path.match(/^\/api\/myforms\/([^/]+)$/);
+  const formSendMatch = path.match(/^\/api\/myforms\/([^/]+)\/send$/);
+  const formInvitesMatch = path.match(/^\/api\/myforms\/([^/]+)\/invites$/);
   const leadToBookingMatch = path.match(/^\/api\/leads\/submissions\/([^/]+)\/reservation$/);
   const publicFormMatch = path.match(/^\/api\/public\/forms\/([^/]+)$/);
   // Excludes /run, which is an action rather than an automation id.
@@ -705,6 +709,12 @@ async function routeApi(request, env, path, method) {
     return handleReservationFromLead(request, env, leadToBookingMatch[1]);
   }
   if (path === '/api/myforms' && method === 'POST') return handleSaveForm(request, env, null);
+  // Sending a form to one person, and asking afterwards what came of it.
+  // Before the /:id match, or "send" is read as a form id.
+  if (formSendMatch && method === 'POST') return handleSendForm(request, env, formSendMatch[1]);
+  if (formInvitesMatch && method === 'GET') {
+    return handleFormInvites(request, env, formInvitesMatch[1]);
+  }
   if (ownFormMatch && method === 'GET') return handleGetForm(request, env, ownFormMatch[1]);
   if (ownFormMatch && method === 'PUT') return handleSaveForm(request, env, ownFormMatch[1]);
   if (ownFormMatch && method === 'DELETE') return handleDeleteForm(request, env, ownFormMatch[1]);

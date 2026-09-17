@@ -902,6 +902,96 @@ async function main() {
   check(subs.some((s) => s.email === `anna-${stamp}@test.dev`),
     'and lands as a submission on the form', `${subs.length} submission(s)`);
 
+  // ------------------------------------------------- sent to one person --
+  //
+  // The open link matches whoever answers it to the book by name, which is the
+  // best a public page can do. Sending it is the other way: the invite knows
+  // who it went to, so the answers land on that record and the forms list can
+  // say afterwards whether they filled it in.
+  step('A form sent to a client on the book');
+
+  const invitee = await call(advisor, 'POST', '/api/clients', {
+    name: `Invited Person ${stamp}`, email: `invited-${stamp}@test.dev`,
+  });
+  const inviteeId = invitee.data?.client?.id;
+  check(inviteeId, 'a client to send it to', `status ${invitee.status}`);
+
+  const inviteSent = await call(advisor, 'POST', `/api/myforms/${form.id}/send`, {
+    clientId: inviteeId, note: 'Lovely speaking with you this morning.',
+  });
+  check(inviteSent.status === 201 && inviteSent.data?.inviteId, 'the form is sent',
+    `status ${inviteSent.status} ${JSON.stringify(inviteSent.data)}`);
+  // The link comes back whether or not the email went out, because email does
+  // nothing until Resend is configured and an advisor with no way to hand the
+  // thing over would rightly call that broken.
+  check(String(inviteSent.data?.href || '').includes(`?i=${inviteSent.data?.inviteId}`),
+    'and comes back with their own link to paste', inviteSent.data?.href);
+  check(inviteSent.data?.to === `invited-${stamp}@test.dev`,
+    'addressed off the client record, not out of the request', inviteSent.data?.to);
+  const inviteId = inviteSent.data?.inviteId;
+
+  // An address in the body is ignored when a client is named. Otherwise the
+  // send box is a way to post somebody else's questions to anybody.
+  const hijack = await call(advisor, 'POST', `/api/myforms/${form.id}/send`, {
+    clientId: inviteeId, email: 'somebody-else@test.dev',
+  });
+  check(hijack.data?.to === `invited-${stamp}@test.dev`,
+    'a typed address cannot redirect a named client\'s invite', hijack.data?.to);
+
+  const notOnMyBook = await call(advisor, 'POST', `/api/myforms/${form.id}/send`, {
+    clientId: 'no-such-client',
+  });
+  check(notOnMyBook.status === 404, 'and a client who is not yours is not one to send to',
+    `status ${notOnMyBook.status}`);
+
+  if (inviteId) {
+    const invitedPage = await fetch(`${BASE}/f/${form.slug}?i=${inviteId}`);
+    const invitedHtml = await invitedPage.text();
+    check(invitedPage.status === 200, 'their link opens the form', `status ${invitedPage.status}`);
+    // Asking somebody their own name on a form you sent to them by name reads
+    // as though nobody is paying attention.
+    check(invitedHtml.includes(`invited-${stamp}@test.dev`),
+      'with what the advisor already knows filled in');
+    check(invitedHtml.includes(`value="${inviteId}"`),
+      'and carries the invite through to the submission');
+
+    const afterOpen = await call(advisor, 'GET', `/api/myforms/${form.id}/invites`);
+    const inviteRow = (afterOpen.data?.invites || []).find((i) => i.id === inviteId);
+    check(inviteRow && inviteRow.openedAt, 'the advisor can see they opened it',
+      JSON.stringify(inviteRow));
+    check(inviteRow && inviteRow.name === `Invited Person ${stamp}` && !inviteRow.submittedAt,
+      'and that nothing has come back yet', JSON.stringify(inviteRow));
+
+    const invitedSubmit = await call(null, 'POST', `/api/public/forms/${form.slug}`, {
+      invite: inviteId,
+      first_name: 'Invited', last_name: 'Person',
+      email: `invited-${stamp}@test.dev`, where_to: 'Seville',
+    });
+    check(invitedSubmit.status === 200 || invitedSubmit.status === 201,
+      'they answer it', `status ${invitedSubmit.status}`);
+
+    const afterSubmit = await call(advisor, 'GET', `/api/myforms/${form.id}/invites`);
+    const inviteDone = (afterSubmit.data?.invites || []).find((i) => i.id === inviteId);
+    check(inviteDone && inviteDone.submittedAt, 'and the advisor can see it came back',
+      JSON.stringify(inviteDone));
+
+    // The point of the whole thing. Robert Smith answering a form sent to Bob
+    // Smith is one person, and the open link, matching to the book by name,
+    // cannot know that. The invite can.
+    const onForm = await call(advisor, 'GET', `/api/myforms/${form.id}`);
+    const landed = (onForm.data?.submissions || [])
+      .find((s) => s.email === `invited-${stamp}@test.dev`);
+    check(landed && landed.contactId === inviteeId,
+      'the answers land on the record it was sent to',
+      JSON.stringify(landed && { email: landed.email, contactId: landed.contactId }));
+
+    // A wrong token behaves like the open link rather than refusing. The form
+    // still works, which is the failure everybody would prefer.
+    const badToken = await fetch(`${BASE}/f/${form.slug}?i=not-a-real-invite`);
+    check(badToken.status === 200, 'a wrong token falls back to the open form',
+      `status ${badToken.status}`);
+  }
+
   // ------------------------------------------------------ the lead report --
   step('What the forms brought in');
 

@@ -13,6 +13,7 @@ import {
   isValidEmail, normalizeEmail, readJson,
 } from './util.js';
 import { requireUser } from './auth.js';
+import { sendFormInviteEmail } from './email.js';
 import { tenantFor } from './tenant.js';
 import * as db from './db.js';
 
@@ -798,6 +799,141 @@ export async function handleListForms(request, env) {
     // picker offers both without a second round trip.
     myTemplates: await listMyTemplates(env, user.id),
     catalogue: FIELD_CATALOGUE,
+  });
+}
+
+/**
+ * Where a form link should point.
+ *
+ * The host the advisor is actually on, not APP_URL. The two disagree whenever
+ * a custom domain is not attached yet, and a link to a hostname the portal
+ * does not answer on is worse than no link at all. Same reasoning, and the
+ * same shape, as inviteBase in admin.js.
+ */
+function formBase(env, request) {
+  try {
+    return new URL(request.url).origin;
+  } catch {
+    return String(env.APP_URL || '').replace(/\/$/, '');
+  }
+}
+
+/**
+ * Send a form to somebody, over the advisor's name.
+ *
+ * The open link stays exactly as it was: copy it, put it anywhere, anyone may
+ * fill it in. This is the other way of using the same form, for the commonest
+ * thing an advisor actually does, which is send the questions to one person
+ * they have just spoken to.
+ *
+ * What the invite buys over a pasted link is knowing who it went to. A
+ * submission off the open link is matched to the book by name, which is the
+ * best a public page can do and makes Robert Smith a second Bob Smith. This
+ * carries the client, so the answers land on the record that was chosen.
+ *
+ * The row is written before the send and stamped after it. An invite that
+ * exists for an email that never left is a puzzle; a send with nothing
+ * recording it is a lead nobody can find.
+ */
+export async function handleSendForm(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const row = await env.DB.prepare('SELECT * FROM forms WHERE id = ? AND agency_id = ?')
+    .bind(id, tenantFor(env, user)).first();
+  if (!row) return notFound('Form not found.');
+  const form = hydrate(row);
+  if (!form.active) {
+    return badRequest('That form is switched off, so the link would not work. '
+      + 'Turn it on first.');
+  }
+
+  const body = await readJson(request);
+  const clientId = clean(body.clientId, 64) || null;
+
+  // A client on the book is the point of this, so their address and name come
+  // off the record rather than out of the request: an address typed into a
+  // send box is a way to send somebody else's questions to anybody.
+  let client = null;
+  if (clientId) {
+    client = await db.getClient(env, db.selfScope(user), { id: clientId });
+    if (!client) return notFound('That client is not on your books.');
+  }
+
+  const to = normalizeEmail(client ? client.email : body.email);
+  if (!to || !isValidEmail(to)) {
+    return badRequest(client
+      ? `${client.name} has no email address on file. Add one and send again.`
+      : 'A valid email address, please.');
+  }
+  const name = clean(client ? client.name : body.name, 120) || null;
+  const note = cleanText(body.note, 400);
+
+  const inviteId = uid();
+  const ts = now();
+  await env.DB.prepare(
+    `INSERT INTO form_invites
+       (id, form_id, user_id, client_id, email, name, sent_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(inviteId, form.id, user.id, client ? client.id : null, to, name, ts, ts, ts).run();
+
+  const href = `${formBase(env, request)}/f/${encodeURIComponent(form.slug)}?i=${
+    encodeURIComponent(inviteId)}`;
+
+  const sent = await sendFormInviteEmail(env, {
+    to,
+    replyTo: user.email,
+    clientName: name,
+    advisorName: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email,
+    agencyName: user.agency_name || '',
+    advisorPhone: user.phone || '',
+    formName: form.name,
+    note,
+    href,
+  }).then((r) => !(r && r.skipped)).catch(() => false);
+
+  await db.logActivity(env, user.id, 'form.sent',
+    `Sent ${form.name} to ${name || to}`, { formId: form.id, clientId: client ? client.id : null });
+
+  // The link comes back whether or not the email went. Email is best effort
+  // and does nothing at all until Resend is configured, so an invite that
+  // exists only inside a message nobody received would strand the advisor with
+  // no way to hand it over. This is the same reason the advisor invite returns
+  // its URL.
+  return json({ ok: true, sent, href, to, inviteId }, 201);
+}
+
+/**
+ * Who a form has been sent to, and what came back.
+ *
+ * "Did they fill it in?" is the question two days later, and until this the
+ * only way to answer it was to read down the submissions looking for a name.
+ */
+export async function handleFormInvites(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const row = await env.DB.prepare('SELECT * FROM forms WHERE id = ? AND agency_id = ?')
+    .bind(id, tenantFor(env, user)).first();
+  if (!row) return notFound('Form not found.');
+
+  const { results } = await env.DB.prepare(
+    `SELECT i.*, c.name AS client_name FROM form_invites i
+       LEFT JOIN clients c ON c.id = i.client_id
+      WHERE i.form_id = ? AND i.user_id = ?
+      ORDER BY i.sent_at DESC LIMIT 200`
+  ).bind(id, user.id).all().catch(() => ({ results: [] }));
+
+  return json({
+    invites: (results || []).map((i) => ({
+      id: i.id,
+      email: i.email,
+      name: i.client_name || i.name,
+      clientId: i.client_id,
+      sentAt: i.sent_at,
+      openedAt: i.opened_at,
+      submittedAt: i.submitted_at,
+    })),
   });
 }
 

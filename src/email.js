@@ -469,6 +469,48 @@ export function sendReviewRequest(env, {
 }
 
 /**
+ * A form, sent to one person rather than posted at the world.
+ *
+ * Over the advisor's name and reply-to, because the reply is the point: half
+ * the people who get this will answer the email instead of the form, and that
+ * is a perfectly good outcome that has to land somewhere useful.
+ *
+ * No mention of how many questions there are. The form says, at the top, how
+ * few of them are required; saying it twice reads as an apology for the thing
+ * being sent.
+ */
+export function sendFormInviteEmail(env, {
+  to, replyTo, clientName, advisorName, agencyName, advisorPhone, formName, note, href,
+}) {
+  if (!to) return Promise.resolve({ skipped: true });
+  const who = clientName ? escapeHtml(clientName.split(' ')[0]) : 'there';
+  return send(env, {
+    to,
+    replyTo,
+    subject: `${formName}${advisorName ? ` from ${advisorName}` : ''}`,
+    html: layout(env, {
+      heading: escapeHtml(formName),
+      body: `<p style="margin:0 0 12px;">Hello ${who},</p>
+             ${note ? `<p style="margin:0 0 12px;">${escapeHtml(note)}</p>` : ''}
+             <p style="margin:0 0 12px;">Here are the questions I mentioned. Answer what you
+             like and skip the rest, and we can go through the others when we speak.</p>
+             <p style="margin:0;">It saves us both a lot of back and forth, and it is what
+             makes the difference between something off a brochure and something built
+             round you.</p>`,
+      cta: { label: 'Open the questions', href },
+      footer: [
+        escapeHtml(advisorName || ''),
+        agencyName ? escapeHtml(agencyName) : '',
+        replyTo ? `<a href="mailto:${escapeHtml(replyTo)}" style="color:#6b7a8c;">${
+          escapeHtml(replyTo)}</a>` : '',
+        advisorPhone ? `<a href="tel:${escapeHtml(advisorPhone)}" style="color:#6b7a8c;">${
+          escapeHtml(advisorPhone)}</a>` : '',
+      ].filter(Boolean).join(' &middot; '),
+    }),
+  });
+}
+
+/**
  * A client has picked one of the options.
  *
  * The one message in this file that is genuinely good news, and it is time

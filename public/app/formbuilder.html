@@ -40,6 +40,36 @@
 
 
 
+<dialog id="send-dlg">
+  <form id="send-form" method="dialog">
+    <div class="card-head"><h2>Send this form</h2>
+      <button class="btn btn-ghost btn-sm" type="button" data-close-send>Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" hidden></div>
+      <p class="muted" id="send-what" style="margin:0 0 .9rem;"></p>
+      <div class="field"><label for="send-client">Who is it for</label>
+        <select id="send-client" name="clientId"></select>
+        <p class="field-hint">Somebody on your books, so their answers land on their record
+          rather than being matched by name. Or leave it on "somebody new" and type an
+          address.</p></div>
+      <div class="field" id="send-new" hidden>
+        <div class="field-row">
+          <div class="field"><label for="send-name">Their name</label>
+            <input id="send-name" name="name" maxlength="120"></div>
+          <div class="field"><label for="send-email">Their email</label>
+            <input id="send-email" name="email" type="email" maxlength="254"></div>
+        </div>
+      </div>
+      <div class="field"><label for="send-note">A line from you</label>
+        <textarea id="send-note" name="note" maxlength="400" rows="2"
+          placeholder="Lovely speaking with you this morning."></textarea>
+        <p class="field-hint">Sits above the questions. Optional, and worth the ten
+          seconds.</p></div>
+    </div>
+    <div class="card-foot"><button class="btn btn-primary" type="submit">Send it</button></div>
+  </form>
+</dialog>
+
 <script type="module">
 import { api, mountShell, esc, timeAgo, showError } from '/js/app.js';
 await mountShell();
@@ -61,7 +91,9 @@ function render(forms) {
       <td><span class="name">${esc(f.name)}</span>
         <div><span class="badge ${f.active ? 'badge-green' : 'badge-navy'}">${f.active ? 'live' : 'off'}</span></div></td>
       <td><a href="/f/${esc(f.slug)}" target="_blank" rel="noopener">/f/${esc(f.slug)}</a>
-        <div><button class="btn btn-ghost btn-sm" data-copy="${esc(f.slug)}">Copy link</button></div></td>
+        <div><button class="btn btn-ghost btn-sm" data-copy="${esc(f.slug)}">Copy link</button>
+          ${f.active ? `<button class="btn btn-ghost btn-sm" data-send="${esc(f.id)}"
+            data-name="${esc(f.name)}">Send to a client</button>` : ''}</div></td>
       <td class="num"><button class="btn btn-ghost btn-sm" data-subs="${esc(f.id)}">${f.submissions}</button></td>
       <td><span class="muted">${esc(timeAgo(f.updatedAt))}</span></td>
       <td class="num"><a class="btn btn-ghost btn-sm" href="/app/form?id=${
@@ -70,6 +102,8 @@ function render(forms) {
 
   panel.querySelectorAll('[data-subs]').forEach((b) =>
     b.addEventListener('click', () => showSubs(b.dataset.subs)));
+  panel.querySelectorAll('[data-send]').forEach((b) =>
+    b.addEventListener('click', () => openSend(b.dataset.send, b.dataset.name)));
   panel.querySelectorAll('[data-copy]').forEach((b) =>
     b.addEventListener('click', async () => {
       const url = `${location.origin}/f/${b.dataset.copy}`;
@@ -83,8 +117,32 @@ async function showSubs(id) {
   subsEl.hidden = false;
   subsEl.innerHTML = '<p class="spinner">Loading submissions...</p>';
   try {
-    const d = await api(`/api/myforms/${encodeURIComponent(id)}`);
-    subsEl.innerHTML = `<div class="card-head"><h2>${esc(d.form.name)} submissions</h2>
+    // Both at once. One after the other would show the submissions and then
+    // shuffle them down the page a moment later.
+    const [d, inv] = await Promise.all([
+      api(`/api/myforms/${encodeURIComponent(id)}`),
+      api(`/api/myforms/${encodeURIComponent(id)}/invites`).catch(() => ({ invites: [] })),
+    ]);
+    const invites = inv.invites || [];
+    const waiting = invites.filter((i) => !i.submittedAt).length;
+    subsEl.innerHTML = (invites.length ? `<div class="card-head"><h2>Sent to</h2>
+        <span class="muted">${invites.length} sent&nbsp;&middot;&nbsp;${
+          waiting} still to answer</span></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Who</th><th>Sent</th><th>Opened</th><th>Answered</th></tr></thead>
+        <tbody>${invites.map((i) => `<tr>
+          <td>${i.clientId
+            ? `<a href="/app/client?id=${encodeURIComponent(i.clientId)}">${
+                esc(i.name || i.email)}</a>`
+            : esc(i.name || i.email)}
+            <div class="muted">${esc(i.email)}</div></td>
+          <td>${esc(timeAgo(i.sentAt))}</td>
+          <td>${i.openedAt ? esc(timeAgo(i.openedAt)) : '<span class="muted">not yet</span>'}</td>
+          <td>${i.submittedAt
+            ? `<span class="badge badge-green">${esc(timeAgo(i.submittedAt))}</span>`
+            : '<span class="muted">waiting</span>'}</td>
+        </tr>`).join('')}</tbody></table></div>` : '')
+      + `<div class="card-head"><h2>${esc(d.form.name)} submissions</h2>
         <span class="muted">${d.submissions.length}</span></div>` +
       (d.submissions.length
         ? `<ul class="timeline">${d.submissions.map((s) => `<li>
@@ -190,5 +248,64 @@ async function load() {
   catch (err) { showError(document.getElementById('err'), err); panel.innerHTML = ''; }
 }
 await load();
+
+// ------------------------------------------------------------- sending ----
+// The same form, sent to one person instead of pasted at the world. What it
+// buys is knowing who it went to: the answers land on that client's record
+// rather than being matched to the book by name, and the forms list can say
+// afterwards whether they filled it in.
+const sendDlg = document.getElementById('send-dlg');
+const sendForm = document.getElementById('send-form');
+const sendClient = document.getElementById('send-client');
+let sending = null;
+let people = [];
+
+sendClient.addEventListener('change', () => {
+  document.getElementById('send-new').hidden = Boolean(sendClient.value);
+});
+document.querySelector('[data-close-send]').addEventListener('click', () => sendDlg.close());
+
+async function openSend(formId, formName) {
+  sending = formId;
+  sendForm.reset();
+  sendForm.querySelector('.notice-error').hidden = true;
+  document.getElementById('send-what').textContent =
+    `${formName} goes out over your name, and replies come back to you.`;
+  if (!people.length) {
+    people = await api('/api/clients?limit=500').then((d) => d.clients || []).catch(() => []);
+  }
+  sendClient.innerHTML = '<option value="">Somebody new</option>'
+    + people.filter((c) => c.email)
+        .map((c) => `<option value="${esc(c.id)}">${esc(c.name)} &middot; ${esc(c.email)}</option>`)
+        .join('');
+  document.getElementById('send-new').hidden = false;
+  sendDlg.showModal();
+}
+
+sendForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const box = sendForm.querySelector('.notice-error');
+  box.hidden = true;
+  try {
+    const res = await api(`/api/myforms/${encodeURIComponent(sending)}/send`, {
+      method: 'POST',
+      body: {
+        clientId: sendClient.value || undefined,
+        name: sendForm.elements.name.value,
+        email: sendForm.elements.email.value,
+        note: sendForm.elements.note.value,
+      },
+    });
+    sendDlg.close();
+    // The link either way. Email does nothing until Resend is configured, and
+    // an advisor left with no way to hand the thing over would rightly call
+    // that broken.
+    document.getElementById('err').innerHTML = `<div class="notice notice-ok">${
+      res.sent ? `Sent to ${esc(res.to)}.` : 'Email is not switched on here, so nothing went out.'
+    } Their own link: <a href="${esc(res.href)}" target="_blank" rel="noopener">${
+      esc(res.href)}</a></div>`;
+    await load();
+  } catch (ex) { box.textContent = ex.message; box.hidden = false; }
+});
 </script>
 </body></html>
