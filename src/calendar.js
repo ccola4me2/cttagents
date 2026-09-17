@@ -131,14 +131,20 @@ export async function handleCalendar(request, env) {
     if (b.depart_date >= from && b.depart_date <= to) {
       events.push({
         kind: 'departure', id: `${b.id}:out`, date: b.depart_date, time: '',
-        title: `${b.product_name} departs`, who: b.client_name || '',
+        // The client where there is no product name. A reservation without one
+        // drew as "null departs", which is the template literal saying what it
+        // was handed, and on a month grid who is travelling reads better than
+        // what they booked anyway.
+        title: `${b.product_name || b.client_name || 'A trip'} departs`,
+        who: b.product_name ? (b.client_name || '') : '',
         href: `/app/reservation?id=${encodeURIComponent(b.id)}`,
       });
     }
     if (b.return_date && b.return_date >= from && b.return_date <= to) {
       events.push({
         kind: 'return', id: `${b.id}:back`, date: b.return_date, time: '',
-        title: `${b.product_name} returns`, who: b.client_name || '',
+        title: `${b.product_name || b.client_name || 'A trip'} returns`,
+        who: b.product_name ? (b.client_name || '') : '',
         href: `/app/reservation?id=${encodeURIComponent(b.id)}`,
       });
     }
