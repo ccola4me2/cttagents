@@ -42,6 +42,29 @@ const FULL_RECORD = 6;
 // Every entry is a claim somebody checked. That is the point of writing them
 // down instead of raising the threshold until nothing fails.
 const ALLOWED = [
+  // An advisor editing an appointment, and an invite for the same appointment
+  // arriving again, are not two versions of one save. Each has to leave the
+  // other's columns where they are.
+  ['appointments:organizer', 'UPDATE appointments\n        SET title = ?, client_id = ?',
+    'the edit form has no organiser field, because who called a meeting is a fact from '
+    + 'the invite rather than something an advisor types. Writing it from this form '
+    + 'would clear it every time somebody fixed a typo in the title'],
+  ['appointments:ics_sequence', 'UPDATE appointments\n        SET title = ?, client_id = ?',
+    'which version of the invite this is. An advisor editing the appointment does not '
+    + 'make it a different version, and clearing it would make the next delivery look '
+    + 'newer than it is'],
+  ['appointments:cancelled_at', 'UPDATE appointments\n        SET title = ?, client_id = ?',
+    'cancelling has its own endpoint and its own button. Editing the time of a meeting '
+    + 'is not a statement about whether it is still on'],
+  ['appointments:client_id', 'SET title = ?, on_date = ?, start_time = ?, end_time = ?, location = ?,',
+    'an invite names an organiser, not a client. Where an advisor has attached the '
+    + 'meeting to somebody on their book, a redelivery from the organiser must not '
+    + 'undo that: the organiser does not know about it'],
+  ['appointments:booking_id', 'SET title = ?, on_date = ?, start_time = ?, end_time = ?, location = ?,',
+    'the same. An invite knows nothing about which trip the meeting is about'],
+  ['appointments:kind', 'SET title = ?, on_date = ?, start_time = ?, end_time = ?, location = ?,',
+    'call, video or in person, which an invite does not say in any form worth trusting '
+    + 'and an advisor may well have set by hand'],
   ['clients:name', 'UPDATE clients SET email = ?',
     'the create path, which fills in blanks on somebody already on the books. It is '
     + 'reached by name, so renaming from it would rename the person it just matched'],
