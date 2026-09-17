@@ -387,6 +387,7 @@ const PAGE_FILES = {
   '/app/payments': '/app/payments.html',
   '/app/calendar': '/app/calendar.html',
   '/app/formbuilder': '/app/formbuilder.html',
+  '/app/qr': '/app/qr.html',
   '/app/automations': '/app/automations.html',
   '/app/pipeline': '/app/pipeline.html',
   '/app/proposals': '/app/proposals.html',

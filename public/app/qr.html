@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QR codes | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>QR codes</h1><p class="sub">A square somebody can point a phone at, for anything you hand out.</p></div>
+    </header>
+    <div class="content">
+      <div class="notice notice-error" id="err" hidden></div>
+      <div class="qr-layout">
+        <section class="card">
+          <div class="card-head"><h2>What should it open</h2></div>
+          <div class="card-pad">
+            <div class="field">
+              <label for="pick">One of yours</label>
+              <select id="pick"><option value="">Something else</option></select>
+              <p class="field-hint">Your live forms, ready to put on a card. Or leave it
+                here and paste any address below.</p>
+            </div>
+            <div class="field">
+              <label for="url">The address</label>
+              <input id="url" type="url" maxlength="600" placeholder="https://cttagents.com/f/...">
+            </div>
+            <div class="field">
+              <label for="caption">Words underneath</label>
+              <input id="caption" maxlength="60" placeholder="Scan for our planning questions">
+              <p class="field-hint">Printed under the code. A code with nothing beside it is
+                a square nobody scans, because nobody knows what it does.</p>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="size">Size</label>
+                <select id="size">
+                  <option value="512">Small, for a card</option>
+                  <option value="1024" selected>Medium, for a flyer</option>
+                  <option value="2048">Large, for a poster</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="ecc">Damage it can take</label>
+                <select id="ecc">
+                  <option value="M" selected>Normal</option>
+                  <option value="Q">More</option>
+                  <option value="H">Most, for a printed sign</option>
+                </select>
+                <p class="field-hint">Higher survives a crease or a thumb, and makes a
+                  denser square.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>The code</h2><span class="muted" id="about"></span></div>
+          <div class="card-pad">
+            <div id="stage" class="qr-stage"><p class="muted">Paste an address to see it.</p></div>
+            <div class="toolbar" style="margin-top:1rem;">
+              <button class="btn btn-primary btn-sm" id="png" disabled>Download PNG</button>
+              <button class="btn btn-ghost btn-sm" id="svg" disabled>Download SVG</button>
+              <button class="btn btn-ghost btn-sm" id="print" disabled>Print</button>
+            </div>
+            <p class="field-hint" style="margin-top:.8rem;">Scan it with your own phone
+              before it goes anywhere. It is the only test that counts, and it takes a
+              second.</p>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api, mountShell, esc, showError } from '/js/app.js';
+import qrcode from '/js/qrcode.js';
+await mountShell();
+
+const pick = document.getElementById('pick');
+const url = document.getElementById('url');
+const caption = document.getElementById('caption');
+const sizeBox = document.getElementById('size');
+const eccBox = document.getElementById('ecc');
+const stage = document.getElementById('stage');
+const about = document.getElementById('about');
+const err = document.getElementById('err');
+
+let matrix = null;
+
+/**
+ * The code as an SVG, which is what goes on paper.
+ *
+ * One path of rectangles rather than a rectangle per module: a code is a
+ * thousand little squares, and a thousand elements is a file that chokes the
+ * printer somebody is trying to use.
+ *
+ * The quiet zone is four modules of white on every side. It is not decoration:
+ * a reader uses it to find where the code starts, and a code printed tight to
+ * an edge is one that will not scan.
+ */
+function toSvg(q, { size, label }) {
+  const n = q.getModuleCount();
+  const quiet = 4;
+  const span = n + quiet * 2;
+  const room = label ? 4 : 0;
+
+  let d = '';
+  for (let r = 0; r < n; r += 1) {
+    for (let c = 0; c < n; c += 1) {
+      if (q.isDark(r, c)) d += `M${c + quiet} ${r + quiet}h1v1h-1z`;
+    }
+  }
+
+  const text = label
+    ? `<text x="${span / 2}" y="${span + 2.4}" text-anchor="middle"
+         font-family="system-ui, sans-serif" font-size="2"
+         fill="#12315e">${esc(label)}</text>`
+    : '';
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${
+    Math.round(size * ((span + room) / span))}" viewBox="0 0 ${span} ${span + room}"
+    shape-rendering="crispEdges" role="img" aria-label="QR code">
+    <rect width="${span}" height="${span + room}" fill="#ffffff"/>
+    <path d="${d}" fill="#000000"/>${text}</svg>`;
+}
+
+function draw() {
+  err.hidden = true;
+  const value = url.value.trim();
+  const ready = Boolean(value);
+  for (const id of ['png', 'svg', 'print']) document.getElementById(id).disabled = !ready;
+
+  if (!ready) {
+    stage.innerHTML = '<p class="muted">Paste an address to see it.</p>';
+    about.textContent = '';
+    matrix = null;
+    return;
+  }
+
+  try {
+    // Type 0 lets it pick the smallest version the text fits in, which is the
+    // one with the largest modules and therefore the easiest to scan.
+    const q = qrcode(0, eccBox.value);
+    q.addData(value);
+    q.make();
+    matrix = q;
+    stage.innerHTML = toSvg(q, { size: 320, label: caption.value.trim() });
+    about.textContent = `${q.getModuleCount()} across`;
+  } catch (e) {
+    matrix = null;
+    stage.innerHTML = '';
+    // The one real limit: a QR holds a few thousand characters and a very long
+    // address will not fit at high error correction.
+    showError(err, new Error('That address is too long to fit in a code at this '
+      + 'setting. Shorten it, or set the damage it can take to Normal.'));
+  }
+}
+
+for (const el of [url, caption, eccBox]) el.addEventListener('input', draw);
+eccBox.addEventListener('change', draw);
+
+pick.addEventListener('change', () => {
+  if (!pick.value) return;
+  url.value = pick.value;
+  if (!caption.value) caption.value = pick.selectedOptions[0].dataset.caption || '';
+  draw();
+});
+
+function svgText() {
+  return toSvg(matrix, { size: Number(sizeBox.value), label: caption.value.trim() });
+}
+
+function save(blob, name) {
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(href), 4000);
+}
+
+/** A filename somebody can find again, from the caption or the address. */
+function fileName(ext) {
+  const from = caption.value.trim() || url.value.replace(/^https?:\/\//, '');
+  const slug = from.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+  return `qr-${slug || 'code'}.${ext}`;
+}
+
+document.getElementById('svg').addEventListener('click', () => {
+  save(new Blob([svgText()], { type: 'image/svg+xml' }), fileName('svg'));
+});
+
+// Drawn from the SVG rather than module by module, so the PNG and the SVG are
+// the same picture and cannot drift apart.
+document.getElementById('png').addEventListener('click', () => {
+  const markup = svgText();
+  const size = Number(sizeBox.value);
+  const img = new Image();
+  const blobUrl = URL.createObjectURL(new Blob([markup], { type: 'image/svg+xml' }));
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    const ratio = img.naturalHeight / img.naturalWidth || 1;
+    canvas.width = size;
+    canvas.height = Math.round(size * ratio);
+    const ctx = canvas.getContext('2d');
+    // White behind it. A transparent PNG dropped on a dark flyer is a code
+    // that reads as solid black and scans as nothing.
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => { save(blob, fileName('png')); URL.revokeObjectURL(blobUrl); });
+  };
+  img.onerror = () => { URL.revokeObjectURL(blobUrl); showError(err, new Error('Could not draw that as a picture.')); };
+  img.src = blobUrl;
+});
+
+document.getElementById('print').addEventListener('click', () => {
+  const w = window.open('', '_blank');
+  if (!w) return;
+  w.document.write(`<title>${esc(fileName('svg'))}</title>
+    <style>body{margin:0;display:grid;place-items:center;height:100vh;}svg{width:60vmin;}</style>
+    ${svgText()}`);
+  w.document.close();
+  w.focus();
+  w.print();
+});
+
+// Your own live forms, because a form on a card is the commonest reason to
+// want one of these.
+try {
+  const d = await api('/api/myforms');
+  const live = (d.forms || []).filter((f) => f.active);
+  pick.innerHTML = '<option value="">Something else</option>'
+    + live.map((f) => `<option value="${esc(location.origin)}/f/${esc(f.slug)}"
+        data-caption="${esc(f.name)}">${esc(f.name)}</option>`).join('');
+} catch { /* the box still takes a typed address */ }
+
+draw();
+</script>
+</body></html>
