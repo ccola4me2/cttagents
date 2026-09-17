@@ -130,6 +130,7 @@ const KINDS = [
   ['payment', 'Payment due'],
   ['departure', 'Departs'],
   ['return', 'Returns'],
+  ['birthday', 'Birthday'],
 ];
 
 const iso = (d) => d.toISOString().slice(0, 10);
@@ -282,7 +283,12 @@ function showDay(day) {
           <span class="badge badge-navy">${esc(KIND_LABEL[e.kind] || e.kind)}</span>
           <span class="name" style="margin-left:.45rem;">${
             e.time ? `${esc(e.time)}${e.endTime ? ` to ${esc(e.endTime)}` : ''} &middot; ` : ''}${
-            esc(e.title)}</span>
+            // The row opens the thing it names. A departure should reach the
+            // reservation from the line that says it departs, not only from a
+            // small button at the other end of the row.
+            e.kind === 'appointment' || !e.href
+              ? esc(e.title)
+              : `<a href="${esc(e.href)}" class="row-open">${esc(e.title)}</a>`}</span>
           <div class="muted where">${[esc(e.who), linkBits(e.where), linkBits(e.note)]
             .filter(Boolean).join('  &middot;  ')}</div>
         </div>

@@ -17,6 +17,7 @@
 import { json, cleanDate } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
+import { birthdaysBetween } from './travellers.js';
 
 /** A day that many days after the given one, as a plain date. */
 function dayOffset(iso, days) {
@@ -44,6 +45,11 @@ export async function handleCalendar(request, env) {
   const leads = where('c.user_id');
   const trips = where('b.user_id');
   const pays = where('p.user_id');
+
+  // Birthdays are not rows with a date on them, they are a date that comes
+  // round, so they are worked out rather than selected. Their own call for the
+  // same reason.
+  const birthdays = await birthdaysBetween(env, scope, { from, to }).catch(() => []);
 
   const [appointments, taskRows, leadRows, tripRows, payRows] = await Promise.all([
     env.DB.prepare(
@@ -148,6 +154,14 @@ export async function handleCalendar(request, env) {
         href: `/app/reservation?id=${encodeURIComponent(b.id)}`,
       });
     }
+  }
+  for (const b of birthdays) {
+    events.push({
+      kind: 'birthday', id: `bday:${b.clientId || b.name}:${b.on}`, date: b.on, time: '',
+      title: `${b.name}${b.turning ? ` turns ${b.turning}` : "'s birthday"}`,
+      who: '',
+      href: b.clientId ? `/app/client?id=${encodeURIComponent(b.clientId)}` : '/app/clients',
+    });
   }
   for (const p of payRows.results || []) {
     events.push({

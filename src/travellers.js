@@ -365,15 +365,22 @@ export async function handleDocumentWatch(request, env) {
  * has four traveller rows and one birthday, and a list that says their name
  * four times is a list nobody trusts.
  */
-export async function upcomingBirthdays(env, scope, { today, days = 30, limit = 12 } = {}) {
+/**
+ * Everybody whose birthday is known, from both places it can be known.
+ *
+ * Most birthdays here were collected for a passport and belong to whoever was
+ * on the reservation, which is right: the husband travelling on his wife's
+ * booking has a birthday too. The second is the date put on the client record
+ * by hand, for the client you know well enough to know their birthday and have
+ * never sent on a trip.
+ *
+ * The client record wins where both know a date: it was typed by somebody who
+ * meant it, and a passport can be a scan of the wrong person's document.
+ */
+async function birthdayRows(env, scope) {
   const scoped = db.scopeWhere(scope, 't.user_id');
   const byClient = db.scopeWhere(scope, 'c.user_id');
 
-  // Two sources for the same fact. Most birthdays here were collected for a
-  // passport and belong to whoever was on the reservation, which is right: the
-  // husband travelling on his wife's booking has a birthday too. The second is
-  // the date put on the client record by hand, for the client you know well
-  // enough to know their birthday and have never sent on a trip.
   const [fromTravellers, fromClients] = await Promise.all([
     env.DB.prepare(
       `SELECT t.user_id, t.name, t.dob, t.email, t.phone, MAX(b.depart_date) AS last_trip,
@@ -395,8 +402,6 @@ export async function upcomingBirthdays(env, scope, { today, days = 30, limit = 
     ).bind(...byClient.binds).all(),
   ]);
 
-  // The client record wins where both know a date: it was typed by somebody
-  // who meant it, and a passport can be a scan of the wrong person's document.
   const rows = [...(fromClients.results || [])];
   const seen = new Set(rows.map((r) => `${r.user_id}|${String(r.name).trim().toLowerCase()}`));
   for (const r of fromTravellers.results || []) {
@@ -405,6 +410,57 @@ export async function upcomingBirthdays(env, scope, { today, days = 30, limit = 
     seen.add(key);
     rows.push(r);
   }
+  return rows;
+}
+
+/**
+ * The day a birthday falls on in a given year, or null.
+ *
+ * Null for February 29 in a year that has no such day. A birthday moved to the
+ * 28th is somebody else's decision to make, and quietly making it here would
+ * put a date on a screen that the person themselves might not agree with.
+ */
+function birthdayIn(dob, year) {
+  const candidate = `${year}-${dob.slice(5)}`;
+  const at = Date.parse(`${candidate}T00:00:00Z`);
+  if (!Number.isFinite(at)) return null;
+  return new Date(at).toISOString().slice(0, 10) === candidate ? candidate : null;
+}
+
+/**
+ * Birthdays falling between two days.
+ *
+ * A range rather than a countdown, because a calendar shows a month that may
+ * not have started yet. Both years are tried, so a window crossing New Year
+ * finds the ones on either side of it.
+ */
+export async function birthdaysBetween(env, scope, { from, to }) {
+  const rows = await birthdayRows(env, scope);
+  const years = [...new Set([Number(from.slice(0, 4)), Number(to.slice(0, 4))])];
+  const out = [];
+
+  for (const r of rows) {
+    const dob = String(r.dob);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) continue;
+    for (const year of years) {
+      const on = birthdayIn(dob, year);
+      if (!on || on < from || on > to) continue;
+      out.push({
+        name: r.name,
+        clientId: r.client_id || null,
+        on,
+        // Only when the year is real. Ages are guessed often enough elsewhere
+        // in the world without this adding to it.
+        turning: Number(dob.slice(0, 4)) > 1900
+          ? Number(on.slice(0, 4)) - Number(dob.slice(0, 4)) : null,
+      });
+    }
+  }
+  return out.sort((a, b) => a.on.localeCompare(b.on));
+}
+
+export async function upcomingBirthdays(env, scope, { today, days = 30, limit = 12 } = {}) {
+  const rows = await birthdayRows(env, scope);
 
   const from = Date.parse(`${today}T00:00:00Z`);
   const out = [];
@@ -412,17 +468,12 @@ export async function upcomingBirthdays(env, scope, { today, days = 30, limit = 
   for (const r of rows) {
     const dob = String(r.dob);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) continue;
-    const md = dob.slice(5);
-
-    // The next time this date comes round, which is this year's unless it has
-    // already gone, and never February 29 in a year that has no such day.
+    // The next time this date comes round: this year's unless it has already
+    // gone. The February 29 rule lives in birthdayIn, so there is one of it.
     let next = null;
     for (const year of [Number(today.slice(0, 4)), Number(today.slice(0, 4)) + 1]) {
-      const candidate = `${year}-${md}`;
-      const at = Date.parse(`${candidate}T00:00:00Z`);
-      if (!Number.isFinite(at)) continue;
-      if (new Date(at).toISOString().slice(0, 10) !== candidate) continue;
-      if (at >= from) { next = candidate; break; }
+      const candidate = birthdayIn(dob, year);
+      if (candidate && Date.parse(`${candidate}T00:00:00Z`) >= from) { next = candidate; break; }
     }
     if (!next) continue;
 
