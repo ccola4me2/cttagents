@@ -133,6 +133,12 @@ const KINDS = [
   ['birthday', 'Birthday'],
 ];
 
+// Kinds that should give way inside a day. Only three fit in a cell, and a
+// book of four hundred clients has more birthdays in a month than it has
+// anything else: left to sort by title, they would fill every cell and push
+// the departures and the deadlines into "and 6 more".
+const LAST = ['birthday'];
+
 const iso = (d) => d.toISOString().slice(0, 10);
 const addDays = (s, n) => iso(new Date(Date.parse(`${s}T00:00:00Z`) + n * 86400000));
 
@@ -206,7 +212,8 @@ function draw(from) {
     // answer rather than a visible one.
     const list = (byDay.get(day) || [])
       .slice()
-      .sort((a, b) => (a.time || '99:99').localeCompare(b.time || '99:99'));
+      .sort((a, b) => (a.time || '99:99').localeCompare(b.time || '99:99')
+        || LAST.indexOf(a.kind) - LAST.indexOf(b.kind));
     // Three, then a count. A cell that lists nine things is a cell nobody can
     // read, and the day panel below is one click away.
     const shown = list.slice(0, 3);
