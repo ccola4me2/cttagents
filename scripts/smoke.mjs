@@ -186,6 +186,18 @@ class Bail extends Error {}
 
 // Both live at module scope so the finally below can still reach them.
 const admin = jar();
+/**
+ * Remove a reservation, as the only role that may.
+ *
+ * Deleting became an administrator's act: an advisor cancels instead, which
+ * keeps the money and the history. Most of the deletes in this file are
+ * clearing up after a fixture rather than testing who may delete, and a
+ * cleanup that silently fails leaves rows behind for later checks to trip over.
+ * The one place that tests the refusal calls the endpoint as the advisor on
+ * purpose.
+ */
+const dropBooking = (id) => call(admin, 'DELETE', `/api/bookings/${id}`);
+
 let advisorId = null;
 
 async function main() {
@@ -344,7 +356,7 @@ async function main() {
       'and the reservation belongs to the advisor, not the admin');
     if (theirBooking) {
       cleanup('the phoned-in reservation',
-        () => call(advisor, 'DELETE', `/api/bookings/${theirBooking}`));
+        () => dropBooking(theirBooking));
     }
 
     const adminSelf = await call(admin, 'POST', `/api/admin/act/${adminId}`, {});
@@ -414,7 +426,7 @@ async function main() {
   if (!check(res.status === 201 && bookingId, 'reservation created', `status ${res.status}`)) {
     throw new Bail('No reservation to schedule.');
   }
-  cleanup('the reservation', () => call(advisor, 'DELETE', `/api/bookings/${bookingId}`));
+  cleanup('the reservation', () => dropBooking(bookingId));
   check(res.data.booking.deposit_cents === 50000,
     'the deposit is stored and read back', res.data.booking.deposit_cents);
 
@@ -603,7 +615,7 @@ async function main() {
       'and a reservation in their name joins the record that exists',
       trip.data?.booking?.client_id);
     if (trip.data?.booking?.id) {
-      await call(advisor, 'DELETE', `/api/bookings/${trip.data.booking.id}`);
+      await dropBooking(trip.data.booking.id);
     }
   }
 
@@ -696,7 +708,7 @@ async function main() {
       check(stillSoft.length === 0,
         'and once it is settled the reminder goes away', String(stillSoft.length));
 
-      await call(advisor, 'DELETE', `/api/bookings/${twinId}`);
+      await dropBooking(twinId);
     }
 
     // A trip that never earns is not a trip owing money.
@@ -740,7 +752,7 @@ async function main() {
   const theirBookingId = theirs.data?.booking?.id;
   if (theirBookingId) {
     cleanup('the associate reservation', () =>
-      call(advisor, 'DELETE', `/api/bookings/${theirBookingId}`));
+      dropBooking(theirBookingId));
   }
   check(theirs.status === 201 && theirBookingId, 'the associate creates a reservation');
 
@@ -1701,7 +1713,7 @@ async function main() {
     'carrying the email they gave, so nobody has to ask twice');
 
   cleanup('the reservation from a lead',
-    () => call(advisor, 'DELETE', `/api/bookings/${quoted.data.bookingId}`));
+    () => dropBooking(quoted.data.bookingId));
 
   const notALead = await call(advisor, 'POST', '/api/leads/submissions/nope/reservation');
   check(notALead.status === 404, 'and an unknown lead is refused',
@@ -1791,7 +1803,7 @@ async function main() {
   check(inGroup.data?.booking?.group_id === groupId,
     'a reservation sold from the block records the group', inGroup.data?.booking?.group_id);
   if (inGroupId) cleanup('the group reservation', () =>
-    call(advisor, 'DELETE', `/api/bookings/${inGroupId}`));
+    dropBooking(inGroupId));
 
   // Sold is counted from the reservations rather than stored, so it cannot
   // drift away from the truth.
@@ -2116,7 +2128,7 @@ async function main() {
       `${cruise.data?.tasksMade} made`);
     if (cruise.data?.booking?.id) {
       cleanup('the templated reservation',
-        () => call(advisor, 'DELETE', `/api/bookings/${cruise.data.booking.id}`));
+        () => dropBooking(cruise.data.booking.id));
     }
 
     const made = await call(advisor, 'GET', '/api/tasks?state=open');
@@ -2136,7 +2148,7 @@ async function main() {
       `${hotel.data?.tasksMade} made`);
     if (hotel.data?.booking?.id) {
       cleanup('the untemplated reservation',
-        () => call(advisor, 'DELETE', `/api/bookings/${hotel.data.booking.id}`));
+        () => dropBooking(hotel.data.booking.id));
     }
 
     // Deleting a reservation takes its tasks with it, which is the only reason
@@ -2159,7 +2171,7 @@ async function main() {
       'a template whose date the trip does not have makes nothing');
     if (sparse.data?.booking?.id) {
       cleanup('the dateless reservation',
-        () => call(advisor, 'DELETE', `/api/bookings/${sparse.data.booking.id}`));
+        () => dropBooking(sparse.data.booking.id));
     }
 
     const foreignTpl = await call(admin, 'DELETE', `/api/task-templates/${tplId}`);
@@ -2266,7 +2278,7 @@ async function main() {
     });
     const tripId = trip.data?.booking?.id;
     if (tripId) {
-      cleanup('the chased reservation', () => call(advisor, 'DELETE', `/api/bookings/${tripId}`));
+      cleanup('the chased reservation', () => dropBooking(tripId));
     }
 
     // Somebody to write to. Without an address the pass counts the payment and
@@ -2468,7 +2480,7 @@ async function main() {
     });
     const quietBooking = anAgo.data?.booking?.id;
     const quietClient = anAgo.data?.booking?.client_id;
-    if (quietBooking) cleanup('the quiet reservation', () => call(advisor, 'DELETE', `/api/bookings/${quietBooking}`));
+    if (quietBooking) cleanup('the quiet reservation', () => dropBooking(quietBooking));
 
     const justBack = await call(advisor, 'POST', '/api/bookings', {
       clientName: `Home Client ${stamp}`, supplier: 'Celebrity',
@@ -2476,7 +2488,7 @@ async function main() {
       gross: '3000', commission: '300', status: 'travelled',
     });
     const homeBooking = justBack.data?.booking?.id;
-    if (homeBooking) cleanup('the welcome home reservation', () => call(advisor, 'DELETE', `/api/bookings/${homeBooking}`));
+    if (homeBooking) cleanup('the welcome home reservation', () => dropBooking(homeBooking));
 
     // A birthday and an anniversary inside the month the lists look over,
     // written on the client record rather than a passport so both sources are
@@ -2783,7 +2795,7 @@ async function main() {
     const booked = await call(advisor, 'POST', `/api/specials/enquiries/${lead.id}/book`);
     const newBooking = booked.data?.bookingId;
     if (newBooking) cleanup('the reservation from the deal',
-      () => call(advisor, 'DELETE', `/api/bookings/${newBooking}`));
+      () => dropBooking(newBooking));
     check(booked.status === 201 && newBooking, 'an enquiry becomes a reservation',
       `status ${booked.status}`);
 
@@ -2904,7 +2916,7 @@ async function main() {
     });
     const tripId = trip.data?.booking?.id;
     if (tripId) cleanup('the itinerary reservation',
-      () => call(advisor, 'DELETE', `/api/bookings/${tripId}`));
+      () => dropBooking(tripId));
 
     const empty = await call(advisor, 'GET', `/api/bookings/${tripId}/itinerary`);
     check(empty.data?.dayCount === 8,
@@ -2989,7 +3001,7 @@ async function main() {
     });
     const pid = t.data?.booking?.id;
     if (pid) cleanup('the printable reservation',
-      () => call(advisor, 'DELETE', `/api/bookings/${pid}`));
+      () => dropBooking(pid));
 
     await call(advisor, 'POST', `/api/bookings/${pid}/itinerary`, {
       dayNumber: 3, kind: 'activity', title: 'Snorkelling',
@@ -3029,7 +3041,7 @@ async function main() {
       || /itin-map[\s\S]{0,120}noopener/.test(html),
       'as a link out, not an embedded map needing a key and somebody else\'s script');
 
-    await call(advisor, 'DELETE', `/api/bookings/${pid}`);
+    await dropBooking(pid);
   }
 
   // ------------------------------------------- the client answers back -----
@@ -3045,7 +3057,7 @@ async function main() {
     });
     const qid = q.data?.booking?.id;
     if (qid) cleanup('the proposal reservation',
-      () => call(advisor, 'DELETE', `/api/bookings/${qid}`));
+      () => dropBooking(qid));
 
     const badPic = await call(advisor, 'POST', `/api/bookings/${qid}/options`, {
       label: 'Insecure', amount: '100', imageUrl: 'http://example.com/a.jpg',
@@ -3151,7 +3163,7 @@ async function main() {
     // Removed here rather than left to the final sweep. The dashboard's quote
     // panel shows twelve, and an extra quote left lying about for the rest of
     // the run pushes somebody else's fixture off the end of it.
-    await call(advisor, 'DELETE', `/api/bookings/${qid}`);
+    await dropBooking(qid);
   }
 
   // ---------------------------------------------- written once, reused -----
@@ -3165,7 +3177,7 @@ async function main() {
     });
     const b1 = t1.data?.booking?.id;
     if (b1) cleanup('the library source trip',
-      () => call(advisor, 'DELETE', `/api/bookings/${b1}`));
+      () => dropBooking(b1));
 
     await call(advisor, 'POST', `/api/bookings/${b1}/itinerary`, {
       dayNumber: 3, startTime: '08:00', kind: 'activity',
@@ -3196,7 +3208,7 @@ async function main() {
     });
     const b2 = t2.data?.booking?.id;
     if (b2) cleanup('the library target trip',
-      () => call(advisor, 'DELETE', `/api/bookings/${b2}`));
+      () => dropBooking(b2));
 
     const used = await call(advisor, 'POST', `/api/bookings/${b2}/itinerary/from-library`,
       { pieceId, dayNumber: 2 });
@@ -3264,9 +3276,9 @@ async function main() {
     const aId = one.data?.booking?.client_id;
     const bId = two.data?.booking?.client_id;
     if (one.data?.booking?.id) cleanup('the household reservation A',
-      () => call(advisor, 'DELETE', `/api/bookings/${one.data.booking.id}`));
+      () => dropBooking(one.data.booking.id));
     if (two.data?.booking?.id) cleanup('the household reservation B',
-      () => call(advisor, 'DELETE', `/api/bookings/${two.data.booking.id}`));
+      () => dropBooking(two.data.booking.id));
 
     const alone = await call(advisor, 'POST', '/api/households', { clientIds: [aId] });
     check(alone.status === 400, 'one person is not a household', `status ${alone.status}`);
@@ -3292,7 +3304,7 @@ async function main() {
     });
     for (const r of [mixedA, mixedB]) {
       if (r.data?.booking?.id) cleanup('a mixed household reservation',
-        () => call(advisor, 'DELETE', `/api/bookings/${r.data.booking.id}`));
+        () => dropBooking(r.data.booking.id));
     }
     const mixed = await call(advisor, 'POST', '/api/households',
       { clientIds: [mixedA.data?.booking?.client_id, mixedB.data?.booking?.client_id] });
@@ -3391,7 +3403,7 @@ async function main() {
     });
     const freshId = fresh.data?.booking?.id;
     if (freshId) cleanup('the agency process reservation',
-      () => call(advisor, 'DELETE', `/api/bookings/${freshId}`));
+      () => dropBooking(freshId));
     const madeTasks = await call(advisor, 'GET', `/api/tasks?booking=${freshId}`);
     const fromShared = (madeTasks.data?.tasks || [])
       .find((t) => t.title === `Confirm the group rate ${stamp}`);
@@ -3497,7 +3509,7 @@ async function main() {
     });
     const sharedBooking = booked.data?.booking?.id;
     if (sharedBooking) cleanup('the shared vendor reservation',
-      () => call(advisor, 'DELETE', `/api/bookings/${sharedBooking}`));
+      () => dropBooking(sharedBooking));
     check(booked.data?.booking?.vendor_id === vendorId,
       'and a colleague booking that supplier links to the same record, not a new one',
       `${booked.data?.booking?.vendor_id} vs ${vendorId}`);
@@ -3668,7 +3680,7 @@ async function main() {
     departDate: isoDay(-400), returnDate: isoDay(-393), gross: '3200', status: 'travelled',
   });
   if (past.data?.booking?.id) cleanup('the past reservation', () =>
-    call(advisor, 'DELETE', `/api/bookings/${past.data.booking.id}`));
+    dropBooking(past.data.booking.id));
 
   let callList = await call(advisor, 'GET', '/api/dashboard');
   check((callList.data?.rebook || []).some((r) => r.client_name === `Lapsed Traveller ${stamp}`),
@@ -3680,7 +3692,7 @@ async function main() {
     departDate: isoDay(90), gross: '4000', status: 'booked',
   });
   if (rebooked.data?.booking?.id) cleanup('the rebooking', () =>
-    call(advisor, 'DELETE', `/api/bookings/${rebooked.data.booking.id}`));
+    dropBooking(rebooked.data.booking.id));
 
   callList = await call(advisor, 'GET', '/api/dashboard');
   check(!(callList.data?.rebook || []).some((r) => r.client_name === `Lapsed Traveller ${stamp}`),
@@ -3701,7 +3713,7 @@ async function main() {
   });
   for (const r of [thisYear, lastYear]) {
     if (r.data?.booking?.id) cleanup('a year on year reservation', () =>
-      call(advisor, 'DELETE', `/api/bookings/${r.data.booking.id}`));
+      dropBooking(r.data.booking.id));
   }
 
   const prod = await call(advisor, 'GET', '/api/reports/production?months=12');
@@ -3743,7 +3755,7 @@ async function main() {
   });
   const pricedId = priced.data?.booking?.id;
   if (pricedId) cleanup('the priced reservation', () =>
-    call(advisor, 'DELETE', `/api/bookings/${pricedId}`));
+    dropBooking(pricedId));
 
   // Searched, not scanned. The directory is the whole agency's now, so an
   // associate sees a book of thousands rather than the handful they typed in,
@@ -3830,7 +3842,7 @@ async function main() {
     insuranceStatus: 'declined', bookingMethod: 'portal',
   });
   const tripId = trip.data?.booking?.id;
-  if (tripId) cleanup('the party reservation', () => call(advisor, 'DELETE', `/api/bookings/${tripId}`));
+  if (tripId) cleanup('the party reservation', () => dropBooking(tripId));
   check(trip.data?.booking?.cabin === '1223' && trip.data.booking.cabin_category === 'Picturesque Oceanview',
     'a reservation carries a cabin and its category', trip.data?.booking?.cabin);
 
@@ -3843,7 +3855,7 @@ async function main() {
     clientName: `Silent ${stamp}`, departDate: isoDay(300), status: 'quoted',
   });
   if (silent.data?.booking?.id) cleanup('the quiet reservation', () =>
-    call(advisor, 'DELETE', `/api/bookings/${silent.data.booking.id}`));
+    dropBooking(silent.data.booking.id));
   check(silent.data?.booking?.insurance_status === 'unknown',
     'while saying nothing leaves it unknown, not declined',
     silent.data?.booking?.insurance_status);
@@ -3929,7 +3941,7 @@ async function main() {
   });
   for (const r of [v1, v2]) {
     if (r.data?.booking?.id) cleanup('a vendor reservation', () =>
-      call(advisor, 'DELETE', `/api/bookings/${r.data.booking.id}`));
+      dropBooking(r.data.booking.id));
   }
 
   const vlist = await call(advisor, 'GET', '/api/vendors');
@@ -4306,7 +4318,7 @@ async function main() {
     });
     const halfId = half.data?.booking?.id;
     if (halfId) cleanup('the catalog reservation', () =>
-      call(advisor, 'DELETE', `/api/bookings/${halfId}`));
+      dropBooking(halfId));
     check(half.data?.booking && !half.data.booking.return_date,
       'a reservation can be created with no return date');
 
@@ -4384,11 +4396,11 @@ async function main() {
   const madeIt = (imported.data?.bookings || [])[0];
   check(madeIt && madeIt.client_name === 'Manuel Montoro', 'and they are real reservations');
   for (const b of imported.data?.bookings || []) {
-    cleanup('an imported reservation', () => call(advisor, 'DELETE', `/api/bookings/${b.id}`));
+    cleanup('an imported reservation', () => dropBooking(b.id));
   }
   const alsoImported = await call(advisor, 'GET', `/api/bookings?q=IMP2-${stamp}`);
   for (const b of alsoImported.data?.bookings || []) {
-    cleanup('an imported reservation', () => call(advisor, 'DELETE', `/api/bookings/${b.id}`));
+    cleanup('an imported reservation', () => dropBooking(b.id));
   }
 
   // Pasting the same list twice is the single likeliest mistake, since the
@@ -4414,7 +4426,7 @@ async function main() {
     depositDue: isoDay(5), finalPaymentDue: isoDay(45),
   });
   const chaseId = chaseTrip.data?.booking?.id;
-  if (chaseId) cleanup('the chase reservation', () => call(advisor, 'DELETE', `/api/bookings/${chaseId}`));
+  if (chaseId) cleanup('the chase reservation', () => dropBooking(chaseId));
   await call(advisor, 'POST', `/api/bookings/${chaseId}/schedule`, {});
   const chaseRecord = await call(advisor, 'GET', `/api/bookings/${chaseId}/record`);
   const chasePayment = (chaseRecord.data?.payments || []).find((p) => p.kind === 'final' && p.payment_class === 'hard');
@@ -4534,7 +4546,7 @@ async function main() {
     departDate: isoDay(150), status: 'booked',
   });
   const bareId = bare.data?.booking?.id;
-  if (bareId) cleanup('the bare reservation', () => call(advisor, 'DELETE', `/api/bookings/${bareId}`));
+  if (bareId) cleanup('the bare reservation', () => dropBooking(bareId));
   check(bare.data?.booking?.gross_cents === 0 && !bare.data?.booking?.final_payment_due,
     'an imported reservation starts with no cost and no deadline');
 
@@ -4635,7 +4647,7 @@ async function main() {
     status: 'booked', departDate: isoDay(60), gross: '100.00', commission: '10.00',
   })).data?.booking?.id;
   if (driftId) cleanup('the driftEmptied reservation',
-    () => call(advisor, 'DELETE', `/api/bookings/${driftId}`));
+    () => dropBooking(driftId));
 
   await call(advisor, 'PUT', `/api/bookings/${driftId}/pricing`, {
     cells: [{ kind: 'fare', amount: '463.71', commissionable: true },
@@ -4674,7 +4686,7 @@ async function main() {
     status: 'booked', departDate: isoDay(60), gross: '875.00', commission: '87.50',
   })).data?.booking?.id;
   if (typedId) cleanup('the typed reservation',
-    () => call(advisor, 'DELETE', `/api/bookings/${typedId}`));
+    () => dropBooking(typedId));
   const typedRecord = await call(advisor, 'GET', `/api/bookings/${typedId}/record`);
   check(typedRecord.data?.booking?.gross_cents === 87500,
     'a reservation with no breakdown keeps the figure that was typed',
@@ -4831,7 +4843,7 @@ async function main() {
   });
   for (const r of [past1, past2, dead, ahead]) {
     if (r.data?.booking?.id) cleanup('a client reservation', () =>
-      call(advisor, 'DELETE', `/api/bookings/${r.data.booking.id}`));
+      dropBooking(r.data.booking.id));
   }
 
   const clientCredit = await call(advisor, 'POST', '/api/credits',
@@ -4925,7 +4937,7 @@ async function main() {
   });
   for (const r of [recent, stale, future]) {
     if (r.data?.booking?.id) cleanup('a commission reservation', () =>
-      call(advisor, 'DELETE', `/api/bookings/${r.data.booking.id}`));
+      dropBooking(r.data.booking.id));
   }
 
   const comm = await call(advisor, 'GET', '/api/commissions');
@@ -5146,7 +5158,7 @@ async function main() {
   check(Boolean(linked.data?.booking?.client_id),
     'and the client record it creates is linked to that contact');
   cleanup('the CRM-linked reservation',
-    () => call(advisor, 'DELETE', `/api/bookings/${linked.data.booking.id}`));
+    () => dropBooking(linked.data.booking.id));
 
   // ------------------------------------------------ nothing fails quietly --
   step('A broken panel says so');
@@ -5223,7 +5235,7 @@ async function main() {
   check(sr3?.settlement === 'settled', 'the bonus arriving settles it', sr3?.settlement);
 
   cleanup('the split reservation',
-    () => call(advisor, 'DELETE', `/api/bookings/${splitId}`));
+    () => dropBooking(splitId));
 
   // ------------------------------------------------- commission reconciled --
   step('What the vendor actually paid');
@@ -5341,7 +5353,7 @@ async function main() {
     clientName: `Feed ${stamp}`, supplier: 'Ponant', status: 'quoted', departDate: isoDay(210),
   });
   if (feedTrip.data?.booking?.id) cleanup('the feed reservation',
-    () => call(advisor, 'DELETE', `/api/bookings/${feedTrip.data.booking.id}`));
+    () => dropBooking(feedTrip.data.booking.id));
 
   const feed = await call(advisor, 'GET', '/api/dashboard');
   check((feed.data?.activity || []).some((a) => a.booking_id === feedTrip.data?.booking?.id),
@@ -5383,7 +5395,7 @@ async function main() {
   });
   const settleId = settle.data?.booking?.id;
   if (settleId) cleanup('the settled reservation',
-    () => call(advisor, 'DELETE', `/api/bookings/${settleId}`));
+    () => dropBooking(settleId));
 
   const payer = await call(advisor, 'POST', `/api/bookings/${settleId}/travellers`,
     { name: `Ada Settle ${stamp}`, isLead: true });
@@ -5492,7 +5504,7 @@ async function main() {
   });
   const stId = st.data?.booking?.id;
   if (stId) cleanup('the statement reservation',
-    () => call(advisor, 'DELETE', `/api/bookings/${stId}`));
+    () => dropBooking(stId));
 
   await call(advisor, 'POST', `/api/bookings/${stId}/pricing`,
     { kind: 'fare', amount: '2000', commissionable: true, commission: '137.91' });
@@ -5589,7 +5601,7 @@ async function main() {
   });
   const quotedId = quoted.data?.booking?.id;
   if (quotedId) cleanup('the quoted reservation',
-    () => call(advisor, 'DELETE', `/api/bookings/${quotedId}`));
+    () => dropBooking(quotedId));
 
   const qp = await call(advisor, 'POST', `/api/bookings/${quotedId}/statement`, { preview: true });
   const qs = qp.data?.statement || {};
@@ -5844,7 +5856,7 @@ async function main() {
   });
   const soonId = soon.data?.booking?.id;
   if (soonId) cleanup('the documents reservation',
-    () => call(advisor, 'DELETE', `/api/bookings/${soonId}`));
+    () => dropBooking(soonId));
 
   await call(advisor, 'POST', `/api/bookings/${soonId}/travellers`,
     { name: `Rune Short ${stamp}`, passportNumber: 'EXP1', passportExpiry: isoDay(60), isLead: true });
@@ -5860,7 +5872,7 @@ async function main() {
   });
   const laterId = later.data?.booking?.id;
   if (laterId) cleanup('the far off reservation',
-    () => call(advisor, 'DELETE', `/api/bookings/${laterId}`));
+    () => dropBooking(laterId));
   await call(advisor, 'POST', `/api/bookings/${laterId}/travellers`,
     { name: `Wilma Waiting ${stamp}` });
 
@@ -5871,7 +5883,7 @@ async function main() {
   });
   const quoteId = quote.data?.booking?.id;
   if (quoteId) cleanup('the quoted reservation',
-    () => call(advisor, 'DELETE', `/api/bookings/${quoteId}`));
+    () => dropBooking(quoteId));
   await call(advisor, 'POST', `/api/bookings/${quoteId}/travellers`,
     { name: `Quinn Quoted ${stamp}` });
 
@@ -5924,7 +5936,7 @@ async function main() {
     productName: 'Celebrity Ascent', departDate: isoDay(200), returnDate: isoDay(207),
   });
   const tripId = trip.data?.booking?.id;
-  if (tripId) cleanup('the multi vendor trip', () => call(advisor, 'DELETE', `/api/bookings/${tripId}`));
+  if (tripId) cleanup('the multi vendor trip', () => dropBooking(tripId));
 
   const nameless = await call(advisor, 'POST', `/api/bookings/${tripId}/components`, { kind: 'air' });
   check(nameless.status === 400, 'a component needs a vendor', `status ${nameless.status}`);
@@ -6002,7 +6014,7 @@ async function main() {
     });
     const ratedId = rated.data?.booking?.id;
     if (ratedId) {
-      cleanup('the rated reservation', () => call(advisor, 'DELETE', `/api/bookings/${ratedId}`));
+      cleanup('the rated reservation', () => dropBooking(ratedId));
     }
 
     // Two passengers, each with their own fare. The rate is per charge and the
@@ -6080,7 +6092,7 @@ async function main() {
     departDate: isoDay(180), travellers: 2,
   });
   const cabinId = cabin.data?.booking?.id;
-  if (cabinId) cleanup('the priced cabin', () => call(advisor, 'DELETE', `/api/bookings/${cabinId}`));
+  if (cabinId) cleanup('the priced cabin', () => dropBooking(cabinId));
 
   const one = await call(advisor, 'POST', `/api/bookings/${cabinId}/travellers`,
     { name: `Manuel ${stamp}`, isLead: true });
@@ -6166,7 +6178,7 @@ async function main() {
     personal: true,
   });
   const mineId = mine.data?.booking?.id;
-  if (mineId) cleanup('my own holiday', () => call(advisor, 'DELETE', `/api/bookings/${mineId}`));
+  if (mineId) cleanup('my own holiday', () => dropBooking(mineId));
 
   check(mine.data?.booking?.personal === 1, 'a reservation can be marked as my own travel',
     mine.data?.booking?.personal);
@@ -6202,7 +6214,7 @@ async function main() {
   });
   const paperId = paper.data?.booking?.id;
   if (paperId) cleanup('the paperwork reservation',
-    () => call(advisor, 'DELETE', `/api/bookings/${paperId}`));
+    () => dropBooking(paperId));
 
   const rec = await call(advisor, 'GET', `/api/bookings/${paperId}/record`);
   check(Array.isArray(rec.data?.documents), 'a reservation carries its documents');
@@ -6331,7 +6343,7 @@ async function main() {
     departDate: isoDay(73), returnDate: isoDay(80), gross: '4000', commission: '400',
   });
   const penId = pen.data?.booking?.id;
-  if (penId) cleanup('the penalty reservation', () => call(advisor, 'DELETE', `/api/bookings/${penId}`));
+  if (penId) cleanup('the penalty reservation', () => dropBooking(penId));
 
   // Nothing recorded is not nothing to pay, and the difference is one a client
   // would react to very differently.
@@ -6375,7 +6387,7 @@ async function main() {
     departDate: isoDay(400), gross: '4000',
   });
   const farId = far.data?.booking?.id;
-  if (farId) cleanup('the distant reservation', () => call(advisor, 'DELETE', `/api/bookings/${farId}`));
+  if (farId) cleanup('the distant reservation', () => dropBooking(farId));
   await call(advisor, 'POST', '/api/penalties', { bookingId: farId, fromDays: 120, pct: 25 });
   const farRec = await call(advisor, 'GET', `/api/bookings/${farId}/record`);
   check(farRec.data?.penalty?.tier === null && /No tier covers/.test(farRec.data?.penalty?.problem || ''),
@@ -6424,14 +6436,14 @@ async function main() {
     departDate: isoDay(-40), returnDate: isoDay(-30), gross: '4000', commission: '400',
   });
   const beenId = been.data?.booking?.id;
-  if (beenId) cleanup('the finished reservation', () => call(advisor, 'DELETE', `/api/bookings/${beenId}`));
+  if (beenId) cleanup('the finished reservation', () => dropBooking(beenId));
 
   const going = await call(advisor, 'POST', '/api/bookings', {
     clientName: `Going Later ${stamp}`, supplier: 'Seabourn', status: 'booked',
     departDate: isoDay(40), returnDate: isoDay(50), gross: '4000',
   });
   const goingId = going.data?.booking?.id;
-  if (goingId) cleanup('the future reservation', () => call(advisor, 'DELETE', `/api/bookings/${goingId}`));
+  if (goingId) cleanup('the future reservation', () => dropBooking(goingId));
 
   // A cancelled trip is not a holiday somebody had.
   const off = await call(advisor, 'POST', '/api/bookings', {
@@ -6439,7 +6451,7 @@ async function main() {
     departDate: isoDay(-40), returnDate: isoDay(-30), gross: '4000',
   });
   const offId = off.data?.booking?.id;
-  if (offId) cleanup('the cancelled reservation', () => call(advisor, 'DELETE', `/api/bookings/${offId}`));
+  if (offId) cleanup('the cancelled reservation', () => dropBooking(offId));
 
   const swept = await call(admin, 'POST', '/api/admin/lifecycle', {});
   check(swept.status === 200 && swept.data?.travelled >= 1,
@@ -6513,7 +6525,7 @@ async function main() {
     deposit: '600', depositDue: isoDay(30),
   });
   const optId = opt.data?.booking?.id;
-  if (optId) cleanup('the options reservation', () => call(advisor, 'DELETE', `/api/bookings/${optId}`));
+  if (optId) cleanup('the options reservation', () => dropBooking(optId));
 
   const nameless = await call(advisor, 'POST', `/api/bookings/${optId}/options`, { amount: '1000' });
   check(nameless.status === 400, 'an option needs a name', `status ${nameless.status}`);
@@ -6587,21 +6599,21 @@ async function main() {
   });
   const silentId = silent.data?.booking?.id;
   if (silentId) cleanup('the uninsured reservation',
-    () => call(advisor, 'DELETE', `/api/bookings/${silentId}`));
+    () => dropBooking(silentId));
 
   const asked = await call(advisor, 'POST', '/api/bookings', {
     clientName: `Declined ${stamp}`, supplier: 'Viking', status: 'booked',
     departDate: isoDay(50), gross: '9000', insuranceStatus: 'declined',
   });
   if (asked.data?.booking?.id) cleanup('the declined reservation',
-    () => call(advisor, 'DELETE', `/api/bookings/${asked.data.booking.id}`));
+    () => dropBooking(asked.data.booking.id));
 
   const gone = await call(advisor, 'POST', '/api/bookings', {
     clientName: `Already Went ${stamp}`, supplier: 'Viking', status: 'booked',
     departDate: isoDay(-40), returnDate: isoDay(-30), gross: '9000',
   });
   if (gone.data?.booking?.id) cleanup('the past reservation',
-    () => call(advisor, 'DELETE', `/api/bookings/${gone.data.booking.id}`));
+    () => dropBooking(gone.data.booking.id));
 
   const dash = await call(advisor, 'GET', '/api/dashboard');
   const rows = dash.data?.insurance || [];
@@ -6646,7 +6658,7 @@ async function main() {
     departDate: isoDay(-90), returnDate: isoDay(-80),
   });
   const bId = bTrip.data?.booking?.id;
-  if (bId) cleanup('the birthday reservation', () => call(advisor, 'DELETE', `/api/bookings/${bId}`));
+  if (bId) cleanup('the birthday reservation', () => dropBooking(bId));
 
   const soonBirthday = birthdayIn(5, 1975);
   await call(advisor, 'POST', `/api/bookings/${bId}/travellers`,
@@ -6667,7 +6679,7 @@ async function main() {
   });
   const bId2 = bTrip2.data?.booking?.id;
   if (bId2) cleanup('the second birthday reservation',
-    () => call(advisor, 'DELETE', `/api/bookings/${bId2}`));
+    () => dropBooking(bId2));
   await call(advisor, 'POST', `/api/bookings/${bId2}/travellers`,
     { name: `Cake Soon ${stamp}`, dob: soonBirthday });
 
@@ -6710,7 +6722,7 @@ async function main() {
     departDate: isoDay(20), returnDate: isoDay(27), gross: '5000', commission: '500',
   });
   if (sailing.data?.booking?.id) cleanup('the listed reservation', () =>
-    call(advisor, 'DELETE', `/api/bookings/${sailing.data.booking.id}`));
+    dropBooking(sailing.data.booking.id));
 
   // Somebody who travelled and has nothing ahead of them, so every rule below
   // has a person it must leave out as well as one it must find. A list that
@@ -6720,7 +6732,7 @@ async function main() {
     departDate: isoDay(-200), returnDate: isoDay(-190), gross: '3000', commission: '300',
   });
   if (lapsed.data?.booking?.id) cleanup('the lapsed reservation', () =>
-    call(advisor, 'DELETE', `/api/bookings/${lapsed.data.booking.id}`));
+    dropBooking(lapsed.data.booking.id));
 
   // A list is for writing to, so only clients with an address are on one.
   // Recorded here rather than assumed, because a booking does not ask for it.
@@ -6787,7 +6799,7 @@ async function main() {
       const res = await call(advisor, 'POST', '/api/bookings',
         { clientName: `${key} ${stamp}`, ...booking });
       if (res.data?.booking?.id) cleanup(`the ${key} reservation`,
-        () => call(advisor, 'DELETE', `/api/bookings/${res.data.booking.id}`));
+        () => dropBooking(res.data.booking.id));
       const found = await call(advisor, 'GET',
         `/api/clients?q=${encodeURIComponent(`${key} ${stamp}`)}`);
       cast[key] = (found.data?.clients || []).find((c) => c.name === `${key} ${stamp}`)?.id;
@@ -7113,7 +7125,7 @@ async function main() {
     departDate: isoDay(60), returnDate: isoDay(67), gross: '4000', commission: '333.33',
   });
   const halfId = half.data?.booking?.id;
-  if (halfId) cleanup('the split reservation', () => call(advisor, 'DELETE', `/api/bookings/${halfId}`));
+  if (halfId) cleanup('the split reservation', () => dropBooking(halfId));
 
   const noDeal = await call(advisor, 'GET', `/api/bookings/${halfId}/record`);
   check(noDeal.data?.split?.pct === 100 && noDeal.data?.split?.advisorCents === 33333,
@@ -7148,7 +7160,7 @@ async function main() {
     String(smuggled.data?.booking?.advisor_split_pct));
   if (smuggledId) {
     cleanup('the smuggled reservation',
-      () => call(advisor, 'DELETE', `/api/bookings/${smuggledId}`));
+      () => dropBooking(smuggledId));
   }
 
   const selfLead = await call(advisor, 'POST', `/api/bookings/${bookingId}/quick`,
@@ -7296,7 +7308,7 @@ async function main() {
       departDate: isoDay(80), returnDate: isoDay(87), gross: '2000',
     });
     const tcId = tc.data?.booking?.id;
-    if (tcId) cleanup('the TC reservation', () => call(advisor, 'DELETE', `/api/bookings/${tcId}`));
+    if (tcId) cleanup('the TC reservation', () => dropBooking(tcId));
     const rider = await call(advisor, 'POST', `/api/bookings/${tcId}/travellers`, { name: 'Ann Rider' });
     const riderId = rider.data?.id || rider.data?.traveller?.id;
 
@@ -7384,7 +7396,7 @@ async function main() {
   });
   const keptId = kept.data?.booking?.id;
   if (keptId) cleanup('the kept reservation',
-    () => call(advisor, 'DELETE', `/api/bookings/${keptId}`));
+    () => dropBooking(keptId));
 
   const shared = await call(advisor, 'POST', `/api/bookings/${keptId}/share`, {});
   const shareCode = shared.data?.code || shared.data?.shareCode
