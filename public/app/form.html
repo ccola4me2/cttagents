@@ -256,10 +256,16 @@ function drawChosen() {
       const f = chosen.find((x) => x.key === key);
       if (f) f.label = e.target.value;
     });
-    li.querySelector('.req').addEventListener('change', (e) => {
-      const f = chosen.find((x) => x.key === key);
-      if (f) f.required = e.target.checked;
-    });
+    // A heading has no tick to bind to. Not an oddity worth an early return:
+    // a heading is still dragged, still renamed and still removed, so only
+    // this one line is conditional.
+    const req = li.querySelector('.req');
+    if (req) {
+      req.addEventListener('change', (e) => {
+        const f = chosen.find((x) => x.key === key);
+        if (f) f.required = e.target.checked;
+      });
+    }
 
     // Reordering matters: the order here is the order somebody answers them.
     li.addEventListener('dragstart', () => { dragKey = key; li.classList.add('dragging'); });
