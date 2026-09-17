@@ -72,12 +72,30 @@ export async function createUser(env, fields) {
   return getUserById(env, id);
 }
 
+/**
+ * The address somebody signs in with.
+ *
+ * Its own function rather than a field on updateUserProfile, because it is the
+ * only one that changes how an account is reached rather than how it reads.
+ * Nothing else moves: not the password, not any session already open. This is
+ * for the account created with a typo in the address, which until now could
+ * not be signed into and could not be fixed.
+ */
+export async function setUserEmail(env, id, email) {
+  await env.DB.prepare('UPDATE users SET email = ?, updated_at = ? WHERE id = ?')
+    .bind(email, now(), id).run();
+  return getUserById(env, id);
+}
+
 export async function updateUserProfile(env, id, fields) {
   await env.DB.prepare(
     `UPDATE users
         SET first_name = ?, last_name = ?, phone = ?, agency_name = ?,
             agency_address = ?, seller_of_travel = ?, notify_email = ?,
-            auto_remind_clients = ?,
+            -- Left alone when the caller did not mention it, the same as the
+            -- three below. This one was not, and a save that never mentioned
+            -- it turned off the reminders that chase clients for money.
+            auto_remind_clients = COALESCE(?, auto_remind_clients),
             -- Left alone when the caller did not mention it. This one is on by
             -- default, so treating a missing field as false would let any save
             -- that predates the switch quietly turn it off.
@@ -97,7 +115,7 @@ export async function updateUserProfile(env, id, fields) {
     fields.agencyAddress || null,
     fields.sellerOfTravel || null,
     fields.notifyEmail || null,
-    fields.autoRemindClients ? 1 : 0,
+    fields.autoRemindClients === undefined ? null : (fields.autoRemindClients ? 1 : 0),
     fields.weeklyCallList === undefined ? null : (fields.weeklyCallList ? 1 : 0),
     fields.taskDigest === undefined ? null : (fields.taskDigest ? 1 : 0),
     fields.alertsFeed === undefined ? null : (fields.alertsFeed ? 1 : 0),

@@ -228,7 +228,12 @@ export async function handleUpdateProfile(request, env) {
     agencyAddress: clean(body.agencyAddress, 200),
     sellerOfTravel: clean(body.sellerOfTravel, 80),
     notifyEmail: clean(body.notifyEmail, 254),
-    autoRemindClients: body.autoRemindClients === true || body.autoRemindClients === 'on',
+    // Undefined rather than false when it is absent, for exactly the reason
+    // written below about the call list. The Settings page sends the name
+    // fields plus the one switch that was clicked, so reading a missing
+    // switch as "off" let ticking one of them turn this one off.
+    autoRemindClients: body.autoRemindClients === undefined ? undefined
+      : (body.autoRemindClients === true || body.autoRemindClients === 'on'),
     // Undefined rather than false when it is absent, so a save that never
     // heard of this switch leaves it where the advisor put it.
     weeklyCallList: body.weeklyCallList === undefined ? undefined

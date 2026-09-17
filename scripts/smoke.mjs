@@ -1321,6 +1321,80 @@ async function main() {
   // promise and takes it back when a push shows nothing.
   check(pushSwBody.includes('showNotification'), 'and always shows something when one arrives');
 
+  // -------------------------------------------- an admin edits an advisor --
+  step('An admin can fix an advisor\'s details');
+
+  const advBefore = await call(admin, 'GET', '/api/admin/advisors');
+  const advRow = (advBefore.data?.users || []).find((u) => u.id === advisorId);
+  check(advRow, 'the advisor is on the admin list', `${(advBefore.data?.users || []).length} user(s)`);
+
+  const advEdit = await call(admin, 'PUT', `/api/admin/advisors/${advisorId}`, {
+    firstName: 'Renamed', lastName: `Advisor ${stamp}`,
+    phone: '555-0199', sellerOfTravel: `ST${stamp}`,
+    agencyName: 'Cruises Tours and Travel',
+  });
+  check(advEdit.status === 200, 'and their details can be changed',
+    `status ${advEdit.status} ${advEdit.raw}`);
+  check(advEdit.data?.user?.name === `Renamed Advisor ${stamp}`,
+    'the name comes back changed', advEdit.data?.user?.name);
+  check(advEdit.data?.user?.sellerOfTravel === `ST${stamp}`,
+    'along with what a state wants on an invoice', advEdit.data?.user?.sellerOfTravel);
+  // Which field, and from what. "Updated the advisor" is a line nobody can audit.
+  check((advEdit.data?.changed || []).some((c) => c.startsWith('name ')),
+    'and the log says which field moved and where from',
+    JSON.stringify(advEdit.data?.changed));
+
+  // The switches are the advisor's own. An admin editing a profile is not an
+  // admin deciding how the portal talks to somebody.
+  const advAfter = await call(admin, 'GET', '/api/admin/advisors');
+  const advNow = (advAfter.data?.users || []).find((u) => u.id === advisorId);
+  check(advNow && advNow.weeklyCallList === (advRow ? advRow.weeklyCallList : true),
+    'without touching what the advisor chose to be told',
+    JSON.stringify({ was: advRow && advRow.weeklyCallList, now: advNow && advNow.weeklyCallList }));
+
+  const advClash = await call(admin, 'PUT', `/api/admin/advisors/${advisorId}`,
+    { firstName: 'X', lastName: 'Y', email: ADMIN_EMAIL });
+  check(advClash.status === 400, 'an address somebody else already has is refused',
+    `status ${advClash.status}`);
+
+  const advNoName = await call(admin, 'PUT', `/api/admin/advisors/${advisorId}`,
+    { firstName: '', lastName: '' });
+  check(advNoName.status === 400, 'and a nameless advisor is not one',
+    `status ${advNoName.status}`);
+
+  // ------------------------------------- a save that never mentioned it ----
+  //
+  // profileBody on the Settings page carries the name fields plus whichever
+  // single switch was clicked. Reading a missing switch as "off" meant ticking
+  // the Monday call list turned off the reminders that chase clients for
+  // money, silently, on the one feature that emails real people.
+  step('Saving one setting leaves the others alone');
+
+  await call(advisor, 'PUT', '/api/auth/profile', {
+    firstName: 'Renamed', lastName: `Advisor ${stamp}`, autoRemindClients: true,
+  });
+  const chaseOn = await call(advisor, 'GET', '/api/auth/me');
+  check(chaseOn.data?.user?.autoRemindClients === true, 'chasing can be switched on',
+    JSON.stringify(chaseOn.data?.user?.autoRemindClients));
+
+  // The shape the page actually sends when a different switch is ticked.
+  await call(advisor, 'PUT', '/api/auth/profile', {
+    firstName: 'Renamed', lastName: `Advisor ${stamp}`, weeklyCallList: true,
+  });
+  const chaseStill = await call(advisor, 'GET', '/api/auth/me');
+  check(chaseStill.data?.user?.autoRemindClients === true,
+    'and ticking a different switch does not turn it off',
+    JSON.stringify(chaseStill.data?.user?.autoRemindClients));
+
+  // And off still means off: the fix must not make it unswitchable.
+  await call(advisor, 'PUT', '/api/auth/profile', {
+    firstName: 'Renamed', lastName: `Advisor ${stamp}`, autoRemindClients: false,
+  });
+  const chaseOff = await call(advisor, 'GET', '/api/auth/me');
+  check(chaseOff.data?.user?.autoRemindClients === false,
+    'while saying so plainly still switches it off',
+    JSON.stringify(chaseOff.data?.user?.autoRemindClients));
+
   // ------------------------------------------------------ the lead report --
   step('What the forms brought in');
 

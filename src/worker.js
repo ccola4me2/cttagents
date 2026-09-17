@@ -338,6 +338,7 @@ import {
   handleListAdvisors,
   handleSetAdvisorStatus,
   handleSetAdvisorSplit,
+  handleUpdateAdvisor,
   handleCreateAdvisor,
   handleReissueInvite,
   handleStartActing,
@@ -587,6 +588,7 @@ async function routeApi(request, env, path, method) {
   const scheduleMatch = path.match(/^\/api\/bookings\/([^/]+)\/schedule$/);
   const bookingStatusMatch = path.match(/^\/api\/bookings\/([^/]+)\/status$/);
   const advisorMatch = path.match(/^\/api\/admin\/advisors\/([^/]+)\/(status|split|invite)$/);
+  const advisorOneMatch = path.match(/^\/api\/admin\/advisors\/([^/]+)$/);
   const actMatch = path.match(/^\/api\/admin\/act\/([^/]+)$/);
   const bookingSplitMatch = path.match(/^\/api\/admin\/bookings\/([^/]+)\/split$/);
   const myTaskMatch = path.match(/^\/api\/tasks\/([^/]+)$/);
@@ -1040,6 +1042,13 @@ async function routeApi(request, env, path, method) {
   // token rather than editing something that already exists.
   if (advisorMatch && advisorMatch[2] === 'invite' && method === 'POST') {
     return handleReissueInvite(request, env, decodeURIComponent(advisorMatch[1]));
+  }
+
+  // The advisor's own details. Before the suffixed matcher, which cannot
+  // match this anyway, and after nothing: an id with no suffix had no route at
+  // all and fell through to "no such endpoint".
+  if (advisorOneMatch && method === 'PUT') {
+    return handleUpdateAdvisor(request, env, decodeURIComponent(advisorOneMatch[1]));
   }
 
   if (advisorMatch && method === 'PUT') {

@@ -2,7 +2,7 @@
 // and suspend access.
 
 import {
-  json, badRequest, notFound, clean, readJson, forbidden, parseCookies,
+  json, badRequest, notFound, clean, cleanText, readJson, forbidden, parseCookies,
   isValidEmail, normalizeEmail, randomToken, sha256Hex, hashPassword,
 } from './util.js';
 import { requireAdmin, requireUser, publicUser, realUserOf, SESSION_COOKIE } from './auth.js';
@@ -315,6 +315,80 @@ export async function handleSetAdvisorStatus(request, env, userId) {
  * advisor who owns it belongs to, which is the same question reachable()
  * already answers everywhere else in this file.
  */
+/**
+ * The advisor's own details, edited by somebody who is not them.
+ *
+ * Every field here ends up in front of a client: the name on a quote, the
+ * phone at the bottom of an email, the registration number a state requires on
+ * the document. A typo in one is a typo a client reads, and the only way to
+ * fix one used to be to sign in as the advisor and do it from their side.
+ *
+ * Deliberately not the notification switches. Those are the advisor's own
+ * choices about how the portal talks to them, and an admin silently turning
+ * off somebody's morning email is not a profile edit.
+ */
+export async function handleUpdateAdvisor(request, env, userId) {
+  const { user: admin, response } = await requireAdmin(request, env);
+  if (response) return response;
+  const reach = await reachable(env, admin, userId);
+  if (reach.error) return reach.error;
+  const before = reach.target;
+
+  const body = await readJson(request);
+  const firstName = clean(body.firstName, 80);
+  const lastName = clean(body.lastName, 80);
+  if (!firstName || !lastName) return badRequest('First and last name are required.');
+
+  // The address they sign in with. Optional to send: a caller that does not
+  // mention it leaves it alone, which is the rule everywhere else in this
+  // portal and the reason a save from one screen cannot undo another.
+  let email = before.email;
+  if (body.email !== undefined) {
+    email = normalizeEmail(body.email);
+    if (!isValidEmail(email)) return badRequest('Enter a valid email address.');
+    if (email !== before.email && await db.emailExists(env, email)) {
+      return badRequest('There is already an account with that email address.');
+    }
+  }
+
+  const updated = await db.updateUserProfile(env, userId, {
+    firstName,
+    lastName,
+    phone: clean(body.phone, 40),
+    notifyEmail: clean(body.notifyEmail, 254),
+    agencyName: clean(body.agencyName, 160),
+    agencyAddress: cleanText(body.agencyAddress, 400),
+    sellerOfTravel: clean(body.sellerOfTravel, 120),
+  });
+  if (!updated) return notFound('Advisor not found.');
+
+  if (email !== before.email) {
+    await db.setUserEmail(env, userId, email);
+  }
+
+  // What changed, by name. "Updated the advisor" is a line nobody can audit;
+  // this one says which field and from what, which is the only version worth
+  // keeping.
+  const changed = [];
+  const say = (label, was, now) => {
+    if ((was || '') !== (now || '')) changed.push(`${label} ${was || 'blank'} to ${now || 'blank'}`);
+  };
+  say('name', [before.first_name, before.last_name].filter(Boolean).join(' '),
+      [firstName, lastName].filter(Boolean).join(' '));
+  say('email', before.email, email);
+  say('phone', before.phone, clean(body.phone, 40));
+  say('agency name', before.agency_name, clean(body.agencyName, 160));
+  say('seller of travel', before.seller_of_travel, clean(body.sellerOfTravel, 120));
+
+  if (changed.length) {
+    await db.logActivity(env, admin.id, 'admin.advisor.edit',
+      `Changed ${before.email}: ${changed.join('; ')}`, { userId, fields: changed.length });
+  }
+
+  const after = await db.getUserById(env, userId);
+  return json({ ok: true, user: publicUser(after), changed });
+}
+
 export async function handleSetBookingSplit(request, env, bookingId) {
   const { user: admin, response } = await requireAdmin(request, env);
   if (response) return response;

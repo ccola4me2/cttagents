@@ -90,6 +90,7 @@
         </div>
       </section>
       <section id="stats" class="stat-grid"></section>
+      <div class="notice notice-ok" id="edit-done" hidden></div>
       <section class="card" id="panel"><p class="spinner">Loading advisors...</p></section>
     </div>
   </div>
@@ -101,6 +102,49 @@
      never appears, leaving somebody who answered one believing they answered
      both. A commission agreement is not a thing to set through a dialog the
      browser may decide to skip. -->
+<dialog id="edit-dlg">
+  <form id="edit-form" method="dialog">
+    <div class="card-head"><h2>Advisor details</h2>
+      <button class="btn btn-ghost btn-sm" type="button" data-close-edit>Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" hidden></div>
+      <p class="muted" id="edit-who" style="margin:0 0 .9rem;"></p>
+      <div class="field-row">
+        <div class="field"><label for="ed-first">First name</label>
+          <input id="ed-first" name="firstName" maxlength="80" required></div>
+        <div class="field"><label for="ed-last">Last name</label>
+          <input id="ed-last" name="lastName" maxlength="80" required></div>
+      </div>
+      <div class="field"><label for="ed-email">Sign-in address</label>
+        <input id="ed-email" name="email" type="email" maxlength="254" required>
+        <p class="field-hint">What they sign in with. Changing it does not change
+          their password and does not sign them out; it is for the account created
+          with a typo in the address, which otherwise cannot be signed into at all.
+          Tell them you have changed it.</p></div>
+      <div class="field"><label for="ed-phone">Phone</label>
+        <input id="ed-phone" name="phone" maxlength="40">
+        <p class="field-hint">Goes at the bottom of what they send clients.</p></div>
+      <div class="field"><label for="ed-notify">Where portal email goes</label>
+        <input id="ed-notify" name="notifyEmail" type="email" maxlength="254">
+        <p class="field-hint">Blank sends it to the address above. Useful where
+          somebody signs in as one address and reads another.</p></div>
+      <div class="field"><label for="ed-agency">Agency name on documents</label>
+        <input id="ed-agency" name="agencyName" maxlength="160"></div>
+      <div class="field"><label for="ed-address">Agency address</label>
+        <textarea id="ed-address" name="agencyAddress" maxlength="400" rows="2"></textarea></div>
+      <div class="field"><label for="ed-sot">Seller of travel number</label>
+        <input id="ed-sot" name="sellerOfTravel" maxlength="120">
+        <p class="field-hint">Several states require it on a client invoice.</p></div>
+      <p class="field-hint" style="margin:.2rem 0 0;">Their own notification settings
+        are not here. How the portal talks to somebody is their choice, not an
+        administrator's.</p>
+    </div>
+    <div class="card-foot">
+      <button class="btn btn-primary" type="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="split-dlg">
   <form id="split-form" method="dialog">
     <div class="card-head"><h2>Commission split</h2>
@@ -341,6 +385,13 @@ function render(users, counts) {
           esc(timeAgo(u.approvedAt))}</div>` : ''}</td>
       <td class="num">
         ${u.status !== 'active' ? `<button class="btn btn-primary btn-sm" data-set="active" data-id="${esc(u.id)}">Activate</button>` : ''}
+        <button class="btn btn-ghost btn-sm" data-edit="${esc(u.id)}"
+          data-json="${esc(JSON.stringify({
+            firstName: u.firstName || '', lastName: u.lastName || '', email: u.email || '',
+            phone: u.phone || '', notifyEmail: u.notifyEmail || '',
+            agencyName: u.agencyName || '', agencyAddress: u.agencyAddress || '',
+            sellerOfTravel: u.sellerOfTravel || '', name: u.name || u.email,
+          }))}">Edit</button>
         <button class="btn btn-ghost btn-sm" data-invite="${esc(u.id)}">New link</button>
         ${u.status === 'active' ? `<button class="btn btn-danger btn-sm" data-set="suspended" data-id="${esc(u.id)}">Suspend</button>` : ''}
       </td></tr>`).join('')}</tbody></table></div>`;
@@ -348,6 +399,9 @@ function render(users, counts) {
   // For the advisor who never got their invite, or let it run out. Issuing a
   // new one silently retires nothing: the old link keeps working until it
   // expires, so sending two is confusing rather than dangerous.
+  panel.querySelectorAll('[data-edit]').forEach((btn) =>
+    btn.addEventListener('click', () => openEdit(btn.dataset.edit, JSON.parse(btn.dataset.json))));
+
   panel.querySelectorAll('[data-invite]').forEach((btn) => btn.addEventListener('click', async () => {
     btn.disabled = true;
     const was = btn.textContent;
@@ -535,5 +589,56 @@ filter.addEventListener('change', load);
 await load();
 loadMail();
 loadSchema();
+
+// ------------------------------------------------------ advisor details --
+//
+// Everything in here ends up in front of a client: the name on a quote, the
+// phone under an email, the registration number a state wants on an invoice.
+// A typo in one is a typo a client reads, and the only way to fix one used to
+// be signing in as the advisor.
+const editDlg = document.getElementById('edit-dlg');
+const editForm = document.getElementById('edit-form');
+let editing = null;
+const lastEdit = document.getElementById('edit-done');
+
+document.querySelector('[data-close-edit]').addEventListener('click', () => editDlg.close());
+
+function openEdit(id, u) {
+  editing = id;
+  editForm.reset();
+  editForm.querySelector('.notice-error').hidden = true;
+  document.getElementById('edit-who').textContent = `Editing ${u.name}.`;
+  for (const [field, value] of Object.entries(u)) {
+    if (field === 'name') continue;
+    if (editForm.elements[field]) editForm.elements[field].value = value;
+  }
+  editDlg.showModal();
+}
+
+editForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = editForm.querySelector('.notice-error');
+  err.hidden = true;
+  try {
+    const body = {};
+    for (const field of ['firstName', 'lastName', 'email', 'phone', 'notifyEmail',
+                         'agencyName', 'agencyAddress', 'sellerOfTravel']) {
+      body[field] = editForm.elements[field].value;
+    }
+    const res = await api(`/api/admin/advisors/${encodeURIComponent(editing)}`,
+      { method: 'PUT', body });
+    editDlg.close();
+    // What actually changed, said by the server rather than assumed from what
+    // was typed. "Saved" is equally true of a form nobody altered.
+    lastEdit.textContent = res.changed && res.changed.length
+      ? `Changed ${res.changed.join('; ')}.`
+      : 'Nothing was different, so nothing changed.';
+    lastEdit.hidden = false;
+    await load();
+  } catch (e2) {
+    err.textContent = e2.message || 'Could not save that.';
+    err.hidden = false;
+  }
+});
 </script>
 </body></html>
