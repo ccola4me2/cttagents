@@ -36,7 +36,8 @@
                 <div id="detail-fields"></div>
               </div>
               <div class="card-foot" id="detail-foot" hidden>
-                <button class="btn btn-danger btn-sm" type="button" id="delete-booking">Delete</button>
+                <button class="btn btn-danger btn-sm" type="button" id="cancel-booking">Cancel the trip</button>
+                <button class="btn btn-danger btn-sm" type="button" id="delete-booking" hidden>Delete</button>
                 <span style="flex:1;"></span>
                 <button class="btn btn-primary" type="submit">Save reservation</button>
               </div>
@@ -378,7 +379,7 @@
 <script type="module">
 import { api, mountShell, esc, money, dateFmt, daysUntil, timeAgo, showError, onSubmit } from '/js/app.js';
 import { mountClientSuggest } from '/js/client-suggest.js';
-await mountShell();
+const me = await mountShell();
 
 const id = new URLSearchParams(location.search).get('id') || '';
 const err = document.getElementById('err');
@@ -823,6 +824,12 @@ function drawDetail() {
     });
   }
   document.getElementById('detail-foot').hidden = ro;
+  // Cancelling is the advisor's act and keeps the record. Deleting says the
+  // reservation never existed and is an administrator's, which the server
+  // enforces; this only stops offering it to people it would refuse.
+  document.getElementById('delete-booking').hidden = ro || me.role !== 'admin';
+  const cancelBtn = document.getElementById('cancel-booking');
+  cancelBtn.hidden = ro || b.status === 'cancelled';
   document.getElementById('detail-state').textContent = ro ? 'Read only' : '';
 }
 
@@ -2445,8 +2452,27 @@ onSubmit(tierForm, async (values) => {
 
 // Deleting used to live in the dialog on the list. It belongs with the record
 // it destroys, where you can see what you are about to lose.
+// Cancelling: the trip is not happening, and everything about it stays.
+//
+// The deposit that was taken, the penalty the vendor charged, the commission
+// owed anyway and the fact that this client cancelled once are all worth
+// keeping, and all of them go if the record does.
+document.getElementById('cancel-booking').addEventListener('click', async () => {
+  if (!confirm('Mark this trip as cancelled? The payments, travellers and '
+    + 'documents all stay, and it stops being chased.')) return;
+  try {
+    await api(`/api/bookings/${encodeURIComponent(id)}/quick`,
+      { method: 'POST', body: { status: 'cancelled' } });
+    await load();
+  } catch (e) { showError(err, e); }
+});
+
 document.getElementById('delete-booking').addEventListener('click', async () => {
-  if (!confirm('Delete this reservation? Its pricing, travellers, payments and documents go too.')) return;
+  // Said in full, because this is the one that cannot be undone. Cancelling is
+  // on the button beside it and is what almost everybody means.
+  if (!confirm('Delete this reservation for good?\n\nIts pricing, travellers, payments '
+    + 'and documents go with it, and none of it can be brought back. If the trip is simply '
+    + 'not happening, use Cancel the trip instead: that keeps the money and the history.')) return;
   try {
     await api(`/api/bookings/${encodeURIComponent(id)}`, { method: 'DELETE' });
     location.href = '/app/reservations';

@@ -1504,6 +1504,52 @@ async function main() {
       `${fwdMade.data?.address} vs ${fwdAgain.data?.address}`);
   }
 
+  // -------------------------------------- deleting against cancelling ----
+  //
+  // They were the same button and are not the same act. Cancelling keeps the
+  // deposit that was taken, the penalty the vendor charged, the commission
+  // owed anyway, and the fact that this client cancelled once. Deleting says
+  // the reservation never existed.
+  step('An advisor cancels, an administrator deletes');
+
+  const doomed = await call(advisor, 'POST', '/api/bookings', {
+    clientName: `Doomed Trip ${stamp}`, supplier: 'Carnival',
+    productName: 'To be cancelled', productType: 'cruise',
+    departDate: isoDay(200), gross: '2000', status: 'booked',
+  });
+  const doomedId = doomed.data?.booking?.id;
+  check(doomedId, 'a reservation to try it on', `status ${doomed.status}`);
+
+  if (doomedId) {
+    // The button is hidden for an advisor, and hiding a button is not a rule.
+    const delRefused = await call(advisor, 'DELETE', `/api/bookings/${doomedId}`);
+    check(delRefused.status === 403, 'an advisor cannot delete one',
+      `status ${delRefused.status} ${delRefused.raw}`);
+    check(String(delRefused.raw || '').toLowerCase().includes('cancel'),
+      'and is told what to do instead', delRefused.raw);
+
+    const delSurvived = await call(advisor, 'GET', `/api/bookings/${doomedId}`);
+    check(delSurvived.status === 200, 'so it is still there', `status ${delSurvived.status}`);
+
+    // What an advisor does instead, which keeps everything.
+    const delCancel = await call(advisor, 'POST', `/api/bookings/${doomedId}/quick`,
+      { status: 'cancelled' });
+    check(delCancel.status === 200, 'cancelling it is theirs to do',
+      `status ${delCancel.status} ${delCancel.raw}`);
+    const delAfter = await call(advisor, 'GET', `/api/bookings/${doomedId}`);
+    check(delAfter.data?.booking?.status === 'cancelled', 'and the trip reads as cancelled',
+      delAfter.data?.booking?.status);
+    check(delAfter.data?.booking?.gross_cents === 200000,
+      'with the money still on the record', delAfter.data?.booking?.gross_cents);
+
+    // And the administrator can, for the one typed in twice.
+    const delGone = await call(admin, 'DELETE', `/api/bookings/${doomedId}`);
+    check(delGone.status === 200, 'an administrator can delete one',
+      `status ${delGone.status} ${delGone.raw}`);
+    const delMissing = await call(advisor, 'GET', `/api/bookings/${doomedId}`);
+    check(delMissing.status === 404, 'and then it is gone', `status ${delMissing.status}`);
+  }
+
   // ------------------------------------------------------ the lead report --
   step('What the forms brought in');
 
