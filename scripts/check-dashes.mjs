@@ -49,6 +49,10 @@ const DASHES = [
 function walk(dir) {
   const out = [];
   for (const name of readdirSync(dir).sort()) {
+    // Third party source, kept as its author published it. Our rules are
+    // about our own code, and editing a vendored file to satisfy one of
+    // them breaks the only thing that makes vendoring safe.
+    if (name === 'vendor' || name === 'node_modules') continue;
     const full = join(dir, name);
     if (statSync(full).isDirectory()) { out.push(...walk(full)); continue; }
     if (/\.(js|mjs|html|css|md|sql)$/.test(name)) out.push(full);

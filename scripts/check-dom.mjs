@@ -34,6 +34,10 @@ const ALLOWED = new Map([]);
 
 function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {
+    // Third party source, kept as its author published it. Our rules are
+    // about our own code, and editing a vendored file to satisfy one of
+    // them breaks the only thing that makes vendoring safe.
+    if (name === 'vendor' || name === 'node_modules') continue;
     const p = join(dir, name);
     if (statSync(p).isDirectory()) walk(p, out);
     else if (name.endsWith('.html') || name.endsWith('.js')) out.push(p);

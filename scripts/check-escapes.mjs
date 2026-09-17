@@ -26,7 +26,11 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+    // Third party source, kept as its author published it. Our rules are about
+    // our own code, and editing a vendored file to satisfy one of them breaks
+    // the only thing that makes vendoring safe: that it is unchanged.
+    if (entry.name === 'node_modules' || entry.name === 'vendor') continue;
+    if (entry.name.startsWith('.')) continue;
     const full = join(dir, entry.name);
     if (entry.isDirectory()) walk(full, out);
     else if (/\.(js|mjs|html)$/.test(entry.name)) out.push(full);
