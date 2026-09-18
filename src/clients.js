@@ -106,6 +106,42 @@ export async function handleListClients(request, env) {
   });
 }
 
+/**
+ * A submission's answers, in the order they were asked and under the labels
+ * the person read.
+ *
+ * A form stores its answers keyed by field key, and a key is what the database
+ * calls a question rather than what anybody was shown: nobody filled in
+ * "lead_asked_about". Where the form has since been edited, an answer whose
+ * question is gone is still shown, under its key, because the answer is a
+ * thing somebody wrote and losing it to a later edit would be worse than
+ * showing it plainly.
+ */
+function labelled(fieldsJson, answers) {
+  let fields = [];
+  try { fields = JSON.parse(fieldsJson || '[]') || []; } catch { fields = []; }
+
+  const out = [];
+  const used = new Set();
+  for (const f of fields) {
+    if (!f || !f.key) continue;
+    // Marked used before the heading is skipped, not after. A heading is not a
+    // question and has no answer, and skipping it first let its key fall
+    // through to the orphan pass and appear as one.
+    used.add(f.key);
+    if (f.type === 'heading') continue;
+    const value = answers[f.key];
+    if (value === undefined || value === null || value === '') continue;
+    out.push({ label: f.label || f.key, value: String(value) });
+  }
+  // Anything the form no longer asks. Still theirs, still worth reading.
+  for (const [key, value] of Object.entries(answers)) {
+    if (used.has(key) || value === undefined || value === null || value === '') continue;
+    out.push({ label: key.replace(/_/g, ' '), value: String(value), orphan: true });
+  }
+  return out;
+}
+
 export async function handleClientRecord(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
@@ -184,6 +220,17 @@ export async function handleClientRecord(request, env) {
   const upcoming = counted.filter((b) => (b.return_date || b.depart_date) >= today);
   const liveCredits = (credits.results || []).filter((c) => !c.used_on);
 
+  // Their form answers. Left joined to the form so the questions can be shown
+  // with the words the person read rather than the keys they are stored under.
+  const submissions = await env.DB.prepare(
+    `SELECT s.id, s.data_json, s.created_at, f.name AS form_name, f.fields_json
+       FROM form_submissions s
+       LEFT JOIN forms f ON f.id = s.form_id
+      WHERE s.contact_id = ?
+      ORDER BY s.created_at DESC
+      LIMIT 20`
+  ).bind(client.id).all().catch(() => ({ results: [] }));
+
   return json({
     // The channels, from the one place they are written down, so the record's
     // dropdown and the report cannot disagree about what a channel is.
@@ -210,6 +257,21 @@ export async function handleClientRecord(request, env) {
     bookings: rows,
     credits: credits.results || [],
     tasks: tasks.results || [],
+    // What they filled in, newest first. Attached by contact_id, which is set
+    // when a submission is matched to somebody, so this is only ever their own.
+    submissions: (submissions.results || []).map((s) => {
+      let answers = {};
+      try { answers = JSON.parse(s.data_json) || {}; } catch { answers = {}; }
+      return {
+        id: s.id,
+        formName: s.form_name || 'A form',
+        createdAt: s.created_at,
+        // The questions in the order they were asked, with the labels the
+        // person actually read. A key like lead_asked_about is what the
+        // database calls it and not what anybody was shown.
+        answers: labelled(s.fields_json, answers),
+      };
+    }),
     editable: db.mayWrite(user, client),
     // The marketing they have been sent, newest first. Empty rather than
     // absent when there is none, so the page has one shape to render.

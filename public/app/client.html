@@ -26,6 +26,11 @@
         <div class="card-head"><h2>Contact</h2><span id="contact-actions"></span></div>
         <div class="card-pad" id="contact"></div>
       </section>
+      <section class="card" id="answers-card" style="margin-top:1.5rem;" hidden>
+        <div class="card-head"><h2>What they told you</h2>
+          <span class="muted" id="answers-when"></span></div>
+        <div class="card-pad" id="answers"></div>
+      </section>
       <section class="card" id="house-card" style="margin-top:1.5rem;" hidden>
         <div class="card-head"><h2>Household</h2><span id="house-actions"></span></div>
         <div class="card-pad" id="house"></div>
@@ -277,8 +282,43 @@ onSubmit(houseForm, async (values) => {
 // and can refuse to offer them as their own housemate.
 let current = { id: '', name: '' };
 
+/**
+ * What they filled in, in the words they were asked.
+ *
+ * Under Contact, because "came from a form" and "here is what they said" are
+ * the same thought and were two screens apart: the answers existed, reachable
+ * only by opening Forms, finding the right one and reading down its
+ * submissions for a name.
+ *
+ * More than one, because somebody can fill in a planning form in March and a
+ * referral form in June, and both are theirs.
+ */
+function drawAnswers(list) {
+  const card = document.getElementById('answers-card');
+  const when = document.getElementById('answers-when');
+  const body = document.getElementById('answers');
+
+  card.hidden = !list.length;
+  if (!list.length) return;
+
+  when.textContent = list.length === 1
+    ? timeAgo(list[0].createdAt)
+    : `${list.length} forms, latest ${timeAgo(list[0].createdAt)}`;
+
+  body.innerHTML = list.map((s, i) => `
+    ${list.length > 1 || i ? `<p class="answers-form">${esc(s.formName)}
+      <span class="muted">${esc(timeAgo(s.createdAt))}</span></p>` : ''}
+    ${s.answers.length
+      ? `<dl class="kv answers">${s.answers.map((a) => `
+          <dt>${esc(a.label)}</dt>
+          <dd>${esc(a.value)}</dd>`).join('')}</dl>`
+      : '<p class="muted">They sent it back without answering anything.</p>'}
+  `).join('');
+}
+
 function render(d) {
   const c = d.client;
+  drawAnswers(d.submissions || []);
   current = { id: c.id, name: c.name };
   document.getElementById('name').textContent = c.name;
   document.getElementById('sub').textContent = c.nextDeparture

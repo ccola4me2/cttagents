@@ -1562,6 +1562,36 @@ async function main() {
     check(delMissing.status === 404, 'and then it is gone', `status ${delMissing.status}`);
   }
 
+  // -------------------------------- the answers, on the client's record --
+  //
+  // The client page said where somebody came from and gave no way to read a
+  // word of what they wrote. The answers were reachable only by opening Forms,
+  // finding the right one and reading down its submissions for a name, which
+  // is the wrong way round: somebody opens a client because they are about to
+  // ring them.
+  step('What a client filled in is on their record');
+
+  if (inviteeId) {
+    const onFile = await call(advisor, 'GET',
+      `/api/client?id=${encodeURIComponent(inviteeId)}`);
+    check(onFile.status === 200, 'the client record reads', `status ${onFile.status}`);
+    const theirForm = (onFile.data?.submissions || [])[0];
+    check(theirForm, 'and carries what they filled in',
+      `${(onFile.data?.submissions || []).length} submission(s)`);
+    check(theirForm && theirForm.formName, 'saying which form it was',
+      theirForm && theirForm.formName);
+
+    // Under the words the person read, not the keys the database stores. Any
+    // question they skipped is left out rather than shown as blank.
+    const theirLabels = (theirForm?.answers || []).map((a) => a.label);
+    check(theirLabels.includes('Full name') || theirLabels.includes('Email'),
+      'with the questions as they were asked', theirLabels.join(', '));
+    check((theirForm?.answers || []).every((a) => a.value),
+      'and nothing they skipped');
+    check(!theirLabels.some((l) => l.includes('_')),
+      'never a key like lead_asked_about', theirLabels.join(', '));
+  }
+
   // ------------------------------------------------------ the lead report --
   step('What the forms brought in');
 

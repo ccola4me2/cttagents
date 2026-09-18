@@ -1353,3 +1353,11 @@ th.num .th-sort { justify-content: flex-end; }
    work at, and some will not bother. */
 .qr-stage svg { background: #fff; max-width: 100%; height: auto;
   box-shadow: var(--shadow-sm); }
+
+/* What a client wrote on a form. Long answers wrap rather than stretch the
+   column, because somebody asked to describe their perfect trip will. */
+.answers dd { white-space: pre-wrap; overflow-wrap: anywhere; }
+.answers-form { margin: 1.1rem 0 .4rem; font-weight: 600; font-size: .9rem;
+  color: var(--navy-800); }
+.answers-form:first-child { margin-top: 0; }
+.answers-form .muted { font-weight: 400; margin-left: .4rem; font-size: .8rem; }
