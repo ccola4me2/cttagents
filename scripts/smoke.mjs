@@ -1111,8 +1111,11 @@ async function main() {
 
   // Ringing somebody is not the same as giving up on them, so the tick in the
   // drawer clears the date and leaves everything else alone.
+  // 'talking' is the id; "In conversation" is what it is called on the screen.
+  // The fixture above asks for 'in_conversation', which is neither, so it
+  // quietly lands on 'new' and nothing noticed until something asserted it.
   const rung = await call(advisor, 'POST', '/api/leads', {
-    name: `Rung Lead ${stamp}`, stage: 'in_conversation',
+    name: `Rung Lead ${stamp}`, stage: 'talking',
     nextStep: 'Ring about the Alaska cabins', nextStepOn: isoDay(-2),
   });
   const rungBefore = await call(advisor, 'GET',
@@ -1141,7 +1144,7 @@ async function main() {
     const stillThere = onBoard.find((l) => l.id === rungRow.client_id);
     check(Boolean(stillThere), 'while staying on the lead board',
       `${onBoard.length} on the board`);
-    check(stillThere && stillThere.stage === 'in_conversation',
+    check(stillThere && stillThere.stage === 'talking',
       'at the stage they were already at', stillThere && stillThere.stage);
     check(stillThere && !stillThere.nextStepOn,
       'with no date against them any more', stillThere && stillThere.nextStepOn);
