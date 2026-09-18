@@ -1109,6 +1109,33 @@ async function main() {
   check(!(todoAgain.data?.leads || []).some((l) => l.client_name === `Unplanned Lead ${stamp}`),
     'is not counted as due, because nothing was planned for it');
 
+  // A task typed in the To do drawer can name who it is about, which is the
+  // only way the portal ever learns that three rows on one screen are the
+  // same person.
+  const aboutHer = await call(advisor, 'POST', '/api/tasks', {
+    title: `Ring about the cabin deposit ${stamp}`, dueDate: isoDay(1), clientId,
+  });
+  check(aboutHer.status === 200 || aboutHer.status === 201,
+    'a task can be added against a client', `status ${aboutHer.status}`);
+  const withWho = await call(advisor, 'GET',
+    `/api/tasks?state=open&advisor=${encodeURIComponent(advisorId)}`);
+  const hers = (withWho.data?.tasks || [])
+    .find((t) => t.title === `Ring about the cabin deposit ${stamp}`);
+  check(hers && hers.client_name === 'Smoke Client',
+    'and comes back naming them, so the drawer can say whose it is',
+    hers && JSON.stringify({ client_id: hers.client_id, client_name: hers.client_name }));
+  if (hers) cleanup('the task about a client',
+    () => call(advisor, 'DELETE', `/api/tasks/${hers.id}`));
+
+  // An id is not a permission. Somebody else's client is not somebody you can
+  // put a task against, and the refusal is what the drawer leans on when it
+  // asks for a name to be picked from the list rather than typed.
+  const notHers = await call(advisor, 'POST', '/api/tasks', {
+    title: `Somebody else's client ${stamp}`, dueDate: isoDay(1), clientId: 'no-such-client',
+  });
+  check(notHers.status === 400, 'a client who is not on your books is refused',
+    `status ${notHers.status}`);
+
   // Ringing somebody is not the same as giving up on them, so the tick in the
   // drawer clears the date and leaves everything else alone.
   // 'talking' is the id; "In conversation" is what it is called on the screen.

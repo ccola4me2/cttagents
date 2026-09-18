@@ -794,6 +794,11 @@ dialog > form > .card-pad:has(.picker-results) { overflow: visible; }
 }
 .drawer-add .add-line { display: grid; grid-template-columns: 1fr auto; gap: .45rem; }
 .drawer-add .add-when { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+/* The suggestion list hangs off this, so it has to be what the list is
+   measured against rather than the whole form. */
+.drawer-add .add-who { position: relative; }
+.drawer-add .add-who input { font-size: .82rem; }
+.drawer-add .add-note { margin: 0; font-size: .76rem; color: var(--coral-600); }
 .drawer-add input[type="date"] {
   width: auto; flex: none; font-size: .74rem; padding: .25rem .4rem;
   border-color: var(--navy-100); color: var(--ink-500);

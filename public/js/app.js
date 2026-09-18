@@ -972,7 +972,10 @@ function mountTodo(sidebar, user) {
     });
   }
 
-  function build() {
+  /** Who the task being typed is about, once somebody has picked them. */
+  let picked = null;
+
+  async function build() {
     drawer = document.createElement('div');
     drawer.className = 'drawer';
     drawer.setAttribute('role', 'dialog');
@@ -992,6 +995,14 @@ function mountTodo(sidebar, user) {
               placeholder="What needs doing?">
             <button class="btn btn-primary btn-sm" type="submit">Add</button>
           </div>
+          <!-- Optional, and second, because most of what goes in here is a
+               note to yourself. When it is about somebody, saying so is what
+               lets the rest of the portal know these are the same person. -->
+          <div class="add-who">
+            <input name="client" maxlength="120" autocomplete="off"
+              aria-label="Who is it about" placeholder="Who is it about? (optional)">
+          </div>
+          <p class="add-note" hidden></p>
           <div class="add-when">
             <button type="button" class="day" data-day="0">Today</button>
             <button type="button" class="day" data-day="1">Tomorrow</button>
@@ -1033,19 +1044,67 @@ function mountTodo(sidebar, user) {
       });
     });
 
+    // Who it is about, which the box that makes most of the tasks never used
+    // to ask. Loaded here rather than imported at the top because the suggest
+    // module imports this one, and a cycle that happens to work is still a
+    // cycle: this file is on every page in the portal and is the wrong place
+    // to find out.
+    const whoBox = drawer.querySelector('input[name="client"]');
+    const note = drawer.querySelector('.add-note');
+    const say = (text) => {
+      note.textContent = text || '';
+      note.hidden = !text;
+    };
+    try {
+      const { mountClientSuggest } = await import('/js/client-suggest.js');
+      mountClientSuggest(whoBox, {
+        // Their own book. An advisor cannot put a task on somebody else's
+        // client, so offering one is offering a save that will be refused.
+        mineOnly: user.id,
+        emptyText: 'Nobody on your books by that name.',
+        onChoose: (c) => { picked = c; say(''); },
+      });
+    } catch { /* no suggestions; the box still works, it just cannot pick */ }
+
+    // Typing on past a name already picked un-picks it. Without this, choosing
+    // Sunday Barnaby and then editing the text to somebody else would file the
+    // task under Sunday.
+    whoBox.addEventListener('input', () => {
+      if (picked && whoBox.value.trim() !== picked.name) picked = null;
+      if (!whoBox.value.trim()) say('');
+    });
+
     drawer.querySelector('#drawer-add').addEventListener('submit', async (e) => {
       e.preventDefault();
       const form = e.currentTarget;
       const title = form.elements.title.value.trim();
       if (!title) return;
+
+      // A name typed and not picked is not a name the portal knows. Saving
+      // without it would quietly throw away what somebody meant, and guessing
+      // at who they meant is how a task about a deposit lands on the wrong
+      // client. So it stops, and says which of the two to do.
+      const typed = whoBox.value.trim();
+      if (typed && !picked) {
+        say('Pick them from the list, or clear the box to add it without anybody.');
+        whoBox.focus();
+        return;
+      }
+
       const button = form.querySelector('button');
       button.disabled = true;
       try {
         await api('/api/tasks', {
           method: 'POST',
-          body: { title, dueDate: form.elements.dueDate.value || undefined },
+          body: {
+            title,
+            dueDate: form.elements.dueDate.value || undefined,
+            clientId: picked ? picked.id : undefined,
+          },
         });
         form.reset();
+        picked = null;
+        say('');
         drawer.querySelectorAll('[data-day]').forEach((b) => b.classList.remove('on'));
         await refresh();
         draw();
@@ -1064,7 +1123,7 @@ function mountTodo(sidebar, user) {
   }
 
   async function open() {
-    if (!drawer) build();
+    if (!drawer) await build();
     await refresh();
     draw();
     drawer.classList.add('open');
