@@ -651,5 +651,42 @@ export async function handleChatUnread(request, env) {
         AND mem.muted = 0 AND c.archived_at IS NULL`
   ).bind(user.id, user.id).first().catch(() => null);
 
-  return json({ unread: (row && row.n) || 0 });
+  const unread = (row && row.n) || 0;
+
+  // Switched off means the portal does not interrupt. The count stays, because
+  // a number on a screen you are already looking at is not an interruption and
+  // does not stop being true because you looked.
+  if (!unread || user.chat_toasts === 0) return json({ unread, latest: null, now: now() });
+
+  const last = await env.DB.prepare(
+    `SELECT m.id, m.body, m.created_at, m.channel_id,
+            c.kind, c.name AS room_name,
+            u.first_name, u.last_name, u.email
+       FROM messages m
+       JOIN channel_members mem ON mem.channel_id = m.channel_id AND mem.user_id = ?
+       JOIN channels c ON c.id = m.channel_id
+       LEFT JOIN users u ON u.id = m.user_id
+      WHERE m.user_id != ? AND m.deleted_at IS NULL
+        AND m.created_at > mem.last_read_at
+        AND mem.muted = 0 AND c.archived_at IS NULL
+      ORDER BY m.created_at DESC LIMIT 1`
+  ).bind(user.id, user.id).first().catch(() => null);
+
+  return json({
+    unread,
+    latest: last ? {
+      id: last.id,
+      channelId: last.channel_id,
+      author: [last.first_name, last.last_name].filter(Boolean).join(' ')
+        || last.email || 'Someone',
+      // A direct message is named by the person, who is already on the card,
+      // so naming the room as well would say their name twice.
+      room: last.kind === 'dm' ? '' : (last.room_name || ''),
+      words: String(last.body || '').replace(/\s+/g, ' ').slice(0, 140),
+      at: last.created_at,
+    } : null,
+    // The server's clock, so the page can tell a message that has just arrived
+    // from one that was already waiting when it loaded.
+    now: now(),
+  });
 }

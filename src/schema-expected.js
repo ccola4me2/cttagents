@@ -62,7 +62,7 @@ export const EXPECTED_SCHEMA = {
   travellers: ['booking_id', 'created_at', 'dob', 'email', 'id', 'is_lead', 'name', 'notes', 'passport_country', 'passport_expiry', 'passport_number', 'phone', 'updated_at', 'user_id'],
   trip_messages: ['body', 'booking_id', 'created_at', 'id', 'ip_hash', 'read_at', 'user_id'],
   user_prefs: ['dashboard_json', 'updated_at', 'user_id'],
-  users: ['agency_address', 'agency_id', 'agency_name', 'alerts_feed', 'alerts_seen_at', 'approved_at', 'approved_by', 'auto_remind_clients', 'call_list_sent_at', 'created_at', 'default_split_pct', 'email', 'first_name', 'ghl_location_id', 'ghl_user_id', 'id', 'invite_token', 'last_login_at', 'last_name', 'lead_split_pct', 'notify_email', 'password_hash', 'phone', 'platform_owner', 'push_alerts', 'role', 'seller_of_travel', 'status', 'task_digest', 'timezone', 'updated_at', 'weekly_call_list'],
+  users: ['agency_address', 'agency_id', 'agency_name', 'alerts_feed', 'alerts_seen_at', 'approved_at', 'approved_by', 'auto_remind_clients', 'call_list_sent_at', 'chat_toasts', 'created_at', 'default_split_pct', 'email', 'first_name', 'ghl_location_id', 'ghl_user_id', 'id', 'invite_token', 'last_login_at', 'last_name', 'lead_split_pct', 'notify_email', 'password_hash', 'phone', 'platform_owner', 'push_alerts', 'role', 'seller_of_travel', 'status', 'task_digest', 'timezone', 'updated_at', 'weekly_call_list'],
   vendors: ['account_number', 'bdm_email', 'bdm_info', 'bdm_name', 'bdm_phone', 'booking_instructions', 'budget_category', 'categories_json', 'category', 'commission_pct', 'commission_structure', 'created_at', 'deposit_days', 'email', 'favourite', 'final_days', 'id', 'name', 'notes', 'partner_status', 'phone', 'phones_json', 'portal_url', 'registration_instructions', 'signup_url', 'travel_types', 'updated_at', 'user_id', 'vendor_login', 'website'],
 };
 
@@ -803,6 +803,7 @@ export const COLUMN_ORIGIN = {
   'users.approved_by': '0001_init.sql',
   'users.auto_remind_clients': '0044_auto_payment_reminders.sql',
   'users.call_list_sent_at': '0048_weekly_call_list.sql',
+  'users.chat_toasts': '0083_chat_toasts.sql',
   'users.created_at': '0001_init.sql',
   'users.default_split_pct': '0021_commission_split.sql',
   'users.email': '0001_init.sql',

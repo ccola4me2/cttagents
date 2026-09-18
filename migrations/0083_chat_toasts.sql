@@ -1,0 +1,17 @@
+-- A message arriving, said out loud on whatever screen the advisor is on.
+--
+-- The other switches in this family decide whether something reaches you
+-- later: the morning email, the bell, a push to a sleeping phone. This one
+-- decides whether the portal interrupts what you are doing right now, which is
+-- a different question and deserves its own answer.
+--
+-- On by default, because the whole point of a message is that somebody is
+-- waiting on it, and because an advisor who does not want it can see the
+-- switch the first time it happens. Push is the exception in this family and
+-- stays off until a browser has agreed, since there is nothing to push to
+-- before that.
+--
+-- Switching it off does not switch off the count on the Chat link. That is a
+-- number on a screen you are already looking at, and it does not stop being
+-- true because you looked.
+ALTER TABLE users ADD COLUMN chat_toasts INTEGER NOT NULL DEFAULT 1;

@@ -15,6 +15,10 @@ const USER_COLUMNS = `
   agency_address, seller_of_travel,
   notify_email, auto_remind_clients, weekly_call_list, call_list_sent_at,
   task_digest, alerts_feed, push_alerts, alerts_seen_at,
+  -- Whether a message arriving interrupts the screen the advisor is on.
+  -- Absent from here, every read of it would be undefined and the card would
+  -- be permanently off for everybody with no way to tell.
+  chat_toasts,
   -- The zone an advisor's day is in, and the address invites are
   -- forwarded to. Absent from here, zoneOf would have read undefined and
   -- quietly used the portal default for everybody, for ever.
@@ -94,8 +98,18 @@ export async function setUserEmail(env, id, email) {
 export async function updateUserProfile(env, id, fields) {
   await env.DB.prepare(
     `UPDATE users
-        SET first_name = ?, last_name = ?, phone = ?, agency_name = ?,
-            agency_address = ?, seller_of_travel = ?, notify_email = ?,
+        SET -- Every one of these is left alone when the caller did not mention
+            -- it. They used to be plain assignments, so a save of one switch
+            -- wrote null over an advisor's name, phone, agency address, seller
+            -- of travel registration and notification email. Empty is still
+            -- empty: a field sent as '' clears, a field not sent does nothing.
+            first_name = COALESCE(?, first_name),
+            last_name = COALESCE(?, last_name),
+            phone = COALESCE(?, phone),
+            agency_name = COALESCE(?, agency_name),
+            agency_address = COALESCE(?, agency_address),
+            seller_of_travel = COALESCE(?, seller_of_travel),
+            notify_email = COALESCE(?, notify_email),
             -- Left alone when the caller did not mention it, the same as the
             -- three below. This one was not, and a save that never mentioned
             -- it turned off the reminders that chase clients for money.
@@ -109,21 +123,24 @@ export async function updateUserProfile(env, id, fields) {
             task_digest = COALESCE(?, task_digest),
             alerts_feed = COALESCE(?, alerts_feed),
             push_alerts = COALESCE(?, push_alerts),
+            -- And this one, for the same reason as the four above it.
+            chat_toasts = COALESCE(?, chat_toasts),
             updated_at = ?
       WHERE id = ?`
   ).bind(
-    fields.firstName || null,
-    fields.lastName || null,
-    fields.phone || null,
-    fields.agencyName || null,
-    fields.agencyAddress || null,
-    fields.sellerOfTravel || null,
-    fields.notifyEmail || null,
+    fields.firstName === undefined ? null : (fields.firstName || ''),
+    fields.lastName === undefined ? null : (fields.lastName || ''),
+    fields.phone === undefined ? null : (fields.phone || ''),
+    fields.agencyName === undefined ? null : (fields.agencyName || ''),
+    fields.agencyAddress === undefined ? null : (fields.agencyAddress || ''),
+    fields.sellerOfTravel === undefined ? null : (fields.sellerOfTravel || ''),
+    fields.notifyEmail === undefined ? null : (fields.notifyEmail || ''),
     fields.autoRemindClients === undefined ? null : (fields.autoRemindClients ? 1 : 0),
     fields.weeklyCallList === undefined ? null : (fields.weeklyCallList ? 1 : 0),
     fields.taskDigest === undefined ? null : (fields.taskDigest ? 1 : 0),
     fields.alertsFeed === undefined ? null : (fields.alertsFeed ? 1 : 0),
     fields.pushAlerts === undefined ? null : (fields.pushAlerts ? 1 : 0),
+    fields.chatToasts === undefined ? null : (fields.chatToasts ? 1 : 0),
     now(),
     id
   ).run();

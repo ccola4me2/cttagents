@@ -63,6 +63,10 @@ function publicUser(u) {
     // Off until a browser has been asked. There is nothing to push to before
     // that, so on would be a promise the portal cannot keep.
     pushAlerts: Boolean(u.push_alerts),
+    // On unless switched off, like the bell and the digest. A message is
+    // somebody waiting, and a row written before this switch existed has to
+    // read as on rather than as off.
+    chatToasts: u.chat_toasts === undefined ? true : Boolean(u.chat_toasts),
     // Which agency they are in, and whether they run the portal itself.
     agencyId: u.agency_id || null,
     platformOwner: Boolean(u.platform_owner),
@@ -229,17 +233,22 @@ export async function handleUpdateProfile(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
   const body = await readJson(request);
+  // Undefined when the request never mentioned it, so the save leaves it
+  // alone. The same rule the switches below already had, and for the same
+  // reason: this page sends the whole profile with every tick, and the server
+  // must not depend on the next caller doing that too.
+  const said = (key, max) => (body[key] === undefined ? undefined : clean(body[key], max));
   const updated = await db.updateUserProfile(env, user.id, {
-    firstName: clean(body.firstName, 80),
-    lastName: clean(body.lastName, 80),
-    phone: clean(body.phone, 40),
-    agencyName: clean(body.agencyName, 120),
+    firstName: said('firstName', 80),
+    lastName: said('lastName', 80),
+    phone: said('phone', 40),
+    agencyName: said('agencyName', 120),
     // Both go on a client invoice. Several states require the registration
     // number on one, which is a reason to have somewhere to put it and not a
     // reason to invent one when it is blank.
-    agencyAddress: clean(body.agencyAddress, 200),
-    sellerOfTravel: clean(body.sellerOfTravel, 80),
-    notifyEmail: clean(body.notifyEmail, 254),
+    agencyAddress: said('agencyAddress', 200),
+    sellerOfTravel: said('sellerOfTravel', 80),
+    notifyEmail: said('notifyEmail', 254),
     // Undefined rather than false when it is absent, for exactly the reason
     // written below about the call list. The Settings page sends the name
     // fields plus the one switch that was clicked, so reading a missing
@@ -256,6 +265,8 @@ export async function handleUpdateProfile(request, env) {
       : (body.alertsFeed === true || body.alertsFeed === 'on'),
     pushAlerts: body.pushAlerts === undefined ? undefined
       : (body.pushAlerts === true || body.pushAlerts === 'on'),
+    chatToasts: body.chatToasts === undefined ? undefined
+      : (body.chatToasts === true || body.chatToasts === 'on'),
   });
   return json({ ok: true, user: publicUser(updated) });
 }

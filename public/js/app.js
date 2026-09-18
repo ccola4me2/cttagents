@@ -387,23 +387,75 @@ function mountSearch(sidebar) {
  * the page actually showing the conversation polls properly. A badge is for
  * noticing, and a minute late is still noticing.
  */
+/**
+ * A message arriving, on whatever screen the advisor is on.
+ *
+ * Only for messages that arrive while this page is open. A backlog waiting
+ * since Tuesday is what the count beside the Chat link is for; popping a card
+ * for it on every page load would teach everybody to dismiss the card without
+ * reading it, which is how a notification stops working.
+ *
+ * Twenty seconds rather than five: the chat page itself polls properly, and
+ * this runs on every other page in the portal at once.
+ */
 function mountChatCount(sidebar) {
   const badge = sidebar.querySelector('#chat-count');
   if (!badge) return;
+
+  const SEEN = 'chat-toast-seen';
+  // Where the page started. Anything older than this was already waiting.
+  let since = 0;
+  let shown = '';
+  try { shown = localStorage.getItem(SEEN) || ''; } catch { shown = ''; }
+
+  // Not while you are looking at the conversation. The chat page draws the
+  // message itself, and a card announcing what is already on the screen is
+  // noise with a dismiss button.
+  const onChat = location.pathname.startsWith('/app/chat');
+
+  function announce(m) {
+    document.querySelectorAll('.chat-toast').forEach((old) => old.remove());
+    const card = document.createElement('div');
+    card.className = 'chat-toast';
+    card.setAttribute('role', 'status');
+    card.innerHTML = `
+      <button type="button" class="chat-toast-x" aria-label="Dismiss">&times;</button>
+      <p class="chat-toast-who">${esc(m.author)}${m.room ? ` in ${esc(m.room)}` : ''}</p>
+      <p class="chat-toast-words">${esc(m.words)}</p>`;
+
+    const go = () => { location.href = `/app/chat?c=${encodeURIComponent(m.channelId)}`; };
+    card.addEventListener('click', go);
+    card.querySelector('.chat-toast-x').addEventListener('click', (e) => {
+      // Dismissing is not opening, so the click must not reach the card.
+      e.stopPropagation();
+      card.remove();
+    });
+    document.body.appendChild(card);
+    setTimeout(() => card.remove(), 12000);
+  }
 
   async function tick() {
     // A hidden tab is a tab nobody is looking at. Every advisor leaves this
     // open all day and the request would otherwise run all night as well.
     if (document.hidden) return;
     try {
-      const { unread = 0 } = await api('/api/chat/unread');
+      const { unread = 0, latest = null, now = 0 } = await api('/api/chat/unread');
       badge.textContent = unread > 99 ? '99+' : String(unread);
       badge.hidden = !unread;
+
+      // The first answer sets the line, and announces nothing: everything
+      // unread at that moment is a backlog, however new it looks.
+      if (!since) { since = now || Math.floor(Date.now() / 1000); return; }
+      if (onChat || !latest || latest.id === shown || latest.at <= since) return;
+
+      shown = latest.id;
+      try { localStorage.setItem(SEEN, shown); } catch { /* a private window */ }
+      announce(latest);
     } catch { badge.hidden = true; }
   }
 
   tick();
-  setInterval(tick, 60000);
+  setInterval(tick, 20000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
 }
 

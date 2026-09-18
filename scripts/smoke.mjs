@@ -1481,6 +1481,46 @@ async function main() {
   check(chatNothing.status === 400, 'a message of nothing is not a message',
     `status ${chatNothing.status}`);
 
+  step('Chat: a message arriving on screen, and the switch for it');
+
+  // What was found by the check above coming back with an email address where
+  // a name should have been: a save of one switch used to write null over the
+  // seven text fields it did not mention.
+  await call(advisor, 'PUT', '/api/auth/profile', { alertsFeed: true });
+  const chatKept = await call(advisor, 'GET', '/api/auth/me');
+  check(Boolean(chatKept.data?.user?.firstName),
+    'saving one switch leaves the advisor\'s name where it was',
+    `firstName ${JSON.stringify(chatKept.data?.user?.firstName)}`);
+
+  const chatPing = await call(admin, 'POST', '/api/chat/messages',
+    { channelId: chatRoomId, body: `Ping for the card ${stamp}` });
+  check(chatPing.status === 201, 'the owner says something', `status ${chatPing.status}`);
+
+  const chatWaiting = await call(advisor, 'GET', '/api/chat/unread');
+  check(chatWaiting.data?.unread >= 1, 'the advisor has something waiting',
+    `unread ${chatWaiting.data?.unread}`);
+  check(chatWaiting.data?.latest?.id === chatPing.data?.message?.id,
+    'and the newest of it comes back for the card on screen',
+    JSON.stringify(chatWaiting.data?.latest));
+  check(String(chatWaiting.data?.latest?.words || '').includes('Ping for the card'),
+    'carrying the first line of what was said', chatWaiting.data?.latest?.words);
+  check(Boolean(chatWaiting.data?.now),
+    'with the server clock, so the page can tell what has just arrived from what was waiting');
+
+  await call(advisor, 'PUT', '/api/auth/profile', { chatToasts: false });
+  const chatQuiet = await call(advisor, 'GET', '/api/chat/unread');
+  check(chatQuiet.data?.latest === null,
+    'switched off, there is nothing to interrupt with',
+    JSON.stringify(chatQuiet.data?.latest));
+  check(chatQuiet.data?.unread >= 1,
+    'and the count stays, because a number you are looking at is not an interruption',
+    `unread ${chatQuiet.data?.unread}`);
+
+  await call(advisor, 'PUT', '/api/auth/profile', { chatToasts: true });
+  const chatLoud = await call(advisor, 'GET', '/api/auth/me');
+  check(chatLoud.data?.user?.chatToasts === true, 'and it goes back on',
+    `chatToasts ${chatLoud.data?.user?.chatToasts}`);
+
   step('Push says whether it is switched on at all');
 
   const pushKey = await call(advisor, 'GET', '/api/push/key');

@@ -138,6 +138,25 @@
           </label>
         </div>
       </section>
+      <section class="card" id="toast-card">
+        <div class="card-head"><h2>Chat</h2>
+          <span id="toast-state" class="muted"></span></div>
+        <div class="card-pad">
+          <div class="notice notice-error" id="toast-err" hidden></div>
+          <label style="display:flex;align-items:flex-start;gap:.6rem;font-weight:400;margin:0;">
+            <input type="checkbox" id="chatToasts" style="width:auto;flex:none;margin-top:.25rem;">
+            <span>
+              <strong style="color:var(--navy-800);">Show a message on screen when one arrives</strong>
+              <span class="field-hint" style="display:block;margin-top:.35rem;">
+                A small card in the corner of whichever screen you are on, naming who wrote and
+                the first line of what they said. Click it to open the conversation. Only for
+                messages that arrive while you are working: anything already waiting is the
+                count beside Chat in the sidebar, and switching this off does not switch that
+                off.</span>
+            </span>
+          </label>
+        </div>
+      </section>
       <section class="card" id="fwd-card">
         <div class="card-head"><h2>Meeting invites by email</h2>
           <span id="fwd-state" class="muted"></span></div>
@@ -369,6 +388,11 @@ liveSwitch({
 liveSwitch({
   box: 'alertsFeed', state: 'alerts-state', err: 'alerts-err',
   field: 'alertsFeed', read: (u) => u.alertsFeed,
+});
+
+liveSwitch({
+  box: 'chatToasts', state: 'toast-state', err: 'toast-err',
+  field: 'chatToasts', read: (u) => u.chatToasts,
 });
 
 // ----------------------------------------------------- push, per device --
