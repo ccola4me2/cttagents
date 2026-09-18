@@ -59,7 +59,7 @@ export async function gather(env, user) {
   const f = db.scopeWhere(self, 'f.created_by');
   const sc = db.scopeWhere(self, 'cl.user_id');
 
-  const [tasks, leads, appts, forms] = await Promise.all([
+  const [tasks, leads, appts, forms, mentions] = await Promise.all([
     env.DB.prepare(
       `SELECT t.id, t.title, t.due_date, t.due_time, t.priority, cl.name AS client_name
          FROM tasks t
@@ -108,6 +108,21 @@ export async function gather(env, user) {
           AND (${sc.sql} OR (s.contact_id IS NULL AND ${f.sql}))
         ORDER BY s.created_at DESC LIMIT 25`
     ).bind(since, ...sc.binds, ...f.binds).all().catch(() => ({ results: [] })),
+
+    // Being named by name. Matched on the ids written into the row when the
+    // message was sent, not on the words: "@Sam" in a message is text, and who
+    // it meant was decided once, by somebody who could see who was in the room.
+    env.DB.prepare(
+      `SELECT m.id, m.body, m.created_at, m.channel_id,
+              ch.kind, ch.name AS room_name,
+              au.first_name, au.last_name
+         FROM messages m
+         JOIN channels ch ON ch.id = m.channel_id
+         LEFT JOIN users au ON au.id = m.user_id
+        WHERE m.created_at >= ? AND m.deleted_at IS NULL AND m.user_id != ?
+          AND m.mentions LIKE ?
+        ORDER BY m.created_at DESC LIMIT 25`
+    ).bind(since, user.id, `%"${user.id}"%`).all().catch(() => ({ results: [] })),
   ]);
 
   const items = [];
@@ -155,6 +170,22 @@ export async function gather(env, user) {
       href: r.contact_id
         ? `/app/client?id=${encodeURIComponent(r.contact_id)}`
         : '/app/formbuilder',
+    });
+  }
+
+  for (const r of mentions.results || []) {
+    const who = [r.first_name, r.last_name].filter(Boolean).join(' ') || 'Somebody';
+    const where = r.kind === 'dm' ? 'a message' : (r.room_name || 'chat');
+    items.push({
+      id: `chat:${r.id}`, kind: 'mention',
+      at: r.created_at,
+      title: `${who} asked for you in ${where}`,
+      // The words, shortened. A mention you cannot read the point of is a
+      // mention you have to open the page to understand, which is the work the
+      // bell exists to save.
+      detail: String(r.body || '').replace(/\s+/g, ' ').slice(0, 120),
+      late: false,
+      href: `/app/chat?c=${encodeURIComponent(r.channel_id)}`,
     });
   }
 

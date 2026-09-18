@@ -64,6 +64,15 @@ const OWNED = new Set([
   // theirs the same way a saved search would be.
   'segments',
   'broadcasts', 'broadcast_recipients',
+  // One advisor's place in one room: where their read mark lives. Every
+  // statement names them, except the two that read a whole room's membership in
+  // order to work out who "@here" meant, which is a question about the room
+  // rather than about anybody in it.
+  'channel_members',
+  // Signed by whoever typed it, always. Three statements reach one by id after
+  // the handler has already decided whose it is; they are in ALLOWED, each with
+  // the decision it is downstream of.
+  'messages',
   'itinerary_items', 'itinerary_library',
 ]);
 
@@ -224,6 +233,18 @@ const ALLOWED = [
     'a form slug is global because the public URL it serves is global'],
   ['UPDATE form_submissions SET contact_id = ? WHERE id = ?',
     'the id is the submission this request just inserted'],
+  ['UPDATE messages SET body = ?, mentions = ?, edited_at = ? WHERE id = ?',
+    'editing one, a few lines after the SELECT that fetched it WITH user_id = ?. '
+    + 'The id reaching this statement is one the caller has already been proved to own'],
+  ['UPDATE messages SET deleted_at = ?, deleted_by = ? WHERE id = ?',
+    'removing one, after the handler has decided it is either the caller\'s own or one '
+    + 'an agency admin may take out of a room in their own agency. Folding both cases '
+    + 'into the predicate would make a single expression out of two different reasons, '
+    + 'and the row records which of them it was in deleted_by'],
+  ['SELECT * FROM messages WHERE id = ?',
+    'read in order to decide who may remove it. Narrowed to the caller it would answer '
+    + '"not found" to the admin the moderation case exists for; the channel it sits in '
+    + 'goes through reachableChannel before any of it is returned'],
   ['SELECT * FROM form_invites WHERE id = ? AND form_id = ?',
     'the public form page, which has no session to scope to. The id is a randomUUID and '
     + 'is the credential, the same way a trip share code and a password reset token are: '

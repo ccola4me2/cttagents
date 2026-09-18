@@ -1280,6 +1280,175 @@ async function main() {
   // No VAPID keys in this environment, and that is the case worth covering:
   // every portal starts without them, and the difference between "not set up"
   // and "broken" has to be visible from the outside.
+  // --------------------------------------------------------------- chat --
+  step('Chat: rooms, being named, and who may say what');
+
+  const chatRoom = await call(advisor, 'POST', '/api/chat/channels',
+    { name: `Suppliers ${stamp}`, topic: 'Rate queries' });
+  const chatRoomId = chatRoom.data?.channel?.id;
+  check(chatRoom.status === 201 && chatRoomId, 'an advisor makes a room',
+    `status ${chatRoom.status} ${JSON.stringify(chatRoom.data)}`);
+
+  const chatTwice = await call(advisor, 'POST', '/api/chat/channels',
+    { name: `Suppliers ${stamp}` });
+  check(chatTwice.status === 400, 'and a second room by the same name is refused',
+    `status ${chatTwice.status}`);
+
+  const chatSaid = await call(advisor, 'POST', '/api/chat/messages',
+    { channelId: chatRoomId, body: 'Carnival rates are out. @Nobody Here is not a person.' });
+  check(chatSaid.status === 201, 'a message is posted', `status ${chatSaid.status}`);
+  check(chatSaid.data?.message?.author === 'Smoke Tester',
+    'signed with the name of whoever typed it', chatSaid.data?.message?.author);
+  check(chatSaid.data?.message?.mine === true, 'and marked as theirs on the way back');
+
+  // The room is the agency's, so the owner reads it without being asked in.
+  const chatOwnerReads = await call(admin, 'GET', `/api/chat/messages?channel=${chatRoomId}`);
+  check(chatOwnerReads.status === 200
+    && (chatOwnerReads.data?.messages || []).some((m) => m.id === chatSaid.data?.message?.id),
+    'the agency owner can read a room they were never added to',
+    `status ${chatOwnerReads.status}`);
+  check((chatOwnerReads.data?.messages || []).every((m) => m.mine === false),
+    'and nothing in it reads as theirs');
+
+  const chatBefore = await call(admin, 'GET', '/api/chat');
+  const chatRoomForOwner = (chatBefore.data?.channels || []).find((c) => c.id === chatRoomId);
+  check(chatRoomForOwner?.unread >= 1, 'an unread count for the person who has not read it',
+    `unread ${chatRoomForOwner?.unread}`);
+
+  await call(admin, 'POST', '/api/chat/read', { channelId: chatRoomId });
+  const chatAfter = await call(admin, 'GET', '/api/chat');
+  check((chatAfter.data?.channels || []).find((c) => c.id === chatRoomId)?.unread === 0,
+    'which goes to nought once they have');
+
+  // A name, not a word. The advisor is Smoke Tester, so "@Smoke" is them.
+  const chatCalled = await call(admin, 'POST', '/api/chat/messages',
+    { channelId: chatRoomId, body: `@Smoke can you look at this one? ${stamp}` });
+  check(chatCalled.status === 201, 'the owner names somebody by their first name',
+    `status ${chatCalled.status}`);
+
+  const chatAdvisorBell = await call(advisor, 'GET', '/api/alerts');
+  const chatAtMe = (chatAdvisorBell.data?.items || []).find((i) => i.kind === 'mention');
+  check(Boolean(chatAtMe), 'and it reaches them in the bell',
+    `${(chatAdvisorBell.data?.items || []).length} item(s), kinds `
+    + [...new Set((chatAdvisorBell.data?.items || []).map((i) => i.kind))].join(', '));
+  check(chatAtMe?.href?.includes(chatRoomId), 'pointing at the room it was said in',
+    chatAtMe?.href);
+
+  // Nobody is named by a word that is not a name, which is the half of this
+  // that goes wrong quietly: a bell full of mentions nobody made.
+  const chatOwnerBell = await call(admin, 'GET', '/api/alerts');
+  check(!(chatOwnerBell.data?.items || []).some((i) => i.kind === 'mention'),
+    'and "@Nobody Here" named nobody, so nobody was told');
+
+  step('Chat: a conversation with one person, and one hanging off a booking');
+
+  const chatDmOnce = await call(advisor, 'POST', '/api/chat/dm', { userId: adminId });
+  const chatDmTwice = await call(advisor, 'POST', '/api/chat/dm', { userId: adminId });
+  check(chatDmOnce.status === 200 && chatDmOnce.data?.channel?.id, 'a direct message opens',
+    `status ${chatDmOnce.status}`);
+  check(chatDmOnce.data?.channel?.id === chatDmTwice.data?.channel?.id,
+    'and opening it a second time is the same conversation, not another one');
+
+  const chatDmNobody = await call(advisor, 'POST', '/api/chat/dm', { userId: 'no-such-user' });
+  check(chatDmNobody.status === 404, 'an id that is nobody here opens nothing',
+    `status ${chatDmNobody.status}`);
+
+  const chatOnTrip = await call(advisor, 'GET', `/api/chat/thread?kind=booking&id=${bookingId}`);
+  const chatOnTripId = chatOnTrip.data?.channel?.id;
+  check(chatOnTrip.status === 200 && chatOnTripId,
+    'a booking has a discussion, made the first time it is opened',
+    `status ${chatOnTrip.status}`);
+  const chatOnTripAgain = await call(advisor, 'GET',
+    `/api/chat/thread?kind=booking&id=${bookingId}`);
+  check(chatOnTripAgain.data?.channel?.id === chatOnTripId,
+    'and opening it again finds the same one');
+  check(chatOnTrip.data?.channel?.subjectId === bookingId,
+    'pointed at the booking it belongs to', chatOnTrip.data?.channel?.subjectId);
+
+  const chatNotMyTrip = await call(advisor, 'GET',
+    '/api/chat/thread?kind=booking&id=no-such-booking');
+  check(chatNotMyTrip.status === 404, 'a booking that is not yours has no discussion for you',
+    `status ${chatNotMyTrip.status}`);
+
+  const chatOnClient = await call(advisor, 'GET', `/api/chat/thread?kind=client&id=${clientId}`);
+  check(chatOnClient.status === 200, 'so does a client', `status ${chatOnClient.status}`);
+  check(chatOnClient.data?.channel?.id !== chatOnTripId,
+    'and it is not the same conversation as their booking');
+
+  step('Chat: whose message it is, and whose seat you are in');
+
+  const chatTypo = await call(advisor, 'POST', '/api/chat/messages',
+    { channelId: chatRoomId, body: 'Frist draft' });
+  const chatTypoId = chatTypo.data?.message?.id;
+  const chatFixed = await call(advisor, 'PUT', `/api/chat/messages/${chatTypoId}`,
+    { body: 'First draft' });
+  check(chatFixed.status === 200 && chatFixed.data?.message?.body === 'First draft',
+    'somebody can fix their own typo', `status ${chatFixed.status}`);
+  check(Boolean(chatFixed.data?.message?.editedAt), 'and the message says it was changed');
+
+  const chatNotYours = await call(admin, 'PUT', `/api/chat/messages/${chatTypoId}`,
+    { body: 'Let me put words in your mouth' });
+  check(chatNotYours.status === 404, 'and nobody else can put words in it',
+    `status ${chatNotYours.status}`);
+
+  // The owner may take something out of a room in their agency. Somebody has
+  // to be able to, and whoever wrote it is not always the one who notices.
+  const chatRemoved = await call(admin, 'DELETE', `/api/chat/messages/${chatTypoId}`);
+  check(chatRemoved.status === 200, 'the agency owner can remove a message from a room',
+    `status ${chatRemoved.status}`);
+  const chatAfterRemoval = await call(advisor, 'GET',
+    `/api/chat/messages?channel=${chatRoomId}`);
+  const chatRemovedRow = (chatAfterRemoval.data?.messages || [])
+    .find((m) => m.id === chatTypoId);
+  check(chatRemovedRow?.deleted === true && chatRemovedRow?.body === '',
+    'which keeps its place and loses its words', JSON.stringify(chatRemovedRow));
+
+  // A private message is not the agency's work, so sitting in somebody's seat
+  // does not open it.
+  const chatSeat = await call(admin, 'POST', `/api/admin/act/${advisorId}`, {});
+  if (check(chatSeat.status === 200, 'the owner works as the advisor',
+    `status ${chatSeat.status}`)) {
+    const chatWhileActing = await call(admin, 'POST', '/api/chat/messages',
+      { channelId: chatRoomId, body: 'Who would this be from?' });
+    check(chatWhileActing.status === 403,
+      'and cannot post while wearing somebody else\'s name',
+      `status ${chatWhileActing.status}`);
+
+    const chatSeatList = await call(admin, 'GET', '/api/chat');
+    check((chatSeatList.data?.conversations || []).length === 0,
+      'their direct messages are not on the screen at all',
+      `${(chatSeatList.data?.conversations || []).length} conversation(s)`);
+    check(chatSeatList.data?.acting === true, 'and the page is told why');
+
+    const chatSeatPeek = await call(admin, 'GET',
+      `/api/chat/messages?channel=${chatDmOnce.data?.channel?.id}`);
+    check(chatSeatPeek.status === 404, 'nor can one be opened by its id',
+      `status ${chatSeatPeek.status}`);
+
+    await call(admin, 'DELETE', '/api/admin/act', {});
+  }
+
+  const chatNotices = await call(admin, 'POST', '/api/chat/channels',
+    { name: `Notices ${stamp}`, adminOnly: true });
+  const chatNoticesId = chatNotices.data?.channel?.id;
+  check(chatNotices.status === 201 && chatNotices.data?.channel?.adminOnly === true,
+    'an announcements room, where everyone reads and the agency writes',
+    `status ${chatNotices.status}`);
+  const chatNoticeTry = await call(advisor, 'POST', '/api/chat/messages',
+    { channelId: chatNoticesId, body: 'May I?' });
+  check(chatNoticeTry.status === 403, 'so an advisor cannot post in it',
+    `status ${chatNoticeTry.status}`);
+  const chatNoticeRead = await call(advisor, 'GET',
+    `/api/chat/messages?channel=${chatNoticesId}`);
+  check(chatNoticeRead.status === 200 && chatNoticeRead.data?.mayPost === false,
+    'but can read it, and is told why the composer is not there',
+    `${chatNoticeRead.status} ${chatNoticeRead.data?.refusal}`);
+
+  const chatNothing = await call(advisor, 'POST', '/api/chat/messages',
+    { channelId: chatRoomId, body: '   ' });
+  check(chatNothing.status === 400, 'a message of nothing is not a message',
+    `status ${chatNothing.status}`);
+
   step('Push says whether it is switched on at all');
 
   const pushKey = await call(advisor, 'GET', '/api/push/key');

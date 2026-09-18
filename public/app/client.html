@@ -56,6 +56,14 @@
             <div class="card-head"><h2>To do</h2></div>
             <div id="tasks"></div>
           </section>
+          <!-- What the agency has said about this person, where the agency can
+               see it. Nobody outside reads any of it, which is the only reason
+               it is worth writing down. -->
+          <section class="card" style="margin-top:1.5rem;" id="chat-card">
+            <div class="card-head"><h2>Discussion</h2>
+              <span class="muted">Only the agency sees this</span></div>
+            <div class="card-pad" id="chat-host"></div>
+          </section>
           <section class="card" style="margin-top:1.5rem;">
             <div class="card-head"><h2>Vendors used</h2></div>
             <div class="card-pad" id="vendors"></div>
@@ -151,6 +159,7 @@
 <script type="module">
 import { api, mountShell, esc, money, dateFmt, daysUntil, showError, onSubmit, timeAgo } from '/js/app.js';
 import { mountClientSuggest } from '/js/client-suggest.js';
+import { mountThread } from '/js/chat-thread.js';
 
 /** A channel's name, from the list the server sent with the record. */
 const sourceKindName = (d, id) =>
@@ -284,6 +293,9 @@ onSubmit(houseForm, async (values) => {
 // and can refuse to offer them as their own housemate.
 let current = { id: '', name: '' };
 
+// The discussion on this record, mounted once and kept.
+let thread = null;
+
 // What is on the card, held so the Print button can write the same thing onto
 // paper without asking the server for it again.
 let sheet = null;
@@ -392,6 +404,11 @@ document.getElementById('print-answers').addEventListener('click', printAnswers)
 function render(d) {
   const c = d.client;
   drawAnswers(d.submissions || [], c);
+  // Once per page, not once per render. render() runs again after every edit,
+  // and a second thread on the same element would leave the first one polling
+  // for ever with nothing on screen to show for it.
+  if (!thread) thread = mountThread(document.getElementById('chat-host'),
+    { subjectKind: 'client', subjectId: c.id });
   current = { id: c.id, name: c.name };
   document.getElementById('name').textContent = c.name;
   document.getElementById('sub').textContent = c.nextDeparture

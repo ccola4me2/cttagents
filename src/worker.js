@@ -152,6 +152,18 @@ import {
   handleImportInvite,
   handleInviteAddress,
 } from './appointments.js';
+import {
+  handleChat,
+  handleChannelMessages,
+  handlePostMessage,
+  handleEditMessage,
+  handleDeleteMessage,
+  handleMarkRead,
+  handleCreateChannel,
+  handleOpenDm,
+  handleRecordThread,
+  handleChatUnread,
+} from './chat.js';
 import { handleCalendar } from './calendar.js';
 import { handleAlerts, handleAlertsSeen, pushWaiting } from './alerts.js';
 import { handleInboundInvite } from './inbound.js';
@@ -775,6 +787,24 @@ async function routeApi(request, env, path, method) {
   // Everything that happens on a day, from five places that each own one kind
   // of it. Read only: acting on any of it happens on the screen that owns it.
   if (path === '/api/calendar' && method === 'GET') return handleCalendar(request, env);
+
+  // Chat: advisors and the agency, inside the portal.
+  if (path === '/api/chat' && method === 'GET') return handleChat(request, env);
+  // Before the messages routes, or "unread" and "read" are read as ids.
+  if (path === '/api/chat/unread' && method === 'GET') return handleChatUnread(request, env);
+  if (path === '/api/chat/thread' && method === 'GET') return handleRecordThread(request, env);
+  if (path === '/api/chat/messages' && method === 'GET') {
+    return handleChannelMessages(request, env);
+  }
+  if (path === '/api/chat/messages' && method === 'POST') {
+    return handlePostMessage(request, env);
+  }
+  if (path === '/api/chat/read' && method === 'POST') return handleMarkRead(request, env);
+  if (path === '/api/chat/channels' && method === 'POST') return handleCreateChannel(request, env);
+  if (path === '/api/chat/dm' && method === 'POST') return handleOpenDm(request, env);
+  const chatMsg = path.match(/^\/api\/chat\/messages\/([^/]+)$/);
+  if (chatMsg && method === 'PUT') return handleEditMessage(request, env, chatMsg[1]);
+  if (chatMsg && method === 'DELETE') return handleDeleteMessage(request, env, chatMsg[1]);
 
   if (path === '/api/appointments' && method === 'GET') {
     return handleListAppointments(request, env);

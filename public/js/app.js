@@ -140,6 +140,7 @@ const I = {
   back: 'M10 19l-7-7 7-7M3 12h18',
   chevron: 'm6 9 6 6 6-6',
   calendar: 'M8 3v3m8-3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z',
+  chat: 'M21 12a7 7 0 0 1-7 7H8l-4 3v-4.2A7 7 0 0 1 4 12a7 7 0 0 1 7-7h3a7 7 0 0 1 7 7Z',
   handshake: 'M7 11.5 4 8.5l3-2.5h4l2 1.5 2-1.5h4l3 2.5-3 3-1.5-1.2-3.2 3.4a1.6 1.6 0 0 1-2.3 0l-.6-.6-.9.8a1.5 1.5 0 0 1-2.1-2.1M7 11.5l2 2',
 };
 
@@ -150,6 +151,10 @@ const NAV = [
   // Up here rather than inside a hub. A day is not a kind of client, and this
   // is opened as often as the dashboard is.
   { href: '/app/calendar', label: 'Calendar', icon: I.calendar },
+  // Beside the calendar rather than inside a hub, and carrying its own count.
+  // A message waiting is the one thing here that somebody else is waiting on,
+  // and two clicks away is where it would be missed.
+  { href: '/app/chat', label: 'Chat', icon: I.chat, badge: 'chat-count' },
   {
     hub: 'Reservation', icon: I.ship, items: [
       { href: '/app/reservations', label: 'Reservations' },
@@ -235,7 +240,11 @@ function icon(d) {
 
 function navLink(item, current) {
   const active = item.href === current ? ' aria-current="page"' : '';
-  return `<a href="${item.href}"${active}>${item.icon ? icon(item.icon) : ''}${esc(item.label)}</a>`;
+  // An empty span rather than none at all, so the thing that fills it later
+  // has somewhere to go and does not have to rebuild the sidebar to appear.
+  const badge = item.badge
+    ? `<span class="todo-count" id="${esc(item.badge)}" hidden></span>` : '';
+  return `<a href="${item.href}"${active}>${item.icon ? icon(item.icon) : ''}${esc(item.label)}${badge}</a>`;
 }
 
 function navHub(entry, current, open) {
@@ -371,6 +380,33 @@ function mountSearch(sidebar) {
  * Read only. Every line goes to the screen that owns it, because that is where
  * the words for doing something about it already are.
  */
+/**
+ * How many messages are waiting, on the Chat link itself.
+ *
+ * A minute apart, not five seconds: this is on every page in the portal, and
+ * the page actually showing the conversation polls properly. A badge is for
+ * noticing, and a minute late is still noticing.
+ */
+function mountChatCount(sidebar) {
+  const badge = sidebar.querySelector('#chat-count');
+  if (!badge) return;
+
+  async function tick() {
+    // A hidden tab is a tab nobody is looking at. Every advisor leaves this
+    // open all day and the request would otherwise run all night as well.
+    if (document.hidden) return;
+    try {
+      const { unread = 0 } = await api('/api/chat/unread');
+      badge.textContent = unread > 99 ? '99+' : String(unread);
+      badge.hidden = !unread;
+    } catch { badge.hidden = true; }
+  }
+
+  tick();
+  setInterval(tick, 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+}
+
 function mountBell(sidebar) {
   const button = sidebar.querySelector('#open-bell');
   const badge = sidebar.querySelector('#bell-count');
@@ -381,6 +417,7 @@ function mountBell(sidebar) {
 
   const KIND = {
     task: 'Task', lead: 'Lead', appointment: 'Appointment', form: 'Form',
+    mention: 'Chat',
   };
 
   /** "3 days ago", "in 2 hours": how somebody would say it out loud. */
@@ -999,6 +1036,7 @@ export async function mountShell({ admin = false } = {}) {
     mountSearch(sidebar);
     mountTodo(sidebar, user);
     mountBell(sidebar);
+    mountChatCount(sidebar);
   }
   watchMoneyFields();
 

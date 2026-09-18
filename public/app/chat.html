@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chat | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <h1>Chat</h1>
+        <p class="sub">Everyone who works here. No client ever sees any of this.</p>
+      </div>
+      <div class="toolbar" style="margin:0;">
+        <button class="btn btn-secondary btn-sm" type="button" id="new-room">New room</button>
+      </div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+
+      <div class="chat-layout">
+        <aside class="card chat-rooms">
+          <div class="card-pad" id="rooms">Loading...</div>
+        </aside>
+        <section class="card chat-pane">
+          <div class="card-head">
+            <h2 id="room-name">Chat</h2>
+            <span><a class="btn btn-ghost btn-sm" id="room-link" hidden>Open the record</a></span>
+          </div>
+          <div class="card-pad" id="thread">
+            <p class="muted">Pick a room on the left, or start a message.</p>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!--
+  A new room.
+
+  Anyone may make one, because this is an agency of a few people and a room
+  nobody can create is a room that never exists. Only an admin is offered the
+  announcements switch: a room everybody reads and one person writes is a
+  different thing, and handing it to everybody would make it meaningless.
+-->
+<dialog id="room-dlg">
+  <form id="room-form" method="dialog">
+    <div class="card-head"><h2>New room</h2>
+      <button class="btn btn-ghost btn-sm" type="button" data-close-room>Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" hidden></div>
+      <div class="field"><label for="room-name-in">What is it called?</label>
+        <input id="room-name-in" name="name" maxlength="60" required placeholder="Suppliers and rates">
+        <p class="field-hint">Everyone in the agency can read and post in it.</p></div>
+      <div class="field"><label for="room-topic">What is it for?</label>
+        <input id="room-topic" name="topic" maxlength="200"
+          placeholder="Rate queries, promo codes, who to ring at each line"></div>
+      <div class="field" id="room-admin-wrap" hidden>
+        <label style="display:flex;align-items:flex-start;gap:.6rem;font-weight:400;margin:0;">
+          <input type="checkbox" id="room-admin" name="adminOnly"
+                 style="width:auto;flex:none;margin-top:.25rem;">
+          <span><strong style="color:var(--navy-800);">Announcements</strong>
+            <span class="field-hint" style="display:block;margin-top:.35rem;">Everyone in the
+              agency reads it and only the agency posts, so a notice stays a notice instead of
+              being pushed up the screen by the next reply.</span></span></label>
+      </div>
+    </div>
+    <div class="card-foot">
+      <button class="btn btn-primary" type="submit">Make the room</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module">
+import { api, mountShell, esc, showError, onSubmit } from '/js/app.js';
+import { mountThread } from '/js/chat-thread.js';
+
+await mountShell();
+
+const err = document.getElementById('err');
+const roomsBox = document.getElementById('rooms');
+const threadBox = document.getElementById('thread');
+const nameBox = document.getElementById('room-name');
+const linkBtn = document.getElementById('room-link');
+const roomDlg = document.getElementById('room-dlg');
+
+let state = { channels: [], conversations: [], people: [], isAdmin: false, agency: true };
+let open = null;
+let live = null;
+
+/** Which room the address bar is pointing at, so a link opens the right one. */
+function wanted() {
+  return new URLSearchParams(location.search).get('c') || '';
+}
+
+function pill(n) {
+  return n ? `<span class="chat-pill">${n > 99 ? '99+' : n}</span>` : '';
+}
+
+function rooms() {
+  if (!state.agency) {
+    roomsBox.innerHTML = `<p class="muted">This account is not in an agency yet, so there is
+      nobody for a room to be open to. An admin can put it in one under Advisors.</p>`;
+    return;
+  }
+
+  const dms = state.conversations.filter((c) => c.kind === 'dm');
+  const records = state.conversations.filter((c) => c.kind === 'record');
+  const line = (c) => `<button type="button" class="chat-room${c.id === open ? ' on' : ''}"
+      data-room="${esc(c.id)}"><span>${esc(c.name || 'Room')}</span>${pill(c.unread)}</button>`;
+
+  roomsBox.innerHTML = `
+    <p class="chat-group">Rooms</p>
+    ${state.channels.length
+      ? state.channels.map(line).join('')
+      : '<p class="muted chat-none">No rooms yet. Make the first one.</p>'}
+
+    <p class="chat-group">Direct messages</p>
+    ${dms.length ? dms.map(line).join('') : '<p class="muted chat-none">Nobody yet.</p>'}
+    ${state.people.length
+      ? `<select id="start-dm" class="chat-start">
+           <option value="">Start a message...</option>
+           ${state.people.map((p) =>
+             `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}
+         </select>`
+      : ''}
+
+    ${records.length ? `<p class="chat-group">On records</p>${records.map(line).join('')}` : ''}`;
+
+  roomsBox.querySelectorAll('[data-room]').forEach((b) =>
+    b.addEventListener('click', () => show(b.dataset.room)));
+
+  const starter = document.getElementById('start-dm');
+  if (starter) starter.addEventListener('change', () => startDm(starter.value));
+}
+
+/**
+ * Open a room.
+ *
+ * The previous one is stopped first. Without that, every room opened in a
+ * sitting keeps its own timer and the page ends the afternoon polling eleven
+ * conversations, ten of which nobody is looking at.
+ */
+function show(id) {
+  if (!id) return;
+  if (live) { live.stop(); live = null; }
+  open = id;
+
+  const room = [...state.channels, ...state.conversations].find((c) => c.id === id);
+  nameBox.textContent = (room && room.name) || 'Chat';
+  linkBtn.hidden = !(room && room.href);
+  if (room && room.href) linkBtn.href = room.href;
+
+  const url = new URL(location.href);
+  url.searchParams.set('c', id);
+  history.replaceState(null, '', url);
+
+  live = mountThread(threadBox, { channelId: id }, { onRead: refresh });
+  rooms();
+}
+
+async function startDm(userId) {
+  if (!userId) return;
+  try {
+    const d = await api('/api/chat/dm', { method: 'POST', body: { userId } });
+    await refresh();
+    show(d.channel.id);
+  } catch (e) { showError(err, e); }
+}
+
+async function refresh() {
+  try {
+    const d = await api('/api/chat');
+    state = d;
+    rooms();
+  } catch (e) { showError(err, e); }
+}
+
+document.getElementById('new-room').addEventListener('click', () => {
+  document.getElementById('room-form').reset();
+  document.getElementById('room-form').querySelector('.notice-error').hidden = true;
+  document.getElementById('room-admin-wrap').hidden = !state.isAdmin;
+  roomDlg.showModal();
+});
+document.querySelectorAll('[data-close-room]').forEach((b) =>
+  b.addEventListener('click', () => roomDlg.close()));
+
+onSubmit(document.getElementById('room-form'), async (body) => {
+  const d = await api('/api/chat/channels', {
+    method: 'POST',
+    body: { name: body.name, topic: body.topic, adminOnly: Boolean(body.adminOnly) },
+  });
+  roomDlg.close();
+  await refresh();
+  show(d.channel.id);
+}, { errorBox: document.getElementById('room-form').querySelector('.notice-error') });
+
+await refresh();
+
+// A room named in the address wins, then the first room with something unread,
+// then nothing: landing in a room at random is worse than landing nowhere.
+const asked = wanted();
+const unread = [...state.conversations, ...state.channels].find((c) => c.unread > 0);
+if (asked) show(asked);
+else if (unread) show(unread.id);
+</script>
+</body>
+</html>

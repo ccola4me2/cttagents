@@ -101,6 +101,14 @@
               <span id="share-actions"></span></div>
             <div id="share" class="card-pad"></div>
           </section>
+          <!-- The conversation about this booking, next to the booking. It used
+               to happen in text messages, and was gone by the time somebody
+               else picked the file up. -->
+          <section class="card" style="margin-top:1.5rem;" id="chat-card">
+            <div class="card-head" id="sec-chat"><h2>Discussion</h2>
+              <span class="muted">Only the agency sees this</span></div>
+            <div class="card-pad" id="chat-host"></div>
+          </section>
           <section class="card" style="margin-top:1.5rem;" id="docs-card">
             <div class="card-head" id="sec-docs"><h2>Documents</h2>
               <span id="doc-actions"></span></div>
@@ -379,11 +387,19 @@
 <script type="module">
 import { api, mountShell, esc, money, dateFmt, daysUntil, timeAgo, showError, onSubmit } from '/js/app.js';
 import { mountClientSuggest } from '/js/client-suggest.js';
+import { mountThread } from '/js/chat-thread.js';
 const me = await mountShell();
 
 const id = new URLSearchParams(location.search).get('id') || '';
 const err = document.getElementById('err');
 let d = null;
+
+// The conversation about this booking. Mounted here rather than inside
+// render(), which runs again after every save: a second thread on the same
+// element would leave the first one polling for ever behind the new one.
+if (id) {
+  mountThread(document.getElementById('chat-host'), { subjectKind: 'booking', subjectId: id });
+}
 
 const short = (iso) => (iso ? dateFmt(iso) : '-');
 const KIND = { deposit: 'Deposit', installment: 'Instalment', final: 'Final balance', refund: 'Refund' };
