@@ -24,7 +24,7 @@
 
 import { json, badRequest, notFound, forbidden, clean, cleanText, oneOf, uid, now, readJson }
   from './util.js';
-import { requireUser } from './auth.js';
+import { requireUser, borrowedSeat } from './auth.js';
 import * as db from './db.js';
 
 export const KINDS = ['channel', 'dm', 'record'];
@@ -185,7 +185,7 @@ async function reachableChannel(env, user, id) {
     // can see their bookings, their clients and their diary, all of which are
     // the agency's work. A private message between two colleagues is not, and
     // the promise that it stays private is worth more than the convenience.
-    if (user.acting_as) return null;
+    if (borrowedSeat(user)) return null;
     return row.member_id ? row : null;
   }
 
@@ -230,7 +230,7 @@ export async function handleChat(request, env) {
 
   // Direct messages and opened record threads, both by membership. Hidden
   // entirely while acting as somebody, for the reason in reachableChannel.
-  const mine = user.acting_as ? { results: [] } : await env.DB.prepare(
+  const mine = borrowedSeat(user) ? { results: [] } : await env.DB.prepare(
     `SELECT c.*, mem.muted, ${unreadClause('c')} AS unread
        FROM channels c
        JOIN channel_members mem ON mem.channel_id = c.id AND mem.user_id = ?
@@ -248,8 +248,8 @@ export async function handleChat(request, env) {
     // An agency is what a room hangs off. Without one there is nobody for a
     // room to be open to, and saying so beats an empty page that looks broken.
     agency: Boolean(user.agency_id),
-    acting: Boolean(user.acting_as),
-    isAdmin: user.role === 'admin' && !user.acting_as,
+    acting: borrowedSeat(user),
+    isAdmin: user.role === 'admin' && !borrowedSeat(user),
     channels: (open.results || []).map((r) => shapeChannel(r, r.unread || 0)),
     conversations: (mine.results || []).map((r) => ({
       ...shapeChannel(r, r.unread || 0),
@@ -323,7 +323,7 @@ export function findMentions(body, people, memberIds, authorId) {
  * neither and asks the owner to take their own seat back first.
  */
 export function mayPost(user, channel) {
-  if (user.acting_as) {
+  if (borrowedSeat(user)) {
     return {
       ok: false,
       why: 'Stop working as an advisor before posting. A message is signed by whoever typed it.',
@@ -436,7 +436,7 @@ export async function handlePostMessage(request, env) {
 export async function handleEditMessage(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  if (user.acting_as) return forbidden('Stop working as an advisor before changing messages.');
+  if (borrowedSeat(user)) return forbidden('Stop working as an advisor before changing messages.');
 
   const text = cleanText((await readJson(request)).body, MAX_BODY);
   if (!text) return badRequest('Nothing to say yet.');
@@ -474,7 +474,7 @@ export async function handleEditMessage(request, env, id) {
 export async function handleDeleteMessage(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  if (user.acting_as) return forbidden('Stop working as an advisor before changing messages.');
+  if (borrowedSeat(user)) return forbidden('Stop working as an advisor before changing messages.');
 
   const row = await env.DB.prepare('SELECT * FROM messages WHERE id = ?').bind(id).first();
   if (!row) return notFound('Message not found.');
@@ -494,7 +494,7 @@ export async function handleDeleteMessage(request, env, id) {
 export async function handleMarkRead(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  if (user.acting_as) return json({ ok: true });
+  if (borrowedSeat(user)) return json({ ok: true });
 
   const channelId = clean((await readJson(request)).channelId, 64);
   if (!channelId) return badRequest('Which conversation?');
@@ -511,7 +511,7 @@ export async function handleMarkRead(request, env) {
 export async function handleCreateChannel(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  if (user.acting_as) return forbidden('Stop working as an advisor before making a room.');
+  if (borrowedSeat(user)) return forbidden('Stop working as an advisor before making a room.');
   if (!user.agency_id) return forbidden('A room belongs to an agency, and this account is in none.');
 
   const body = await readJson(request);
@@ -548,7 +548,7 @@ export async function handleCreateChannel(request, env) {
 export async function handleOpenDm(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  if (user.acting_as) return forbidden('Stop working as an advisor before opening a message.');
+  if (borrowedSeat(user)) return forbidden('Stop working as an advisor before opening a message.');
   if (!user.agency_id) return forbidden('This account is in no agency, so there is nobody to write to.');
 
   const other = clean((await readJson(request)).userId, 64);
@@ -615,7 +615,7 @@ export async function handleRecordThread(request, env) {
     });
   }
 
-  if (!user.acting_as) await ensureMember(env, row.id, user.id, 0);
+  if (!borrowedSeat(user)) await ensureMember(env, row.id, user.id, 0);
 
   const rows = await recent(env, row.id, 0);
 
@@ -639,7 +639,7 @@ export async function handleRecordThread(request, env) {
 export async function handleChatUnread(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  if (user.acting_as) return json({ unread: 0 });
+  if (borrowedSeat(user)) return json({ unread: 0 });
 
   const row = await env.DB.prepare(
     `SELECT COUNT(*) AS n

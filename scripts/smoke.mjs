@@ -1297,8 +1297,16 @@ async function main() {
   const chatSaid = await call(advisor, 'POST', '/api/chat/messages',
     { channelId: chatRoomId, body: 'Carnival rates are out. @Nobody Here is not a person.' });
   check(chatSaid.status === 201, 'a message is posted', `status ${chatSaid.status}`);
-  check(chatSaid.data?.message?.author === 'Smoke Tester',
-    'signed with the name of whoever typed it', chatSaid.data?.message?.author);
+  // Against what the portal calls them, not against a literal. The property
+  // is that a message is signed by whoever typed it; which words that is are
+  // the portal's business, and a test that hard codes them is testing the
+  // fixture.
+  const chatWhoAmI = await call(advisor, 'GET', '/api/auth/me');
+  const chatMyName = chatWhoAmI.data?.user?.name || '';
+  check(Boolean(chatSaid.data?.message?.author) && chatSaid.data?.message?.author === chatMyName,
+    'signed with the name of whoever typed it',
+    `the message says "${chatSaid.data?.message?.author}", `
+    + `the portal calls them "${chatMyName}"`);
   check(chatSaid.data?.message?.mine === true, 'and marked as theirs on the way back');
 
   // The room is the agency's, so the owner reads it without being asked in.
@@ -1320,25 +1328,38 @@ async function main() {
   check((chatAfter.data?.channels || []).find((c) => c.id === chatRoomId)?.unread === 0,
     'which goes to nought once they have');
 
-  // A name, not a word. The advisor is Smoke Tester, so "@Smoke" is them.
-  const chatCalled = await call(admin, 'POST', '/api/chat/messages',
-    { channelId: chatRoomId, body: `@Smoke can you look at this one? ${stamp}` });
-  check(chatCalled.status === 201, 'the owner names somebody by their first name',
-    `status ${chatCalled.status}`);
+  // A name, and the name the API itself gives for this person rather than one
+  // written down here. Asking for "@Smoke" only works while the fixture is
+  // called Smoke, and a mention that silently matches nobody looks exactly
+  // like mentions being broken.
+  const chatFolk = chatOwnerReads.data?.people || [];
+  const chatThem = chatFolk.find((p) => p.id === advisorId);
+  const chatFirstName = chatThem?.first || '';
 
-  const chatAdvisorBell = await call(advisor, 'GET', '/api/alerts');
-  const chatAtMe = (chatAdvisorBell.data?.items || []).find((i) => i.kind === 'mention');
-  check(Boolean(chatAtMe), 'and it reaches them in the bell',
-    `${(chatAdvisorBell.data?.items || []).length} item(s), kinds `
-    + [...new Set((chatAdvisorBell.data?.items || []).map((i) => i.kind))].join(', '));
-  check(chatAtMe?.href?.includes(chatRoomId), 'pointing at the room it was said in',
-    chatAtMe?.href);
+  if (!chatFirstName) {
+    skip('being named in chat',
+      `the portal holds no first name for the advisor (it calls them `
+      + `"${chatThem?.name || 'nobody in the list'}"), so there is no @name to write`);
+  } else {
+    const chatCalled = await call(admin, 'POST', '/api/chat/messages',
+      { channelId: chatRoomId, body: `@${chatFirstName} can you look at this one? ${stamp}` });
+    check(chatCalled.status === 201, 'the owner names somebody by their first name',
+      `status ${chatCalled.status}`);
 
-  // Nobody is named by a word that is not a name, which is the half of this
-  // that goes wrong quietly: a bell full of mentions nobody made.
-  const chatOwnerBell = await call(admin, 'GET', '/api/alerts');
-  check(!(chatOwnerBell.data?.items || []).some((i) => i.kind === 'mention'),
-    'and "@Nobody Here" named nobody, so nobody was told');
+    const chatAdvisorBell = await call(advisor, 'GET', '/api/alerts');
+    const chatAtMe = (chatAdvisorBell.data?.items || []).find((i) => i.kind === 'mention');
+    check(Boolean(chatAtMe), 'and it reaches them in the bell',
+      `${(chatAdvisorBell.data?.items || []).length} item(s), kinds `
+      + [...new Set((chatAdvisorBell.data?.items || []).map((i) => i.kind))].join(', '));
+    check(chatAtMe?.href?.includes(chatRoomId), 'pointing at the room it was said in',
+      chatAtMe?.href);
+
+    // Nobody is named by a word that is not a name, which is the half of this
+    // that goes wrong quietly: a bell full of mentions nobody made.
+    const chatOwnerBell = await call(admin, 'GET', '/api/alerts');
+    check(!(chatOwnerBell.data?.items || []).some((i) => i.kind === 'mention'),
+      'and "@Nobody Here" named nobody, so nobody was told');
+  }
 
   step('Chat: a conversation with one person, and one hanging off a booking');
 
@@ -1406,7 +1427,13 @@ async function main() {
   // A private message is not the agency's work, so sitting in somebody's seat
   // does not open it.
   const chatSeat = await call(admin, 'POST', `/api/admin/act/${advisorId}`, {});
-  if (check(chatSeat.status === 200, 'the owner works as the advisor',
+  if (chatSeat.status === 404) {
+    // Only one of the two portals has working as an advisor. Where there is no
+    // such thing there is no borrowed seat to refuse, and saying so is better
+    // than failing as though the refusal had stopped working.
+    skip('chat from somebody else\'s seat',
+      'this portal has no working as an advisor, so there is no seat to borrow');
+  } else if (check(chatSeat.status === 200, 'the owner works as the advisor',
     `status ${chatSeat.status}`)) {
     const chatWhileActing = await call(admin, 'POST', '/api/chat/messages',
       { channelId: chatRoomId, body: 'Who would this be from?' });

@@ -86,6 +86,18 @@ export function isAdmin(user) {
   return Boolean(user && user.role === 'admin' && user.status === 'active');
 }
 
+/**
+ * Is this session sitting in somebody else's seat?
+ *
+ * One identity at a time. While acting as an advisor the session IS that
+ * advisor, and the handful of places that must know the difference ask here
+ * rather than reading the column, because the other portal has no such column
+ * and a shared module that reads it is reading nothing at all.
+ */
+export function borrowedSeat(user) {
+  return Boolean(user && user.acting_as);
+}
+
 export function isActiveAdvisor(user) {
   return Boolean(user && user.status === 'active');
 }
