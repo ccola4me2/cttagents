@@ -77,7 +77,14 @@ function unescapeText(v) {
  * shows there, and correct by the difference. Twice, because the first
  * correction can cross a daylight-saving boundary and land an hour out.
  */
-function zonedToEpoch(y, mo, d, h, mi, zone) {
+/**
+ * A wall clock time in a named zone, as a real instant.
+ *
+ * Exported because it is the only honest way to ask when a plain "14:00" on a
+ * plain date actually happened, and the diary needs that as much as the invite
+ * parser does.
+ */
+export function zonedToEpoch(y, mo, d, h, mi, zone) {
   let guess = Date.UTC(y, mo - 1, d, h, mi, 0);
   for (let i = 0; i < 2; i += 1) {
     const shown = partsInZone(guess, zone);

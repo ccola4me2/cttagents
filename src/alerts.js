@@ -21,6 +21,7 @@ import { json, now } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 import { pushReady, pushTo, devicesFor } from './push.js';
+import { hasFinished, zoneOf } from './appointments.js';
 
 /** Midnight UTC on a plain date, as seconds. When a due thing became due. */
 function dayStart(iso) {
@@ -149,7 +150,12 @@ export async function gather(env, user) {
       href: '/app/leads',
     });
   }
+  const zone = zoneOf(env, user);
   for (const r of appts.results || []) {
+    // Gone an hour after it finishes, the same as on the To do list. A bell
+    // still offering this morning's meeting at four in the afternoon is a bell
+    // people stop reading.
+    if (hasFinished(r, zone)) continue;
     const when = [r.start_time, r.end_time].filter(Boolean).join(' to ');
     items.push({
       id: `appt:${r.id}`, kind: 'appointment',

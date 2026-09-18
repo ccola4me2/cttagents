@@ -12,7 +12,7 @@
 import { json, badRequest, notFound, clean, cleanText, cleanDate, oneOf, uid, now, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
-import { dueAppointments } from './appointments.js';
+import { dueAppointments, zoneOf } from './appointments.js';
 
 // Order matters: oneOf falls back to the first entry, so normal has to lead or
 // every task created without an explicit priority comes out as high.
@@ -188,7 +188,8 @@ export async function handleListTasks(request, env) {
   // on a real task, and handing it rows it cannot act on would be offering
   // buttons that fail.
   const leads = await dueLeads(env, scope, { today, until: weekFrom(today) });
-  const appointments = await dueAppointments(env, scope, { until: weekFrom(today) });
+  const appointments = await dueAppointments(env, scope,
+    { until: weekFrom(today), zone: zoneOf(env, user) });
   return json({
     tasks,
     leads,

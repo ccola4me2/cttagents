@@ -111,7 +111,7 @@
 
 <script type="module">
 import { api, mountShell, esc, dateFmt, showError, onSubmit,
-         mountScopePicker, advisorParam } from '/js/app.js';
+         mountScopePicker, advisorParam, linkBits } from '/js/app.js';
 const ME = (await mountShell()).id;
 
 const grid = document.getElementById('grid');
@@ -323,39 +323,6 @@ function showDay(day) {
 }
 
 const KIND_LABEL = Object.fromEntries(KINDS);
-
-// Where a meeting is, when where is a link.
-//
-// An invite from Teams, Zoom or Meet puts a join URL in the location, and
-// those are long enough to fill a row on their own. Only http and https: a
-// location is somebody else's text, and javascript: in an href is how that
-// becomes somebody else's script.
-const MEETING_HOSTS = /(?:teams\.microsoft\.com|teams\.live\.com|zoom\.us|meet\.google\.com|webex\.com|gotomeeting\.com|whereby\.com|chime\.aws)$/i;
-
-function linkBits(text) {
-  const parts = [];
-  const s = String(text || '');
-  let at = 0;
-  for (const m of s.matchAll(/https?:\/\/[^\s<>"']+/gi)) {
-    if (m.index > at) parts.push(esc(s.slice(at, m.index)));
-    let url = m[0];
-    // A URL at the end of a sentence should not swallow the full stop.
-    const trail = url.match(/[.,;:)\]]+$/);
-    if (trail && !url.slice(0, -trail[0].length).endsWith('(')) {
-      url = url.slice(0, -trail[0].length);
-    }
-    let label = url;
-    try {
-      const host = new URL(url).hostname.replace(/^www\./, '');
-      label = MEETING_HOSTS.test(host) ? 'Join' : host;
-    } catch { label = url.slice(0, 40); }
-    parts.push(`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer"
-      class="where-link">${esc(label)}</a>`);
-    at = m.index + m[0].length - (url === m[0] ? 0 : m[0].length - url.length);
-  }
-  if (at < s.length) parts.push(esc(s.slice(at)));
-  return parts.join('');
-}
 
 document.getElementById('day-close').addEventListener('click', () => {
   dayCard.hidden = true; openDay = null;

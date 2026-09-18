@@ -14,7 +14,7 @@ import { json, badRequest, notFound, clean, cleanText, cleanDate, badDate, oneOf
   from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
-import { parseInvite, calendarPartOf } from './ics.js';
+import { parseInvite, calendarPartOf, zonedToEpoch } from './ics.js';
 
 // How it happens, which is worth knowing at a glance: a call and a lunch are
 // not the same commitment. Order matters, since oneOf falls back to the first.
@@ -265,7 +265,31 @@ export async function handleDeleteAppointment(request, env, id) {
  *
  * Cancelled ones are not due. Neither are ones already marked done.
  */
-export async function dueAppointments(env, scope, { until }) {
+/**
+ * Is this one over, with an hour's grace?
+ *
+ * An appointment is not a task: nobody ticks two o'clock off, so it has to
+ * take itself off the list. An hour after it ends, because a meeting that runs
+ * over should still be on the list while it is running over.
+ *
+ * An hour after the *end* where there is one. A day blocked out from nine to
+ * five is not finished at ten, and dropping it then would take the whole day
+ * off the list of what is happening today.
+ *
+ * In the advisor's own zone. These times are plain wall clock with no zone on
+ * them, and reading them as UTC would drop an Eastern advisor's two o'clock at
+ * ten in the morning.
+ */
+export function hasFinished(row, zone, at = Date.now()) {
+  const day = String(row.on_date || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const clock = String(row.end_time || row.start_time || '').match(/^(\d{2}):(\d{2})/);
+  if (!day || !clock) return false;
+  const ends = zonedToEpoch(Number(day[1]), Number(day[2]), Number(day[3]),
+    Number(clock[1]), Number(clock[2]), zone);
+  return at > ends + 3600000;
+}
+
+export async function dueAppointments(env, scope, { until, zone = 'UTC', at = Date.now() }) {
   const scoped = db.scopeWhere(scope, 'a.user_id');
   const { results } = await env.DB.prepare(
     `SELECT a.id, a.user_id, a.title, a.on_date, a.start_time, a.end_time, a.location,
@@ -278,7 +302,7 @@ export async function dueAppointments(env, scope, { until }) {
       LIMIT 200`
   ).bind(...scoped.binds, until).all().catch(() => ({ results: [] }));
 
-  return (results || []).map((r) => ({
+  return (results || []).filter((r) => !hasFinished(r, zone, at)).map((r) => ({
     // Prefixed so nothing can tick, pin or push it as though it were a task.
     id: `appt:${r.id}`,
     appointment: true,

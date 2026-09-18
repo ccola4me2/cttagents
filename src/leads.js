@@ -230,6 +230,35 @@ export async function handleUpdateLead(request, env, id) {
 }
 
 /**
+ * The follow-up is done.
+ *
+ * Its own endpoint rather than the full save, for the same reason a drag has
+ * one: this knows one field, and posting back the rest from whatever the To do
+ * drawer was rendered with is how a stale row overwrites an edit made
+ * somewhere else.
+ *
+ * Only the date goes. The stage stays, so they stay on the board, and the note
+ * about what you were going to do stays with them, because "I rang her" is not
+ * the same as "she is no longer a lead". Closing a lead has its own button on
+ * the board, where you can see what you are closing.
+ */
+export async function handleFollowedUp(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'clients', id);
+  if (!owner) return notFound('That lead is not here.');
+
+  const res = await env.DB.prepare(
+    `UPDATE clients SET lead_next_step_on = NULL, updated_at = ?
+      WHERE id = ? AND user_id = ? AND lead_stage IS NOT NULL`
+  ).bind(now(), id, owner.id).run();
+  if (!res.meta || res.meta.changes === 0) return notFound('That lead is not here.');
+  return json({ ok: true });
+}
+
+/**
  * Drag a card.
  *
  * Its own endpoint rather than the full save, because a drag knows one field,

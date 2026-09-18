@@ -114,6 +114,46 @@ export function timeAgo(value) {
   return rtf.format(-Math.round(n), unit);
 }
 
+// Somewhere a meeting is, when that somewhere is a link.
+//
+// An invite from Teams, Zoom or Meet puts a join URL in the location, and
+// those are long enough to fill a row on their own and unbroken enough to run
+// out past the edge of a card.
+const MEETING_HOSTS = /(?:teams\.microsoft\.com|teams\.live\.com|zoom\.us|meet\.google\.com|webex\.com|gotomeeting\.com|whereby\.com|chime\.aws)$/i;
+
+/**
+ * Text with any web address in it turned into something clickable and short.
+ *
+ * Only http and https: a location is somebody else's typing, and javascript:
+ * in an href is how that becomes somebody else's script.
+ *
+ * Lived on the calendar page until the To do drawer needed the same thing.
+ */
+export function linkBits(text) {
+  const parts = [];
+  const s = String(text || '');
+  let at = 0;
+  for (const m of s.matchAll(/https?:\/\/[^\s<>"']+/gi)) {
+    if (m.index > at) parts.push(esc(s.slice(at, m.index)));
+    let url = m[0];
+    // A URL at the end of a sentence should not swallow the full stop.
+    const trail = url.match(/[.,;:)\]]+$/);
+    if (trail && !url.slice(0, -trail[0].length).endsWith('(')) {
+      url = url.slice(0, -trail[0].length);
+    }
+    let label = url;
+    try {
+      const host = new URL(url).hostname.replace(/^www\./, '');
+      label = MEETING_HOSTS.test(host) ? 'Join' : host;
+    } catch { label = url.slice(0, 40); }
+    parts.push(`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer"
+      class="where-link">${esc(label)}</a>`);
+    at = m.index + m[0].length - (url === m[0] ? 0 : m[0].length - url.length);
+  }
+  if (at < s.length) parts.push(esc(s.slice(at)));
+  return parts.join('');
+}
+
 export function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
@@ -656,14 +696,19 @@ function mountTodo(sidebar, user) {
   /**
    * A lead's next step, in the same list as the tasks.
    *
-   * No tick and no pin. "Done" on a follow-up is ambiguous, and clearing the
-   * date without setting a new one takes somebody off the board altogether,
-   * which is a worse outcome than leaving them on it. The row opens the board
-   * instead, where moving the date and closing the lead are both said out loud.
+   * The tick means you did it, and clears the date. It does not close the
+   * lead: the stage stays, the note about what you were going to do stays, and
+   * they stay on the board with no date against them, which is where somebody
+   * you have just rung belongs. Closing a lead is a bigger thing and is said
+   * out loud on the board.
+   *
+   * No pin. Pinning is a task idea and there is no task here to pin.
    */
   function leadRow(t, late) {
     return `<li class="lead-row">
-      <a href="/app/leads" class="task-tick" style="text-decoration:none;">
+      <label class="task-tick">
+        <input type="checkbox" data-lead-done="${esc(t.client_id)}"
+          aria-label="Mark the follow-up with ${esc(t.client_name)} done">
         <span>
           <span class="t">${esc(t.title)}</span>
           <span class="who">${esc(t.client_name)}</span>
@@ -673,7 +718,15 @@ function mountTodo(sidebar, user) {
             ${t.stage ? `<span class="tag">${esc(t.stage)}</span>` : ''}
           </span>
         </span>
-      </a>
+      </label>
+      <div class="row-tools">
+        <a class="pin" href="/app/leads" aria-label="Open the lead board"
+           title="Open the lead board">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h13m-5-5 5 5-5 5"/></svg>
+        </a>
+      </div>
     </li>`;
   }
 
@@ -686,19 +739,33 @@ function mountTodo(sidebar, user) {
    */
   function apptRow(t, late) {
     const when = [t.due_time, t.end_time].filter(Boolean).join(' to ');
-    const about = [t.client_name, t.location].filter(Boolean).join('  ·  ');
+    // Already escaped, and the join link shortened to a word. A raw Teams URL
+    // is about two hundred characters with nothing to break on, and it used to
+    // walk straight out of the side of the card.
+    const about = [esc(t.client_name), linkBits(t.location)]
+      .filter(Boolean).join('  ·  ');
     return `<li class="appt-row">
-      <a href="/app/calendar" class="task-tick" style="text-decoration:none;">
+      <label class="task-tick">
+        <input type="checkbox" data-appt-done="${esc(t.appointment_id)}"
+          aria-label="Mark ${esc(t.title)} done">
         <span>
           <span class="t">${esc(t.title)}</span>
-          ${about ? `<span class="who">${esc(about)}</span>` : ''}
+          ${about ? `<span class="who">${about}</span>` : ''}
           <span class="marks">
             <span class="when${late ? ' late' : ''}">${esc(whenWords(t.due_date))}${
               when ? ` ${esc(when)}` : ''}</span>
             <span class="tag">Appointment</span>
           </span>
         </span>
-      </a>
+      </label>
+      <div class="row-tools">
+        <a class="pin" href="/app/calendar" aria-label="Open the calendar"
+           title="Open the calendar">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h13m-5-5 5 5-5 5"/></svg>
+        </a>
+      </div>
     </li>`;
   }
 
@@ -800,6 +867,36 @@ function mountTodo(sidebar, user) {
           await refresh();
           draw();
         } catch { box.checked = !box.checked; box.disabled = false; }
+      });
+    });
+
+    // An hour with somebody in it, ticked off. It also takes itself off the
+    // list an hour after it finishes, so this is for the one you got out of
+    // early or did not go to.
+    drawer.querySelectorAll('[data-appt-done]').forEach((box) => {
+      box.addEventListener('change', async () => {
+        box.disabled = true;
+        try {
+          await api(`/api/appointments/${encodeURIComponent(box.dataset.apptDone)}`,
+            { method: 'PUT', body: { done: box.checked } });
+          await refresh();
+          draw();
+        } catch { box.checked = !box.checked; box.disabled = false; }
+      });
+    });
+
+    // A follow-up done. Only one way: the date goes, and the row with it, so
+    // there is nothing left on the screen to untick. Setting a new date is
+    // done on the board, where you can see what you are promising.
+    drawer.querySelectorAll('[data-lead-done]').forEach((box) => {
+      box.addEventListener('change', async () => {
+        box.disabled = true;
+        try {
+          await api(`/api/leads/${encodeURIComponent(box.dataset.leadDone)}/followed`,
+            { method: 'POST', body: {} });
+          await refresh();
+          draw();
+        } catch { box.checked = false; box.disabled = false; }
       });
     });
 

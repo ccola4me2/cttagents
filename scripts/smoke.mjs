@@ -1109,6 +1109,47 @@ async function main() {
   check(!(todoAgain.data?.leads || []).some((l) => l.client_name === `Unplanned Lead ${stamp}`),
     'is not counted as due, because nothing was planned for it');
 
+  // Ringing somebody is not the same as giving up on them, so the tick in the
+  // drawer clears the date and leaves everything else alone.
+  const rung = await call(advisor, 'POST', '/api/leads', {
+    name: `Rung Lead ${stamp}`, stage: 'in_conversation',
+    nextStep: 'Ring about the Alaska cabins', nextStepOn: isoDay(-2),
+  });
+  const rungBefore = await call(advisor, 'GET',
+    `/api/tasks?state=open&advisor=${encodeURIComponent(advisorId)}`);
+  const rungRow = (rungBefore.data?.leads || []).find((l) => l.client_name === `Rung Lead ${stamp}`);
+  check(Boolean(rungRow), 'a second overdue lead, to tick off',
+    `status ${rung.status} ${(rungBefore.data?.leads || []).length} due`);
+
+  if (rungRow) {
+    const followed = await call(advisor, 'POST',
+      `/api/leads/${encodeURIComponent(rungRow.client_id)}/followed`, {});
+    check(followed.status === 200, 'the follow-up is marked done',
+      `status ${followed.status}`);
+
+    const rungAfter = await call(advisor, 'GET',
+      `/api/tasks?state=open&advisor=${encodeURIComponent(advisorId)}`);
+    check(!(rungAfter.data?.leads || []).some((l) => l.client_id === rungRow.client_id),
+      'and stops being something due');
+
+    // The half that matters: they are still a lead. Clearing a date is not
+    // giving up on somebody, and a tick that quietly took them off the board
+    // would be the drawer deciding something the board is for.
+    const board = await call(advisor, 'GET', '/api/leads');
+    // The board answers in columns, not in one list, so flatten before looking.
+    const onBoard = (board.data?.stages || []).flatMap((s) => s.leads || []);
+    const stillThere = onBoard.find((l) => l.id === rungRow.client_id);
+    check(Boolean(stillThere), 'while staying on the lead board',
+      `${onBoard.length} on the board`);
+    check(stillThere && stillThere.stage === 'in_conversation',
+      'at the stage they were already at', stillThere && stillThere.stage);
+    check(stillThere && !stillThere.nextStepOn,
+      'with no date against them any more', stillThere && stillThere.nextStepOn);
+    check(stillThere && stillThere.nextStep === 'Ring about the Alaska cabins',
+      'and the note about what you were going to do still there',
+      stillThere && stillThere.nextStep);
+  }
+
   // --------------------------------------------- the diary and the month --
   step('An appointment goes in the diary');
 
@@ -1202,6 +1243,45 @@ async function main() {
       `${(todo2.data?.appointments || []).length} apptDue`);
     check(apptDue && String(apptDue.id).startsWith('appt:'),
       'under an id nothing can tick as though it were a task', apptDue && apptDue.id);
+
+    // An hour with somebody in it takes itself off the list an hour after it
+    // finishes. Nobody ticks two o'clock, and a list still offering this
+    // morning's meeting at four in the afternoon is one people stop reading.
+    const apptOver = await call(advisor, 'POST', '/api/appointments', {
+      title: `Yesterday morning ${stamp}`, onDate: isoDay(-1),
+      startTime: '09:00', endTime: '10:00',
+    });
+    const overId = apptOver.data?.appointment?.id;
+    if (check(Boolean(overId), 'an appointment that happened yesterday',
+      `status ${apptOver.status}`)) {
+      cleanup('the finished appointment',
+        () => call(advisor, 'DELETE', `/api/appointments/${overId}`));
+      const todoPast = await call(advisor, 'GET',
+        `/api/tasks?state=open&advisor=${encodeURIComponent(advisorId)}`);
+      const stillListed = (todoPast.data?.appointments || []);
+      check(!stillListed.some((a) => a.appointment_id === overId),
+        'is not still on the list this morning',
+        `${stillListed.length} appointment(s) listed`);
+      check(stillListed.some((a) => a.appointment_id === apptId),
+        'while one that has not happened yet still is');
+    }
+
+    // And the one you got out of early, or did not go to.
+    const apptTick = await call(advisor, 'POST', '/api/appointments', {
+      title: `Ticked off ${stamp}`, onDate: apptDay, startTime: '16:00', endTime: '17:00',
+    });
+    const tickId = apptTick.data?.appointment?.id;
+    if (check(Boolean(tickId), 'an appointment to tick off', `status ${apptTick.status}`)) {
+      cleanup('the ticked appointment',
+        () => call(advisor, 'DELETE', `/api/appointments/${tickId}`));
+      const marked = await call(advisor, 'PUT', `/api/appointments/${tickId}`, { done: true });
+      check(marked.status === 200 && Boolean(marked.data?.appointment?.doneAt),
+        'can be marked done', `status ${marked.status}`);
+      const todoTicked = await call(advisor, 'GET',
+        `/api/tasks?state=open&advisor=${encodeURIComponent(advisorId)}`);
+      check(!(todoTicked.data?.appointments || []).some((a) => a.appointment_id === tickId),
+        'and stops being something due');
+    }
 
     // Cancelled is not the same as never booked, so the row stays and stops
     // being something due.

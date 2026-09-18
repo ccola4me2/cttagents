@@ -13,7 +13,7 @@ import { requireUser } from './auth.js';
 import * as db from './db.js';
 import { readLayout, PANELS } from './prefs.js';
 import { dueLeads } from './tasks.js';
-import { dueAppointments } from './appointments.js';
+import { dueAppointments, zoneOf } from './appointments.js';
 import { listTasks } from './tasks.js';
 import { documentWatch, upcomingBirthdays } from './travellers.js';
 import { listGroups } from './groups.js';
@@ -167,7 +167,7 @@ export async function handleDashboard(request, env) {
     leads: await panel(failed, 'tasks',
       dueLeads(env, scope, { today, until: isoDay(7) }), []),
     appointments: await panel(failed, 'tasks',
-      dueAppointments(env, scope, { until: isoDay(7) }), []),
+      dueAppointments(env, scope, { until: isoDay(7), zone: zoneOf(env, user) }), []),
     // What the CRM widget used to show, from the board that replaced it. The
     // stage is worked out from the reservation rather than dragged, so this
     // cannot drift from the book of business the way a copy did.
