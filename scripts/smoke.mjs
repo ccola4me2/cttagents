@@ -1337,9 +1337,14 @@ async function main() {
   const chatFirstName = chatThem?.first || '';
 
   if (!chatFirstName) {
-    skip('being named in chat',
-      `the portal holds no first name for the advisor (it calls them `
-      + `"${chatThem?.name || 'nobody in the list'}"), so there is no @name to write`);
+    // The reason goes in the name of the skip, not only in the line under it:
+    // a skip is reported to CI by name, and "being named in chat" on its own
+    // is the fact without the cause, which is how this stayed a guess for an
+    // hour.
+    skip(`being named in chat (${chatThem
+      ? `no first name stored, the portal calls them "${chatThem.name}"`
+      : `the advisor is not among the ${chatFolk.length} people the portal lists`})`,
+      'there is no @name to write, so the mention and the bell go untested');
   } else {
     const chatCalled = await call(admin, 'POST', '/api/chat/messages',
       { channelId: chatRoomId, body: `@${chatFirstName} can you look at this one? ${stamp}` });
