@@ -197,13 +197,22 @@ async function reachableChannel(env, user, id) {
   return row.agency_id && row.agency_id === user.agency_id ? row : null;
 }
 
-/** Unread for one person in one room: later than their mark, not their own. */
+/**
+ * Unread for one person in one room: not before their mark, and not their own.
+ *
+ * Not *after* their mark. Times here are whole seconds, so a message written
+ * in the same second somebody last read the room cannot be placed either side
+ * of the read, and the two answers are not equally wrong. Counting it errs
+ * towards telling you about a message you have already seen, which clears
+ * itself the next time you open the room. Not counting it hides a message for
+ * good, and the count never mentions it again.
+ */
 function unreadClause(alias) {
   return `(SELECT COUNT(*) FROM messages x
             WHERE x.channel_id = ${alias}.id
               AND x.deleted_at IS NULL
               AND x.user_id != ?
-              AND x.created_at > COALESCE(mem.last_read_at, 0))`;
+              AND x.created_at >= COALESCE(mem.last_read_at, 0))`;
 }
 
 /**
@@ -647,7 +656,7 @@ export async function handleChatUnread(request, env) {
        JOIN channel_members mem ON mem.channel_id = m.channel_id AND mem.user_id = ?
        JOIN channels c ON c.id = m.channel_id
       WHERE m.user_id != ? AND m.deleted_at IS NULL
-        AND m.created_at > mem.last_read_at
+        AND m.created_at >= mem.last_read_at
         AND mem.muted = 0 AND c.archived_at IS NULL`
   ).bind(user.id, user.id).first().catch(() => null);
 
@@ -667,7 +676,7 @@ export async function handleChatUnread(request, env) {
        JOIN channels c ON c.id = m.channel_id
        LEFT JOIN users u ON u.id = m.user_id
       WHERE m.user_id != ? AND m.deleted_at IS NULL
-        AND m.created_at > mem.last_read_at
+        AND m.created_at >= mem.last_read_at
         AND mem.muted = 0 AND c.archived_at IS NULL
       ORDER BY m.created_at DESC LIMIT 1`
   ).bind(user.id, user.id).first().catch(() => null);
