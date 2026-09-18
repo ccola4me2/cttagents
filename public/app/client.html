@@ -28,7 +28,9 @@
       </section>
       <section class="card" id="answers-card" style="margin-top:1.5rem;" hidden>
         <div class="card-head"><h2>What they told you</h2>
-          <span class="muted" id="answers-when"></span></div>
+          <span><span class="muted" id="answers-when"></span>
+            <button class="btn btn-ghost btn-sm" type="button" id="print-answers">Print</button>
+          </span></div>
         <div class="card-pad" id="answers"></div>
       </section>
       <section class="card" id="house-card" style="margin-top:1.5rem;" hidden>
@@ -282,6 +284,10 @@ onSubmit(houseForm, async (values) => {
 // and can refuse to offer them as their own housemate.
 let current = { id: '', name: '' };
 
+// What is on the card, held so the Print button can write the same thing onto
+// paper without asking the server for it again.
+let sheet = null;
+
 /**
  * What they filled in, in the words they were asked.
  *
@@ -293,7 +299,8 @@ let current = { id: '', name: '' };
  * More than one, because somebody can fill in a planning form in March and a
  * referral form in June, and both are theirs.
  */
-function drawAnswers(list) {
+function drawAnswers(list, client) {
+  sheet = { client, list };
   const card = document.getElementById('answers-card');
   const when = document.getElementById('answers-when');
   const body = document.getElementById('answers');
@@ -316,9 +323,75 @@ function drawAnswers(list) {
   `).join('');
 }
 
+/**
+ * The same answers, on paper.
+ *
+ * A form gets printed to go in a paper file, to read on the plane, or to hand
+ * to whoever is quoting it. Printing this page would give you the sidebar, the
+ * stat cards and an empty reservations table, so this writes its own document.
+ *
+ * It carries the date they filled it in rather than the "2 days ago" the card
+ * shows. On screen that is the useful reading, because you are looking at it
+ * today. On paper it is wrong by the time anybody reads the sheet.
+ */
+function printAnswers() {
+  if (!sheet || !sheet.list.length) return;
+  const { client, list } = sheet;
+  const agency = document.querySelector('.wordmark b');
+  const contact = [client.phone, client.email].filter(Boolean).map(esc).join(' &middot; ');
+
+  const w = window.open('', '_blank');
+  if (!w) {
+    showError(document.getElementById('err'), new Error(
+      'Your browser blocked the print window. Allow pop-ups for this site and press Print again.'));
+    return;
+  }
+
+  w.document.write(`<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>${esc(client.name)} - ${esc(list[0].formName || 'Form')}</title>
+<style>
+  @page { margin: 18mm; }
+  body { margin: 0; color: #1a2230;
+    font: 11pt/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; }
+  .agency { margin: 0; font-size: 9pt; letter-spacing: .08em; text-transform: uppercase;
+    color: #6b7280; }
+  h1 { font-size: 18pt; margin: .2rem 0 .1rem; }
+  .contact { margin: 0 0 1.6rem; color: #4b5563; }
+  h2 { font-size: 12pt; margin: 1.6rem 0 .2rem; padding-top: .7rem;
+    border-top: 1px solid #d5dae2; }
+  h2:first-of-type { margin-top: 0; padding-top: 0; border-top: 0; }
+  .when { margin: 0 0 1rem; color: #6b7280; font-size: 9.5pt; }
+  /* A question stays with its answer. Split across a page it leaves the
+     question alone at the foot of one sheet and the answer stranded at the
+     top of the next, which is exactly the pair you were reading. */
+  .qa { margin: 0 0 .85rem; break-inside: avoid; page-break-inside: avoid; }
+  .q { margin: 0 0 .1rem; font-weight: 650; font-size: 10pt; }
+  .a { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .none { color: #6b7280; }
+  footer { margin-top: 2.2rem; color: #6b7280; font-size: 9pt; }
+</style></head><body>
+${agency ? `<p class="agency">${esc(agency.textContent)}</p>` : ''}
+<h1>${esc(client.name)}</h1>
+${contact ? `<p class="contact">${contact}</p>` : ''}
+${list.map((s) => `
+<h2>${esc(s.formName || 'Form')}</h2>
+<p class="when">Filled in ${esc(dateFmt(s.createdAt))}</p>
+${s.answers.length
+  ? s.answers.map((a) => `<div class="qa"><p class="q">${esc(a.label)}</p>
+<p class="a">${esc(a.value)}</p></div>`).join('')
+  : '<p class="none">They sent it back without answering anything.</p>'}`).join('')}
+<footer>Printed ${esc(dateFmt(Math.floor(Date.now() / 1000)))}</footer>
+</body></html>`);
+  w.document.close();
+  w.focus();
+  w.print();
+}
+
+document.getElementById('print-answers').addEventListener('click', printAnswers);
+
 function render(d) {
   const c = d.client;
-  drawAnswers(d.submissions || []);
+  drawAnswers(d.submissions || [], c);
   current = { id: c.id, name: c.name };
   document.getElementById('name').textContent = c.name;
   document.getElementById('sub').textContent = c.nextDeparture
