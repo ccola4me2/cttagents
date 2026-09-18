@@ -129,16 +129,22 @@ async function reachableSubject(env, user, kind, id) {
  * A member row, made on first sight rather than when the room was created.
  *
  * Named rooms are open to the whole agency, so membership is not permission.
- * It is where the read mark lives, and a row created the moment somebody first
- * opens a room is what stops an advisor who joined in June being shown four
- * hundred unread messages from March.
+ * It is where the read mark lives.
+ *
+ * `caughtUp` is the whole argument: true means everything said so far counts
+ * as read, which is only right for somebody who has just written in the room,
+ * and false means from the beginning, which is what the person being written
+ * to needs or they would never be told. It used to be a timestamp defaulting
+ * to now, and every caller but one passed a 0 that looked like a time and
+ * meant a decision.
  */
-async function ensureMember(env, channelId, userId, readFrom = now()) {
+async function ensureMember(env, channelId, userId, caughtUp = false) {
   await env.DB.prepare(
-    `INSERT INTO channel_members (channel_id, user_id, joined_at, last_read_at, muted)
-     VALUES (?, ?, ?, ?, 0)
+    `INSERT INTO channel_members
+       (channel_id, user_id, joined_at, last_read_at, last_read_ms, muted)
+     VALUES (?, ?, ?, ?, ?, 0)
      ON CONFLICT(channel_id, user_id) DO NOTHING`
-  ).bind(channelId, userId, now(), readFrom).run();
+  ).bind(channelId, userId, now(), caughtUp ? now() : 0, caughtUp ? Date.now() : 0).run();
 }
 
 /**
@@ -198,21 +204,19 @@ async function reachableChannel(env, user, id) {
 }
 
 /**
- * Unread for one person in one room: not before their mark, and not their own.
+ * Unread for one person in one room: after their mark, and not their own.
  *
- * Not *after* their mark. Times here are whole seconds, so a message written
- * in the same second somebody last read the room cannot be placed either side
- * of the read, and the two answers are not equally wrong. Counting it errs
- * towards telling you about a message you have already seen, which clears
- * itself the next time you open the room. Not counting it hides a message for
- * good, and the count never mentions it again.
+ * In milliseconds, because whole seconds cannot say which of two things in the
+ * same second happened first, and both ways of guessing are bad: one hides a
+ * message for good, the other leaves a badge showing one when you have just
+ * read everything.
  */
 function unreadClause(alias) {
   return `(SELECT COUNT(*) FROM messages x
             WHERE x.channel_id = ${alias}.id
               AND x.deleted_at IS NULL
               AND x.user_id != ?
-              AND x.created_at >= COALESCE(mem.last_read_at, 0))`;
+              AND x.created_ms > COALESCE(mem.last_read_ms, 0))`;
 }
 
 /**
@@ -359,13 +363,14 @@ async function recent(env, channelId, after) {
     const { results } = await env.DB.prepare(
       `${MSG_SELECT}
         WHERE m.channel_id = ? AND m.created_at > ?
-        ORDER BY m.created_at ASC
+        ORDER BY m.created_ms ASC, m.created_at ASC
         LIMIT 200`
     ).bind(channelId, after).all().catch(() => ({ results: [] }));
     return results || [];
   }
   const { results } = await env.DB.prepare(
-    `${MSG_SELECT} WHERE m.channel_id = ? ORDER BY m.created_at DESC LIMIT 200`
+    `${MSG_SELECT} WHERE m.channel_id = ?
+      ORDER BY m.created_ms DESC, m.created_at DESC LIMIT 200`
   ).bind(channelId).all().catch(() => ({ results: [] }));
   return (results || []).reverse();
 }
@@ -414,7 +419,7 @@ export async function handlePostMessage(request, env) {
   const allowed = mayPost(user, channel);
   if (!allowed.ok) return forbidden(allowed.why);
 
-  await ensureMember(env, channelId, user.id);
+  await ensureMember(env, channelId, user.id, true);
 
   const { results } = await env.DB.prepare(
     'SELECT user_id FROM channel_members WHERE channel_id = ?'
@@ -425,9 +430,10 @@ export async function handlePostMessage(request, env) {
   const id = uid();
   const ts = now();
   await env.DB.prepare(
-    `INSERT INTO messages (id, channel_id, user_id, body, mentions, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).bind(id, channelId, user.id, text, JSON.stringify(mentions), ts).run();
+    `INSERT INTO messages
+       (id, channel_id, user_id, body, mentions, created_at, created_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, channelId, user.id, text, JSON.stringify(mentions), ts, Date.now()).run();
 
   // Written down rather than worked out: the room list sorts on this several
   // times a minute, per person, and a max over messages per room is a join
@@ -435,8 +441,9 @@ export async function handlePostMessage(request, env) {
   await env.DB.prepare('UPDATE channels SET last_message_at = ?, updated_at = ? WHERE id = ?')
     .bind(ts, ts, channelId).run();
   await env.DB.prepare(
-    'UPDATE channel_members SET last_read_at = ? WHERE channel_id = ? AND user_id = ?'
-  ).bind(ts, channelId, user.id).run();
+    `UPDATE channel_members SET last_read_at = ?, last_read_ms = ?
+      WHERE channel_id = ? AND user_id = ?`
+  ).bind(ts, Date.now(), channelId, user.id).run();
 
   const row = await env.DB.prepare(`${MSG_SELECT} WHERE m.id = ?`).bind(id).first();
   return json({ ok: true, message: shapeMessage(row, user.id) }, 201);
@@ -510,10 +517,11 @@ export async function handleMarkRead(request, env) {
   const channel = await reachableChannel(env, user, channelId);
   if (!channel) return notFound('That conversation is not one of yours.');
 
-  await ensureMember(env, channelId, user.id, 0);
+  await ensureMember(env, channelId, user.id);
   await env.DB.prepare(
-    'UPDATE channel_members SET last_read_at = ? WHERE channel_id = ? AND user_id = ?'
-  ).bind(now(), channelId, user.id).run();
+    `UPDATE channel_members SET last_read_at = ?, last_read_ms = ?
+      WHERE channel_id = ? AND user_id = ?`
+  ).bind(now(), Date.now(), channelId, user.id).run();
   return json({ ok: true });
 }
 
@@ -543,7 +551,7 @@ export async function handleCreateChannel(request, env) {
     adminOnly,
     createdBy: user.id,
   });
-  await ensureMember(env, row.id, user.id, 0);
+  await ensureMember(env, row.id, user.id);
   return json({ ok: true, channel: shapeChannel(row, 0) }, 201);
 }
 
@@ -579,8 +587,8 @@ export async function handleOpenDm(request, env) {
   }
   // Both sides, now. A conversation nobody has answered yet still has to
   // appear for the person being written to.
-  await ensureMember(env, row.id, user.id, 0);
-  await ensureMember(env, row.id, other, 0);
+  await ensureMember(env, row.id, user.id);
+  await ensureMember(env, row.id, other);
 
   return json({ ok: true, channel: shapeChannel(row, 0) });
 }
@@ -624,7 +632,7 @@ export async function handleRecordThread(request, env) {
     });
   }
 
-  if (!borrowedSeat(user)) await ensureMember(env, row.id, user.id, 0);
+  if (!borrowedSeat(user)) await ensureMember(env, row.id, user.id);
 
   const rows = await recent(env, row.id, 0);
 
@@ -656,7 +664,7 @@ export async function handleChatUnread(request, env) {
        JOIN channel_members mem ON mem.channel_id = m.channel_id AND mem.user_id = ?
        JOIN channels c ON c.id = m.channel_id
       WHERE m.user_id != ? AND m.deleted_at IS NULL
-        AND m.created_at >= mem.last_read_at
+        AND m.created_ms > mem.last_read_ms
         AND mem.muted = 0 AND c.archived_at IS NULL`
   ).bind(user.id, user.id).first().catch(() => null);
 
@@ -676,9 +684,9 @@ export async function handleChatUnread(request, env) {
        JOIN channels c ON c.id = m.channel_id
        LEFT JOIN users u ON u.id = m.user_id
       WHERE m.user_id != ? AND m.deleted_at IS NULL
-        AND m.created_at >= mem.last_read_at
+        AND m.created_ms > mem.last_read_ms
         AND mem.muted = 0 AND c.archived_at IS NULL
-      ORDER BY m.created_at DESC LIMIT 1`
+      ORDER BY m.created_ms DESC LIMIT 1`
   ).bind(user.id, user.id).first().catch(() => null);
 
   return json({
