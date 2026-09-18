@@ -16,7 +16,8 @@
 // pipeline whose last column has to be maintained by hand is a pipeline whose
 // last column is wrong.
 
-import { json, badRequest, notFound, uid, now, clean, cleanText, oneOf, readJson } from './util.js';
+import { json, badRequest, notFound, uid, now, clean, cleanText, cleanDate, oneOf, readJson }
+  from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 import { SOURCE_KINDS, SOURCE_KIND_IDS } from './attribution.js';
@@ -241,6 +242,8 @@ export async function handleUpdateLead(request, env, id) {
  * about what you were going to do stays with them, because "I rang her" is not
  * the same as "she is no longer a lead". Closing a lead has its own button on
  * the board, where you can see what you are closing.
+ *
+ * Send a date and it goes back on instead, which is what unticking does.
  */
 export async function handleFollowedUp(request, env, id) {
   const { user, response } = await requireUser(request, env);
@@ -250,10 +253,15 @@ export async function handleFollowedUp(request, env, id) {
   const owner = await db.writerFor(env, user, 'clients', id);
   if (!owner) return notFound('That lead is not here.');
 
+  // A date to put back, for a tick somebody did not mean. Clearing a date is
+  // the one thing in this drawer that cannot be worked out again afterwards,
+  // so undoing it has to carry the date rather than guess at one.
+  const on = cleanDate((await readJson(request)).on);
+
   const res = await env.DB.prepare(
-    `UPDATE clients SET lead_next_step_on = NULL, updated_at = ?
+    `UPDATE clients SET lead_next_step_on = ?, updated_at = ?
       WHERE id = ? AND user_id = ? AND lead_stage IS NOT NULL`
-  ).bind(now(), id, owner.id).run();
+  ).bind(on || null, now(), id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('That lead is not here.');
   return json({ ok: true });
 }

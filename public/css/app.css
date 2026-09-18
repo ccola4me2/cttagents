@@ -999,8 +999,13 @@ table.grid input:focus { border-color: var(--navy-400); background: #fff; }
 .task-rows .task-tick > span { min-width: 0; }
 .task-rows .m { display: block; font-size: .76rem; color: var(--ink-500); margin-top: .15rem; }
 .task-rows .m .late { color: var(--red-600); font-weight: 650; }
+/* Ticked, and still there. A row that vanished the moment you touched it left
+   nothing to look at and nothing to undo, so a settled row stays where it was,
+   quiet and struck through, until the drawer is closed. */
 .task-rows li.done .t { text-decoration: line-through; color: var(--ink-400); }
 .task-rows li.done .task-tick { cursor: pointer; }
+.task-rows li.done { opacity: .6; }
+.task-rows li.done .who, .task-rows li.done .marks { color: var(--ink-400); }
 
 /* The customiser */
 .customise-split { display: grid; grid-template-columns: 1.3fr 1fr; gap: 1.4rem; align-items: start; }

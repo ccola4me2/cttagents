@@ -1151,6 +1151,19 @@ async function main() {
     check(stillThere && stillThere.nextStep === 'Ring about the Alaska cabins',
       'and the note about what you were going to do still there',
       stillThere && stillThere.nextStep);
+
+    // Unticking. Clearing a date is the one thing in that drawer that cannot
+    // be worked out again afterwards, so undoing it carries the date back
+    // rather than guessing at one.
+    const undone = await call(advisor, 'POST',
+      `/api/leads/${encodeURIComponent(rungRow.client_id)}/followed`, { on: isoDay(-2) });
+    check(undone.status === 200, 'and unticking it puts the date back',
+      `status ${undone.status}`);
+    const rungAgain = await call(advisor, 'GET',
+      `/api/tasks?state=open&advisor=${encodeURIComponent(advisorId)}`);
+    const backOn = (rungAgain.data?.leads || []).find((l) => l.client_id === rungRow.client_id);
+    check(backOn && backOn.due_date === isoDay(-2),
+      'due again on the day it was due before', backOn && backOn.due_date);
   }
 
   // --------------------------------------------- the diary and the month --

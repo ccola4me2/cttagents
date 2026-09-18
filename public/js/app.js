@@ -626,8 +626,22 @@ function mountTodo(sidebar, user) {
   let tasks = [];
   let today = new Date().toISOString().slice(0, 10);
 
+  /**
+   * Things ticked while the drawer has been open, kept where they were.
+   *
+   * Without this a tick is indistinguishable from a deletion: the row goes,
+   * and if you did not mean it there is nothing left on screen to untick. The
+   * row stays, struck through, until the drawer is closed, which is the point
+   * at which somebody has seen what they did.
+   *
+   * Keyed by the row id, holding the row exactly as it was so unticking can
+   * put back what ticking took away. For a follow-up that is the date, which
+   * is the only one of the three that the server cannot work out for itself.
+   */
+  const settled = new Map();
+
   function counts() {
-    const open = tasks.filter((t) => !t.done_at);
+    const open = tasks.filter((t) => !t.done_at || settled.has(t.id));
     const week = new Date(Date.parse(`${today}T00:00:00Z`) + 7 * 86400000).toISOString().slice(0, 10);
     // Pinned tasks are lifted out of the date sections rather than repeated in
     // them. A pin means "this is the one I am on", and seeing it twice in one
@@ -643,7 +657,9 @@ function mountTodo(sidebar, user) {
   }
 
   function setBadge() {
-    const open = tasks.filter((t) => !t.done_at);
+    // Settled rows are not counted, even while they are still on screen. The
+    // badge answers how much is left, and a thing you have just ticked is not.
+    const open = tasks.filter((t) => !t.done_at && !settled.has(t.id));
     // Counted from every open task, pinned included: the badge answers "how
     // much needs me today", and pinning something does not deal with it.
     const late = open.filter((t) => t.due_date && t.due_date < today);
@@ -666,6 +682,12 @@ function mountTodo(sidebar, user) {
       // the count on the sidebar means everything needing you rather than
       // everything needing you that somebody remembered to write as a task.
       tasks = [...(d.tasks || []), ...(d.leads || []), ...(d.appointments || [])];
+      // The server has stopped returning the ones just ticked, which is right:
+      // they are done. The drawer puts them back so there is still something
+      // to look at and something to untick.
+      for (const [id, kept] of settled) {
+        if (!tasks.some((t) => t.id === id)) tasks.push(kept);
+      }
       today = d.today || today;
       setBadge();
     } catch { /* the badge is a nicety, not a feature */ }
@@ -705,9 +727,10 @@ function mountTodo(sidebar, user) {
    * No pin. Pinning is a task idea and there is no task here to pin.
    */
   function leadRow(t, late) {
-    return `<li class="lead-row">
+    return `<li class="lead-row${settled.has(t.id) ? ' done' : ''}">
       <label class="task-tick">
         <input type="checkbox" data-lead-done="${esc(t.client_id)}"
+          ${settled.has(t.id) ? 'checked' : ''}
           aria-label="Mark the follow-up with ${esc(t.client_name)} done">
         <span>
           <span class="t">${esc(t.title)}</span>
@@ -744,9 +767,10 @@ function mountTodo(sidebar, user) {
     // walk straight out of the side of the card.
     const about = [esc(t.client_name), linkBits(t.location)]
       .filter(Boolean).join('  ·  ');
-    return `<li class="appt-row">
+    return `<li class="appt-row${settled.has(t.id) ? ' done' : ''}">
       <label class="task-tick">
         <input type="checkbox" data-appt-done="${esc(t.appointment_id)}"
+          ${settled.has(t.id) ? 'checked' : ''}
           aria-label="Mark ${esc(t.title)} done">
         <span>
           <span class="t">${esc(t.title)}</span>
@@ -790,9 +814,10 @@ function mountTodo(sidebar, user) {
       REPEAT_MARK[t.repeat_rule] ? `<span class="tag">${esc(REPEAT_MARK[t.repeat_rule])}</span>` : '',
     ].filter(Boolean).join('');
 
-    return `<li>
+    return `<li class="${settled.has(t.id) ? 'done' : ''}">
       <label class="task-tick">
-        <input type="checkbox" data-tick="${esc(t.id)}">
+        <input type="checkbox" data-tick="${esc(t.id)}"
+          ${settled.has(t.id) ? 'checked' : ''}>
         <span>
           <span class="t">${esc(t.title)}</span>
           ${about ? `<span class="who">${esc(about)}</span>` : ''}
@@ -860,10 +885,13 @@ function mountTodo(sidebar, user) {
 
     drawer.querySelectorAll('[data-tick]').forEach((box) => {
       box.addEventListener('change', async () => {
+        const id = box.dataset.tick;
+        const was = tasks.find((t) => t.id === id);
         box.disabled = true;
         try {
-          await api(`/api/tasks/${encodeURIComponent(box.dataset.tick)}`,
+          await api(`/api/tasks/${encodeURIComponent(id)}`,
             { method: 'PUT', body: { done: box.checked } });
+          if (box.checked) settled.set(id, was); else settled.delete(id);
           await refresh();
           draw();
         } catch { box.checked = !box.checked; box.disabled = false; }
@@ -875,28 +903,38 @@ function mountTodo(sidebar, user) {
     // early or did not go to.
     drawer.querySelectorAll('[data-appt-done]').forEach((box) => {
       box.addEventListener('change', async () => {
+        const id = `appt:${box.dataset.apptDone}`;
+        const was = tasks.find((t) => t.id === id);
         box.disabled = true;
         try {
           await api(`/api/appointments/${encodeURIComponent(box.dataset.apptDone)}`,
             { method: 'PUT', body: { done: box.checked } });
+          if (box.checked) settled.set(id, was); else settled.delete(id);
           await refresh();
           draw();
         } catch { box.checked = !box.checked; box.disabled = false; }
       });
     });
 
-    // A follow-up done. Only one way: the date goes, and the row with it, so
-    // there is nothing left on the screen to untick. Setting a new date is
-    // done on the board, where you can see what you are promising.
+    // A follow-up done clears the date. Unticking puts the same date back,
+    // which is why the row is kept: the date is the one thing here the server
+    // cannot work out again for itself, and without it in hand a mis-click
+    // would be permanent.
     drawer.querySelectorAll('[data-lead-done]').forEach((box) => {
       box.addEventListener('change', async () => {
+        const clientId = box.dataset.leadDone;
+        const id = `lead:${clientId}`;
+        const was = settled.get(id) || tasks.find((t) => t.id === id);
         box.disabled = true;
         try {
-          await api(`/api/leads/${encodeURIComponent(box.dataset.leadDone)}/followed`,
-            { method: 'POST', body: {} });
+          await api(`/api/leads/${encodeURIComponent(clientId)}/followed`, {
+            method: 'POST',
+            body: box.checked ? {} : { on: (was && was.due_date) || '' },
+          });
+          if (box.checked) settled.set(id, was); else settled.delete(id);
           await refresh();
           draw();
-        } catch { box.checked = false; box.disabled = false; }
+        } catch { box.checked = !box.checked; box.disabled = false; }
       });
     });
 
@@ -1018,6 +1056,9 @@ function mountTodo(sidebar, user) {
 
   function close() {
     if (!drawer) return;
+    // Closing is the moment somebody has seen what they ticked, so the settled
+    // rows stop being kept. Opening it again shows what is left.
+    settled.clear();
     drawer.classList.remove('open');
     button.focus();
   }
