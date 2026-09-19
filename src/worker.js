@@ -400,6 +400,7 @@ const PAGE_FILES = {
   '/app/': '/app/index.html',
   '/app/payments': '/app/payments.html',
   '/app/calendar': '/app/calendar.html',
+  '/app/chat': '/app/chat.html',
   '/app/formbuilder': '/app/formbuilder.html',
   '/app/qr': '/app/qr.html',
   '/app/automations': '/app/automations.html',
