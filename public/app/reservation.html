@@ -58,6 +58,14 @@
               <span id="schedule-actions"></span></div>
             <div id="payments"></div>
           </section>
+          <!-- Beside the payment schedule, because the vendor deadline above it
+               is what creates the exposure. It used to sit seventh in the
+               right rail, under the to-do list. -->
+          <section class="card" style="margin-bottom:1.5rem;" id="penalty-card">
+            <div class="card-head" id="sec-penalty"><h2>If they cancel</h2>
+              <span id="penalty-actions"></span></div>
+            <div id="penalty"></div>
+          </section>
           <section class="card" style="margin-bottom:1.5rem;" id="commission-card">
             <div class="card-head" id="sec-commission"><h2>Commission</h2>
               <span id="commission-actions"></span></div>
@@ -119,11 +127,6 @@
             <div class="card-head" id="sec-docs"><h2>Documents</h2>
               <span id="doc-actions"></span></div>
             <div id="docs"></div>
-          </section>
-          <section class="card" style="margin-top:1.5rem;" id="penalty-card">
-            <div class="card-head" id="sec-penalty"><h2>If they cancel</h2>
-              <span id="penalty-actions"></span></div>
-            <div id="penalty"></div>
           </section>
           <section class="card" style="margin-top:1.5rem;" id="group-card" hidden>
             <div class="card-head" id="sec-group"><h2>Sold from a group</h2></div>
@@ -1992,6 +1995,7 @@ function render() {
     ['sec-travellers', 'Travellers'],
     ['sec-pricing', 'Pricing'],
     ['sec-payments', 'Payments'],
+    ['sec-penalty', 'If they cancel'],
     ['sec-commission', 'Commission'],
     // Only on the few trips that still carry one: the filter below drops any
     // section whose card is hidden, and that card hides itself when empty.
@@ -1999,7 +2003,6 @@ function render() {
     ['sec-options', 'Choices'],
     ['sec-share', 'Client page'],
     ['sec-docs', 'Documents'],
-    ['sec-penalty', 'If they cancel'],
     ['sec-amenities', 'Amenities'],
     ['sec-credits', 'Credits'],
     ['sec-tasks', 'To do'],
