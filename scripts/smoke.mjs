@@ -1286,6 +1286,12 @@ async function main() {
       `${(todo2.data?.appointments || []).length} apptDue`);
     check(apptDue && String(apptDue.id).startsWith('appt:'),
       'under an id nothing can tick as though it were a task', apptDue && apptDue.id);
+    // The id of who it is with, not only their name. Two rows both reading
+    // "Barnaby" is not the same fact as two rows pointing at one record, and
+    // the drawer needs the second one to say they are the same person.
+    check(apptDue && apptDue.client_id === clientId,
+      'carrying the id of who it is with, so it can be matched to their other rows',
+      apptDue && apptDue.client_id);
 
     // An hour with somebody in it takes itself off the list an hour after it
     // finishes. Nobody ticks two o'clock, and a list still offering this

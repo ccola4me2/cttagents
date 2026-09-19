@@ -640,8 +640,39 @@ function mountTodo(sidebar, user) {
    */
   const settled = new Map();
 
+  /** Narrowed to one person, when somebody has pressed their count. */
+  let onlyWho = null;
+
+  // Who is on the list more than once, worked out once per draw rather than
+  // once per row: every row asks, and the answer is the same for all of them.
+  let together = new Map();
+
+  /** Who a row is about, whichever of the three kinds it is. */
+  function whoOf(t) {
+    return t.client_id || null;
+  }
+
+  /**
+   * People with more than one thing on the list, and how many.
+   *
+   * Worked out before narrowing, so the count keeps saying three while you
+   * are looking at those three.
+   */
+  function shared(rows) {
+    const seen = new Map();
+    for (const t of rows) {
+      const who = whoOf(t);
+      if (!who) continue;
+      seen.set(who, (seen.get(who) || 0) + 1);
+    }
+    for (const [who, n] of [...seen]) if (n < 2) seen.delete(who);
+    return seen;
+  }
+
   function counts() {
-    const open = tasks.filter((t) => !t.done_at || settled.has(t.id));
+    const live = tasks.filter((t) => !t.done_at || settled.has(t.id));
+    const together = shared(live);
+    const open = onlyWho ? live.filter((t) => whoOf(t) === onlyWho) : live;
     const week = new Date(Date.parse(`${today}T00:00:00Z`) + 7 * 86400000).toISOString().slice(0, 10);
     // Pinned tasks are lifted out of the date sections rather than repeated in
     // them. A pin means "this is the one I am on", and seeing it twice in one
@@ -653,6 +684,11 @@ function mountTodo(sidebar, user) {
       today: rest.filter((t) => t.due_date === today),
       week: rest.filter((t) => t.due_date && t.due_date > today && t.due_date <= week),
       open,
+      together,
+      // Who they are, for the line that says what you are looking at.
+      whoName: onlyWho
+        ? ((live.find((t) => whoOf(t) === onlyWho) || {}).client_name || 'this client')
+        : '',
     };
   }
 
@@ -691,6 +727,21 @@ function mountTodo(sidebar, user) {
       today = d.today || today;
       setBadge();
     } catch { /* the badge is a nicety, not a feature */ }
+  }
+
+  /**
+   * "3 on this list", when this person is on it more than once.
+   *
+   * Left off while the list is already narrowed to them: it would be telling
+   * you the number you are currently looking at.
+   */
+  function alsoMark(t) {
+    if (onlyWho) return '';
+    const n = together.get(whoOf(t));
+    return n
+      ? `<button type="button" class="tag whotag" data-who="${esc(whoOf(t))}"
+           title="Show only ${esc(t.client_name || 'this client')}">${n} on this list</button>`
+      : '';
   }
 
   const KIND_MARK = {
@@ -739,6 +790,7 @@ function mountTodo(sidebar, user) {
             <span class="when${late ? ' late' : ''}">${esc(whenWords(t.due_date))}</span>
             <span class="tag">Lead</span>
             ${t.stage ? `<span class="tag">${esc(t.stage)}</span>` : ''}
+            ${alsoMark(t)}
           </span>
         </span>
       </label>
@@ -779,6 +831,7 @@ function mountTodo(sidebar, user) {
             <span class="when${late ? ' late' : ''}">${esc(whenWords(t.due_date))}${
               when ? ` ${esc(when)}` : ''}</span>
             <span class="tag">Appointment</span>
+            ${alsoMark(t)}
           </span>
         </span>
       </label>
@@ -812,6 +865,7 @@ function mountTodo(sidebar, user) {
         ? `<span class="tag${t.steps_done === t.steps ? ' all' : ''}">${t.steps_done}/${t.steps}</span>`
         : '',
       REPEAT_MARK[t.repeat_rule] ? `<span class="tag">${esc(REPEAT_MARK[t.repeat_rule])}</span>` : '',
+      alsoMark(t),
     ].filter(Boolean).join('');
 
     return `<li class="${settled.has(t.id) ? 'done' : ''}">
@@ -850,9 +904,36 @@ function mountTodo(sidebar, user) {
       <ul class="rows task-rows">${list.map(row).join('')}</ul>`;
   }
 
+  /**
+   * Pressing a count narrows the list to that person, and pressing the way
+   * out puts it back. Nothing is hidden for good and nothing is saved: it is
+   * a way of looking, not a setting, so it goes when the drawer closes.
+   */
+  function wireOnly() {
+    drawer.querySelectorAll('[data-who]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        // The chip sits inside the label that ticks the row off, so the click
+        // has to stop here or narrowing the list would also tick it.
+        e.preventDefault();
+        e.stopPropagation();
+        onlyWho = btn.dataset.who;
+        draw();
+      });
+    });
+    const all = drawer.querySelector('[data-who-all]');
+    if (all) all.addEventListener('click', () => { onlyWho = null; draw(); });
+  }
+
   function draw() {
     const c = counts();
+    together = c.together;
     const body = drawer.querySelector('.drawer-body');
+
+    // What you are looking at, whenever that is not everything.
+    const only = onlyWho ? `<div class="drawer-only">
+      <span>Only <strong>${esc(c.whoName)}</strong></span>
+      <button type="button" class="btn btn-ghost btn-sm" data-who-all>Show everything</button>
+    </div>` : '';
 
     const later = c.open.length - c.pinned.length - c.late.length - c.today.length - c.week.length;
     const strip = `<div class="drawer-strip">
@@ -868,20 +949,24 @@ function mountTodo(sidebar, user) {
       + section('This week', c.week);
 
     if (!c.open.length) {
-      body.innerHTML = `<div class="drawer-clear">
-        <p class="big">Nothing on your list</p>
-        <p>Add the next thing you have to do, or let a reservation make its own.</p>
+      body.innerHTML = only + `<div class="drawer-clear">
+        <p class="big">${onlyWho ? 'Nothing left for them' : 'Nothing on your list'}</p>
+        <p>${onlyWho
+          ? 'Everything on this list for them is dealt with.'
+          : 'Add the next thing you have to do, or let a reservation make its own.'}</p>
       </div>`;
+      wireOnly();
       return;
     }
 
     // Everything open, but none of it in the next seven days. Saying so beats
     // an empty panel that looks broken while thirty tasks sit behind it.
-    body.innerHTML = strip + (sections || `<div class="drawer-clear">
+    body.innerHTML = strip + only + (sections || `<div class="drawer-clear">
       <p class="big">Nothing due this week</p>
       <p>${c.open.length} task${c.open.length === 1 ? '' : 's'} further out.
         <a href="/app/tasks">See them all</a>.</p>
     </div>`);
+    wireOnly();
 
     drawer.querySelectorAll('[data-tick]').forEach((box) => {
       box.addEventListener('change', async () => {
@@ -1118,6 +1203,7 @@ function mountTodo(sidebar, user) {
     // Closing is the moment somebody has seen what they ticked, so the settled
     // rows stop being kept. Opening it again shows what is left.
     settled.clear();
+    onlyWho = null;
     drawer.classList.remove('open');
     button.focus();
   }

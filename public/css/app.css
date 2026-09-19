@@ -868,6 +868,21 @@ dialog > form > .card-pad:has(.picker-results) { overflow: visible; }
 }
 .task-rows .marks .tag.hot { background: var(--coral-50); color: var(--coral-600); }
 .task-rows .marks .tag.all { background: var(--green-50); color: var(--green-600); }
+/* One person, more than one thing waiting. A button rather than a label,
+   because pressing it is the whole point. */
+.task-rows .marks .whotag {
+  border: 0; font: inherit; font-size: .68rem; cursor: pointer;
+  background: var(--coral-50); color: var(--coral-600); font-weight: 600;
+}
+.task-rows .marks .whotag:hover { background: var(--coral-100, #ffd9cf); }
+
+/* What you are looking at, while you are looking at only one person. */
+.drawer-only {
+  display: flex; align-items: center; justify-content: space-between; gap: .6rem;
+  padding: .5rem .6rem; margin: .6rem 0 .2rem; border-radius: 9px;
+  background: var(--navy-50); font-size: .8rem; color: var(--navy-700);
+}
+.drawer-only strong { color: var(--navy-800); }
 .drawer-body .wempty { padding: .5rem .2rem; text-align: left; }
 .pin {
   background: none; border: 0; cursor: pointer; color: var(--ink-400); padding: .1rem;

@@ -293,7 +293,7 @@ export async function dueAppointments(env, scope, { until, zone = 'UTC', at = Da
   const scoped = db.scopeWhere(scope, 'a.user_id');
   const { results } = await env.DB.prepare(
     `SELECT a.id, a.user_id, a.title, a.on_date, a.start_time, a.end_time, a.location,
-            c.name AS client_name
+            a.client_id, c.name AS client_name
        FROM appointments a
        LEFT JOIN clients c ON c.id = a.client_id
       WHERE ${scoped.sql} AND a.on_date <= ?
@@ -309,6 +309,10 @@ export async function dueAppointments(env, scope, { until, zone = 'UTC', at = Da
     appointment_id: r.id,
     user_id: r.user_id,
     title: r.title,
+    // The id as well as the name, so the To do drawer can tell that an hour
+    // with somebody and a task about them are the same person. Two rows
+    // reading "Barnaby" is not the same as two rows pointing at one record.
+    client_id: r.client_id || null,
     client_name: r.client_name || '',
     location: r.location || '',
     due_date: r.on_date,
