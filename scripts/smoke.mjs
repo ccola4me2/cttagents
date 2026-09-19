@@ -8010,11 +8010,18 @@ async function main() {
   if (handedId) cleanup('the handed-over reservation', () => dropBooking(handedId));
 
   // Something on it, so the check is about the whole tree rather than one row.
-  await call(admin, 'POST', `/api/bookings/${handedId}/travellers`,
+  // Both fixtures are asserted rather than assumed: a setup call that quietly
+  // failed leaves the check below reading zero and blaming the move for it,
+  // which is exactly how this suite spent a run pointing at the wrong thing.
+  const rider = await call(admin, 'POST', `/api/bookings/${handedId}/travellers`,
     { name: `Hand Over ${stamp}` });
-  await call(admin, 'POST', '/api/payments', {
+  check(rider.status === 201, 'a traveller goes on the trip to be moved with it',
+    `status ${rider.status}`);
+  const deposit = await call(admin, 'POST', '/api/payments', {
     bookingId: handedId, amount: '500', dueDate: isoDay(30), kind: 'deposit',
   });
+  check(deposit.status === 200 || deposit.status === 201,
+    'and a payment', `status ${deposit.status}`);
 
   const before = await call(advisor, 'GET', `/api/bookings/${handedId}/record`);
   check(before.status === 404, 'the advisor cannot see it to begin with',
