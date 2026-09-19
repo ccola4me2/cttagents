@@ -12,6 +12,11 @@
      by rather than boxes you scan across. Suppliers get looked up one at a
      time, so the layout puts one name per line and gives search the top. */
   .dir { display: grid; grid-template-columns: 220px 1fr; gap: 1.5rem; align-items: start; }
+  /* A grid item will not shrink below its own content unless told it may, and
+     one column of 1fr is no help against an item that refuses to be narrower
+     than 591 pixels. This page was the widest thing in the portal on a phone
+     without it. */
+  .dir > * { min-width: 0; }
   @media (max-width: 820px) { .dir { grid-template-columns: 1fr; } }
 
   .rail { position: sticky; top: 1rem; }

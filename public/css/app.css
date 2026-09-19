@@ -552,6 +552,13 @@ dialog form { margin: 0; }
    because of this: the page scrolled sideways, and the To do drawer, which is
    fixed and full width, was dragged out to 598 with it. */
 .split > * { min-width: 0; }
+
+/* The same for every other layout that puts two columns side by side and
+   collapses to one. Written once here rather than discovered a page at a
+   time: the vendors directory was 591 pixels wide on a 375 pixel phone for
+   exactly this reason, and nothing would have said so. */
+.widgets > *, .cmp-grid > *, .inbox > *, .customise-split > *,
+.qr-layout > *, .chat-layout > * { min-width: 0; }
 @media (max-width: 1000px) { .split { grid-template-columns: 1fr; } }
 
 /* Contact record */

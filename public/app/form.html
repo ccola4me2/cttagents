@@ -12,6 +12,9 @@
      the questions and the settings, and a modal that has to be dismissed to
      see anything else makes that worse the longer the form gets. */
   .build { display: grid; grid-template-columns: 1fr 320px; gap: 1.5rem; align-items: start; }
+  /* See .dir on the vendors page: a grid item holds its content's width until
+     it is told it need not. */
+  .build > * { min-width: 0; }
   @media (max-width: 900px) { .build { grid-template-columns: 1fr; } }
 
   .pick { border: 1px solid var(--navy-100); border-radius: 6px; overflow: hidden; }
