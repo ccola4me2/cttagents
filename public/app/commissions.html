@@ -168,10 +168,11 @@ function render() {
     <div class="stat"><p class="label">Paid short</p>
       <p class="value" style="color:var(--red-600);">${money(t.shortCents)}</p>
       <p class="meta">${t.shortCount} reservation${t.shortCount === 1 ? '' : 's'} the vendor underpaid</p></div>` : ''}
-    ${d.anySplit ? `
     <div class="stat"><p class="label">To pay out</p>
       <p class="value">${money(t.payoutCents)}</p>
-      <p class="meta">Advisors' share of the money that is in</p></div>
+      <p class="meta">${d.anySplit ? 'Advisors\' share of the money that is in'
+    : 'The money that is in. No split is recorded, so all of it'}</p></div>
+    ${d.anySplit ? `
     <div class="stat"><p class="label">Agency keeps</p>
       <p class="value">${money(t.agencyReceivedCents)}</p>
       <p class="meta">The rest of the same money</p></div>
@@ -216,8 +217,8 @@ function render() {
     ? `<div class="table-wrap"><table>
         <thead><tr><th style="width:2rem;"></th><th>Client</th><th>Vendor</th><th>Home</th>
           <th>Settlement</th><th class="num">Expected</th><th class="num">Received</th>
-          <th class="num">Still out</th><th class="num">Difference</th>${
-            d.anySplit ? '<th class="num">Payout</th>' : ''}<th></th></tr></thead>
+          <th class="num">Still out</th><th class="num">Difference</th>
+          <th class="num">Payout</th><th></th></tr></thead>
         <tbody>${rows.map((r) => `<tr>
           <td>${mayTouch(r)
             ? `<input type="checkbox" data-pick="${esc(r.id)}"${chosen.has(r.id) ? ' checked' : ''}
@@ -240,15 +241,17 @@ function render() {
             ? `<strong style="color:var(--${r.variance_cents < 0 ? 'red' : 'amber'}-600);">${
                 money(r.variance_cents)}</strong>`
             : '<span class="muted">-</span>'}</td>
-          ${d.anySplit ? `<td class="num">${money(r.payout_cents)}
+          <td class="num">${money(r.payout_cents)}
             <div class="muted" style="font-size:.72rem;">${esc(String(r.split_pct))}%${
-              r.payout_cents === r.advisor_cents ? ''
-                : ` &middot; ${money(r.advisor_cents)} in full`}</div></td>` : ''}
+  r.payout_cents === r.advisor_cents ? ''
+    : ` &middot; ${money(r.advisor_cents)} in full`}</div></td>
           <td class="num">${mayTouch(r)
             ? `<button class="btn btn-ghost btn-sm" data-record="${esc(r.id)}">Record</button>` : ''}</td>
         </tr>
         ${recording === r.id ? `<tr class="record-row"><td></td>
-          <td colspan="${d.anySplit ? 8 : 7}">
+          <!-- Ten, which is every column after the tick box. It was eight, so
+               the form stopped two columns short of the row it belongs to. -->
+          <td colspan="10">
             <form data-receipt="${esc(r.id)}" class="row-between" style="gap:.6rem;flex-wrap:wrap;">
               <div class="field" style="margin:0;"><label>Amount arrived</label>
                 <input name="amount" inputmode="decimal" required
