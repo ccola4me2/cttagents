@@ -198,6 +198,12 @@ function build() {
   const advisor = d.scope && !d.scope.all && d.scope.advisorId
     ? `&advisor=${encodeURIComponent(d.scope.advisorId)}` : '';
 
+  // The remainder, not its own sum. The advisor's share and the whole
+  // commission are both computed in SQLite from the same expression, and
+  // taking the difference is what guarantees the two halves add back up to
+  // the commission instead of drifting a cent apart.
+  const agencyEarns = (s.commissionCents || 0) - (s.commissionShareCents || 0);
+
   document.getElementById('stats').innerHTML = `
     <a class="stat" href="/app/payments?state=outstanding&class=soft${advisor}">
       <p class="label">Chase this week</p><p class="value">${money(p.softDueCents)}</p>
@@ -212,11 +218,23 @@ function build() {
       <p class="label">Active reservations</p><p class="value">${s.booked}</p>
       <p class="meta">${s.quoted} quoted, ${s.travelled} travelled</p>
       <span class="go">Open the list</span></a>
+    <a class="stat" href="/app/reports${advisor ? `?${advisor.slice(1)}` : ''}">
+      <p class="label">Volume</p><p class="value">${money(s.grossCents)}</p>
+      <p class="meta">Sold and travelled, ${s.booked + s.travelled} reservation${
+        s.booked + s.travelled === 1 ? '' : 's'}</p>
+      <span class="go">See it by month</span></a>
     <a class="stat" href="/app/commissions${advisor ? `?${advisor.slice(1)}` : ''}">
-      <p class="label">${everyone ? 'Agency earnings' : 'Your earnings'}</p>
+      <p class="label">${everyone ? 'Commission earned' : 'Commission on your trips'}</p>
       <p class="value">${money(s.commissionCents)}</p>
-      <p class="meta">${money(s.commissionPaidCents)} paid out</p>
-      <span class="go">See what is owed</span></a>`;
+      <p class="meta">${money(s.commissionPaidCents)} received from vendors</p>
+      <span class="go">See what is owed</span></a>
+    <a class="stat" href="/app/commissions${advisor ? `?${advisor.slice(1)}` : ''}">
+      <p class="label">Agency earns</p>
+      <p class="value">${money(agencyEarns)}</p>
+      <p class="meta">${agencyEarns
+        ? `the advisors keep ${money(s.commissionShareCents)}`
+        : 'no split is recorded, so the advisors keep all of it'}</p>
+      <span class="go">See the split</span></a>`;
 
   // Said once, in plain words, because the same balance appears in both
   // figures days apart and that is not obvious from two numbers side by side.
