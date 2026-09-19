@@ -51,7 +51,16 @@
   .v-row .who { flex: 1; min-width: 0; }
   .v-row .who a { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .v-row .who .sub { font-size: .72rem; color: var(--navy-400, #7b8798); }
-  .v-row .cat { font-size: .72rem; color: var(--navy-400, #7b8798); white-space: nowrap; }
+  /* Shrinks to an ellipsis rather than pushing the row wider than the screen.
+     A supplier with five categories against their name was making this list
+     scroll sideways on a phone, and taking the star out of reach with it. */
+  .v-row .cat {
+    font-size: .72rem; color: var(--navy-400, #7b8798); white-space: nowrap;
+    flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  }
+  /* Below this there is no room for it at all, and the name and the star are
+     what the row is for. The categories are on the supplier's own page. */
+  @media (max-width: 560px) { .v-row .cat { display: none; } }
   /* The booking site, on the row. This directory is opened to get to a
      supplier's site more often than for any other reason, and making that a
      click into the record and back out again was two clicks too many. */
