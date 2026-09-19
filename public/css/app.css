@@ -175,6 +175,15 @@ textarea { min-height: 90px; resize: vertical; }
    this only ever showed up on rows with a date in them. */
 .field-row > * { min-width: 0; }
 @media (max-width: 620px) { .field-row { grid-template-columns: 1fr; } }
+/* The label above the value rather than beside it. At 120px plus a gap the
+   value column is under two hundred pixels on a phone, which turns an email
+   address into three lines and a client's answer to "what does a good day
+   away look like" into a column of single words. */
+@media (max-width: 480px) {
+  .kv { grid-template-columns: 1fr; gap: .1rem; }
+  .kv dt { margin-top: .5rem; }
+  .kv dt:first-child { margin-top: 0; }
+}
 
 /* ---------------------------------------------------------------- cards -- */
 .card {
@@ -338,8 +347,29 @@ textarea { min-height: 90px; resize: vertical; }
     color: #fff; border-radius: 8px; width: 36px; height: 36px;
     align-items: center; justify-content: center; cursor: pointer;
   }
-  .topbar { padding: 1rem; }
+  .topbar { padding: 1rem; flex-wrap: wrap; }
   .content { padding: 1rem; }
+
+  /* The bar across the top of a phone holds five things: the wordmark, the
+     menu, To do, Alerts and the search. Together they came to 383 pixels on a
+     375 pixel screen, so the search hung off the right hand edge and the page
+     scrolled sideways. The search takes whatever is left instead of asking
+     for a width of its own. */
+  .nav-search { flex: 1; min-width: 0; margin: 0; }
+
+  /* The month grid asks for 42rem so a day is wide enough to read, and on the
+     dashboard it sat in a widget that clips rather than scrolls: you saw
+     Sunday to Wednesday and there was no way to reach the rest of the week.
+     The calendar page has always scrolled it; now the widget does too. */
+  .wbody .cal { overflow-x: auto; }
+}
+
+/* Two words each, on a screen with no room for them. The icon and the count
+   are the part that is read at a glance; the labels are what pushed the
+   search box off the side of the screen. */
+@media (max-width: 560px) {
+  .nav-todo > span:not(.todo-count) { display: none; }
+  .sidebar .wordmark small { display: none; }
 }
 
 /* ---------------------------------------------------------------- stats -- */
@@ -504,6 +534,12 @@ dialog form { margin: 0; }
 /* Two column content split that collapses on narrow screens. Kept in CSS
    rather than measured in JS so it reflows on resize, not just on load. */
 .split { display: grid; gap: 1.5rem; grid-template-columns: 1.4fr 1fr; align-items: start; }
+/* A grid item will not shrink below its own content unless it is told it may,
+   and one column of 1fr is no help when the item in it refuses to be narrower
+   than 582 pixels. The reservation page was 582 wide on a 375 pixel phone
+   because of this: the page scrolled sideways, and the To do drawer, which is
+   fixed and full width, was dragged out to 598 with it. */
+.split > * { min-width: 0; }
 @media (max-width: 1000px) { .split { grid-template-columns: 1fr; } }
 
 /* Contact record */

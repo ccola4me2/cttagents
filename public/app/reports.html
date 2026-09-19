@@ -200,6 +200,9 @@ function drawComparison(data) {
   const block = (title, period) => `<div class="cmp">
     <p class="cmp-title">${esc(title)}
       <span class="muted">${esc(period.from.slice(5))} to ${esc(period.to.slice(5))}</span></p>
+    <!-- Four columns of money on a phone is wider than a phone. Every other
+         table in the portal sits in one of these; this one did not. -->
+    <div class="table-wrap">
     <table><thead><tr><th></th>
       <th class="num">${esc(period.from.slice(0, 4))}</th>
       <th class="num">${esc(period.prevFrom.slice(0, 4))}</th>
@@ -214,7 +217,7 @@ function drawComparison(data) {
       <tr><td>Reservations</td><td class="num">${period.now.bookings}</td>
         <td class="num muted">${period.prev.bookings}</td>
         <td class="num">${pct(period.change.bookings)}</td></tr>
-    </tbody></table></div>`;
+    </tbody></table></div></div>`;
 
   document.getElementById('comparison').innerHTML = `
     <p class="field-hint" style="margin:0 0 1rem;">Departures counts when people travel, which is when
