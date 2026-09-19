@@ -353,9 +353,16 @@ textarea { min-height: 90px; resize: vertical; }
   /* The bar across the top of a phone holds five things: the wordmark, the
      menu, To do, Alerts and the search. Together they came to 383 pixels on a
      375 pixel screen, so the search hung off the right hand edge and the page
-     scrolled sideways. The search takes whatever is left instead of asking
-     for a width of its own. */
-  .nav-search { flex: 1; min-width: 0; margin: 0; }
+     scrolled sideways.
+
+     Three parts to it. The two buttons are written for a sidebar and ask for
+     the full width of one, which in a row makes them take a third of the
+     screen each; here they take what they need. The search takes what is
+     left. And the bar may wrap, so on a narrow phone the search drops to its
+     own line rather than being squeezed to nothing. */
+  .sidebar { flex-wrap: wrap; }
+  .nav-todo { width: auto; margin-bottom: 0; }
+  .nav-search { flex: 1 1 8rem; min-width: 0; margin: 0; }
 
   /* The month grid asks for 42rem so a day is wide enough to read, and on the
      dashboard it sat in a widget that clips rather than scrolls: you saw
