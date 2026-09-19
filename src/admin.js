@@ -464,14 +464,14 @@ export async function handleSetBookingAdvisor(request, env, bookingId) {
     return badRequest('That account is not active, so nothing can be filed under it.');
   }
 
-  const { moved, movedClient } = await db.reassignBooking(
+  const { moved, client } = await db.reassignBooking(
     env, bookingId, booking.user_id, toId
   );
 
   const named = (u) => [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email;
   await db.logActivity(env, admin.id, 'admin.booking.advisor',
     `${booking.client_name}: moved from ${named(from.target)} to ${named(to.target)}`,
-    { bookingId, from: booking.user_id, to: toId, rows: moved, client: movedClient });
+    { bookingId, from: booking.user_id, to: toId, rows: moved, client });
 
   // Said on both books, because both change. The advisor losing it is the one
   // who will notice a figure move and have nothing to explain it.
@@ -484,10 +484,13 @@ export async function handleSetBookingAdvisor(request, env, bookingId) {
   return json({
     ok: true,
     advisor: named(to.target),
-    // What actually moved, so the page can say whether the client came too
+    // What actually moved, so the page can say what became of the client
     // rather than leaving somebody to find out by clicking their name.
+    // 'moved' came with it, 'shared' means the advisor already kept that
+    // person and the trip now points at their copy, 'kept' means the outgoing
+    // advisor still has another trip for them.
     rows: moved,
-    movedClient,
+    client,
     was: named(from.target),
   });
 }

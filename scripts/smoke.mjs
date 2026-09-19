@@ -8035,9 +8035,9 @@ async function main() {
   const handOver = await call(admin, 'PUT', `/api/admin/bookings/${handedId}/advisor`,
     { userId: advisorId });
   check(handOver.status === 200, 'the owner hands it over', `status ${handOver.status}`);
-  check(handOver.data?.movedClient === true,
+  check(handOver.data?.client === 'moved',
     'and the client comes too, this trip being the whole of them',
-    String(handOver.data?.movedClient));
+    String(handOver.data?.client));
 
   const after = await call(advisor, 'GET', `/api/bookings/${handedId}/record`);
   check(after.status === 200, 'the advisor can now open it', `status ${after.status}`);
@@ -8077,6 +8077,42 @@ async function main() {
     { userId: advisorId });
   check(backAgain.status === 400, 'moving it to whoever already has it is refused',
     `status ${backAgain.status}`);
+
+  // A client is unique by name within one advisor's book, so a trip handed to
+  // somebody who already keeps that person cannot bring a second copy with
+  // it. The first real move hit this: the advisor receiving the trip travels
+  // herself and already had a client record in her own name, UNIQUE refused
+  // the insert, and the whole batch rolled back.
+  const sameName = `Twice Over ${stamp}`;
+  const hers = await call(admin, 'POST', '/api/bookings', {
+    clientName: sameName, supplier: 'Princess Cruises', status: 'booked',
+    departDate: isoDay(90), returnDate: isoDay(97), gross: '1000', commission: '100',
+  });
+  const hersId = hers.data?.booking?.id;
+  if (hersId) cleanup('the advisor\'s own trip for that client', () => dropBooking(hersId));
+  await call(admin, 'PUT', `/api/admin/bookings/${hersId}/advisor`, { userId: advisorId });
+
+  const mine = await call(admin, 'POST', '/api/bookings', {
+    clientName: sameName, supplier: 'Celebrity Cruises', status: 'booked',
+    departDate: isoDay(95), returnDate: isoDay(102), gross: '2000', commission: '200',
+  });
+  const mineId = mine.data?.booking?.id;
+  if (mineId) cleanup('the second trip for the same person', () => dropBooking(mineId));
+
+  const collide = await call(admin, 'PUT', `/api/admin/bookings/${mineId}/advisor`,
+    { userId: advisorId });
+  check(collide.status === 200,
+    'a trip moves to somebody who already has that client', `status ${collide.status}`);
+  check(collide.data?.client === 'shared',
+    'and is pointed at their copy of the file rather than a second one',
+    String(collide.data?.client));
+
+  const pointed = await call(advisor, 'GET', `/api/bookings/${mineId}/record`);
+  const ownTrip = await call(advisor, 'GET', `/api/bookings/${hersId}/record`);
+  check(pointed.status === 200 && ownTrip.status === 200
+    && pointed.data?.booking?.client_id === ownTrip.data?.booking?.client_id,
+    'both trips now hang off the one client record',
+    `${pointed.data?.booking?.client_id} vs ${ownTrip.data?.booking?.client_id}`);
 
   const nobody = await call(admin, 'PUT', `/api/admin/bookings/${handedId}/advisor`,
     { userId: 'not-a-real-advisor' });

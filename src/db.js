@@ -816,55 +816,89 @@ export const BOOKING_CHILDREN = [
  * a reservation cannot end up half moved: either the trip and everything on it
  * belong to the new advisor or nothing does.
  *
- * The client comes too when this trip was the whole of the relationship. A
- * reservation whose client is somebody else's is a reservation the new advisor
- * cannot open the file on, and the usual case for this whole endpoint is a
- * trip typed in under the wrong account minutes ago, client and all. When the
- * outgoing advisor still has another trip for that client, the client stays
- * with them and the caller is told, because moving them would pull the file
- * out from under a reservation that did not move.
+ * The client comes with it when this trip was the whole of the relationship.
+ * A reservation whose client is somebody else's is one the new advisor cannot
+ * open the file on, and the usual case for this endpoint is a trip typed in
+ * under the wrong account minutes ago, client and all.
+ *
+ * Two reasons it does not come, and the caller is told which. The advisor
+ * receiving it may already keep that person, in which case the reservation is
+ * pointed at their copy rather than a second one being pushed onto their book
+ * where the name is unique. Or the outgoing advisor may still have another
+ * trip for them, in which case the client stays put: moving them would pull
+ * the file out from under a reservation that did not move.
  */
 export async function reassignBooking(env, bookingId, fromUserId, toUserId) {
   const ts = now();
+
+  // Which client record the reservation should point at afterwards, worked
+  // out before anything is written.
+  //
+  // A client is unique by name within one advisor's book, so a trip handed to
+  // somebody who already has that person cannot bring a second copy with it:
+  // the UNIQUE index refuses the insert, the batch rolls back, and the whole
+  // move fails on what is really a filing question.
+  const booking = await getBookingUnscoped(env, bookingId);
+  const clientId = booking && booking.client_id;
+  let client = 'none';
+  let pointAt = clientId || null;
+
+  if (clientId) {
+    const record = await env.DB.prepare(
+      'SELECT id, name FROM clients WHERE id = ? AND user_id = ?'
+    ).bind(clientId, fromUserId).first();
+
+    // Does the advisor receiving it already keep this person? Matched on the
+    // name, which is what the index is on and therefore what would collide.
+    const already = record ? await env.DB.prepare(
+      'SELECT id FROM clients WHERE user_id = ? AND name = ?'
+    ).bind(toUserId, record.name).first() : null;
+
+    // Does the outgoing advisor keep another trip for them? Asked while the
+    // reservation is still theirs, counting this one out by id.
+    const others = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM bookings
+        WHERE client_id = ? AND user_id = ? AND id != ?`
+    ).bind(clientId, fromUserId, bookingId).first();
+
+    if (already) {
+      client = 'shared';
+      pointAt = already.id;
+    } else if (record && !(others && others.n)) {
+      client = 'moved';
+    } else {
+      client = 'kept';
+    }
+  }
+
   const writes = [
-    // Restamped from the advisor receiving it. See the note above the column.
+    // The agreement is restamped from the advisor receiving it, and the
+    // client pointer is set in the same statement rather than a second one:
+    // a bare UPDATE on bookings after this would have to name a user_id that
+    // has only just changed.
     env.DB.prepare(
       `UPDATE bookings
-          SET user_id = ?,
+          SET user_id = ?, client_id = ?,
               agreed_split_pct = (SELECT u.default_split_pct FROM users u WHERE u.id = ?),
               agreed_lead_split_pct = (SELECT u.lead_split_pct FROM users u WHERE u.id = ?),
               updated_at = ?
         WHERE id = ? AND user_id = ?`
-    ).bind(toUserId, toUserId, toUserId, ts, bookingId, fromUserId),
+    ).bind(toUserId, pointAt, toUserId, toUserId, ts, bookingId, fromUserId),
   ];
   for (const table of BOOKING_CHILDREN) {
     writes.push(env.DB.prepare(
       `UPDATE ${table} SET user_id = ? WHERE booking_id = ? AND user_id = ?`
     ).bind(toUserId, bookingId, fromUserId));
   }
-
-  // Does the outgoing advisor keep another trip for this client? Asked before
-  // the move, while the reservation is still theirs, and counting this one out
-  // by id rather than by what it now says.
-  const booking = await getBookingUnscoped(env, bookingId);
-  const clientId = booking && booking.client_id;
-  let movedClient = false;
-  if (clientId) {
-    const others = await env.DB.prepare(
-      `SELECT COUNT(*) AS n FROM bookings
-        WHERE client_id = ? AND user_id = ? AND id != ?`
-    ).bind(clientId, fromUserId, bookingId).first();
-    if (!(others && others.n)) {
-      movedClient = true;
-      writes.push(env.DB.prepare(
-        'UPDATE clients SET user_id = ?, updated_at = ? WHERE id = ? AND user_id = ?'
-      ).bind(toUserId, ts, clientId, fromUserId));
-    }
+  if (client === 'moved') {
+    writes.push(env.DB.prepare(
+      'UPDATE clients SET user_id = ?, updated_at = ? WHERE id = ? AND user_id = ?'
+    ).bind(toUserId, ts, clientId, fromUserId));
   }
 
   const results = await env.DB.batch(writes);
   const moved = results.reduce((n, r) => n + ((r.meta && r.meta.changes) || 0), 0);
-  return { moved, movedClient, booking: await getBookingUnscoped(env, bookingId) };
+  return { moved, client, booking: await getBookingUnscoped(env, bookingId) };
 }
 
 /**

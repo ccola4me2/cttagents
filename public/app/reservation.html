@@ -839,11 +839,14 @@ function drawDetail() {
       try {
         const out = await api(`/api/admin/bookings/${encodeURIComponent(id)}/advisor`,
           { method: 'PUT', body: { userId: pick.value } });
-        // Said out loud, because whether the client came too is the one part
-        // nobody can see from the reservation afterwards.
-        if (!out.movedClient) {
+        // Said out loud, because what became of the client file is the one
+        // part nobody can see from the reservation afterwards.
+        if (out.client === 'kept') {
           alert(`Moved to ${out.advisor}. The client file stays with ${out.was}, `
             + 'who still has another trip for them.');
+        } else if (out.client === 'shared') {
+          alert(`Moved to ${out.advisor}, who already had this client on their book. `
+            + 'The trip now points at their copy of the file.');
         }
         await load();
       } catch (e) { showError(err, e); ev.target.disabled = false; }
