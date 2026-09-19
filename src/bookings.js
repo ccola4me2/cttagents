@@ -477,6 +477,10 @@ export async function handleBookingRecord(request, env, id) {
       earns,
       status: booking.commission_status,
       pct: split.pct,
+      // Why the agency takes nothing, when it takes nothing. Their own
+      // holiday and nobody having agreed a split are the same figure and
+      // two different facts.
+      personal: Boolean(booking.personal),
       expectedCents,
       receivedCents,
       outstandingCents: Math.max(expectedCents - receivedCents, 0),

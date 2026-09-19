@@ -48,9 +48,15 @@ export const COMMISSION_RECEIVED = 'received';
 /**
  * The percentage the advisor keeps.
  *
- * Four answers in order, and the order is the whole point:
+ * Five answers in order, and the order is the whole point:
  *
- *   1. A figure written on this one reservation by hand. Beats everything.
+ *   0. Their own travel, which is not split at all. An advisor booking their
+ *      own holiday through the agency earns real commission, and the
+ *      agreement they signed is about the business they bring in. This beats
+ *      even a figure typed onto the trip: a split on a reservation marked
+ *      "My own travel" is a contradiction, and paying the figure while the
+ *      screen says own travel is the resolution that pays somebody wrong.
+ *   1. A figure written on this one reservation by hand.
  *   2. What the agreement said when the reservation was taken, stamped onto it
  *      then and never touched since.
  *   3. The advisor's agreement as it stands now, for reservations taken before
@@ -71,6 +77,9 @@ export const COMMISSION_RECEIVED = 'received';
  * take nothing.
  */
 export function splitPct(booking, personalPct, leadPct) {
+  // Their own holiday, ahead of every agreement and of any figure typed onto
+  // the trip. See the note above SPLIT_PCT_SQL, which says the same in SQL.
+  if (booking.personal) return 100;
   const company = booking.lead_source === COMPANY_LEAD;
   const agreed = company
     ? [booking.agreed_lead_split_pct, booking.agreed_split_pct]
@@ -117,14 +126,14 @@ export function shareOf(commissionCents, pct, unsplitCents = 0) {
 // reservation says what was agreed when it was taken. A report that reads the
 // first is restating March from September.
 export const SPLIT_PCT_SQL = (b = 'b', u = 'u') =>
-  `COALESCE(${b}.advisor_split_pct,
+  `(CASE WHEN ${b}.personal = 1 THEN 100 ELSE COALESCE(${b}.advisor_split_pct,
      CASE WHEN ${b}.lead_source = '${COMPANY_LEAD}'
           THEN COALESCE(${b}.agreed_lead_split_pct, ${b}.agreed_split_pct)
           ELSE ${b}.agreed_split_pct END,
      CASE WHEN ${b}.lead_source = '${COMPANY_LEAD}'
           THEN COALESCE(${u}.lead_split_pct, ${u}.default_split_pct)
           ELSE ${u}.default_split_pct END,
-     100)`;
+     100) END)`;
 
 /**
  * The commission a reservation actually earns.

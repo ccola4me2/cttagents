@@ -915,8 +915,9 @@ function drawCommission() {
         ${figure('Expected', c.expectedCents, 'What the vendor owes')}
         ${figure('Received', c.receivedCents, `<span class="badge ${s.tone}">${esc(s.label)}</span>${
       c.outstandingCents ? ` &middot; ${money(c.outstandingCents)} still out` : ''}`)}
-        ${figure('Taken', c.agencyCents, c.pct === 100
-      ? 'No split recorded, so nothing' : `The agency's ${esc(String(100 - c.pct))}%`)}
+        ${figure('Taken', c.agencyCents, c.personal ? 'Your own travel, so nothing'
+      : c.pct === 100 ? 'No split recorded, so nothing'
+        : `The agency's ${esc(String(100 - c.pct))}%`)}
         ${figure('Paid out', c.payoutCents,
     `${esc(String(c.pct))}% of what is in${c.payoutCents === c.fullPayoutCents ? ''
       : ` &middot; ${money(c.fullPayoutCents)} when it all lands`}`)}
