@@ -359,10 +359,15 @@ textarea { min-height: 90px; resize: vertical; }
      the full width of one, which in a row makes them take a third of the
      screen each; here they take what they need. The search takes what is
      left. And the bar may wrap, so on a narrow phone the search drops to its
-     own line rather than being squeezed to nothing. */
+     own line rather than being squeezed to nothing.
+
+     Written as .sidebar .nav-todo rather than .nav-todo because this block
+     sits above those rules in the file: at equal specificity the later one
+     wins, so the plain selector lost and the buttons kept the full width
+     they ask for in a sidebar. */
   .sidebar { flex-wrap: wrap; }
-  .nav-todo { width: auto; margin-bottom: 0; }
-  .nav-search { flex: 1 1 8rem; min-width: 0; margin: 0; }
+  .sidebar .nav-todo { width: auto; margin-bottom: 0; }
+  .sidebar .nav-search { flex: 1 1 8rem; min-width: 0; margin: 0; }
 
   /* The month grid asks for 42rem so a day is wide enough to read, and on the
      dashboard it sat in a widget that clips rather than scrolls: you saw
