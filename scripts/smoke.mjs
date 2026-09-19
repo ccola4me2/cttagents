@@ -8117,11 +8117,16 @@ async function main() {
   // Taking a payout back puts what it covered back on the list, because the
   // alternative is entering the correction as a second payment and having
   // the books say the agency paid twice.
+  // Everything the payout covered, not just this one trip's share. Paying an
+  // advisor settles every reservation owed to them, which by this point in
+  // the suite is a dozen, so taking it back has to restore all of it plus the
+  // bonus that arrived in the meantime.
+  const paidTotal = paidOut.data?.amountCents || 0;
   const undone = await call(admin, 'DELETE', `/api/payouts/${payoutId}`);
   const restored = await call(admin, 'GET', '/api/payouts');
-  check(undone.status === 200 && dueFor(restored.data) === share + 10000,
-    'removing a payout puts what it covered back on the list',
-    `status ${undone.status}, due ${dueFor(restored.data)}, expected ${share + 10000}`);
+  check(undone.status === 200 && dueFor(restored.data) === paidTotal + 10000,
+    'removing a payout puts everything it covered back on the list',
+    `status ${undone.status}, due ${dueFor(restored.data)}, expected ${paidTotal + 10000}`);
 
   const gone = await call(admin, 'DELETE', `/api/payouts/${payoutId}`);
   check(gone.status === 404, 'and it cannot be removed twice', `status ${gone.status}`);
