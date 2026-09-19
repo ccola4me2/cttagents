@@ -369,10 +369,11 @@ textarea { min-height: 90px; resize: vertical; }
   .sidebar .nav-todo { width: auto; margin-bottom: 0; }
   .sidebar .nav-search { flex: 1 1 8rem; min-width: 0; margin: 0; }
 
-  /* The month grid asks for 42rem so a day is wide enough to read, and on the
-     dashboard it sat in a widget that clips rather than scrolls: you saw
-     Sunday to Wednesday and there was no way to reach the rest of the week.
-     The calendar page has always scrolled it; now the widget does too. */
+  /* A narrow phone cannot fit seven readable columns whatever the rules say,
+     so the widget scrolls rather than squeezing. It used to be carrying more
+     than that: the Calendar page's own grid rules were unscoped and winning
+     here, which gave the widget a 46rem minimum on every screen size. They
+     are scoped to .cal-wrap now, and this is back to being about phones. */
   .wbody .cal { overflow-x: auto; }
 }
 
@@ -1363,29 +1364,37 @@ th.num .th-sort { justify-content: flex-end; }
 /* Scrolls sideways rather than squeezing: seven columns under about 40rem
    makes every day too narrow to carry a word, and a day you cannot read is
    worse than one you have to scroll to. */
+/* Every rule below is scoped to .cal-wrap, which is what the Calendar page
+   wraps its grid in and the dashboard widget has never had.
+
+   Unscoped, they applied to both. The widget three hundred lines above uses
+   the same three class names for a different component, and at equal
+   specificity the rule further down the file wins, so the compact month on
+   the dashboard was quietly given this month's 46rem minimum width inside a
+   703 pixel panel and lost Saturday off the edge with nothing to scroll. */
 .cal-wrap { overflow-x: auto; }
-.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(6.5rem, 1fr));
+.cal-wrap .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(6.5rem, 1fr));
   gap: 1px; background: var(--navy-100); min-width: 46rem; }
-.cal-head { background: var(--navy-50); padding: .45rem .5rem; font-size: .72rem;
+.cal-wrap .cal-head { background: var(--navy-50); padding: .45rem .5rem; font-size: .72rem;
   font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-500); }
 
-.cal-day { background: #fff; border: 0; text-align: left; padding: .4rem .45rem .55rem;
+.cal-wrap .cal-day { background: #fff; border: 0; text-align: left; padding: .4rem .45rem .55rem;
   min-height: 6.2rem; display: flex; flex-direction: column; gap: .18rem; cursor: pointer;
   font: inherit; color: inherit; }
-.cal-day:hover { background: var(--navy-50); }
-.cal-day:focus-visible { outline: 2px solid var(--coral-600); outline-offset: -2px; }
-.cal-day .d { font-size: .82rem; font-weight: 600; color: var(--navy-800); }
+.cal-wrap .cal-day:hover { background: var(--navy-50); }
+.cal-wrap .cal-day:focus-visible { outline: 2px solid var(--coral-600); outline-offset: -2px; }
+.cal-wrap .cal-day .d { font-size: .82rem; font-weight: 600; color: var(--navy-800); }
 /* Outside this month: still there, still clickable, visibly not the point. */
-.cal-day.away { background: var(--navy-50); }
-.cal-day.away .d, .cal-day.away .ev { opacity: .5; }
-.cal-day.is-today .d { background: var(--coral-600); color: #fff;
+.cal-wrap .cal-day.away { background: var(--navy-50); }
+.cal-wrap .cal-day.away .d, .cal-wrap .cal-day.away .ev { opacity: .5; }
+.cal-wrap .cal-day.is-today .d { background: var(--coral-600); color: #fff;
   border-radius: 999px; padding: 0 .4rem; align-self: flex-start; }
 
-.cal-day .ev { font-size: .72rem; line-height: 1.25; padding: .1rem .3rem; border-radius: 3px;
+.cal-wrap .cal-day .ev { font-size: .72rem; line-height: 1.25; padding: .1rem .3rem; border-radius: 3px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cal-day .ev b { font-weight: 600; }
-.cal-day .ev.off { text-decoration: line-through; opacity: .55; }
-.cal-day .ev.more { color: var(--ink-500); padding-left: .3rem; }
+.cal-wrap .cal-day .ev b { font-weight: 600; }
+.cal-wrap .cal-day .ev.off { text-decoration: line-through; opacity: .55; }
+.cal-wrap .cal-day .ev.more { color: var(--ink-500); padding-left: .3rem; }
 
 .ev-appointment { background: var(--coral-50); color: var(--coral-600); }
 .ev-task { background: var(--navy-50); color: var(--navy-800); }
@@ -1395,8 +1404,8 @@ th.num .th-sort { justify-content: flex-end; }
 .ev-return { background: var(--navy-100); color: var(--navy-700); }
 
 @media (max-width: 40rem) {
-  .cal-grid { min-width: 42rem; }
-  .cal-day { min-height: 5rem; }
+  .cal-wrap .cal-grid { min-width: 42rem; }
+  .cal-wrap .cal-day { min-height: 5rem; }
 }
 
 /* ----------------------------------------------------------------- bell -- */
