@@ -1025,9 +1025,15 @@ table.grid input:focus { border-color: var(--navy-400); background: #fff; }
   border-radius: 7px; cursor: pointer; font: inherit; padding: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
 }
-.cal-day.empty { cursor: default; }
+/* A blank leading cell, named for what it is rather than "empty".
+   .empty is the portal's "nothing here" placeholder, and .wbody .empty gives
+   that placeholder 1.8rem of padding. A calendar cell wearing the same class
+   collected it, which set the grid's minimum column width at sixty pixels,
+   which on a phone was the difference between seeing the month and scrolling
+   sideways through it. */
+.cal-day.blank { cursor: default; }
 .cal-day .n { font-size: .78rem; color: var(--ink-700); line-height: 1; }
-.cal-day:hover:not(.empty) { background: var(--navy-50); }
+.cal-day:hover:not(.blank) { background: var(--navy-50); }
 .cal-day.today { background: var(--navy-800); }
 .cal-day.today .n { color: #fff; font-weight: 700; }
 .cal-day.picked { border-color: var(--coral-400); }
