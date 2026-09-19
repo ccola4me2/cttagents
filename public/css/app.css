@@ -1474,6 +1474,12 @@ th.num .th-sort { justify-content: flex-end; }
 .chat-pill { min-width: 18px; text-align: center; border-radius: 999px; font-size: .68rem;
   font-weight: 700; padding: .05rem .3rem; background: var(--coral-500); color: #fff; }
 .chat-start { width: 100%; margin-top: .3rem; font-size: .82rem; }
+/* A room that has been retired. Listed rather than gone, because "it can be
+   reopened" is only true of something somebody can reach. */
+.chat-shut {
+  display: flex; align-items: center; justify-content: space-between; gap: .4rem;
+  padding: .3rem .5rem; font-size: .82rem; color: var(--ink-400);
+}
 
 /* The thread. A fixed height so the composer stays put and the messages
    scroll under it, rather than the page growing and the box you type in

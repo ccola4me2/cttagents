@@ -71,6 +71,7 @@ function shapeChannel(r, unread = 0) {
     subjectKind: r.subject_kind || null,
     subjectId: r.subject_id || null,
     adminOnly: Boolean(r.post_admin_only),
+    createdBy: r.created_by || null,
     muted: Boolean(r.muted),
     unread,
     lastMessageAt: r.last_message_at || null,
@@ -252,6 +253,15 @@ export async function handleChat(request, env) {
       LIMIT 100`
   ).bind(user.id, user.id).all().catch(() => ({ results: [] }));
 
+  // The closed ones, so there is a way back. Without this the list quietly
+  // loses a room for good and "it can be brought back" is not true of
+  // anything anybody can reach.
+  const shut = user.agency_id ? await env.DB.prepare(
+    `SELECT * FROM channels
+      WHERE kind = 'channel' AND agency_id = ? AND archived_at IS NOT NULL
+      ORDER BY archived_at DESC LIMIT 30`
+  ).bind(user.agency_id).all().catch(() => ({ results: [] })) : { results: [] };
+
   const people = await peopleIn(env, user);
   const byId = new Map(people.map((p) => [p.id, p.name]));
   const named = namesForDms((mine.results || []).filter((r) => r.kind === 'dm'), user, byId);
@@ -264,6 +274,11 @@ export async function handleChat(request, env) {
     acting: borrowedSeat(user),
     isAdmin: user.role === 'admin' && !borrowedSeat(user),
     channels: (open.results || []).map((r) => shapeChannel(r, r.unread || 0)),
+    closed: (shut.results || []).map((r) => ({
+      ...shapeChannel(r, 0),
+      // Who may bring it back is the same rule as who could close it.
+      mine: r.created_by === user.id,
+    })),
     conversations: (mine.results || []).map((r) => ({
       ...shapeChannel(r, r.unread || 0),
       name: r.kind === 'dm' ? (named.get(r.id) || 'Direct message') : (r.name || 'Thread'),
@@ -553,6 +568,46 @@ export async function handleCreateChannel(request, env) {
   });
   await ensureMember(env, row.id, user.id);
   return json({ ok: true, channel: shapeChannel(row, 0) }, 201);
+}
+
+/**
+ * Close a room, or open it again.
+ *
+ * Closed rather than deleted. What was said in a room is the agency's record
+ * of how something was decided, and a button that threw that away would be
+ * the wrong button. It stops taking messages, leaves the list of rooms, and
+ * can be brought back from the closed ones.
+ *
+ * Whoever made it, or an owner. The same rule as taking back a message: the
+ * person who did it can undo it, and somebody has to be able to tidy up after
+ * an advisor who has left.
+ *
+ * Only a named room. A direct message is not a room and there is nothing to
+ * retire; a record thread belongs to its booking or its client, and closing it
+ * from here would hide it on a page that still shows the record.
+ */
+export async function handleCloseRoom(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  if (borrowedSeat(user)) return forbidden('Stop working as an advisor before closing a room.');
+
+  const row = await env.DB.prepare('SELECT * FROM channels WHERE id = ?').bind(id).first();
+  if (!row || row.agency_id !== user.agency_id) return notFound('That room is not here.');
+  if (row.kind !== 'channel') {
+    return badRequest(row.kind === 'dm'
+      ? 'A direct message is not a room to close.'
+      : 'A discussion belongs to the record it is on.');
+  }
+
+  const mine = row.created_by === user.id;
+  if (!mine && user.role !== 'admin') return forbidden('That room is not yours to close.');
+
+  const closed = (await readJson(request)).closed !== false;
+  await env.DB.prepare('UPDATE channels SET archived_at = ?, updated_at = ? WHERE id = ?')
+    .bind(closed ? now() : null, now(), id).run();
+
+  const after = await env.DB.prepare('SELECT * FROM channels WHERE id = ?').bind(id).first();
+  return json({ ok: true, channel: shapeChannel(after, 0) });
 }
 
 /**

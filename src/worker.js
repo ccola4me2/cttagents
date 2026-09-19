@@ -164,6 +164,7 @@ import {
   handleOpenDm,
   handleRecordThread,
   handleChatUnread,
+  handleCloseRoom,
 } from './chat.js';
 import { handleCalendar } from './calendar.js';
 import { handleAlerts, handleAlertsSeen, pushWaiting } from './alerts.js';
@@ -808,6 +809,8 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/chat/read' && method === 'POST') return handleMarkRead(request, env);
   if (path === '/api/chat/channels' && method === 'POST') return handleCreateChannel(request, env);
   if (path === '/api/chat/dm' && method === 'POST') return handleOpenDm(request, env);
+  const chatRoom = path.match(/^\/api\/chat\/channels\/([^/]+)\/closed$/);
+  if (chatRoom && method === 'POST') return handleCloseRoom(request, env, chatRoom[1]);
   const chatMsg = path.match(/^\/api\/chat\/messages\/([^/]+)$/);
   if (chatMsg && method === 'PUT') return handleEditMessage(request, env, chatMsg[1]);
   if (chatMsg && method === 'DELETE') return handleDeleteMessage(request, env, chatMsg[1]);

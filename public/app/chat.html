@@ -31,7 +31,8 @@
         <section class="card chat-pane">
           <div class="card-head">
             <h2 id="room-name">Chat</h2>
-            <span><a class="btn btn-ghost btn-sm" id="room-link" hidden>Open the record</a></span>
+            <span><a class="btn btn-ghost btn-sm" id="room-link" hidden>Open the record</a>
+              <button class="btn btn-ghost btn-sm" type="button" id="room-close" hidden>Close this room</button></span>
           </div>
           <div class="card-pad" id="thread">
             <p class="muted">Pick a room on the left, or start a message.</p>
@@ -89,9 +90,13 @@ const roomsBox = document.getElementById('rooms');
 const threadBox = document.getElementById('thread');
 const nameBox = document.getElementById('room-name');
 const linkBtn = document.getElementById('room-link');
+const closeBtn = document.getElementById('room-close');
 const roomDlg = document.getElementById('room-dlg');
 
-let state = { channels: [], conversations: [], people: [], isAdmin: false, agency: true };
+let state = {
+  channels: [], conversations: [], closed: [], people: [],
+  isAdmin: false, agency: true, me: {},
+};
 let open = null;
 let live = null;
 
@@ -132,13 +137,24 @@ function rooms() {
          </select>`
       : ''}
 
-    ${records.length ? `<p class="chat-group">On records</p>${records.map(line).join('')}` : ''}`;
+    ${records.length ? `<p class="chat-group">On records</p>${records.map(line).join('')}` : ''}
+
+    ${(state.closed || []).length ? `<p class="chat-group">Closed</p>
+      ${state.closed.map((c) => `<div class="chat-shut">
+        <span>${esc(c.name || 'Room')}</span>
+        ${c.mine || state.isAdmin
+          ? `<button type="button" class="linkish" data-reopen="${esc(c.id)}">Reopen</button>`
+          : ''}
+      </div>`).join('')}` : ''}`;
 
   roomsBox.querySelectorAll('[data-room]').forEach((b) =>
     b.addEventListener('click', () => show(b.dataset.room)));
 
   const starter = document.getElementById('start-dm');
   if (starter) starter.addEventListener('change', () => startDm(starter.value));
+
+  roomsBox.querySelectorAll('[data-reopen]').forEach((b) =>
+    b.addEventListener('click', () => shut(b.dataset.reopen, false)));
 }
 
 /**
@@ -158,12 +174,43 @@ function show(id) {
   linkBtn.hidden = !(room && room.href);
   if (room && room.href) linkBtn.href = room.href;
 
+  // Only a named room, and only for whoever made it or the agency. A direct
+  // message is not a room, and a discussion belongs to the record it is on.
+  closeBtn.hidden = !(room && room.kind === 'channel'
+    && (state.isAdmin || room.createdBy === (state.me || {}).id));
+
   const url = new URL(location.href);
   url.searchParams.set('c', id);
   history.replaceState(null, '', url);
 
   live = mountThread(threadBox, { channelId: id }, { onRead: refresh });
   rooms();
+}
+
+/**
+ * Close a room, or open it again.
+ *
+ * Closed, not deleted: what was said in it is how something was decided, and
+ * the words stay. The confirmation says that, because "close" beside a room
+ * full of conversation reads like a delete to anybody who has not been told.
+ */
+async function shut(id, closed) {
+  if (closed && !confirm('Close this room? Nothing said in it is deleted, it leaves '
+    + 'the list of rooms and stops taking messages. It can be reopened.')) return;
+  try {
+    await api(`/api/chat/channels/${encodeURIComponent(id)}/closed`,
+      { method: 'POST', body: { closed } });
+    if (closed && open === id) {
+      if (live) { live.stop(); live = null; }
+      open = null;
+      nameBox.textContent = 'Chat';
+      closeBtn.hidden = true;
+      linkBtn.hidden = true;
+      threadBox.innerHTML = '<p class="muted">Pick a room on the left, or start a message.</p>';
+    }
+    await refresh();
+    if (!closed) show(id);
+  } catch (e) { showError(err, e); }
 }
 
 async function startDm(userId) {
@@ -182,6 +229,8 @@ async function refresh() {
     rooms();
   } catch (e) { showError(err, e); }
 }
+
+closeBtn.addEventListener('click', () => { if (open) shut(open, true); });
 
 document.getElementById('new-room').addEventListener('click', () => {
   document.getElementById('room-form').reset();

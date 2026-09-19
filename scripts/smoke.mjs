@@ -1660,6 +1660,56 @@ async function main() {
     (i) => i.kind === 'chat' && String(i.href || '').includes(chatRoomId)),
     'and your own messages never ring your own bell');
 
+  step('Chat: closing a room, and opening it again');
+
+  // Closed, not deleted. What was said in a room is how something was
+  // decided, so the words stay and the room leaves the list.
+  const chatShutOther = await call(advisor, 'POST',
+    `/api/chat/channels/${encodeURIComponent(chatNoticesId)}/closed`, { closed: true });
+  check(chatShutOther.status === 403, 'a room somebody else made is not yours to close',
+    `status ${chatShutOther.status}`);
+
+  const chatShutDm = await call(advisor, 'POST',
+    `/api/chat/channels/${encodeURIComponent(chatDmOnce.data?.channel?.id)}/closed`,
+    { closed: true });
+  check(chatShutDm.status === 400, 'a direct message is not a room to close',
+    `status ${chatShutDm.status}`);
+
+  const chatShutThread = await call(advisor, 'POST',
+    `/api/chat/channels/${encodeURIComponent(chatOnTripId)}/closed`, { closed: true });
+  check(chatShutThread.status === 400, 'nor is a discussion on a booking',
+    `status ${chatShutThread.status}`);
+
+  const chatShut = await call(advisor, 'POST',
+    `/api/chat/channels/${encodeURIComponent(chatRoomId)}/closed`, { closed: true });
+  check(chatShut.status === 200, 'the advisor closes the room they made',
+    `status ${chatShut.status}`);
+
+  const chatAfterShut = await call(advisor, 'GET', '/api/chat');
+  check(!(chatAfterShut.data?.channels || []).some((c) => c.id === chatRoomId),
+    'it leaves the list of rooms');
+  check((chatAfterShut.data?.closed || []).some((c) => c.id === chatRoomId),
+    'and turns up under the closed ones, so there is a way back',
+    `${(chatAfterShut.data?.closed || []).length} closed`);
+
+  const chatShutPost = await call(advisor, 'POST', '/api/chat/messages',
+    { channelId: chatRoomId, body: 'Anybody still here?' });
+  check(chatShutPost.status === 403, 'a closed room stops taking messages',
+    `status ${chatShutPost.status}`);
+
+  const chatShutRead = await call(advisor, 'GET', `/api/chat/messages?channel=${chatRoomId}`);
+  check(chatShutRead.status === 200 && (chatShutRead.data?.messages || []).length > 0,
+    'while everything said in it is still there to read',
+    `${(chatShutRead.data?.messages || []).length} message(s)`);
+
+  const chatOpenAgain = await call(advisor, 'POST',
+    `/api/chat/channels/${encodeURIComponent(chatRoomId)}/closed`, { closed: false });
+  check(chatOpenAgain.status === 200, 'and it can be opened again',
+    `status ${chatOpenAgain.status}`);
+  const chatBack = await call(advisor, 'GET', '/api/chat');
+  check((chatBack.data?.channels || []).some((c) => c.id === chatRoomId),
+    'back among the rooms where it was');
+
   await call(advisor, 'PUT', '/api/auth/profile', { chatToasts: false });
   const chatQuiet = await call(advisor, 'GET', '/api/chat/unread');
   check(chatQuiet.data?.latest === null,
