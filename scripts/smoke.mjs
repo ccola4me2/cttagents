@@ -5824,6 +5824,33 @@ async function main() {
   check(unfiled.status === 200, 'and can take one off that the owner put on',
     `status ${unfiled.status}`);
 
+  // The owner has to be able to reach it on the screen, not only through the
+  // API. The page drew the Record button and the tick box only on rows the
+  // viewer owned, so an owner opened Commission owed, saw the agency's
+  // reservations listed with what each is owed, and could not touch one.
+  // canPick is what the page asks, and it is the same question both endpoints
+  // ask before they widen.
+  const commOwnerView = await call(admin, 'GET', '/api/commissions?advisor=all');
+  check(commOwnerView.data?.scope?.canPick === true,
+    'the owner is told they may act on the agency\'s rows',
+    JSON.stringify(commOwnerView.data?.scope));
+  const commAdvisorRow = (commOwnerView.data?.rows || []).find((r) => r.user_id !== adminId);
+  check(Boolean(commAdvisorRow),
+    'and the agency view carries an advisor\'s reservation to act on',
+    `${(commOwnerView.data?.rows || []).length} row(s)`);
+
+  // And marking it paid from there settles it on the advisor's book.
+  if (commAdvisorRow) {
+    const commMarkedPaid = await call(admin, 'POST', '/api/commissions/status',
+      { ids: [commAdvisorRow.id], status: 'paid' });
+    check(commMarkedPaid.status === 200 && commMarkedPaid.data?.changed >= 1,
+      'an owner marks an advisor\'s commission paid', JSON.stringify(commMarkedPaid.data));
+    const commAdvisorPaid = await call(advisor, 'GET', '/api/commissions?status=paid');
+    const commSettledRow = (commAdvisorPaid.data?.rows || []).find((r) => r.id === commAdvisorRow.id);
+    check(Boolean(commSettledRow), 'and the advisor sees it commSettledRow on their own book',
+      `${(commAdvisorPaid.data?.rows || []).length} paid row(s)`);
+  }
+
   await call(advisor, 'DELETE', `/api/commissions/statements/${stmtId}`);
   const afterDelete = await call(advisor, 'GET', '/api/commissions');
   const stillPaid = (afterDelete.data?.rows || []).find((r) => r.id === shortId);

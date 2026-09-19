@@ -91,6 +91,21 @@ const statusFilter = document.getElementById('status-filter');
 let loadedStatus = '';
 const bulk = document.getElementById('bulk');
 let d = null;
+/**
+ * Whose commission this screen may settle.
+ *
+ * Your own always, and anybody's in your agency when you are its owner. Both
+ * endpoints behind these two controls were written for exactly that and say
+ * so: filing a receipt resolves the reservation's owner first, so an owner's
+ * cheque lands on the advisor's book rather than their own, and marking a
+ * batch paid carries the agency predicate in the statement.
+ *
+ * The buttons did not. An owner opened this page, saw fifteen reservations
+ * owed across the agency, and could not touch one of them. canPick is the
+ * answer to "are you an owner, and not sitting in somebody else's seat",
+ * which is the same question both endpoints ask.
+ */
+const mayTouch = (r) => r.user_id === ME || Boolean(d && d.scope && d.scope.canPick);
 let statements = [];
 const chosen = new Set();
 // Which row has its "record what arrived" line open. One at a time: this is
@@ -194,7 +209,7 @@ function render() {
           <th class="num">Still out</th><th class="num">Difference</th>${
             d.anySplit ? '<th class="num">Advisor keeps</th>' : ''}<th></th></tr></thead>
         <tbody>${rows.map((r) => `<tr>
-          <td>${r.user_id === ME
+          <td>${mayTouch(r)
             ? `<input type="checkbox" data-pick="${esc(r.id)}"${chosen.has(r.id) ? ' checked' : ''}
                  aria-label="Select ${esc(r.client_name)}">`
             : ''}</td>
@@ -217,7 +232,7 @@ function render() {
             : '<span class="muted">-</span>'}</td>
           ${d.anySplit ? `<td class="num">${money(r.advisor_cents)}
             <div class="muted" style="font-size:.72rem;">${esc(String(r.split_pct))}%</div></td>` : ''}
-          <td class="num">${r.user_id === ME
+          <td class="num">${mayTouch(r)
             ? `<button class="btn btn-ghost btn-sm" data-record="${esc(r.id)}">Record</button>` : ''}</td>
         </tr>
         ${recording === r.id ? `<tr class="record-row"><td></td>
