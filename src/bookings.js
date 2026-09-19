@@ -493,6 +493,12 @@ export async function handleBookingRecord(request, env, id) {
           ? 0 : booking.commission_cents, pct, unsplit),
       };
     })(),
+    // Who this trip could be handed to, for the one reader who may hand it
+    // over. Empty for everybody else, so the control is absent rather than
+    // present and refused. Not while acting as somebody: moving a reservation
+    // between two other people's books is not something to do from inside one
+    // of them.
+    advisors: isAdmin(user) && !user.acting_as ? await db.advisorOptions(env, user) : [],
     // Whether this reader may change any of it, so the page does not offer
     // buttons that would fail. An owner may correct an advisor's reservation;
     // it stays the advisor's, and the page says whose it is while they do.

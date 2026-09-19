@@ -432,6 +432,66 @@ export async function handleSetBookingSplit(request, env, bookingId) {
   return json({ ok: true, booking: updated });
 }
 
+/**
+ * Hand a reservation to the advisor it should have been taken under.
+ *
+ * A trip typed in by the owner without first working as the advisor lands on
+ * the owner's book: their production, their commission, their statement. The
+ * only fix was to type the whole thing in again and delete the first one,
+ * which loses the payments, the travellers and the date it was sold.
+ *
+ * Both ends are checked, not just one. The reservation has to be reachable by
+ * this owner and so does the advisor receiving it, or an owner of one agency
+ * could push work into another's book.
+ */
+export async function handleSetBookingAdvisor(request, env, bookingId) {
+  const { user: admin, response } = await requireAdmin(request, env);
+  if (response) return response;
+
+  const booking = await db.getBookingUnscoped(env, bookingId);
+  if (!booking) return notFound('Reservation not found.');
+  const from = await reachable(env, admin, booking.user_id);
+  if (from.error) return notFound('Reservation not found.');
+
+  const body = await readJson(request);
+  const toId = clean(body.userId, 64);
+  if (!toId) return badRequest('Pick the advisor it belongs to.');
+  if (toId === booking.user_id) return badRequest('It is already theirs.');
+
+  const to = await reachable(env, admin, toId);
+  if (to.error) return to.error;
+  if (to.target.status !== 'active') {
+    return badRequest('That account is not active, so nothing can be filed under it.');
+  }
+
+  const { moved, movedClient } = await db.reassignBooking(
+    env, bookingId, booking.user_id, toId
+  );
+
+  const named = (u) => [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email;
+  await db.logActivity(env, admin.id, 'admin.booking.advisor',
+    `${booking.client_name}: moved from ${named(from.target)} to ${named(to.target)}`,
+    { bookingId, from: booking.user_id, to: toId, rows: moved, client: movedClient });
+
+  // Said on both books, because both change. The advisor losing it is the one
+  // who will notice a figure move and have nothing to explain it.
+  await db.logActivity(env, booking.user_id, 'booking.moved.out',
+    `${booking.client_name} moved to ${named(to.target)}, by ${named(admin)}`, { bookingId });
+  await db.logActivity(env, toId, 'booking.moved.in',
+    `${booking.client_name} moved to you from ${named(from.target)}, by ${named(admin)}`,
+    { bookingId });
+
+  return json({
+    ok: true,
+    advisor: named(to.target),
+    // What actually moved, so the page can say whether the client came too
+    // rather than leaving somebody to find out by clicking their name.
+    rows: moved,
+    movedClient,
+    was: named(from.target),
+  });
+}
+
 export async function handleSetAdvisorSplit(request, env, userId) {
   const { user: admin, response } = await requireAdmin(request, env);
   if (response) return response;

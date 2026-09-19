@@ -301,6 +301,11 @@ function sqlStatements(src) {
 const INTERPOLATED_TABLE = /\b(?:FROM|JOIN|UPDATE|DELETE\s+FROM|INTO)\s+\$\{/i;
 
 const INTERPOLATED_ALLOWED = [
+  ['UPDATE ${table} SET user_id = ? WHERE booking_id = ? AND user_id = ?',
+    'db.reassignBooking, which hands a reservation to another advisor. The table comes '
+    + 'from BOOKING_CHILDREN in db.js and nowhere else; the statement names the outgoing '
+    + 'advisor in its WHERE, so it can only move rows the reservation being moved '
+    + 'actually holds, and the caller is an owner put through reachable() first'],
   ['SELECT t.user_id AS user_id FROM ${table} t',
     'db.writerFor, which resolves whose a reservation row is. The table comes from '
     + 'the WRITABLE set in db.js and nowhere else; the statement names t.user_id and '

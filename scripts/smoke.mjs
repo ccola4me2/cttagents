@@ -7962,6 +7962,99 @@ async function main() {
   }
   }
 
+  // -------------------------------------------- moving it to its advisor ----
+  // A trip typed in by the owner without first working as the advisor lands
+  // on the owner's book: their production, their commission, their statement.
+  // Retyping it loses the payments, the travellers and the date it was sold.
+  {
+  step('Handing a reservation to the advisor it belongs to');
+
+  const adminWho = (await call(admin, 'GET', '/api/auth/me')).data?.user?.id;
+
+  const handed = await call(admin, 'POST', '/api/bookings', {
+    clientName: `Handover ${stamp}`, supplier: 'Princess Cruises', status: 'booked',
+    departDate: isoDay(80), returnDate: isoDay(87), gross: '3000', commission: '300',
+  });
+  const handedId = handed.data?.booking?.id;
+  if (handedId) cleanup('the handed-over reservation', () => dropBooking(handedId));
+
+  // Something on it, so the check is about the whole tree rather than one row.
+  await call(admin, 'POST', `/api/bookings/${handedId}/travellers`,
+    { name: `Hand Over ${stamp}` });
+  await call(admin, 'POST', '/api/payments', {
+    bookingId: handedId, amount: '500', dueDate: isoDay(30), kind: 'deposit',
+  });
+
+  const before = await call(advisor, 'GET', `/api/bookings/${handedId}/record`);
+  check(before.status === 404, 'the advisor cannot see it to begin with',
+    `status ${before.status}`);
+
+  const notMine = await call(advisor, 'PUT', `/api/admin/bookings/${handedId}/advisor`,
+    { userId: advisorId });
+  check(notMine.status === 403 || notMine.status === 404,
+    'and cannot help themselves to it', `status ${notMine.status}`);
+
+  const handOver = await call(admin, 'PUT', `/api/admin/bookings/${handedId}/advisor`,
+    { userId: advisorId });
+  check(handOver.status === 200, 'the owner hands it over', `status ${handOver.status}`);
+  check(handOver.data?.movedClient === true,
+    'and the client comes too, this trip being the whole of them',
+    String(handOver.data?.movedClient));
+
+  const after = await call(advisor, 'GET', `/api/bookings/${handedId}/record`);
+  check(after.status === 200, 'the advisor can now open it', `status ${after.status}`);
+  check(after.data?.editable === true, 'and write to it', String(after.data?.editable));
+  check((after.data?.travellers || []).some((t) => t.name === `Hand Over ${stamp}`),
+    'the travellers came with it', String((after.data?.travellers || []).length));
+  check((after.data?.payments || []).some((p) => p.amount_cents === 50000),
+    'and so did the payment schedule', String((after.data?.payments || []).length));
+
+  // The half that would be missed: the trip is on their commission page, not
+  // still sitting on the owner's.
+  const theirs = await call(advisor, 'GET', '/api/commissions');
+  check((theirs.data?.rows || []).some((r) => r.id === handedId),
+    'it is on the advisor\'s commission page');
+  const owners = await call(admin, 'GET', `/api/commissions?advisor=${adminWho}`);
+  check(!(owners.data?.rows || []).some((r) => r.id === handedId),
+    'and off the owner\'s own');
+
+  // The agreement follows the person, not the paperwork. An owner keeping
+  // everything is not an agreement with the associate the trip just moved to.
+  const agreed = await call(admin, 'PUT', `/api/admin/advisors/${advisorId}/split`,
+    { defaultSplitPct: 60 });
+  const second = await call(admin, 'POST', '/api/bookings', {
+    clientName: `Handover two ${stamp}`, supplier: 'Princess Cruises', status: 'booked',
+    departDate: isoDay(80), returnDate: isoDay(87), gross: '3000', commission: '300',
+  });
+  const secondId = second.data?.booking?.id;
+  if (secondId) cleanup('the second handover', () => dropBooking(secondId));
+  await call(admin, 'PUT', `/api/admin/bookings/${secondId}/advisor`, { userId: advisorId });
+  const restamped = await call(advisor, 'GET', `/api/bookings/${secondId}/record`);
+  check(agreed.status === 200 && restamped.data?.split?.pct === 60,
+    'a trip that changes hands is restamped with the receiving advisor\'s agreement',
+    JSON.stringify(restamped.data?.split?.pct));
+  await call(admin, 'PUT', `/api/admin/advisors/${advisorId}/split`, { defaultSplitPct: null });
+
+  const backAgain = await call(admin, 'PUT', `/api/admin/bookings/${handedId}/advisor`,
+    { userId: advisorId });
+  check(backAgain.status === 400, 'moving it to whoever already has it is refused',
+    `status ${backAgain.status}`);
+
+  const nobody = await call(admin, 'PUT', `/api/admin/bookings/${handedId}/advisor`,
+    { userId: 'not-a-real-advisor' });
+  check(nobody.status === 404, 'and so is an advisor who does not exist',
+    `status ${nobody.status}`);
+
+  const acting = await call(admin, 'POST', `/api/admin/act/${advisorId}`, {});
+  if (acting.status === 200) {
+    const inSeat = await call(admin, 'PUT', `/api/admin/bookings/${handedId}/advisor`,
+      { userId: adminWho });
+    check(inSeat.status >= 400,
+      'and not from inside somebody else\'s account', `status ${inSeat.status}`);
+    await call(admin, 'DELETE', '/api/admin/act');
+  }
+  }
+
   // ---------------------------------------------------------------- tidy --
   step('Clean up');
   await runCleanups();

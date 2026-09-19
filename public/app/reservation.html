@@ -725,6 +725,10 @@ function drawDetail() {
   // arithmetic; without, they are the only figures there are.
   const priced = Boolean(d.priceSummary);
   const depositNote = depositHint(b, d.priceSummary);
+  // Everybody it could be moved to, which is everybody but whoever has it.
+  // Empty unless the reader is an owner: the server sends no list otherwise,
+  // so there is nothing to draw rather than a control that would be refused.
+  const movable = (d.advisors || []).filter((a) => a.id !== b.user_id);
 
   const text = (name, label, value, extra = '') => `
     <div class="field"><label for="f-${name}">${esc(label)}</label>
@@ -799,7 +803,19 @@ function drawDetail() {
     // Everything the reservation knows about itself that nobody types.
     `<p class="form-group">On the record</p>
      <dl class="pairs">
-       <dt>Booking agent</dt><dd>${esc(b.advisor_name || '-')}</dd>
+       <dt>Booking agent</dt><dd>${esc(b.advisor_name || '-')}${
+         movable.length ? ` <button type="button" class="btn btn-ghost btn-sm"
+           id="agent-change">Change</button>
+         <div id="agent-move" hidden style="margin-top:.5rem;">
+           <div class="toolbar" style="margin:0;">
+             <select id="agent-pick" style="min-width:0;flex:1;">${movable.map((a) =>
+               `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('')}</select>
+             <button type="button" class="btn btn-secondary btn-sm" id="agent-save">Move it</button>
+           </div>
+           <p class="field-hint">The whole trip goes with it: the travellers, the pricing, the
+             payments, the documents and the commission. It counts towards their production
+             from then on, and their agreement decides the split.</p>
+         </div>` : ''}</dd>
        ${b.invoice_no ? `<dt>Invoice</dt><dd>${esc(b.invoice_no)}${b.statement_sent_at
          ? ` <span class="muted">sent ${esc(timeAgo(b.statement_sent_at))}</span>` : ''}${
          d.statementStale ? ' <span class="badge badge-amber">changed since</span>' : ''}</dd>` : ''}
@@ -839,6 +855,36 @@ function drawDetail() {
       emptyText: 'Nobody by that name yet. Keep typing to book for somebody new.',
     });
   }
+  // Handing the reservation over. Named in the question, because "move this
+  // reservation?" against a list of four advisors does not say which one.
+  const agentBtn = document.getElementById('agent-change');
+  if (agentBtn) {
+    agentBtn.addEventListener('click', () => {
+      const box = document.getElementById('agent-move');
+      box.hidden = !box.hidden;
+      agentBtn.hidden = !box.hidden;
+    });
+    document.getElementById('agent-save').addEventListener('click', async (ev) => {
+      const pick = document.getElementById('agent-pick');
+      const who = (movable.find((a) => a.id === pick.value) || {}).name || 'them';
+      if (!confirm(`Move this reservation to ${who}?\n\n`
+        + 'Everything on it goes too, and it comes off the current agent\'s production '
+        + 'and their commission. Their own agreement decides the split from now on.')) return;
+      ev.target.disabled = true;
+      try {
+        const out = await api(`/api/admin/bookings/${encodeURIComponent(id)}/advisor`,
+          { method: 'PUT', body: { userId: pick.value } });
+        // Said out loud, because whether the client came too is the one part
+        // nobody can see from the reservation afterwards.
+        if (!out.movedClient) {
+          alert(`Moved to ${out.advisor}. The client file stays with ${out.was}, `
+            + 'who still has another trip for them.');
+        }
+        await load();
+      } catch (e) { showError(err, e); ev.target.disabled = false; }
+    });
+  }
+
   document.getElementById('detail-foot').hidden = ro;
   // Cancelling is the advisor's act and keeps the record. Deleting says the
   // reservation never existed and is an administrator's, which the server

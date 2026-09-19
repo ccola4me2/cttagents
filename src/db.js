@@ -782,6 +782,90 @@ export async function setBookingSplit(env, id, { advisorSplitPct, leadSource }) 
 }
 
 /**
+ * Which of a reservation's records move with it when it changes hands.
+ *
+ * Every one of these carries a user_id of its own, because that is how the
+ * fence works: a row is reachable by the advisor whose id is on it. Move the
+ * reservation alone and its pricing, its payments and its travellers stay
+ * behind, where the new advisor cannot see them and the old advisor's
+ * statement still counts them.
+ *
+ * Two tables with a booking_id are deliberately not here:
+ *
+ *   appointments is somebody's diary. The hour they set aside to ring the
+ *   client is theirs, and handing the trip over does not put a meeting in
+ *   somebody else's Tuesday.
+ *
+ *   special_leads is the enquiry a published deal pulled in. It belongs to
+ *   whoever ran the deal, which is a fact about where the business came from
+ *   and stays true however the trip is filed afterwards.
+ */
+export const BOOKING_CHILDREN = [
+  'travellers', 'booking_pricing', 'booking_payments', 'amenities',
+  'penalty_tiers', 'quote_options', 'components', 'documents',
+  'itinerary_items', 'tasks', 'trip_messages', 'reviews',
+  'client_credits', 'commission_receipts', 'group_registrations',
+];
+
+/**
+ * Hand a reservation to another advisor.
+ *
+ * Admin-only and checked by the caller; this is the move itself. One batch, so
+ * a reservation cannot end up half moved: either the trip and everything on it
+ * belong to the new advisor or nothing does.
+ *
+ * The client comes too when this trip was the whole of the relationship. A
+ * reservation whose client is somebody else's is a reservation the new advisor
+ * cannot open the file on, and the usual case for this whole endpoint is a
+ * trip typed in under the wrong account minutes ago, client and all. When the
+ * outgoing advisor still has another trip for that client, the client stays
+ * with them and the caller is told, because moving them would pull the file
+ * out from under a reservation that did not move.
+ */
+export async function reassignBooking(env, bookingId, fromUserId, toUserId) {
+  const ts = now();
+  const writes = [
+    // Restamped from the advisor receiving it. See the note above the column.
+    env.DB.prepare(
+      `UPDATE bookings
+          SET user_id = ?,
+              agreed_split_pct = (SELECT u.default_split_pct FROM users u WHERE u.id = ?),
+              agreed_lead_split_pct = (SELECT u.lead_split_pct FROM users u WHERE u.id = ?),
+              updated_at = ?
+        WHERE id = ? AND user_id = ?`
+    ).bind(toUserId, toUserId, toUserId, ts, bookingId, fromUserId),
+  ];
+  for (const table of BOOKING_CHILDREN) {
+    writes.push(env.DB.prepare(
+      `UPDATE ${table} SET user_id = ? WHERE booking_id = ? AND user_id = ?`
+    ).bind(toUserId, bookingId, fromUserId));
+  }
+
+  // Does the outgoing advisor keep another trip for this client? Asked before
+  // the move, while the reservation is still theirs, and counting this one out
+  // by id rather than by what it now says.
+  const booking = await getBookingUnscoped(env, bookingId);
+  const clientId = booking && booking.client_id;
+  let movedClient = false;
+  if (clientId) {
+    const others = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM bookings
+        WHERE client_id = ? AND user_id = ? AND id != ?`
+    ).bind(clientId, fromUserId, bookingId).first();
+    if (!(others && others.n)) {
+      movedClient = true;
+      writes.push(env.DB.prepare(
+        'UPDATE clients SET user_id = ?, updated_at = ? WHERE id = ? AND user_id = ?'
+      ).bind(toUserId, ts, clientId, fromUserId));
+    }
+  }
+
+  const results = await env.DB.batch(writes);
+  const moved = results.reduce((n, r) => n + ((r.meta && r.meta.changes) || 0), 0);
+  return { moved, movedClient, booking: await getBookingUnscoped(env, bookingId) };
+}
+
+/**
  * The agreement is stamped here, in the insert, rather than worked out by the
  * caller and passed in.
  *

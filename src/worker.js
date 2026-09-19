@@ -361,6 +361,7 @@ import {
   handleStartActing,
   handleStopActing,
   handleSetBookingSplit,
+  handleSetBookingAdvisor,
   handleRunLifecycle,
   handleHealth,
   handleTestEmail,
@@ -647,6 +648,7 @@ async function routeApi(request, env, path, method) {
   const advisorOneMatch = path.match(/^\/api\/admin\/advisors\/([^/]+)$/);
   const actMatch = path.match(/^\/api\/admin\/act\/([^/]+)$/);
   const bookingSplitMatch = path.match(/^\/api\/admin\/bookings\/([^/]+)\/split$/);
+  const bookingAdvisorMatch = path.match(/^\/api\/admin\/bookings\/([^/]+)\/advisor$/);
   const myTaskMatch = path.match(/^\/api\/tasks\/([^/]+)$/);
   // Checklist steps hang off a task; the steps themselves are addressed by
   // their own id, so ticking one off does not need to name its task twice.
@@ -1122,6 +1124,9 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/admin/act' && method === 'DELETE') return handleStopActing(request, env);
   if (bookingSplitMatch && method === 'PUT') {
     return handleSetBookingSplit(request, env, decodeURIComponent(bookingSplitMatch[1]));
+  }
+  if (bookingAdvisorMatch && method === 'PUT') {
+    return handleSetBookingAdvisor(request, env, decodeURIComponent(bookingAdvisorMatch[1]));
   }
   if (actMatch && method === 'POST') {
     return handleStartActing(request, env, decodeURIComponent(actMatch[1]));
