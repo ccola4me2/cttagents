@@ -99,10 +99,47 @@ export async function remindTasks(env, { at = now(), force = false } = {}) {
     due_time: [r.start_time, r.end_time].filter(Boolean).join(' to '),
   }));
 
-  if (!(results || []).length && !leads.length && !appts.length) return { sent: 0, tasks: 0 };
+  // Being asked for by name, still unread. No stamp, for the same reason the
+  // follow-ups above carry none: reading the conversation is what stops it,
+  // which is a better signal than "we mentioned this once in an email".
+  //
+  // Across every advisor at once, so the LIKE has to be built against each
+  // membership row rather than against one id bound in from outside.
+  const { results: mentionRows } = await env.DB.prepare(
+    `SELECT m.id, m.body, m.channel_id, mem.user_id,
+            ch.kind, ch.name AS room_name,
+            au.first_name, au.last_name, au.email AS author_email
+       FROM messages m
+       JOIN channel_members mem ON mem.channel_id = m.channel_id
+       JOIN channels ch ON ch.id = m.channel_id
+       LEFT JOIN users au ON au.id = m.user_id
+      WHERE m.deleted_at IS NULL AND m.user_id != mem.user_id
+        AND m.created_ms > mem.last_read_ms
+        AND mem.muted = 0 AND ch.archived_at IS NULL
+        AND m.mentions LIKE '%"' || mem.user_id || '"%'
+      ORDER BY m.created_ms DESC
+      LIMIT 200`
+  ).bind().all().catch(() => ({ results: [] }));
+
+  const mentions = (mentionRows || []).map((r) => {
+    const who = [r.first_name, r.last_name].filter(Boolean).join(' ') || r.author_email || 'Somebody';
+    return {
+      id: `chat:${r.id}`,
+      mention: true,
+      user_id: r.user_id,
+      title: r.kind === 'dm' ? `${who} sent you a message` : `${who} asked for you in ${r.room_name || 'chat'}`,
+      client_name: String(r.body || '').replace(/\s+/g, ' ').slice(0, 110),
+      channel_id: r.channel_id,
+      due_date: today,
+    };
+  });
+
+  if (!(results || []).length && !leads.length && !appts.length && !mentions.length) {
+    return { sent: 0, tasks: 0 };
+  }
 
   const byUser = new Map();
-  for (const t of [...(results || []), ...leads, ...appts]) {
+  for (const t of [...(results || []), ...leads, ...appts, ...mentions]) {
     if (!byUser.has(t.user_id)) byUser.set(t.user_id, []);
     byUser.get(t.user_id).push(t);
   }
@@ -116,8 +153,13 @@ export async function remindTasks(env, { at = now(), force = false } = {}) {
       'SELECT email, first_name, notify_email, task_digest FROM users WHERE id = ?'
     ).bind(userId).first();
 
-    const due = tasks.filter((t) => t.due_date === today);
-    const late = tasks.filter((t) => t.due_date < today);
+    // Its own block in the message. A mention is not a task that fell due, and
+    // filing it under "due today" beside three phone calls says the wrong
+    // thing about both.
+    const chat = tasks.filter((t) => t.mention);
+    const jobs = tasks.filter((t) => !t.mention);
+    const due = jobs.filter((t) => t.due_date === today);
+    const late = jobs.filter((t) => t.due_date < today);
 
     // Stamped whether or not the message got out, and whether or not this
     // advisor wants one. An address that bounces every morning would otherwise
@@ -137,7 +179,7 @@ export async function remindTasks(env, { at = now(), force = false } = {}) {
 
     try {
       await sendTaskDigestEmail(env, {
-        to, firstName: owner.first_name, due, late,
+        to, firstName: owner.first_name, due, late, chat,
       });
       sent += 1;
     } catch (e) {
@@ -148,7 +190,9 @@ export async function remindTasks(env, { at = now(), force = false } = {}) {
   await stamp(env, 'reminded_at', stampToday, at);
   await stamp(env, 'overdue_reminded_at', stampLate, at);
 
-  return { sent, tasks: results.length, advisors: byUser.size };
+  // Mentions counted separately, because they are not tasks and because a
+  // number nobody can see is a number nobody can test.
+  return { sent, tasks: results.length, mentions: mentions.length, advisors: byUser.size };
 }
 
 async function stamp(env, column, ids, at) {

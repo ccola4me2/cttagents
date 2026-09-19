@@ -289,7 +289,7 @@ export function sendSignupNoticeEmail(env, { to, advisorFirstName, what, href,
  * the part that has gone wrong, and each line says what the task is about:
  * "Ring about the deposit" on its own is not enough to act on from a phone.
  */
-export function sendTaskDigestEmail(env, { to, firstName, due = [], late = [] }) {
+export function sendTaskDigestEmail(env, { to, firstName, due = [], late = [], chat = [] }) {
   const line = (t) => {
     const about = [t.client_name, t.booking_client, t.group_name].filter(Boolean)[0];
     const when = t.due_time ? ` at ${t.due_time}` : '';
@@ -306,6 +306,7 @@ export function sendTaskDigestEmail(env, { to, firstName, due = [], late = [] })
   const counts = [
     late.length ? `${late.length} overdue` : '',
     due.length ? `${due.length} due today` : '',
+    chat.length ? `${chat.length} asking for you` : '',
   ].filter(Boolean).join(', ');
 
   return send(env, {
@@ -316,7 +317,9 @@ export function sendTaskDigestEmail(env, { to, firstName, due = [], late = [] })
       body: `<p style="margin:0 0 16px;">Morning ${escapeHtml(firstName || 'there')}.</p>`
         + block('Overdue', late, '#c2410c')
         + block('Due today', due, BRAND_NAVY)
-        + '<p style="margin:0;">Ticking anything off stops it appearing here tomorrow.</p>',
+        + block('Asking for you in chat', chat, BRAND_NAVY)
+        + `<p style="margin:0;">Ticking anything off stops it appearing here tomorrow${
+          chat.length ? ', and reading a conversation stops that one' : ''}.</p>`,
       cta: { label: 'Open your list', href: `${appUrl(env)}/app/tasks` },
     }),
   });

@@ -2489,9 +2489,18 @@ async function main() {
     check(first.status === 200 && first.data?.tasks >= 2,
       'a pass picks up what is due and what is late', JSON.stringify(first.data));
 
+    // Being asked for by name goes in the morning message too. No stamp on
+    // these: reading the conversation is what stops them, which is why the
+    // second pass below still counts them while it counts no tasks.
+    check(first.data?.mentions >= 1, 'and a mention nobody has read yet',
+      `${first.data?.mentions} mention(s)`);
+
     const again = await call(admin, 'POST', '/api/admin/task-reminders', {});
     check(again.data?.tasks === 0,
       'and says nothing twice about the same task', JSON.stringify(again.data));
+    check(again.data?.mentions >= 1,
+      'while an unread mention is still worth a line tomorrow',
+      `${again.data?.mentions} mention(s)`);
 
     // A task with no date is a someday task. It is not late, it is not due,
     // and putting it in a morning email is how the email stops being read.
