@@ -2486,12 +2486,16 @@ async function main() {
     // Forced, because the pass is meant to fire once a morning and waiting
     // until tomorrow is not a test.
     // A mention the advisor has not read, made here rather than relied on from
-    // the chat section a thousand lines above. Posting in a room marks you
-    // caught up with it, which is right and which means the mention from up
-    // there was read the moment the advisor typed their next message.
-    if (chatFirstName) {
+    // the chat section a thousand lines above. Two reasons, and both of them
+    // caught this check out in turn: posting in a room marks you caught up
+    // with it, so the earlier mention was read the moment the advisor typed
+    // again, and the advisor is renamed in between, so the name captured up
+    // there matches nobody by the time this runs. Ask who they are now.
+    const chatWhoNow = await call(advisor, 'GET', '/api/auth/me');
+    const chatNameNow = String(chatWhoNow.data?.user?.firstName || '').trim();
+    if (chatNameNow) {
       await call(admin, 'POST', '/api/chat/messages',
-        { channelId: chatRoomId, body: `@${chatFirstName} one for the morning email ${stamp}` });
+        { channelId: chatRoomId, body: `@${chatNameNow} one for the morning email ${stamp}` });
     }
 
     const first = await call(admin, 'POST', '/api/admin/task-reminders', {});
@@ -2501,7 +2505,7 @@ async function main() {
     // Being asked for by name goes in the morning message too. No stamp on
     // these: reading the conversation is what stops them, which is why the
     // second pass below still counts them while it counts no tasks.
-    if (chatFirstName) {
+    if (chatNameNow) {
       check(first.data?.mentions >= 1, 'and a mention nobody has read yet',
         `${first.data?.mentions} mention(s)`);
     } else {
@@ -2512,7 +2516,7 @@ async function main() {
     const again = await call(admin, 'POST', '/api/admin/task-reminders', {});
     check(again.data?.tasks === 0,
       'and says nothing twice about the same task', JSON.stringify(again.data));
-    if (chatFirstName) {
+    if (chatNameNow) {
       check(again.data?.mentions >= 1,
         'while an unread mention is still worth a line tomorrow',
         `${again.data?.mentions} mention(s)`);
