@@ -7,6 +7,13 @@
 <meta name="robots" content="noindex, nofollow">
 <link rel="icon" href="/logo-mark.png" type="image/png">
 <link rel="stylesheet" href="/css/app.css">
+<style>
+  /* Twelve columns pay for their padding twice each, which was a third of
+     the table's width. Ten is what the rest of the portal uses on a dense
+     table, and it is the difference between fitting on a laptop and only
+     fitting on a wide screen. */
+  #rows table th, #rows table td { padding-left: .62rem; padding-right: .62rem; }
+</style>
 </head>
 <body>
 <div class="shell">
@@ -23,9 +30,9 @@
         Commission is earned when the client travels, so the clock starts on their return date. A trip
         that has not departed is not late, however long ago it was sold.
       </div>
-      <div class="split" style="margin-top:1.5rem;">
-        <div>
-          <section class="card">
+      <!-- Full width, and above the split. Twelve columns do not fit in half a
+           page, and the two that fell off the end were money. -->
+      <section class="card" style="margin-top:1.5rem;">
             <div class="card-head"><h2>Waiting to be paid</h2>
               <select id="status-filter" aria-label="Settlement" style="width:auto;">
                 <option value="">Anything still owed</option>
@@ -42,8 +49,8 @@
               <button class="btn btn-ghost btn-sm" data-mark="pending">Back to pending</button>
             </div>
             <div id="rows"></div>
-          </section>
-        </div>
+      </section>
+      <div class="split" style="margin-top:1.5rem;">
         <div>
           <section class="card">
             <div class="card-head"><h2>By age</h2></div>
@@ -53,9 +60,11 @@
             <div class="card-head"><h2>By vendor</h2></div>
             <div id="vendors"></div>
           </section>
+        </div>
+        <div>
           <!-- The last step of the money. Above vendor statements because it
                is the one with a deadline twice a month. -->
-          <section class="card" style="margin-top:1.5rem;">
+          <section class="card">
             <div class="card-head"><h2>Paying the advisors</h2>
               <span id="payout-actions"></span></div>
             <div id="owed-advisors"></div>
