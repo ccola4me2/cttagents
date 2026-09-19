@@ -11,13 +11,14 @@
 // overdue and the report worth ignoring.
 
 import { json, badRequest, oneOf, uid, now, readJson } from './util.js';
-import { requireUser } from './auth.js';
+import { requireUser, isAdmin } from './auth.js';
 import * as db from './db.js';
 import {
   SPLIT_PCT_SQL, ADVISOR_SHARE_SQL, UNSPLIT_SQL, EARNED_SQL, NO_COMMISSION, COMMISSION_RECEIVED,
   UNSPLIT_COMMISSION_KINDS, shareOf,
 } from './split.js';
 import { settlement, SETTLEMENT_STATES, COMMISSION_KINDS } from './reconcile.js';
+import { owedByAdvisor, PAYOUT_METHODS } from './payouts.js';
 
 // What a batch may be moved to. "No commission" is not on it on purpose:
 // waiving a commission is a decision about one reservation, made where the
@@ -110,6 +111,15 @@ export async function handleListCommissions(request, env) {
               AS expected_bonus_cents,
             (SELECT MAX(r.received_on) FROM commission_receipts r
               WHERE r.booking_id = b.id) AS last_received_on,
+            -- What the agency has already handed the advisor against this
+            -- trip, and when. Without it the payout run shows the same rows
+            -- on the 15th and the 30th and the only record of the first one
+            -- is a bank statement.
+            COALESCE((SELECT SUM(l.amount_cents) FROM advisor_payout_lines l
+                       WHERE l.booking_id = b.id), 0) AS paid_out_cents,
+            (SELECT MAX(p2.paid_on) FROM advisor_payout_lines l
+               JOIN advisor_payouts p2 ON p2.id = l.payout_id
+              WHERE l.booking_id = b.id) AS last_paid_out_on,
             ${ADVISOR_SHARE_SQL(EARNED_SQL('b.commission_cents', 'b.commission_status'),
               pct, UNSPLIT_SQL('b.id'))} AS advisor_cents,
             ${UNSPLIT_SQL('b.id')} AS unsplit_cents,
@@ -163,6 +173,9 @@ export async function handleListCommissions(request, env) {
       // whole point of having both.
       payout_cents: payout.advisorCents,
       agency_received_cents: payout.agencyCents,
+      // What is left to hand over. The share minus what has gone out, which
+      // is the figure the twice monthly run is actually about.
+      due_cents: payout.advisorCents - (r.paid_out_cents || 0),
       // Read through the same rule as the advisor's half, so a waived
       // commission leaves the agency nothing either rather than leaving it
       // the whole of a figure nobody is paying.
@@ -225,6 +238,11 @@ export async function handleListCommissions(request, env) {
       // add up to paidCents, so a payout can be checked against the bank.
       payoutCents: rows.reduce((n, r) => n + (r.payout_cents || 0), 0),
       agencyReceivedCents: rows.reduce((n, r) => n + (r.agency_received_cents || 0), 0),
+      // Of that share, what has gone out and what has not. Two figures rather
+      // than one, because "nothing left to pay" and "nothing was ever owed"
+      // are the same nought and a very different Tuesday.
+      paidOutCents: rows.reduce((n, r) => n + (r.paid_out_cents || 0), 0),
+      dueCents: rows.reduce((n, r) => n + Math.max(r.due_cents || 0, 0), 0),
       receivedCount: rows.filter((r) => (r.received_cents || 0) !== 0).length,
       paidAdvisorCents: rows.filter((r) => r.settlement === 'settled' || r.settlement === 'over')
         .reduce((n, r) => n + (r.advisor_cents || 0), 0),
@@ -248,6 +266,11 @@ export async function handleListCommissions(request, env) {
     anySplit: rows.some((r) => Number(r.split_pct) !== 100),
     scope: db.scopeLabel(scope, user),
     advisors: await db.advisorOptions(env, user),
+    // Who is owed what, so the payout run is a button rather than an
+    // addition somebody does by eye down a column of fifteen.
+    owed: await owedByAdvisor(env, scope),
+    payoutMethods: PAYOUT_METHODS,
+    mayPay: isAdmin(user) && !user.acting_as,
   });
 }
 

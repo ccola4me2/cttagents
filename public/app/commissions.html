@@ -53,6 +53,35 @@
             <div class="card-head"><h2>By vendor</h2></div>
             <div id="vendors"></div>
           </section>
+          <!-- The last step of the money. Above vendor statements because it
+               is the one with a deadline twice a month. -->
+          <section class="card" style="margin-top:1.5rem;">
+            <div class="card-head"><h2>Paying the advisors</h2>
+              <span id="payout-actions"></span></div>
+            <div id="owed-advisors"></div>
+            <form id="payout-form" class="card-pad" hidden
+                  style="border-top:1px solid var(--navy-100);">
+              <div class="notice notice-error" hidden></div>
+              <div class="field"><label for="po-who">Paying</label>
+                <select id="po-who" name="userId"></select></div>
+              <div class="field-row">
+                <div class="field"><label for="po-on">On</label>
+                  <input id="po-on" name="paidOn" type="date"></div>
+                <div class="field"><label for="po-method">How</label>
+                  <select id="po-method" name="method"></select></div>
+              </div>
+              <div class="field"><label for="po-ref">Reference</label>
+                <input id="po-ref" name="reference" maxlength="80" placeholder="Check number"></div>
+              <p class="field-hint">Records everything currently owed to them out of money the
+                vendors have actually paid. Those reservations stop appearing here, and what
+                arrives on them later becomes owed again on its own.</p>
+              <div class="toolbar" style="padding:0;">
+                <button class="btn btn-secondary btn-sm" type="submit">Record the payout</button>
+                <button class="btn btn-ghost btn-sm" type="button" id="po-cancel">Cancel</button>
+              </div>
+            </form>
+            <div id="payouts"></div>
+          </section>
           <section class="card" style="margin-top:1.5rem;">
             <div class="card-head"><h2>Vendor statements</h2>
               <button class="btn btn-ghost btn-sm" id="add-statement">Add</button></div>
@@ -107,6 +136,7 @@ let d = null;
  */
 const mayTouch = (r) => r.user_id === ME || Boolean(d && d.scope && d.scope.canPick);
 let statements = [];
+let payouts = [];
 const chosen = new Set();
 // Which row has its "record what arrived" line open. One at a time: this is
 // entering a figure off a remittance, not filling in a table.
@@ -173,9 +203,12 @@ function render() {
       <p class="meta">${d.anySplit ? 'The agency\'s share of the money that is in'
     : 'No split is recorded, so the agency takes nothing'}</p></div>
     <div class="stat"><p class="label">Paid out</p>
-      <p class="value">${money(t.payoutCents)}</p>
-      <p class="meta">${d.anySplit ? 'Advisors\' share of the same money'
-    : 'The money that is in, all of it'}</p></div>
+      <p class="value">${money(t.paidOutCents)}</p>
+      <p class="meta">Already handed to the advisors</p></div>
+    <div class="stat"><p class="label">Still to pay</p>
+      <p class="value"${t.dueCents ? ' style="color:var(--amber-600);"' : ''}>${money(t.dueCents)}</p>
+      <p class="meta">${d.anySplit ? 'Advisors\' share of money in, not yet handed over'
+    : 'Money in that has not been handed over'}</p></div>
     ${d.anySplit ? `
     <div class="stat"><p class="label">Advisors' share to come</p>
       <p class="value">${money(t.owedAdvisorCents)}</p>
@@ -210,7 +243,11 @@ function render() {
     // The payout run. Everything the vendor has sent money against, whether
     // or not they sent all of it, because a part payment is still money to
     // divide. Sorted by nothing special: it is read down, not searched.
-    : pick === 'in' ? (r.received_cents || 0) !== 0
+    // Still to hand over, rather than everything money has arrived on. A
+    // payout run that showed what was already paid would show the same rows
+    // on the 15th and the 30th, which is the whole reason payouts are
+    // recorded at all.
+    : pick === 'in' ? (r.due_cents || 0) > 0
     : pick ? r.settlement === pick
     : r.outstanding_cents > 0));
 
@@ -246,7 +283,10 @@ function render() {
           <td class="num">${money(r.payout_cents)}
             <div class="muted" style="font-size:.72rem;">${esc(String(r.split_pct))}%${
   r.payout_cents === r.advisor_cents ? ''
-    : ` &middot; ${money(r.advisor_cents)} in full`}</div></td>
+    : ` &middot; ${money(r.advisor_cents)} in full`}</div>
+            ${r.paid_out_cents ? `<div class="muted" style="font-size:.72rem;color:var(--green-600);">${
+    (r.due_cents || 0) > 0 ? `${money(r.paid_out_cents)} paid` : 'paid'}${
+    r.last_paid_out_on ? ` ${esc(short(r.last_paid_out_on))}` : ''}</div>` : ''}</td>
           <td class="num">${mayTouch(r)
             ? `<button class="btn btn-ghost btn-sm" data-record="${esc(r.id)}">Record</button>` : ''}</td>
         </tr>
@@ -324,8 +364,74 @@ function render() {
     });
   });
 
+  drawPayouts();
   drawStatements();
   updateBulk();
+}
+
+const METHOD_WORD = {};
+
+/**
+ * Who is owed what, and the record of what has already gone out.
+ *
+ * Grouped by person rather than by trip, because that is the shape of the
+ * job: one payment to Samantha covering nine reservations, not nine
+ * payments.
+ */
+function drawPayouts() {
+  const owed = d.owed || [];
+  for (const m of d.payoutMethods || []) METHOD_WORD[m.key] = m.label;
+
+  document.getElementById('payout-actions').innerHTML = d.mayPay && owed.length
+    ? '<button class="btn btn-ghost btn-sm" id="add-payout">Record a payout</button>' : '';
+
+  document.getElementById('owed-advisors').innerHTML = owed.length
+    ? `<ul class="rows">${owed.map((o) => `<li><div class="row-between">
+        <span><span class="t">${esc(o.advisor_name)}</span>
+          <span class="m">${o.trips} reservation${o.trips === 1 ? '' : 's'}${
+            o.paid_cents ? ` &middot; ${money(o.paid_cents)} already paid` : ''}</span></span>
+        <strong>${money(o.due_cents)}</strong></div></li>`).join('')}</ul>`
+    : `<p class="wempty">Nobody is owed anything out of money that has arrived.</p>`;
+
+  const form = document.getElementById('payout-form');
+  const add = document.getElementById('add-payout');
+  if (add) {
+    document.getElementById('po-who').innerHTML = owed.map((o) =>
+      `<option value="${esc(o.user_id)}">${esc(o.advisor_name)} &middot; ${
+        money(o.due_cents)}</option>`).join('');
+    document.getElementById('po-method').innerHTML = (d.payoutMethods || []).map((m) =>
+      `<option value="${esc(m.key)}">${esc(m.label)}</option>`).join('');
+    document.getElementById('po-on').value = d.today;
+    add.addEventListener('click', () => { form.hidden = !form.hidden; });
+    document.getElementById('po-cancel').addEventListener('click', () => { form.hidden = true; });
+  }
+
+  document.getElementById('payouts').innerHTML = payouts.length
+    ? `<ul class="rows">${payouts.map((p) => `<li><div class="row-between">
+        <span><span class="t">${esc(p.advisor_name)}</span>
+          <span class="m">${p.paid_on ? esc(short(p.paid_on)) : 'no date'} &middot; ${
+            esc(METHOD_WORD[p.method] || p.method || 'paid')}${
+            p.reference ? ` &middot; ${esc(p.reference)}` : ''} &middot; ${
+            p.trips} reservation${p.trips === 1 ? '' : 's'}</span></span>
+        <span style="text-align:right;"><strong>${money(p.amount_cents)}</strong>
+          ${d.mayPay ? `<div><button class="btn btn-ghost btn-sm"
+            data-drop-payout="${esc(p.id)}">Remove</button></div>` : ''}</span>
+      </div></li>`).join('')}</ul>`
+    : '<p class="wempty">No payouts recorded yet.</p>';
+
+  document.querySelectorAll('[data-drop-payout]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Remove this payout?\n\n'
+        + 'What it covered goes back to being owed, so record the right one afterwards '
+        + 'or the advisor will appear unpaid.')) return;
+      btn.disabled = true;
+      try {
+        await api(`/api/payouts/${encodeURIComponent(btn.dataset.dropPayout)}`,
+          { method: 'DELETE' });
+        await load();
+      } catch (e) { showError(err, e); btn.disabled = false; }
+    });
+  });
 }
 
 function drawStatements() {
@@ -388,6 +494,28 @@ document.getElementById('stmt-cancel').addEventListener('click', () => {
   statementForm.reset();
 });
 
+document.getElementById('payout-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target.elements;
+  const box = e.target.querySelector('.notice-error');
+  box.hidden = true;
+  try {
+    const out = await api('/api/payouts', {
+      method: 'POST',
+      body: {
+        userId: f.userId.value, paidOn: f.paidOn.value,
+        method: f.method.value, reference: f.reference.value,
+      },
+    });
+    err.innerHTML = `<div class="notice notice-info">Recorded ${
+      (out.amountCents / 100).toFixed(2)} across ${out.trips} reservation${
+      out.trips === 1 ? '' : 's'}.</div>`;
+    e.target.reset();
+    e.target.hidden = true;
+    await load();
+  } catch (e2) { box.textContent = e2.message || 'Something went wrong.'; box.hidden = false; }
+});
+
 statementForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = statementForm.elements;
@@ -417,12 +545,14 @@ async function load() {
     const q = params.length ? `?${params.join('&')}` : '';
     // Both together: the statements list feeds the picker on every receipt
     // line, so a row cannot offer a statement the page has not loaded.
-    const [commissions, stmts] = await Promise.all([
+    const [commissions, stmts, paid] = await Promise.all([
       api(`/api/commissions${q}`),
       api('/api/commissions/statements'),
+      api(`/api/payouts${advisorParam() ? `?${advisorParam()}` : ''}`),
     ]);
     d = commissions;
     statements = stmts.statements || [];
+    payouts = paid.payouts || [];
     mountScopePicker(document.getElementById('scope'), d, load);
     render();
   } catch (e) { showError(err, e); }

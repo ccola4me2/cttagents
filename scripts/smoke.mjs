@@ -8032,6 +8032,101 @@ async function main() {
   }
   }
 
+  // ------------------------------------------------- paying the advisors ----
+  // The last step of the money. Everything before this says what an advisor
+  // has earned out of what the vendor sent; this is the agency writing the
+  // cheque, and until it existed the payout run was a list that looked
+  // identical a fortnight later.
+  {
+  step('Paying an advisor what the vendors have sent');
+
+  const earner = await call(advisor, 'POST', '/api/bookings', {
+    clientName: `Payout ${stamp}`, supplier: 'Royal Caribbean', status: 'booked',
+    departDate: isoDay(-20), returnDate: isoDay(-10), gross: '5000', commission: '600',
+  });
+  const earnerId = earner.data?.booking?.id;
+  if (earnerId) cleanup('the payout reservation', () => dropBooking(earnerId));
+
+  // Nothing is owed on a trip the vendor has not paid. An advisor's share of
+  // money that has not arrived is a promise, and paying it out pays them from
+  // the agency's own pocket.
+  const beforeMoney = await call(admin, 'GET', '/api/payouts');
+  const dueFor = (body) => ((body?.owed || [])
+    .find((o) => o.user_id === advisorId) || {}).due_cents || 0;
+  const dueBefore = dueFor(beforeMoney.data);
+
+  await call(advisor, 'POST', '/api/commissions/receipts', {
+    bookingId: earnerId, amount: '600', receivedOn: isoDay(-2), kind: 'base',
+  });
+
+  const withMoney = await call(admin, 'GET', '/api/payouts');
+  // Read off the reservation rather than assumed. What the advisor keeps
+  // depends on the agreement in force when the trip was taken, and a figure
+  // typed in here would be testing the suite's memory of it. The point of
+  // the comparison is that the payout run and the reservation reach the same
+  // number by different routes: SQLite for one, JavaScript for the other.
+  const recAfter = await call(advisor, 'GET', `/api/bookings/${earnerId}/record`);
+  const share = recAfter.data?.commission?.payoutCents || 0;
+  check(share > 0, 'the trip says what the advisor earned out of what arrived',
+    String(share));
+  check(dueFor(withMoney.data) === dueBefore + share,
+    'and the payout run reaches the same figure',
+    `${dueFor(withMoney.data)} from ${dueBefore}, share ${share}`);
+
+  // An advisor who could record a payout could declare themselves paid. That
+  // is the same hole as an advisor setting their own split, and that one was
+  // real.
+  const selfPaid = await call(advisor, 'POST', '/api/payouts', { userId: advisorId });
+  check(selfPaid.status === 403 || selfPaid.status === 404,
+    'an advisor cannot record their own payout', `status ${selfPaid.status}`);
+
+  const paidOut = await call(admin, 'POST', '/api/payouts', {
+    userId: advisorId, paidOn: isoDay(0), method: 'check', reference: `CHQ-${stamp}`,
+  });
+  check(paidOut.status === 200 && paidOut.data?.amountCents === dueFor(withMoney.data),
+    'the owner pays them everything the vendors have sent',
+    JSON.stringify({ status: paidOut.status, paid: paidOut.data?.amountCents }));
+  const payoutId = paidOut.data?.id;
+
+  const settled = await call(admin, 'GET', '/api/payouts');
+  check(dueFor(settled.data) === 0, 'after which nothing is owed to them',
+    String(dueFor(settled.data)));
+  check((settled.data?.payouts || []).some((p) => p.reference === `CHQ-${stamp}`),
+    'and the payment is on the record with its reference');
+
+  // The point of the whole thing: the row does not come back on the next run.
+  const comm = await call(advisor, 'GET', '/api/commissions');
+  const row = (comm.data?.rows || []).find((r) => r.id === earnerId);
+  check(row && row.paid_out_cents === share && row.due_cents === 0,
+    'the reservation says what went out and that nothing is left',
+    JSON.stringify({ paid: row?.paid_out_cents, due: row?.due_cents, share }));
+
+  // Money arriving later on a trip already paid out is owed again on its
+  // own. A vendor settling the base in March and the bonus in June is the
+  // normal case, not an exception.
+  await call(advisor, 'POST', '/api/commissions/receipts', {
+    bookingId: earnerId, amount: '100', receivedOn: isoDay(-1), kind: 'bonus',
+  });
+  const later = await call(admin, 'GET', '/api/payouts');
+  // A bonus is the advisor's in full whatever the split, so this one figure
+  // can be written down: the whole hundred dollars, not a share of it.
+  check(dueFor(later.data) === 10000,
+    'a bonus arriving afterwards is owed again, in full, without anybody asking',
+    String(dueFor(later.data)));
+
+  // Taking a payout back puts what it covered back on the list, because the
+  // alternative is entering the correction as a second payment and having
+  // the books say the agency paid twice.
+  const undone = await call(admin, 'DELETE', `/api/payouts/${payoutId}`);
+  const restored = await call(admin, 'GET', '/api/payouts');
+  check(undone.status === 200 && dueFor(restored.data) === share + 10000,
+    'removing a payout puts what it covered back on the list',
+    `status ${undone.status}, due ${dueFor(restored.data)}, expected ${share + 10000}`);
+
+  const gone = await call(admin, 'DELETE', `/api/payouts/${payoutId}`);
+  check(gone.status === 404, 'and it cannot be removed twice', `status ${gone.status}`);
+  }
+
   // -------------------------------------------- moving it to its advisor ----
   // A trip typed in by the owner without first working as the advisor lands
   // on the owner's book: their production, their commission, their statement.

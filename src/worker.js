@@ -279,6 +279,11 @@ import {
   handleStatementCandidates,
 } from './reconcile.js';
 import {
+  handleListPayouts,
+  handleCreatePayout,
+  handleDeletePayout,
+} from './payouts.js';
+import {
   handleClientRecord,
   handleListClients,
   handleUpdateClient,
@@ -670,6 +675,7 @@ async function routeApi(request, env, path, method) {
   const enquiryBookMatch = path.match(/^\/api\/specials\/enquiries\/([^/]+)\/book$/);
   const enquiryMatch = path.match(/^\/api\/specials\/enquiries\/([^/]+)$/);
   const receiptMatch = path.match(/^\/api\/commissions\/receipts\/([^/]+)$/);
+  const payoutMatch = path.match(/^\/api\/payouts\/([^/]+)$/);
   const vendorStatementMatch = path.match(/^\/api\/commissions\/statements\/([^/]+)$/);
   const candidatesMatch = path.match(/^\/api\/commissions\/statements\/([^/]+)\/candidates$/);
   const clientMatch = path.match(/^\/api\/clients\/([^/]+)$/);
@@ -1077,6 +1083,12 @@ async function routeApi(request, env, path, method) {
   if (receiptMatch && method === 'DELETE') return handleDeleteReceipt(request, env, receiptMatch[1]);
   if (path === '/api/commissions/statements' && method === 'GET') return handleListStatements(request, env);
   if (path === '/api/commissions/statements' && method === 'POST') return handleCreateStatement(request, env);
+
+  // The last step of the money: what the agency paid the advisor. Recording
+  // one is an owner's act, which the handler enforces rather than the router.
+  if (path === '/api/payouts' && method === 'GET') return handleListPayouts(request, env);
+  if (path === '/api/payouts' && method === 'POST') return handleCreatePayout(request, env);
+  if (payoutMatch && method === 'DELETE') return handleDeletePayout(request, env, payoutMatch[1]);
   if (vendorStatementMatch && method === 'PUT') return handleUpdateStatement(request, env, vendorStatementMatch[1]);
   if (vendorStatementMatch && method === 'DELETE') return handleDeleteStatement(request, env, vendorStatementMatch[1]);
   if (path === '/api/commissions/status' && method === 'POST') {
