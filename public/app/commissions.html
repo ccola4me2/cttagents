@@ -29,6 +29,7 @@
             <div class="card-head"><h2>Waiting to be paid</h2>
               <select id="status-filter" aria-label="Settlement" style="width:auto;">
                 <option value="">Anything still owed</option>
+                <option value="in">Money in, to pay out</option>
                 <option value="short">Paid short</option>
                 <option value="unpaid">Nothing received</option>
                 <option value="settled">Settled</option>
@@ -37,8 +38,7 @@
               </select></div>
             <div class="toolbar" style="padding:0 1.25rem;" id="bulk" hidden>
               <span id="selected-count" class="muted"></span>
-              <button class="btn btn-ghost btn-sm" data-mark="invoiced">Mark invoiced</button>
-              <button class="btn btn-secondary btn-sm" data-mark="paid">Mark paid</button>
+              <button class="btn btn-secondary btn-sm" data-mark="received">Mark received</button>
               <button class="btn btn-ghost btn-sm" data-mark="pending">Back to pending</button>
             </div>
             <div id="rows"></div>
@@ -113,8 +113,8 @@ const chosen = new Set();
 let recording = null;
 
 const short = (iso) => (iso ? dateFmt(iso).replace(/,? \d{4}$/, '') : '-');
-const TONE = { pending: 'badge-navy', invoiced: 'badge-amber', paid: 'badge-green' };
-// Settlement is about money and reads separately from the paperwork status.
+// Settlement is about money and reads separately from the status on the
+// reservation, which is now pending or received and nothing in between.
 const SETTLE = {
   unpaid: { tone: 'badge-navy', label: 'Nothing in' },
   short: { tone: 'badge-red', label: 'Paid short' },
@@ -169,12 +169,18 @@ function render() {
       <p class="value" style="color:var(--red-600);">${money(t.shortCents)}</p>
       <p class="meta">${t.shortCount} reservation${t.shortCount === 1 ? '' : 's'} the vendor underpaid</p></div>` : ''}
     ${d.anySplit ? `
-    <div class="stat"><p class="label">Advisors' share</p>
+    <div class="stat"><p class="label">To pay out</p>
+      <p class="value">${money(t.payoutCents)}</p>
+      <p class="meta">Advisors' share of the money that is in</p></div>
+    <div class="stat"><p class="label">Agency keeps</p>
+      <p class="value">${money(t.agencyReceivedCents)}</p>
+      <p class="meta">The rest of the same money</p></div>
+    <div class="stat"><p class="label">Advisors' share to come</p>
       <p class="value">${money(t.owedAdvisorCents)}</p>
       <p class="meta">Of what is still owed</p></div>
-    <div class="stat"><p class="label">Agency's share</p>
+    <div class="stat"><p class="label">Agency's share to come</p>
       <p class="value">${money(t.owedAgencyCents)}</p>
-      <p class="meta">The rest of the same money</p></div>` : ''}`;
+      <p class="meta">The rest of what is still owed</p></div>` : ''}`;
 
   document.getElementById('ageing').innerHTML = d.buckets.map((b) => {
     const a = d.ageing[b.key] || { cents: 0, count: 0 };
@@ -199,6 +205,10 @@ function render() {
   // answers is whether the money is in, not whether somebody ticked a box.
   const pick = statusFilter.value;
   const rows = d.rows.filter((r) => (pick === 'all' || pick === 'none' ? true
+    // The payout run. Everything the vendor has sent money against, whether
+    // or not they sent all of it, because a part payment is still money to
+    // divide. Sorted by nothing special: it is read down, not searched.
+    : pick === 'in' ? (r.received_cents || 0) !== 0
     : pick ? r.settlement === pick
     : r.outstanding_cents > 0));
 
@@ -207,7 +217,7 @@ function render() {
         <thead><tr><th style="width:2rem;"></th><th>Client</th><th>Vendor</th><th>Home</th>
           <th>Settlement</th><th class="num">Expected</th><th class="num">Received</th>
           <th class="num">Still out</th><th class="num">Difference</th>${
-            d.anySplit ? '<th class="num">Advisor keeps</th>' : ''}<th></th></tr></thead>
+            d.anySplit ? '<th class="num">Payout</th>' : ''}<th></th></tr></thead>
         <tbody>${rows.map((r) => `<tr>
           <td>${mayTouch(r)
             ? `<input type="checkbox" data-pick="${esc(r.id)}"${chosen.has(r.id) ? ' checked' : ''}
@@ -230,8 +240,10 @@ function render() {
             ? `<strong style="color:var(--${r.variance_cents < 0 ? 'red' : 'amber'}-600);">${
                 money(r.variance_cents)}</strong>`
             : '<span class="muted">-</span>'}</td>
-          ${d.anySplit ? `<td class="num">${money(r.advisor_cents)}
-            <div class="muted" style="font-size:.72rem;">${esc(String(r.split_pct))}%</div></td>` : ''}
+          ${d.anySplit ? `<td class="num">${money(r.payout_cents)}
+            <div class="muted" style="font-size:.72rem;">${esc(String(r.split_pct))}%${
+              r.payout_cents === r.advisor_cents ? ''
+                : ` &middot; ${money(r.advisor_cents)} in full`}</div></td>` : ''}
           <td class="num">${mayTouch(r)
             ? `<button class="btn btn-ghost btn-sm" data-record="${esc(r.id)}">Record</button>` : ''}</td>
         </tr>

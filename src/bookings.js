@@ -20,12 +20,17 @@ import { listTravellers, listAmenities, passportProblem,
   reconcileTravellerCount } from './travellers.js';
 import { PAYMENT_TYPES, releaseCredit, buildSchedule, followBookingDates,
   chaseDateOf, setChaseDate } from './payments.js';
-import { COMPANY_LEAD, NO_COMMISSION, splitPct, shareOf, UNSPLIT_COMMISSION_KINDS } from './split.js';
+import {
+  COMPANY_LEAD, NO_COMMISSION, COMMISSION_RECEIVED, splitPct, shareOf, UNSPLIT_COMMISSION_KINDS,
+} from './split.js';
 import { listOptions } from './options.js';
 import { listTiers, penaltyToday } from './penalties.js';
 import { listDocuments, docsReady, CATEGORIES as DOC_CATEGORIES } from './documents.js';
-import { listComponents, COMPONENT_KINDS } from './components.js';
-import { listPricing, summarise, reconcileBookingTotals, PRICE_KINDS } from './pricing.js';
+import { listComponents } from './components.js';
+import {
+  listPricing, summarise, reconcileBookingTotals, PRICE_KINDS, COMMISSION_KINDS,
+} from './pricing.js';
+import { settlement } from './reconcile.js';
 
 // The taxonomy a travel agency actually reports on. Five buckets could not
 // tell a transfer from a tour from travel insurance, which meant "travel by
@@ -41,7 +46,7 @@ const STATUSES = ['quoted', 'booked', 'travelled', 'cancelled'];
 // saying so stops it sitting in the chase list forever waiting for money
 // nobody is going to send. A courtesy booking, a friend at cost, an amenity
 // the vendor pays nothing on.
-const COMMISSION_STATUSES = ['pending', 'invoiced', 'paid', NO_COMMISSION];
+const COMMISSION_STATUSES = ['pending', COMMISSION_RECEIVED, NO_COMMISSION];
 const BOOKING_METHODS = ['direct', 'portal', 'phone', 'group', 'other'];
 // 'unknown' leads because oneOf falls back to the first entry, and not having
 // asked is the honest default. Recording a decline is a deliberate act.
@@ -383,6 +388,117 @@ export async function handleBookingRecord(request, env, id) {
     ...t, passportWarning: passportProblem(t, booking.return_date || booking.depart_date),
   }));
 
+  // What the advisor who booked it keeps, and what the agency keeps. Shown
+  // on the reservation because that is where the override is set, and a
+  // percentage with no money beside it is easy to get backwards.
+  const split = (() => {
+    const pct = splitPct(booking, booking.default_split_pct, booking.lead_split_pct);
+    // A TC credit or a bonus is the advisor's in full, so it comes out of
+    // the sum before the percentage is applied and goes back on afterwards.
+    const unsplit = priceLines
+      .filter((l) => UNSPLIT_COMMISSION_KINDS.includes(l.commission_kind))
+      .reduce((n, l) => n + (l.commission_cents || 0), 0);
+    return {
+      pct,
+      // Whether this trip carries its own figure or is following the
+      // advisor's standing agreement. The page says which, because "70%"
+      // means something different in each case.
+      overridden: booking.advisor_split_pct !== null && booking.advisor_split_pct !== undefined,
+      defaultPct: booking.default_split_pct === null || booking.default_split_pct === undefined
+        ? null : Number(booking.default_split_pct),
+      // What the agreement said on the day this reservation was taken, which
+      // is the figure it actually follows. The advisor's record may say
+      // something else by now; that is the agreement for the next trip, not
+      // for this one, and the page says both so the difference is visible
+      // rather than a discrepancy somebody finds in a report.
+      agreedPct: booking.agreed_split_pct === null || booking.agreed_split_pct === undefined
+        ? null : Number(booking.agreed_split_pct),
+      agreedLeadPct: booking.agreed_lead_split_pct === null
+        || booking.agreed_lead_split_pct === undefined
+        ? null : Number(booking.agreed_lead_split_pct),
+      // Which of the two agreements this trip is under, and the rate each
+      // one carries. The page shows both, because a percentage on its own
+      // does not say why it is that number.
+      leadSource: booking.lead_source === COMPANY_LEAD ? COMPANY_LEAD : 'personal',
+      leadPct: booking.lead_split_pct === null || booking.lead_split_pct === undefined
+        ? null : Number(booking.lead_split_pct),
+      // Only an admin may move a trip between the two, or write a figure
+      // over the top of both, and not while acting as somebody: that endpoint
+      // goes through requireAdmin, which refuses for the whole of it.
+      canChange: isAdmin(user) && !user.acting_as,
+      // "No commission" means this trip pays nobody, so both halves are
+      // zero rather than the advisor's share of a figure the agency is
+      // never going to see. The percentage still shows, because it is the
+      // agreement and it has not changed; only the money is nil.
+      earns: booking.commission_status !== NO_COMMISSION,
+      ...shareOf(booking.commission_status === NO_COMMISSION
+        ? 0 : booking.commission_cents, pct, unsplit),
+    };
+  })();
+
+  // The money against this reservation, in the order somebody asks about it:
+  // what was expected, what turned up, what is still out, and what the
+  // advisor is owed out of what turned up.
+  //
+  // Read as the advisor whose reservation it is, not as whoever is looking.
+  // An owner reading an associate's trip is reading that associate's
+  // commission, and scoping the receipts to the reader would show them an
+  // empty list and a trip that looks unpaid.
+  const receipts = await env.DB.prepare(
+    `SELECT id, amount_cents, received_on, kind, reference, statement_id, notes, created_at
+       FROM commission_receipts
+      WHERE booking_id = ? AND user_id = ?
+      ORDER BY COALESCE(received_on, '0000-00-00') DESC, created_at DESC`
+  ).bind(booking.id, booking.user_id).all().catch(() => ({ results: [] }));
+
+  const commission = (() => {
+    const rows = receipts.results || [];
+    // A waived trip pays nobody, which is the rule every other total reads
+    // through. Expected is nought rather than the figure still typed in the
+    // box, and the box keeps it so a commission that was waived can be seen.
+    const earns = booking.commission_status !== NO_COMMISSION;
+    const expectedCents = earns ? (booking.commission_cents || 0) : 0;
+    const receivedCents = rows.reduce((n, r) => n + (r.amount_cents || 0), 0);
+    // The exempt part of what arrived, from the kind on each receipt. A
+    // vendor who has paid the base and held the bonus owes the advisor all of
+    // the bonus and a share of nothing else, and that only falls out right if
+    // the exemption is applied to the money that came rather than the money
+    // that was promised.
+    const unsplitCents = rows
+      .filter((r) => UNSPLIT_COMMISSION_KINDS.includes(r.kind))
+      .reduce((n, r) => n + (r.amount_cents || 0), 0);
+    // Money against a waived trip is left whole with the agency rather than
+    // split or dropped, so the two halves always add back up to what came in.
+    const payout = earns
+      ? shareOf(receivedCents, split.pct, unsplitCents)
+      : { advisorCents: 0, agencyCents: receivedCents };
+    const { state, variance } = settlement(expectedCents, receivedCents);
+    return {
+      earns,
+      status: booking.commission_status,
+      pct: split.pct,
+      expectedCents,
+      receivedCents,
+      outstandingCents: Math.max(expectedCents - receivedCents, 0),
+      // Signed: negative is short, positive is more than expected, and both
+      // are worth seeing rather than being folded into an absolute.
+      varianceCents: variance,
+      settlement: state,
+      // What to pay the advisor for this trip, and what the agency is left
+      // with. Of the money that is in, not of the money that is expected.
+      payoutCents: payout.advisorCents,
+      agencyCents: payout.agencyCents,
+      // What the advisor will have earned once the vendor has paid in full,
+      // which is the figure the reservation used to show on its own.
+      fullPayoutCents: split.advisorCents,
+      receipts: rows,
+      kinds: COMMISSION_KINDS,
+      // Whether this reader may file one. Filing a receipt resolves the
+      // reservation's owner, so an owner's cheque lands on the advisor's book.
+      mayRecord: db.mayWrite(user, booking),
+    };
+  })();
+
   return json({
     booking,
     // The choices offered, and which one was taken. Empty for most
@@ -417,10 +533,10 @@ export async function handleBookingRecord(request, env, id) {
     // list hardcoded its own copies and drifted from these twice.
     fieldOptions: FIELD_OPTIONS,
     documentsReady: docsReady(env),
-    // The other vendors on this trip. Air, insurance, a hotel either side of a
-    // cruise: one holiday, several confirmation numbers.
+    // Other vendors, where a trip still carries any. Nothing adds them now,
+    // and the page shows what is left so a confirmation number does not go
+    // quiet when the feature does.
     components,
-    componentKinds: COMPONENT_KINDS,
     penalty: penaltyToday(booking, tiers, new Date().toISOString().slice(0, 10)),
     pricing: priceLines,
     priceKinds: PRICE_KINDS,
@@ -446,53 +562,11 @@ export async function handleBookingRecord(request, env, id) {
       scheduledCents: scheduled,
       unscheduledCents: Math.max(0, (booking.gross_cents || 0) - paid - scheduled),
     },
-    // What the advisor who booked it keeps, and what the agency keeps. Shown
-    // on the reservation because that is where the override is set, and a
-    // percentage with no money beside it is easy to get backwards.
-    split: (() => {
-      const pct = splitPct(booking, booking.default_split_pct, booking.lead_split_pct);
-      // A TC credit or a bonus is the advisor's in full, so it comes out of
-      // the sum before the percentage is applied and goes back on afterwards.
-      const unsplit = priceLines
-        .filter((l) => UNSPLIT_COMMISSION_KINDS.includes(l.commission_kind))
-        .reduce((n, l) => n + (l.commission_cents || 0), 0);
-      return {
-        pct,
-        // Whether this trip carries its own figure or is following the
-        // advisor's standing agreement. The page says which, because "70%"
-        // means something different in each case.
-        overridden: booking.advisor_split_pct !== null && booking.advisor_split_pct !== undefined,
-        defaultPct: booking.default_split_pct === null || booking.default_split_pct === undefined
-          ? null : Number(booking.default_split_pct),
-        // What the agreement said on the day this reservation was taken, which
-        // is the figure it actually follows. The advisor's record may say
-        // something else by now; that is the agreement for the next trip, not
-        // for this one, and the page says both so the difference is visible
-        // rather than a discrepancy somebody finds in a report.
-        agreedPct: booking.agreed_split_pct === null || booking.agreed_split_pct === undefined
-          ? null : Number(booking.agreed_split_pct),
-        agreedLeadPct: booking.agreed_lead_split_pct === null
-          || booking.agreed_lead_split_pct === undefined
-          ? null : Number(booking.agreed_lead_split_pct),
-        // Which of the two agreements this trip is under, and the rate each
-        // one carries. The page shows both, because a percentage on its own
-        // does not say why it is that number.
-        leadSource: booking.lead_source === COMPANY_LEAD ? COMPANY_LEAD : 'personal',
-        leadPct: booking.lead_split_pct === null || booking.lead_split_pct === undefined
-          ? null : Number(booking.lead_split_pct),
-        // Only an admin may move a trip between the two, or write a figure
-        // over the top of both, and not while acting as somebody: that endpoint
-        // goes through requireAdmin, which refuses for the whole of it.
-        canChange: isAdmin(user) && !user.acting_as,
-        // "No commission" means this trip pays nobody, so both halves are
-        // zero rather than the advisor's share of a figure the agency is
-        // never going to see. The percentage still shows, because it is the
-        // agreement and it has not changed; only the money is nil.
-        earns: booking.commission_status !== NO_COMMISSION,
-        ...shareOf(booking.commission_status === NO_COMMISSION
-          ? 0 : booking.commission_cents, pct, unsplit),
-      };
-    })(),
+    split,
+    // What the vendor owes on this trip, what has actually arrived, and what
+    // the advisor is owed out of what arrived. Its own block rather than more
+    // fields on split, because split is an agreement and this is money.
+    commission,
     // Who this trip could be handed to, for the one reader who may hand it
     // over. Empty for everybody else, so the control is absent rather than
     // present and refused. Not while acting as somebody: moving a reservation

@@ -87,6 +87,10 @@
 <p>Everything starts on <a href="/app/reservations">Reservations</a>. A reservation is one
   trip for one client with one vendor. A family of four on one booking is one reservation
   with four travellers on it, not four reservations.</p>
+<p>One vendor is meant literally. A cruise with air and insurance on it is three
+  reservations, one per vendor, each with its own confirmation number, its own pricing and
+  its own commission. Filing them together reads as tidier and costs you the air commission,
+  because there is one row to chase and it is the cruise's.</p>
 
 <h3>The status</h3>
 <ul>
@@ -184,10 +188,19 @@
   would contradict the status you set.</p>
 
 <h3>Getting paid</h3>
-<p><a href="/app/commissions">Commission owed</a> is what vendors have not yet paid. Mark
-  it invoiced when you bill it and paid when the money lands. You can record a statement
-  from a vendor and reconcile it against what the portal expected, which is how you find
-  the one booking they quietly paid short.</p>
+<p><a href="/app/commissions">Commission owed</a> is what vendors have not yet paid. A
+  reservation is <strong>pending</strong> until the money is in and <strong>received</strong>
+  once it is, and that is the whole list: there is no step in the middle for having sent the
+  invoice, because it was a claim about paperwork that nobody kept up to date.</p>
+<p>Three figures, on the page and on the trip itself. <strong>Expected</strong> is what the
+  vendor owes. <strong>Received</strong> is what has actually arrived. <strong>Payout</strong>
+  is your share of what has arrived, which is what the agency pays you and is not the same
+  number as your share of what is expected until the vendor has settled in full.</p>
+<p>Record what arrives rather than ticking a box. Enter the amount the vendor sent, and if
+  they pay short the difference stays on the page as owed, which is how you find the one
+  booking they quietly underpaid. Marking a reservation received in a batch records the
+  outstanding amount for you, so the label and the money cannot disagree. A vendor statement
+  can be filed and reconciled against what the portal expected.</p>
 
 <h2 id="clients">Clients and prospects</h2>
 <p>A <strong>client</strong> is somebody who has booked. A <strong>prospect</strong> is

@@ -94,11 +94,7 @@ import {
   handleCancelBroadcast,
   sendQueuedBroadcasts,
 } from './broadcasts.js';
-import {
-  handleAddComponent,
-  handleUpdateComponent,
-  handleDeleteComponent,
-} from './components.js';
+import { handleDeleteComponent } from './components.js';
 import {
   handleUploadDocument,
   handleGetDocument,
@@ -616,7 +612,6 @@ async function routeApi(request, env, path, method) {
   const msgReadMatch = path.match(/^\/api\/trip-messages\/([^/]+)\/read$/);
   const docShareMatch = path.match(/^\/api\/documents\/([^/]+)\/share$/);
   const docsMatch = path.match(/^\/api\/bookings\/([^/]+)\/documents$/);
-  const componentsMatch = path.match(/^\/api\/bookings\/([^/]+)\/components$/);
   const componentMatch = path.match(/^\/api\/components\/([^/]+)$/);
   const docMatch = path.match(/^\/api\/documents\/([^/]+)$/);
   const travellersMatch = path.match(/^\/api\/bookings\/([^/]+)\/travellers$/);
@@ -728,9 +723,8 @@ async function routeApi(request, env, path, method) {
   if (welcomedMatch && method === 'POST') return handleWelcomed(request, env, welcomedMatch[1]);
 
   // The paperwork a trip generates. Inert until an R2 bucket is bound.
-  // One trip, several vendors: air, insurance, lodging, a transfer.
-  if (componentsMatch && method === 'POST') return handleAddComponent(request, env, componentsMatch[1]);
-  if (componentMatch && method === 'PUT') return handleUpdateComponent(request, env, componentMatch[1]);
+  // Clearing an other-vendor row off a trip that still has one. Nothing adds
+  // them any more: a second vendor is a second reservation.
   if (componentMatch && method === 'DELETE') return handleDeleteComponent(request, env, componentMatch[1]);
 
   if (docsMatch && method === 'POST') return handleUploadDocument(request, env, docsMatch[1]);

@@ -21,6 +21,7 @@
 import { json, badRequest, notFound, clean, cleanDate, toCents, oneOf, uid, now, readJson } from './util.js';
 import { COMMISSION_KINDS, COMMISSION_KIND_KEYS } from './pricing.js';
 import { requireUser } from './auth.js';
+import { COMMISSION_RECEIVED } from './split.js';
 import * as db from './db.js';
 
 const STATEMENT_COLUMNS = `
@@ -224,11 +225,14 @@ export async function handleDeleteReceipt(request, env, id) {
  * Keep the reservation's own status in step with the money.
  *
  * commission_status predates receipts and is still what the reservation page
- * and the older reports read, so it cannot simply be ignored. It is now driven
- * by the receipts rather than set by hand: paid when the money is actually
- * there, and back to invoiced if the receipt that made it paid is removed.
- * 'pending' is left alone, because the step from pending to invoiced is a
- * decision about paperwork rather than about money.
+ * and the older reports read, so it cannot simply be ignored. It is driven by
+ * the receipts rather than set by hand: received when the money is actually
+ * there, and back to pending when the receipt that settled it is removed.
+ *
+ * There is nothing left for a person to set by hand in the middle. The old
+ * 'invoiced' sat between the two and said the paperwork had gone out, which
+ * is not a question anybody was answering, and a status that can only be
+ * wrong is worse than one fewer status.
  */
 async function syncCommissionStatus(env, userId, bookingId) {
   const booking = await env.DB.prepare(
@@ -242,7 +246,8 @@ async function syncCommissionStatus(env, userId, bookingId) {
 
   const { state } = settlement(booking.commission_cents, row?.received);
   const settled = state === 'settled' || state === 'over';
-  const next = settled ? 'paid' : (booking.commission_status === 'paid' ? 'invoiced' : booking.commission_status);
+  const next = settled ? COMMISSION_RECEIVED
+    : (booking.commission_status === COMMISSION_RECEIVED ? 'pending' : booking.commission_status);
 
   if (next !== booking.commission_status) {
     await env.DB.prepare(

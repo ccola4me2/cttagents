@@ -5466,38 +5466,59 @@ async function main() {
     carnival && carnival.cents);
 
   // Chasing happens one vendor statement at a time, so the update is a batch.
+  // Two states, not four: a commission is waiting or it is in, and the step
+  // that used to sit between them was a claim about paperwork that nobody
+  // kept up to date.
   const marked = await call(advisor, 'POST', '/api/commissions/status', {
-    ids: [recent.data.booking.id, stale.data.booking.id], status: 'invoiced',
+    ids: [recent.data.booking.id, stale.data.booking.id], status: 'received',
   });
-  check(marked.data?.changed === 2, 'several move to invoiced at once', marked.data?.changed);
+  check(marked.data?.changed === 2, 'several are marked received at once', marked.data?.changed);
+  check(marked.data?.recorded === 2,
+    'and the money is recorded, not just the label moved', JSON.stringify(marked.data));
 
-  // An owner may declare an associate's commission paid, and the response says
-  // how many actually moved rather than how many were asked for, so a silent
-  // no-op is impossible either way.
+  const oldState = await call(advisor, 'POST', '/api/commissions/status', {
+    ids: [recent.data.booking.id], status: 'invoiced',
+  });
+  check(oldState.status === 400, 'invoiced is no longer a state anything accepts',
+    `status ${oldState.status}`);
+
+  // An owner may declare an associate's commission received, and the response
+  // says how many actually moved rather than how many were asked for, so a
+  // silent no-op is impossible either way.
   //
   // The receipt matters as much as the label. If the status widened and the
-  // money did not, the trip would read as paid with nothing received against
-  // it, and that is the hardest kind of wrong number to find months later.
+  // money did not, the trip would read as received with nothing against it,
+  // which is the hardest kind of wrong number to find months later.
   const notTheirs = await call(admin, 'POST', '/api/commissions/status', {
-    ids: [recent.data.booking.id], status: 'paid',
+    ids: [future.data.booking.id], status: 'received',
   });
   check(notTheirs.data?.changed === 1 && notTheirs.data?.requested === 1,
-    'an owner can mark an associate\'s commission paid',
+    'an owner can mark an associate\'s commission received',
     JSON.stringify(notTheirs.data));
   check(notTheirs.data?.recorded === 1,
     'and the money is recorded as received, not just the label moved',
     JSON.stringify(notTheirs.data));
 
-  const paidOff = await call(advisor, 'POST', '/api/commissions/status', {
-    ids: [stale.data.booking.id], status: 'paid',
-  });
-  check(paidOff.data?.changed === 1, 'and marking one paid works');
   const after = await call(advisor, 'GET', '/api/commissions');
   check(!(after.data?.rows || []).some((r) => r.id === stale.data.booking.id
-    && r.commission_status !== 'paid'), 'after which it stops being owed');
+    && r.commission_status !== 'received'), 'after which it stops being owed');
   check(after.data.totals.lateCents < comm.data.totals.lateCents,
     'and the over ninety days figure falls',
     `${after.data.totals.lateCents} from ${comm.data.totals.lateCents}`);
+
+  // The payout run. What is in, what the advisor is owed out of it, and what
+  // the agency keeps, which have to add up or a payout cannot be checked
+  // against the bank.
+  const payRow = (after.data?.rows || []).find((r) => r.id === stale.data.booking.id);
+  check(payRow && payRow.payout_cents + payRow.agency_received_cents === payRow.received_cents,
+    'the payout and the agency\'s half add up to the money that arrived',
+    JSON.stringify({ payout: payRow?.payout_cents, agency: payRow?.agency_received_cents,
+      received: payRow?.received_cents }));
+  check(after.data.totals.payoutCents + after.data.totals.agencyReceivedCents
+    === after.data.totals.paidCents,
+    'and so do the totals across the page',
+    `${after.data.totals.payoutCents} + ${after.data.totals.agencyReceivedCents} `
+    + `vs ${after.data.totals.paidCents}`);
 
   const badStatus = await call(advisor, 'POST', '/api/commissions/status',
     { ids: [recent.data.booking.id], status: 'nonsense' });
@@ -5780,8 +5801,8 @@ async function main() {
   const settledRow = (settledView.data?.rows || []).find((r) => r.id === shortId);
   check(settledRow?.settlement === 'settled', 'the rest arriving settles it',
     `settlement ${settledRow?.settlement}`);
-  check(settledRow?.commission_status === 'paid',
-    'and the reservation marks itself paid from the money, not by hand',
+  check(settledRow?.commission_status === 'received',
+    'and the reservation marks itself received from the money, not by hand',
     `status ${settledRow?.commission_status}`);
 
   // A statement is the vendor's own document: its total is entered from the
@@ -5839,16 +5860,16 @@ async function main() {
     'and the agency view carries an advisor\'s reservation to act on',
     `${(commOwnerView.data?.rows || []).length} row(s)`);
 
-  // And marking it paid from there settles it on the advisor's book.
+  // And marking it received from there settles it on the advisor's book.
   if (commAdvisorRow) {
     const commMarkedPaid = await call(admin, 'POST', '/api/commissions/status',
-      { ids: [commAdvisorRow.id], status: 'paid' });
+      { ids: [commAdvisorRow.id], status: 'received' });
     check(commMarkedPaid.status === 200 && commMarkedPaid.data?.changed >= 1,
-      'an owner marks an advisor\'s commission paid', JSON.stringify(commMarkedPaid.data));
-    const commAdvisorPaid = await call(advisor, 'GET', '/api/commissions?status=paid');
+      'an owner marks an advisor\'s commission received', JSON.stringify(commMarkedPaid.data));
+    const commAdvisorPaid = await call(advisor, 'GET', '/api/commissions?status=received');
     const commSettledRow = (commAdvisorPaid.data?.rows || []).find((r) => r.id === commAdvisorRow.id);
-    check(Boolean(commSettledRow), 'and the advisor sees it commSettledRow on their own book',
-      `${(commAdvisorPaid.data?.rows || []).length} paid row(s)`);
+    check(Boolean(commSettledRow), 'and the advisor sees it settled on their own book',
+      `${(commAdvisorPaid.data?.rows || []).length} received row(s)`);
   }
 
   await call(advisor, 'DELETE', `/api/commissions/statements/${stmtId}`);
@@ -5871,6 +5892,41 @@ async function main() {
   // The quiet number: what is neither posted nor even scheduled. A trip worth
   // five thousand with a five hundred deposit and nothing else planned has
   // four and a half thousand that nothing will ever chase.
+  // Commission on the reservation, which used to live only on the page that
+  // chases a hundred of them. Four figures and the receipts behind them.
+  const rc = rec.data?.commission || {};
+  check(rc.expectedCents === rec.data?.booking?.commission_cents,
+    'the trip says what the vendor owes', `${rc.expectedCents}`);
+  check(rc.expectedCents - rc.receivedCents === rc.outstandingCents
+    || rc.receivedCents > rc.expectedCents,
+    'and what is still out is the difference',
+    JSON.stringify({ e: rc.expectedCents, r: rc.receivedCents, o: rc.outstandingCents }));
+  check(rc.payoutCents + rc.agencyCents === rc.receivedCents,
+    'the payout and the agency\'s half add up to what arrived',
+    `${rc.payoutCents} + ${rc.agencyCents} vs ${rc.receivedCents}`);
+  check(Array.isArray(rc.receipts), 'with the receipts behind the figure');
+  check((rc.kinds || []).length >= 3, 'and the parts a vendor pays it in');
+
+  // Filed and then taken off, measured as a difference rather than against
+  // nought: this reservation has been through the whole suite by now and may
+  // already carry money.
+  const hadReceived = rc.receivedCents || 0;
+  const withMoney = await call(advisor, 'POST', '/api/commissions/receipts', {
+    bookingId, amount: '25', receivedOn: isoDay(-1), kind: 'base',
+  });
+  const recPaid = await call(advisor, 'GET', `/api/bookings/${bookingId}/record`);
+  check(withMoney.status === 200
+    && recPaid.data?.commission?.receivedCents === hadReceived + 2500,
+    'a receipt filed against the trip shows on the trip',
+    `${recPaid.data?.commission?.receivedCents} from ${hadReceived}`);
+  const justFiled = (recPaid.data?.commission?.receipts || [])
+    .find((x) => x.amount_cents === 2500);
+  if (justFiled) await call(advisor, 'DELETE', `/api/commissions/receipts/${justFiled.id}`);
+  const recBack = await call(advisor, 'GET', `/api/bookings/${bookingId}/record`);
+  check(recBack.data?.commission?.receivedCents === hadReceived,
+    'and taking it off puts the trip back where it was',
+    `${recBack.data?.commission?.receivedCents} vs ${hadReceived}`);
+
   const m = rec.data?.money || {};
   check(m.paidCents + m.scheduledCents + m.unscheduledCents === rec.data.booking.gross_cents,
     'and the three money figures account for the whole trip',
@@ -6457,9 +6513,13 @@ async function main() {
     'as a panel that can be arranged like any other');
   }
 
-  // -------------------------------------------------------- components -----
+  // ------------------------------------------ one reservation, one vendor --
+  // A cruise with air on it used to go in as one reservation with a component
+  // for the air, priced through a switcher over the grid. Two vendors is two
+  // reservations now: each keeps its own confirmation number and its own
+  // commission, and nothing files a second vendor inside a trip.
   {
-  step('One trip, several vendors');
+  step('A second vendor is a second reservation');
 
   const trip = await call(advisor, 'POST', '/api/bookings', {
     clientName: `Multi ${stamp}`, supplier: 'Celebrity Cruises', status: 'booked',
@@ -6468,71 +6528,42 @@ async function main() {
   const tripId = trip.data?.booking?.id;
   if (tripId) cleanup('the multi vendor trip', () => dropBooking(tripId));
 
-  const nameless = await call(advisor, 'POST', `/api/bookings/${tripId}/components`, { kind: 'air' });
-  check(nameless.status === 400, 'a component needs a vendor', `status ${nameless.status}`);
-
-  const backwards = await call(advisor, 'POST', `/api/bookings/${tripId}/components`, {
-    kind: 'air', supplier: 'Delta', startDate: isoDay(200), endDate: isoDay(190),
+  const addTried = await call(advisor, 'POST', `/api/bookings/${tripId}/components`, {
+    kind: 'air', supplier: `Delta ${stamp}`,
   });
-  check(backwards.status === 400, 'and cannot end before it starts', `status ${backwards.status}`);
+  check(addTried.status === 404, 'nothing files a second vendor onto a trip any more',
+    `status ${addTried.status}`);
 
-  const air = await call(advisor, 'POST', `/api/bookings/${tripId}/components`, {
-    kind: 'air', supplier: `Delta ${stamp}`, productName: 'ATL to FLL, return',
-    confirmationNumber: `DL${stamp}`, startDate: isoDay(199), endDate: isoDay(208),
-  });
-  check(air.status === 201, 'air goes on the trip rather than beside it', `status ${air.status}`);
-
-  const rec = await call(advisor, 'GET', `/api/bookings/${tripId}/record`);
-  const parts = rec.data?.components || [];
-  check(parts.length === 1 && parts[0].confirmation_number === `DL${stamp}`,
-    'with its own confirmation number', parts[0]?.confirmation_number);
-
-  // Through the same vendor list as everything else, so air booked with a
-  // consolidator lands under one spelling in the reports rather than three.
-  check(parts[0].vendor_id, 'and its own vendor record');
-
-  // Pricing one vendor must not disturb the other. The grid shows one at a
-  // time, so a save that replaced everything would wipe the cruise.
   await call(advisor, 'PUT', `/api/bookings/${tripId}/pricing`, {
-    componentId: null,
     cells: [{ kind: 'fare', amount: '2000', commissionable: true }],
     commissions: [{ amount: '320' }],
   });
-  await call(advisor, 'PUT', `/api/bookings/${tripId}/pricing`, {
-    componentId: air.data.id,
-    cells: [{ kind: 'air', amount: '640' }],
-  });
-
   const priced = await call(advisor, 'GET', `/api/bookings/${tripId}/record`);
-  const lines = priced.data?.pricing || [];
-  check(lines.some((l) => l.kind === 'fare' && !l.component_id),
-    'the cruise keeps its pricing when the air is saved',
-    JSON.stringify(lines.map((l) => l.kind)));
-  check(lines.some((l) => l.kind === 'air' && l.component_id === air.data.id),
-    'and the air is charged against the vendor that provided it');
-
-  // One money model: the trip total does not know components exist.
-  check(priced.data?.booking?.gross_cents === 264000,
-    'the trip total is everything, whoever it was booked with',
-    priced.data?.booking?.gross_cents);
+  check(priced.data?.booking?.gross_cents === 200000,
+    'the grid prices the trip', priced.data?.booking?.gross_cents);
   check(priced.data?.booking?.commission_cents === 32000,
-    'and so is the commission', priced.data?.booking?.commission_cents);
+    'and the commission with it', priced.data?.booking?.commission_cents);
 
-  // The money was real. Tidying away a vendor row must not quietly remove a
-  // charge from the trip.
-  await call(advisor, 'DELETE', `/api/components/${air.data.id}`);
-  const after = await call(advisor, 'GET', `/api/bookings/${tripId}/record`);
-  check((after.data?.components || []).length === 0, 'a component can be removed');
-  check(after.data?.booking?.gross_cents === 264000,
-    'and what it cost stays on the trip rather than vanishing with it',
-    after.data?.booking?.gross_cents);
-  check((after.data?.pricing || []).some((l) => l.kind === 'air' && !l.component_id),
-    'its charges are detached rather than deleted');
-
-  const notYours = await call(admin, 'POST', `/api/bookings/${tripId}/components`,
-    { kind: 'air', supplier: `Added By Owner ${stamp}` });
-  check(notYours.status === 201, 'an owner can add a vendor to an associate\'s trip',
-    `status ${notYours.status}`);
+  // The half that would break quietly. The old save cleared one vendor's
+  // lines and left the rest, so a grid holding everything and a save clearing
+  // part of it would double the trip on the second press.
+  await call(advisor, 'PUT', `/api/bookings/${tripId}/pricing`, {
+    cells: [
+      { kind: 'fare', amount: '2000', commissionable: true },
+      { kind: 'air', amount: '640' },
+    ],
+    commissions: [{ amount: '320' }],
+  });
+  const again = await call(advisor, 'GET', `/api/bookings/${tripId}/record`);
+  check(again.data?.booking?.gross_cents === 264000,
+    'saving again replaces the grid rather than adding to it',
+    again.data?.booking?.gross_cents);
+  check((again.data?.pricing || []).every((l) => !l.component_id),
+    'every charge belongs to the reservation rather than a vendor inside it',
+    JSON.stringify((again.data?.pricing || []).map((l) => l.component_id)));
+  check((again.data?.components || []).length === 0,
+    'and the trip carries no vendors inside it',
+    `${(again.data?.components || []).length}`);
   }
 
   // -------------------------------------------- the rate a charge earns ----

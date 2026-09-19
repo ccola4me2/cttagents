@@ -216,18 +216,6 @@ export async function handleSavePricingGrid(request, env, bookingId) {
     return id && mine.has(id) ? id : null;
   };
 
-  // Which component a charge belongs to, checked the same way. A component id
-  // from another reservation would put this trip's air under somebody else's
-  // vendor.
-  const { results: parts } = await env.DB.prepare(
-    'SELECT id FROM components WHERE booking_id = ? AND user_id = ?'
-  ).bind(bookingId, owner.id).all().catch(() => ({ results: [] }));
-  const ours = new Set((parts || []).map((p) => p.id));
-  const component = (v) => {
-    const id = clean(v, 64);
-    return id && ours.has(id) ? id : null;
-  };
-
   const order = new Map(PRICE_KINDS.map((k, i) => [k.kind, i]));
   const rows = [];
   for (const cell of cells) {
@@ -236,7 +224,6 @@ export async function handleSavePricingGrid(request, env, bookingId) {
     if (amountCents <= 0) continue;
     rows.push({
       travellerId: column(cell.travellerId),
-      componentId: component(cell.componentId),
       kind,
       commissionable: cell.commissionable ? 1 : 0,
       amountCents,
@@ -251,36 +238,29 @@ export async function handleSavePricingGrid(request, env, bookingId) {
     const cents = toCents(c.amount);
     if (cents <= 0) continue;
     const travellerId = column(c.travellerId);
-    const componentId = component(c.componentId);
     const commissionKind = oneOf(c.kind, COMMISSION_KIND_KEYS);
 
     // The base rides on the fare row it was earned from, which is where it has
     // always lived. A package override or a bonus gets its own row: they are
     // paid separately and have to be settled separately.
     const fare = commissionKind === 'base' && rows.find((r) => r.kind === 'fare'
-      && r.travellerId === travellerId && r.componentId === componentId
-      && r.commissionKind === 'base');
+      && r.travellerId === travellerId && r.commissionKind === 'base');
     if (fare) { fare.commissionCents = cents; continue; }
     rows.push({
-      travellerId, componentId, kind: 'fare', commissionable: 1,
+      travellerId, kind: 'fare', commissionable: 1,
       amountCents: 0, commissionCents: cents, commissionPct: null, sortOrder: 0,
       commissionKind,
     });
   }
 
-  // Only the component being priced. The grid shows one vendor at a time, so
-  // saving the air must not take the cruise's pricing with it.
-  const scopeId = component(body.componentId);
-  if (scopeId) {
-    await env.DB.prepare(
-      'DELETE FROM booking_pricing WHERE booking_id = ? AND user_id = ? AND component_id = ?'
-    ).bind(bookingId, owner.id, scopeId).run();
-  } else {
-    await env.DB.prepare(
-      'DELETE FROM booking_pricing WHERE booking_id = ? AND user_id = ? AND component_id IS NULL'
-    ).bind(bookingId, owner.id).run();
-  }
-  for (const r of rows) r.componentId = scopeId;
+  // Every line on the reservation, because the grid now holds every line on
+  // the reservation. It used to save one vendor's at a time, and leaving that
+  // in after the vendor switcher went would have stranded any charge tagged to
+  // a component: out of the grid, still in the trip total, and deleted by
+  // nothing. They are read back into the grid and written out untagged.
+  await env.DB.prepare(
+    'DELETE FROM booking_pricing WHERE booking_id = ? AND user_id = ?'
+  ).bind(bookingId, owner.id).run();
 
   const ts = now();
   for (const r of rows) {
@@ -288,8 +268,8 @@ export async function handleSavePricingGrid(request, env, bookingId) {
       `INSERT INTO booking_pricing (id, booking_id, user_id, traveller_id, component_id,
          kind, label, amount_cents, commissionable, commission_cents, commission_pct,
          commission_kind, sort_order, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(uid(), bookingId, owner.id, r.travellerId, r.componentId, r.kind, r.amountCents,
+       VALUES (?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(uid(), bookingId, owner.id, r.travellerId, r.kind, r.amountCents,
            r.commissionable, r.commissionCents,
            r.commissionPct === undefined ? null : r.commissionPct,
            r.commissionKind || 'base', r.sortOrder, ts, ts).run();

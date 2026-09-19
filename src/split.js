@@ -35,6 +35,16 @@ export const COMPANY_LEAD = 'company';
 // money they are not owed.
 export const NO_COMMISSION = 'none';
 
+// The status that means the money is in. Written down here for the same
+// reason the one above it is: it appears in the status list, in five
+// aggregates and in three reports, and a status this one disagreed with would
+// quietly leave commission off a payout.
+//
+// It replaced two, 'invoiced' and 'paid'. Invoiced was a claim about
+// paperwork and went stale the day it was set; what an owner actually asks
+// twice a month is whether the vendor has paid, and that has two answers.
+export const COMMISSION_RECEIVED = 'received';
+
 /**
  * The percentage the advisor keeps.
  *

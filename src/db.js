@@ -6,7 +6,9 @@
 // and are deliberately not mirrored here.
 
 import { uid, now } from './util.js';
-import { SPLIT_PCT_SQL, ADVISOR_SHARE_SQL, UNSPLIT_SQL, EARNED_SQL } from './split.js';
+import {
+  SPLIT_PCT_SQL, ADVISOR_SHARE_SQL, UNSPLIT_SQL, EARNED_SQL, COMMISSION_RECEIVED,
+} from './split.js';
 
 const USER_COLUMNS = `
   id, email, first_name, last_name, phone, agency_name, role, status,
@@ -967,8 +969,10 @@ export async function bookingStats(env, scope) {
        SUM(CASE WHEN b.status IN ('booked','travelled') THEN b.gross_cents ELSE 0 END) AS gross_cents,
        SUM(CASE WHEN b.status IN ('booked','travelled') THEN ${earned} ELSE 0 END) AS commission_cents,
        SUM(CASE WHEN b.status IN ('booked','travelled') THEN ${share} ELSE 0 END) AS commission_share_cents,
-       SUM(CASE WHEN b.commission_status = 'paid' THEN ${earned} ELSE 0 END) AS commission_paid_cents,
-       SUM(CASE WHEN b.commission_status = 'paid' THEN ${share} ELSE 0 END) AS commission_paid_share_cents
+       SUM(CASE WHEN b.commission_status = '${COMMISSION_RECEIVED}' THEN ${earned} ELSE 0 END)
+         AS commission_paid_cents,
+       SUM(CASE WHEN b.commission_status = '${COMMISSION_RECEIVED}' THEN ${share} ELSE 0 END)
+         AS commission_paid_share_cents
      FROM bookings b LEFT JOIN users u ON u.id = b.user_id WHERE ${scoped.sql}`
   ).bind(...scoped.binds).first();
   return {
@@ -1047,7 +1051,7 @@ export async function productionByAdvisor(env, scope, sinceDate, { includePerson
             COUNT(b.id) AS bookings,
             COALESCE(SUM(b.gross_cents), 0) AS gross_cents,
             COALESCE(SUM(${EARNED_SQL('b.commission_cents', 'b.commission_status')}), 0) AS commission_cents,
-            COALESCE(SUM(CASE WHEN b.commission_status = 'paid'
+            COALESCE(SUM(CASE WHEN b.commission_status = '${COMMISSION_RECEIVED}'
               THEN ${EARNED_SQL('b.commission_cents', 'b.commission_status')} END), 0)
               AS commission_paid_cents,
             -- What this advisor keeps, and what the agency keeps out of what

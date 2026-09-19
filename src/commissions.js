@@ -13,13 +13,16 @@
 import { json, badRequest, oneOf, uid, now, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
-import { SPLIT_PCT_SQL, ADVISOR_SHARE_SQL, UNSPLIT_SQL, EARNED_SQL, NO_COMMISSION } from './split.js';
+import {
+  SPLIT_PCT_SQL, ADVISOR_SHARE_SQL, UNSPLIT_SQL, EARNED_SQL, NO_COMMISSION, COMMISSION_RECEIVED,
+  UNSPLIT_COMMISSION_KINDS, shareOf,
+} from './split.js';
 import { settlement, SETTLEMENT_STATES, COMMISSION_KINDS } from './reconcile.js';
 
 // What a batch may be moved to. "No commission" is not on it on purpose:
 // waiving a commission is a decision about one reservation, made where the
 // figures are, not a thing to apply to two hundred rows with one button.
-const STATUSES = ['pending', 'invoiced', 'paid'];
+const STATUSES = ['pending', COMMISSION_RECEIVED];
 
 // What the list may be filtered by, which is wider. A reservation marked as
 // earning nothing is off this page by default, since the page exists to chase
@@ -91,6 +94,13 @@ export async function handleListCommissions(request, env) {
             COALESCE((SELECT SUM(r.amount_cents) FROM commission_receipts r
                        WHERE r.booking_id = b.id AND r.kind IN ('bonus','bonus_shared')), 0)
               AS received_bonus_cents,
+            -- The part of what arrived that the agency takes no share of.
+            -- Not the figure above it: that one counts the casino bonus,
+            -- which is split like anything else.
+            COALESCE((SELECT SUM(r.amount_cents) FROM commission_receipts r
+                       WHERE r.booking_id = b.id AND r.kind IN (${
+  UNSPLIT_COMMISSION_KINDS.map((k) => `'${k}'`).join(', ')})), 0)
+              AS received_unsplit_cents,
             COALESCE((SELECT SUM(p.commission_cents) FROM booking_pricing p
                        WHERE p.booking_id = b.id AND p.commission_kind = 'base'), 0) AS expected_base_cents,
             COALESCE((SELECT SUM(p.commission_cents) FROM booking_pricing p
@@ -130,9 +140,29 @@ export async function handleListCommissions(request, env) {
       if (owed > 0) outstandingByKind[k] = owed;
     }
 
+    // What to pay the advisor, which is their share of the money that has
+    // actually arrived rather than of the money that is expected. The two are
+    // the same only on a trip the vendor has settled in full, and a payout run
+    // off the expected figure pays people out of the agency's own pocket.
+    //
+    // A waived trip pays nobody, the same rule the expected share reads
+    // through. Money against a trip marked as earning nothing is a
+    // contradiction worth seeing on the page rather than quietly splitting.
+    // Money that arrived against a waived trip is left whole with the agency
+    // rather than split or, worse, dropped: the two halves have to add back
+    // up to what came in or a payout cannot be checked against the bank.
+    const payout = r.commission_status === NO_COMMISSION
+      ? { advisorCents: 0, agencyCents: r.received_cents || 0 }
+      : shareOf(r.received_cents, r.split_pct, r.received_unsplit_cents);
+
     return {
       ...r, back, daysSince, bucket: bucketFor(daysSince),
       outstanding_by_kind: outstandingByKind,
+      // Named for what it is used for. advisor_cents beside it is the share of
+      // what is expected, and the pair being two different numbers is the
+      // whole point of having both.
+      payout_cents: payout.advisorCents,
+      agency_received_cents: payout.agencyCents,
       // Read through the same rule as the advisor's half, so a waived
       // commission leaves the agency nothing either rather than leaving it
       // the whole of a figure nobody is paying.
@@ -190,6 +220,12 @@ export async function handleListCommissions(request, env) {
       // expected figure on everything somebody had marked paid, which is a
       // different number whenever a vendor pays short.
       paidCents: rows.reduce((n, r) => n + (r.received_cents || 0), 0),
+      // The payout run. What the advisors are owed out of the money that is
+      // in, and what is left for the agency out of the same money. These two
+      // add up to paidCents, so a payout can be checked against the bank.
+      payoutCents: rows.reduce((n, r) => n + (r.payout_cents || 0), 0),
+      agencyReceivedCents: rows.reduce((n, r) => n + (r.agency_received_cents || 0), 0),
+      receivedCount: rows.filter((r) => (r.received_cents || 0) !== 0).length,
       paidAdvisorCents: rows.filter((r) => r.settlement === 'settled' || r.settlement === 'over')
         .reduce((n, r) => n + (r.advisor_cents || 0), 0),
       lateCents: owed.filter((r) => r.bucket === 'older')
@@ -230,7 +266,7 @@ export async function handleSetCommissionStatus(request, env) {
   const body = await readJson(request);
   const status = oneOf(body.status, STATUSES);
   if (!STATUSES.includes(String(body.status || ''))) {
-    return badRequest('Pick pending, invoiced or paid.');
+    return badRequest('Pick pending or received.');
   }
 
   const ids = Array.isArray(body.ids) ? body.ids.filter((x) => typeof x === 'string').slice(0, 200) : [];
@@ -254,7 +290,7 @@ export async function handleSetCommissionStatus(request, env) {
 
   const changed = res.meta ? res.meta.changes || 0 : 0;
 
-  // Marking a reservation paid has to move money, not just a label.
+  // Marking a reservation received has to move money, not just a label.
   //
   // Since commission is reconciled against what the vendor actually sent, a
   // status on its own no longer settles anything: the reservation would still
@@ -263,7 +299,7 @@ export async function handleSetCommissionStatus(request, env) {
   // the person clicking it means, it keeps the one-click batch workflow, and
   // the figure lands somewhere it can later be corrected line by line.
   let recorded = 0;
-  if (status === 'paid') recorded = await recordExpectedAsReceived(env, user, ids);
+  if (status === COMMISSION_RECEIVED) recorded = await recordExpectedAsReceived(env, user, ids);
   await db.logActivity(env, user.id, 'commission.status',
     `Marked ${changed} reservation${changed === 1 ? '' : 's'} ${status}`, { status, count: changed });
 

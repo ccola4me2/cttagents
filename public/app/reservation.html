@@ -58,14 +58,20 @@
               <span id="schedule-actions"></span></div>
             <div id="payments"></div>
           </section>
+          <section class="card" style="margin-bottom:1.5rem;" id="commission-card">
+            <div class="card-head" id="sec-commission"><h2>Commission</h2>
+              <span id="commission-actions"></span></div>
+            <div id="commission"></div>
+          </section>
           <section class="card" style="margin-bottom:1.5rem;" id="options-card" hidden>
             <div class="card-head" id="sec-options"><h2>Choices offered</h2>
               <span id="option-actions"></span></div>
             <div id="options"></div>
           </section>
-          <section class="card" style="margin-bottom:1.5rem;" id="components-card">
-            <div class="card-head" id="sec-components"><h2>Also on this trip</h2>
-              <span id="component-actions"></span></div>
+          <!-- Only where a trip still carries one. A second vendor is a second
+               reservation now; these are what was filed the old way. -->
+          <section class="card" style="margin-bottom:1.5rem;" id="components-card" hidden>
+            <div class="card-head" id="sec-components"><h2>Other vendors, being retired</h2></div>
             <div id="components"></div>
           </section>
           <section class="card" id="itinerary-card">
@@ -155,53 +161,12 @@
   </form>
 </dialog>
 
-<dialog id="component-dlg">
-  <form id="component-form" method="dialog">
-    <div class="card-head"><h2>Another vendor on this trip</h2>
-      <button class="btn btn-ghost btn-sm" type="button" data-close-component>Close</button></div>
-    <div class="card-pad">
-      <div class="notice notice-error" hidden></div>
-      <div class="field-row">
-        <div class="field"><label for="c-kind">What it is</label>
-          <select id="c-kind" name="kind"></select></div>
-        <div class="field"><label for="c-supplier">Booked with</label>
-          <input id="c-supplier" name="supplier" maxlength="120" required placeholder="Delta"></div>
-      </div>
-      <div class="field-row">
-        <div class="field"><label for="c-product">What they are providing</label>
-          <input id="c-product" name="productName" maxlength="160" placeholder="ATL to SEA, return"></div>
-        <div class="field"><label for="c-conf">Confirmation number</label>
-          <input id="c-conf" name="confirmationNumber" maxlength="80"></div>
-      </div>
-      <div class="field-row">
-        <div class="field"><label for="c-start">Starts</label>
-          <input id="c-start" name="startDate" type="date"></div>
-        <div class="field"><label for="c-end">Ends</label>
-          <input id="c-end" name="endDate" type="date"></div>
-      </div>
-      <div class="field"><label for="c-notes">Notes</label>
-        <textarea id="c-notes" name="notes" maxlength="1000"></textarea></div>
-      <p class="field-hint">What it costs goes in the pricing grid above, where you can pick
-        this vendor from the list. Removing a component here leaves its charges on the trip.</p>
-    </div>
-    <div class="card-foot">
-      <button class="btn btn-danger btn-sm" type="button" id="c-delete" hidden>Remove</button>
-      <button class="btn btn-primary" type="submit">Save</button>
-    </div>
-  </form>
-</dialog>
-
 <dialog id="option-dlg">
   <form id="option-form" method="dialog">
     <div class="card-head"><h2>An option on this quote</h2>
       <button class="btn btn-ghost btn-sm" type="button" data-close-option>Close</button></div>
     <div class="card-pad">
       <div class="notice notice-error" hidden></div>
-      <div class="field"><label for="o-component">What they are choosing</label>
-        <select id="o-component" name="componentId"></select>
-        <p class="field-hint">The whole trip means this option is an alternative to the other
-          whole-trip options. Pick a part of the trip and the client answers that question on
-          its own, so choosing a cabin does not undo their insurance.</p></div>
       <div class="field"><label for="o-label">What it is</label>
         <input id="o-label" name="label" maxlength="120" required placeholder="Verandah, deck 8"></div>
       <div class="field"><label for="o-detail">Anything the client should know</label>
@@ -695,7 +660,7 @@ const OPT_LABEL = {
   covered_elsewhere: 'Covered elsewhere', purchased_outside: 'Bought elsewhere',
   unknown: 'Not discussed yet',
   // Otherwise this reads as the bare word "None", which beside Pending and
-  // Paid looks like a value nobody chose rather than one somebody did.
+  // Received looks like a value nobody chose rather than one somebody did.
   none: 'No commission on this trip',
 };
 const optionText = (v) => OPT_LABEL[v] || (v ? v[0].toUpperCase() + v.slice(1) : '');
@@ -895,50 +860,198 @@ function drawDetail() {
   document.getElementById('detail-state').textContent = ro ? 'Read only' : '';
 }
 
+const SETTLE_WORD = {
+  unpaid: { tone: 'badge-navy', label: 'Nothing in yet' },
+  short: { tone: 'badge-red', label: 'Paid short' },
+  settled: { tone: 'badge-green', label: 'Settled' },
+  over: { tone: 'badge-amber', label: 'Overpaid' },
+};
+
+/** Which part of the commission a receipt is, in words. */
+const receiptWord = (k) => ((d.commission.kinds || [])
+  .find((x) => x.kind === k) || {}).label || k || 'Base';
+
+/**
+ * What the vendor owes on this trip, what has arrived, and what is owed out.
+ *
+ * It used to live on Commission owed and nowhere else, which is the right
+ * page for chasing a hundred of them and the wrong one for answering "what
+ * did we get for this". The reservation could show the expected figure and a
+ * share of it, and nothing at all about money that had actually turned up.
+ *
+ * Expected is what the vendor should pay. Received is the sum of what they
+ * have. Payout is the advisor's share of what is in, which is the figure the
+ * agency writes a cheque against, and it is not the share of the expected
+ * figure: paying that one out pays people from the agency's own pocket.
+ */
+function drawCommission() {
+  const c = d.commission;
+  const acts = document.getElementById('commission-actions');
+  acts.innerHTML = c.mayRecord && c.earns
+    ? '<button class="btn btn-ghost btn-sm" id="add-receipt">Record what arrived</button>' : '';
+
+  if (!c.earns) {
+    document.getElementById('commission').innerHTML = `<div class="empty">
+      <h3>No commission on this trip</h3>
+      <p>Marked as earning nothing, so nobody is paid on it: not the advisor and not
+        the agency. Change it on the reservation above if that is wrong.</p></div>`;
+    return;
+  }
+
+  const figure = (label, cents, note, tone) => `<div class="stat">
+    <p class="label">${esc(label)}</p>
+    <p class="value"${tone ? ` style="color:var(--${tone}-600);"` : ''}>${money(cents)}</p>
+    <p class="meta">${note}</p></div>`;
+
+  const s = SETTLE_WORD[c.settlement] || SETTLE_WORD.unpaid;
+  const rows = c.receipts || [];
+
+  document.getElementById('commission').innerHTML = `
+    <div class="card-pad">
+      <div class="stat-grid" style="margin:0;">
+        ${figure('Expected', c.expectedCents, 'What the vendor owes')}
+        ${figure('Received', c.receivedCents, `<span class="badge ${s.tone}">${esc(s.label)}</span>`)}
+        ${figure('Still out', c.outstandingCents, 'Not arrived yet',
+    c.outstandingCents ? 'amber' : '')}
+        ${figure('Payout', c.payoutCents,
+    `${esc(String(c.pct))}% of what is in${c.payoutCents === c.fullPayoutCents ? ''
+      : ` &middot; ${money(c.fullPayoutCents)} when it all lands`}`)}
+      </div>
+      ${c.varianceCents < 0 && c.receivedCents ? `<p class="field-hint" style="margin:.8rem 0 0;">
+        The vendor has paid ${money(Math.abs(c.varianceCents))} less than this trip expected.
+        Either chase the rest or correct the expected figure, so the two stop disagreeing.</p>` : ''}
+      ${c.varianceCents > 1 ? `<p class="field-hint" style="margin:.8rem 0 0;">
+        ${money(c.varianceCents)} more has arrived than was expected, which is worth a look
+        before it is paid out.</p>` : ''}
+    </div>
+    <form id="receipt-form" class="card-pad" hidden style="border-top:1px solid var(--navy-100);">
+      <div class="notice notice-error" hidden></div>
+      <div class="field-row">
+        <div class="field"><label for="r-amount">Amount arrived</label>
+          <input id="r-amount" name="amount" inputmode="decimal" required
+            value="${esc(((c.outstandingCents || 0) / 100).toFixed(2))}"></div>
+        <div class="field"><label for="r-on">On</label>
+          <input id="r-on" name="receivedOn" type="date" value="${esc(d.today)}"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="r-kind">Which part</label>
+          <select id="r-kind" name="kind">${(c.kinds || []).map((k) =>
+      `<option value="${esc(k.kind)}">${esc(k.label)}</option>`).join('')}</select></div>
+        <div class="field"><label for="r-ref">Reference</label>
+          <input id="r-ref" name="reference" maxlength="80" placeholder="Their statement number"></div>
+      </div>
+      <p class="field-hint">Enter what the vendor sent, not what was expected. Less than the
+        full amount leaves the rest showing as owed, which is the point. A clawback goes in
+        as a negative.</p>
+      <div class="toolbar" style="padding:0;">
+        <button class="btn btn-secondary btn-sm" type="submit">Save</button>
+        <button class="btn btn-ghost btn-sm" type="button" id="r-cancel">Cancel</button>
+      </div>
+    </form>
+    ${rows.length ? `<div class="table-wrap"><table>
+      <thead><tr><th>Arrived</th><th>Which part</th><th>Reference</th>
+        <th class="num">Amount</th><th></th></tr></thead>
+      <tbody>${rows.map((r) => `<tr>
+        <td>${esc(r.received_on ? short(r.received_on) : 'no date')}</td>
+        <td>${esc(receiptWord(r.kind))}</td>
+        <td>${esc(r.reference || '-')}</td>
+        <td class="num">${money(r.amount_cents)}</td>
+        <td class="num">${c.mayRecord
+      ? `<button class="btn btn-ghost btn-sm" data-drop-receipt="${esc(r.id)}">Remove</button>` : ''}</td>
+      </tr>`).join('')}</tbody></table></div>`
+    : `<p class="wempty" style="text-align:left;padding:0 1.25rem 1.1rem;">
+        Nothing received yet. Record it here when the vendor pays, and the trip settles itself.</p>`}`;
+
+  const form = document.getElementById('receipt-form');
+  const add = document.getElementById('add-receipt');
+  if (add) {
+    add.addEventListener('click', () => {
+      form.hidden = !form.hidden;
+      if (!form.hidden) form.elements.amount.focus();
+    });
+    document.getElementById('r-cancel').addEventListener('click', () => { form.hidden = true; });
+    onSubmit(form, async (values) => {
+      await api('/api/commissions/receipts', {
+        method: 'POST',
+        body: { bookingId: id, ...values },
+      });
+      await load();
+    });
+  }
+
+  document.querySelectorAll('[data-drop-receipt]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Remove this receipt?\n\n'
+        + 'The money comes off what this trip has received, and the trip goes back to '
+        + 'owed if that is what the figures then say.')) return;
+      btn.disabled = true;
+      try {
+        await api(`/api/commissions/receipts/${encodeURIComponent(btn.dataset.dropReceipt)}`,
+          { method: 'DELETE' });
+        await load();
+      } catch (e) { showError(err, e); btn.disabled = false; }
+    });
+  });
+}
+
 const KIND_WORD = {
   air: 'Air', insurance: 'Travel insurance', lodging: 'Lodging',
   excursion: 'Excursion', transfer: 'Transfer', car: 'Car hire', other: 'Something else',
 };
 
 /**
- * The other vendors on this trip.
+ * What is left of other vendors on one trip.
  *
- * A cruise with air on it is two bookings with two vendors, two confirmation
- * numbers and two commission cheques, and it is one holiday. It used to go in
- * as a second reservation that duplicated the client and the dates, or it went
- * in nowhere and the commission was never chased.
+ * A cruise with air on it used to go in here, as a second vendor hanging off
+ * the reservation. Two vendors is two reservations now: each keeps its own
+ * confirmation number, its own pricing and its own commission, and the
+ * commission on the air stops being chased on the cruise's row.
+ *
+ * Nothing was deleted when that changed. A trip that still carries one shows
+ * it here, read only, with what it cost. Removing it keeps the charges, which
+ * is what that endpoint has always done, and the card goes away with the last
+ * row rather than sitting empty for ever.
  */
 function drawComponents() {
   const rows = d.components || [];
-  document.getElementById('component-actions').innerHTML = d.editable
-    ? '<button class="btn btn-ghost btn-sm" id="add-component">Add a vendor</button>' : '';
-  const add = document.getElementById('add-component');
-  if (add) add.addEventListener('click', () => openComponent(null));
+  document.getElementById('components-card').hidden = !rows.length;
+  if (!rows.length) return;
 
   const spend = (componentId) => (d.pricing || [])
     .filter((l) => (l.component_id || null) === componentId)
     .reduce((n, l) => n + (l.amount_cents || 0), 0);
 
-  document.getElementById('components').innerHTML = rows.length
-    ? `<div class="table-wrap"><table>
-        <thead><tr><th>What</th><th>Vendor</th><th>Dates</th><th class="num">Charges</th><th></th></tr></thead>
-        <tbody>${rows.map((c) => `<tr>
-          <td><span class="name">${esc(KIND_WORD[c.kind] || c.kind)}</span>
-            ${c.product_name ? `<div class="muted">${esc(c.product_name)}</div>` : ''}</td>
-          <td>${esc(c.supplier || '-')}
-            ${c.confirmation_number ? `<div class="muted">${esc(c.confirmation_number)}</div>` : ''}</td>
-          <td>${esc(c.start_date ? short(c.start_date) : '-')}${
-            c.end_date ? ` to ${esc(short(c.end_date))}` : ''}</td>
-          <td class="num">${spend(c.id) ? money(spend(c.id)) : '<span class="muted">not priced</span>'}</td>
-          <td class="num">${d.editable
-            ? `<button class="btn btn-ghost btn-sm" data-component="${esc(c.id)}">Edit</button>` : ''}</td>
-        </tr>`).join('')}</tbody></table></div>`
-    : `<div class="empty"><h3>One vendor so far</h3>
-        <p>Air, insurance, a hotel either side of the cruise. Each keeps its own
-          confirmation number and its own commission, on this trip rather than a second one.</p></div>`;
+  document.getElementById('components').innerHTML = `
+    <div class="card-pad" style="padding-bottom:0;">
+      <p class="field-hint" style="margin:0;">These were added when a trip could hold several
+        vendors. Give each one its own reservation, with its own confirmation number and its
+        own commission, and remove it here. What it cost stays on this trip either way.</p>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>What</th><th>Vendor</th><th>Dates</th><th class="num">Charges</th><th></th></tr></thead>
+      <tbody>${rows.map((c) => `<tr>
+        <td><span class="name">${esc(KIND_WORD[c.kind] || c.kind)}</span>
+          ${c.product_name ? `<div class="muted">${esc(c.product_name)}</div>` : ''}</td>
+        <td>${esc(c.supplier || '-')}
+          ${c.confirmation_number ? `<div class="muted">${esc(c.confirmation_number)}</div>` : ''}</td>
+        <td>${esc(c.start_date ? short(c.start_date) : '-')}${
+    c.end_date ? ` to ${esc(short(c.end_date))}` : ''}</td>
+        <td class="num">${spend(c.id) ? money(spend(c.id)) : '<span class="muted">not priced</span>'}</td>
+        <td class="num">${d.editable
+    ? `<button class="btn btn-ghost btn-sm" data-drop-component="${esc(c.id)}">Remove</button>` : ''}</td>
+      </tr>`).join('')}</tbody></table></div>`;
 
-  document.querySelectorAll('[data-component]').forEach((btn) => {
-    btn.addEventListener('click', () => openComponent(rows.find((c) => c.id === btn.dataset.component)));
+  document.querySelectorAll('[data-drop-component]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Remove this vendor from the trip?\n\n'
+        + 'What it cost stays in the pricing. Only the line naming who booked it goes.')) return;
+      btn.disabled = true;
+      try {
+        await api(`/api/components/${encodeURIComponent(btn.dataset.dropComponent)}`,
+          { method: 'DELETE' });
+        await load();
+      } catch (e) { showError(err, e); btn.disabled = false; }
+    });
   });
 }
 
@@ -1046,8 +1159,6 @@ function drawOptions() {
 // twenty one others existed. The toggle still collapses it to what is in use,
 // which is the right view once a trip is priced and the wrong one before.
 let showAllRows = true;
-// Which vendor's charges the grid is showing. Null is the reservation's own.
-let pricingComponent = null;
 
 /**
  * The rows under the charges, where commission is entered rather than worked
@@ -1067,14 +1178,13 @@ const COMMISSION_ROWS = [
 
 function drawPricing() {
   const kinds = d.priceKinds || [];
-  const parts = d.components || [];
-  // The grid shows one vendor at a time, because a cruise and its air have
-  // different charge rows and putting both in one table gives you a column of
-  // blanks for every row that belongs to the other one.
-  if (pricingComponent && !parts.some((c) => c.id === pricingComponent)) pricingComponent = null;
   const people = (d.travellers || []).map((t) => ({ id: t.id, name: t.name }));
 
-  const forHere = (d.pricing || []).filter((l) => (l.component_id || null) === pricingComponent);
+  // Every charge on the reservation. The grid used to show one vendor at a
+  // time and this read only the untagged lines; with the switcher gone, that
+  // would have left anything filed under an old second vendor out of the grid
+  // and still inside the trip total.
+  const forHere = d.pricing || [];
 
   // A column per passenger, and the totals at the bottom. There used to be a
   // "Whole booking" column beside them for what belonged to the cabin rather
@@ -1116,13 +1226,7 @@ function drawPricing() {
   const cash = (cents) => (cents ? (cents / 100).toFixed(2) : '');
 
   document.getElementById('pricing-actions').innerHTML = d.editable
-    ? `${parts.length ? `<select id="price-for" style="width:auto;display:inline-block;margin-right:.4rem;">
-        <option value=""${pricingComponent ? '' : ' selected'}>${
-          esc(d.booking.supplier || 'The main booking')}</option>
-        ${parts.map((c) => `<option value="${esc(c.id)}"${c.id === pricingComponent ? ' selected' : ''}>${
-          esc([KIND_WORD[c.kind] || c.kind, c.supplier].filter(Boolean).join(' with '))}</option>`).join('')}
-       </select>` : ''}
-       <button class="btn btn-ghost btn-sm" id="toggle-rows">${
+    ? `<button class="btn btn-ghost btn-sm" id="toggle-rows">${
         showAllRows ? 'Hide empty rows' : 'Show every charge'}</button>
        ${people.length > 1 ? '<button class="btn btn-ghost btn-sm" id="copy-across">Copy first column across</button>' : ''}`
     : '';
@@ -1296,12 +1400,6 @@ function drawPricing() {
   const toggle = document.getElementById('toggle-rows');
   if (toggle) toggle.addEventListener('click', () => { showAllRows = !showAllRows; drawPricing(); });
 
-  const forWhich = document.getElementById('price-for');
-  if (forWhich) forWhich.addEventListener('change', () => {
-    pricingComponent = forWhich.value || null;
-    drawPricing();
-  });
-
   const copy = document.getElementById('copy-across');
   if (copy) copy.addEventListener('click', () => {
     const first = columns[0].id || '';
@@ -1321,7 +1419,7 @@ function drawPricing() {
   const save = document.getElementById('save-pricing');
   if (save) save.addEventListener('click', async () => {
     save.disabled = true;
-    const body = { componentId: pricingComponent, cells: [], commissions: [] };
+    const body = { cells: [], commissions: [] };
     for (const el of cells()) {
       if (!el.value.trim()) continue;
       const box = document.querySelector(`[data-comm="${el.dataset.cell}"]`);
@@ -1889,8 +1987,11 @@ function render() {
     ['sec-travellers', 'Travellers'],
     ['sec-pricing', 'Pricing'],
     ['sec-payments', 'Payments'],
-    ['sec-options', 'Choices'],
+    ['sec-commission', 'Commission'],
+    // Only on the few trips that still carry one: the filter below drops any
+    // section whose card is hidden, and that card hides itself when empty.
     ['sec-components', 'Other vendors'],
+    ['sec-options', 'Choices'],
     ['sec-share', 'Client page'],
     ['sec-docs', 'Documents'],
     ['sec-penalty', 'If they cancel'],
@@ -1909,6 +2010,7 @@ function render() {
 
   drawDetail();
 
+  drawCommission();
   drawComponents();
   drawOptions();
   drawShare();
@@ -2551,51 +2653,6 @@ onSubmit(detailForm, async (values) => {
   err.innerHTML = '<div class="notice notice-ok">Saved.</div>';
 });
 
-const componentDlg = document.getElementById('component-dlg');
-const componentForm = document.getElementById('component-form');
-let editingComponent = null;
-
-function openComponent(c) {
-  editingComponent = c ? c.id : null;
-  componentForm.reset();
-  componentForm.querySelector('.notice-error').hidden = true;
-  document.getElementById('c-delete').hidden = !c;
-  document.getElementById('c-kind').innerHTML = (d.componentKinds || [])
-    .map((k) => `<option value="${esc(k)}">${esc(KIND_WORD[k] || k)}</option>`).join('');
-  if (c) {
-    componentForm.elements.kind.value = c.kind;
-    componentForm.elements.supplier.value = c.supplier || '';
-    componentForm.elements.productName.value = c.product_name || '';
-    componentForm.elements.confirmationNumber.value = c.confirmation_number || '';
-    componentForm.elements.startDate.value = c.start_date || '';
-    componentForm.elements.endDate.value = c.end_date || '';
-    componentForm.elements.notes.value = c.notes || '';
-  } else {
-    // Air is the one people add, so it is the one already chosen.
-    componentForm.elements.kind.value = 'air';
-  }
-  componentDlg.showModal();
-}
-
-document.querySelector('[data-close-component]').addEventListener('click', () => componentDlg.close());
-document.getElementById('c-delete').addEventListener('click', async () => {
-  if (!editingComponent) return;
-  if (!confirm('Remove this vendor from the trip? What it cost stays on the reservation.')) return;
-  try {
-    await api(`/api/components/${encodeURIComponent(editingComponent)}`, { method: 'DELETE' });
-  } catch (e) { showError(componentForm.querySelector('.notice-error'), e); return; }
-  componentDlg.close();
-  await load();
-});
-onSubmit(componentForm, async (values) => {
-  const path = editingComponent
-    ? `/api/components/${encodeURIComponent(editingComponent)}`
-    : `/api/bookings/${encodeURIComponent(id)}/components`;
-  await api(path, { method: editingComponent ? 'PUT' : 'POST', body: values });
-  componentDlg.close();
-  await load();
-});
-
 const optionDlg = document.getElementById('option-dlg');
 const optionForm = document.getElementById('option-form');
 let editingOption = null;
@@ -2606,18 +2663,7 @@ function openOption(o) {
   optionForm.querySelector('.notice-error').hidden = true;
   document.getElementById('o-delete').hidden = !o;
 
-  // The parts of this trip, so an option can be an alternative for one of them
-  // rather than for all of it. A cruise is one sailing with choices inside it,
-  // and offering those as whole alternatives means one option per combination:
-  // four options to ask two questions.
-  document.getElementById('o-component').innerHTML =
-    '<option value="">The whole trip</option>'
-    + (d.components || []).map((c) => `<option value="${esc(c.id)}">${
-      esc([c.product_name || c.supplier, c.kind].filter(Boolean).join(' &middot; '))
-    }</option>`).join('');
-
   if (o) {
-    optionForm.elements.componentId.value = o.component_id || '';
     optionForm.elements.label.value = o.label;
     optionForm.elements.detail.value = o.detail || '';
     optionForm.elements.amount.value = (o.amount_cents / 100).toFixed(2);
