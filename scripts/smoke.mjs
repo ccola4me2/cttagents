@@ -2485,6 +2485,15 @@ async function main() {
 
     // Forced, because the pass is meant to fire once a morning and waiting
     // until tomorrow is not a test.
+    // A mention the advisor has not read, made here rather than relied on from
+    // the chat section a thousand lines above. Posting in a room marks you
+    // caught up with it, which is right and which means the mention from up
+    // there was read the moment the advisor typed their next message.
+    if (chatFirstName) {
+      await call(admin, 'POST', '/api/chat/messages',
+        { channelId: chatRoomId, body: `@${chatFirstName} one for the morning email ${stamp}` });
+    }
+
     const first = await call(admin, 'POST', '/api/admin/task-reminders', {});
     check(first.status === 200 && first.data?.tasks >= 2,
       'a pass picks up what is due and what is late', JSON.stringify(first.data));
@@ -2492,15 +2501,22 @@ async function main() {
     // Being asked for by name goes in the morning message too. No stamp on
     // these: reading the conversation is what stops them, which is why the
     // second pass below still counts them while it counts no tasks.
-    check(first.data?.mentions >= 1, 'and a mention nobody has read yet',
-      `${first.data?.mentions} mention(s)`);
+    if (chatFirstName) {
+      check(first.data?.mentions >= 1, 'and a mention nobody has read yet',
+        `${first.data?.mentions} mention(s)`);
+    } else {
+      skip('a mention in the morning email',
+        'the portal holds no first name for the advisor, so there is no @name to write');
+    }
 
     const again = await call(admin, 'POST', '/api/admin/task-reminders', {});
     check(again.data?.tasks === 0,
       'and says nothing twice about the same task', JSON.stringify(again.data));
-    check(again.data?.mentions >= 1,
-      'while an unread mention is still worth a line tomorrow',
-      `${again.data?.mentions} mention(s)`);
+    if (chatFirstName) {
+      check(again.data?.mentions >= 1,
+        'while an unread mention is still worth a line tomorrow',
+        `${again.data?.mentions} mention(s)`);
+    }
 
     // A task with no date is a someday task. It is not late, it is not due,
     // and putting it in a morning email is how the email stops being read.
