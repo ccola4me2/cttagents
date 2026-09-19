@@ -1636,6 +1636,30 @@ async function main() {
   check(Boolean(chatWaiting.data?.now),
     'with the server clock, so the page can tell what has just arrived from what was waiting');
 
+  // And it rings the bell, which is what carries it off the screen: the push
+  // notification and the morning email are both built on the same list.
+  const chatRing = await call(advisor, 'GET', '/api/alerts');
+  const chatRinging = (chatRing.data?.items || []).filter((i) => i.kind === 'chat');
+  check(chatRinging.length >= 1, 'a message waiting rings the bell',
+    `kinds: ${[...new Set((chatRing.data?.items || []).map((i) => i.kind))].join(', ')}`);
+  check(chatRinging.some((i) => String(i.href || '').includes(chatRoomId)),
+    'pointing at the room it was said in',
+    chatRinging.map((i) => i.href).join(' '));
+  check(chatRinging.some((i) => String(i.title || '').includes(`Suppliers ${stamp}`)),
+    'naming who wrote and where', chatRinging.map((i) => i.title).join(' | '));
+
+  // One line for the room, not one per message: six messages is one thing to
+  // deal with, and six rows would push the rest of the bell off the screen.
+  const chatForRoom = chatRinging.filter((i) => String(i.href || '').includes(chatRoomId));
+  check(chatForRoom.length === 1, 'one line for the conversation however much is in it',
+    `${chatForRoom.length} line(s)`);
+
+  // The owner wrote it, so their own bell says nothing about it.
+  const chatOwnRing = await call(admin, 'GET', '/api/alerts');
+  check(!(chatOwnRing.data?.items || []).some(
+    (i) => i.kind === 'chat' && String(i.href || '').includes(chatRoomId)),
+    'and your own messages never ring your own bell');
+
   await call(advisor, 'PUT', '/api/auth/profile', { chatToasts: false });
   const chatQuiet = await call(advisor, 'GET', '/api/chat/unread');
   check(chatQuiet.data?.latest === null,

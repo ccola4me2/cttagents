@@ -18,7 +18,7 @@
 // when the bell was last cleared is unread. Clearing it is the only write.
 
 import { json, now } from './util.js';
-import { requireUser } from './auth.js';
+import { requireUser, borrowedSeat } from './auth.js';
 import * as db from './db.js';
 import { pushReady, pushTo, devicesFor } from './push.js';
 import { hasFinished, zoneOf } from './appointments.js';
@@ -60,7 +60,7 @@ export async function gather(env, user) {
   const f = db.scopeWhere(self, 'f.created_by');
   const sc = db.scopeWhere(self, 'cl.user_id');
 
-  const [tasks, leads, appts, forms, mentions] = await Promise.all([
+  const [tasks, leads, appts, forms, mentions, talking] = await Promise.all([
     env.DB.prepare(
       `SELECT t.id, t.title, t.due_date, t.due_time, t.priority, cl.name AS client_name
          FROM tasks t
@@ -124,6 +124,33 @@ export async function gather(env, user) {
           AND m.mentions LIKE ?
         ORDER BY m.created_at DESC LIMIT 25`
     ).bind(since, user.id, `%"${user.id}"%`).all().catch(() => ({ results: [] })),
+
+    // Somebody said something in a room you are in. One row per conversation
+    // with the newest of it, because six messages in a room is one thing to
+    // deal with and six rows would push the rest of the bell off the screen.
+    //
+    // SQLite hands back the row that produced the MAX, so the author and the
+    // words here belong to the newest message rather than to whichever one
+    // the grouping happened to reach first.
+    //
+    // Never while sitting in somebody else's seat: their direct messages are
+    // not the agency's work, and the bell is not a way round that.
+    borrowedSeat(user) ? { results: [] } : env.DB.prepare(
+      `SELECT ch.id AS channel_id, ch.kind, ch.name AS room_name,
+              COUNT(*) AS n, MAX(m.created_ms) AS last_ms,
+              m.created_at AS last_at, m.body,
+              au.first_name, au.last_name, au.email
+         FROM messages m
+         JOIN channel_members mem ON mem.channel_id = m.channel_id AND mem.user_id = ?
+         JOIN channels ch ON ch.id = m.channel_id
+         LEFT JOIN users au ON au.id = m.user_id
+        WHERE m.user_id != ? AND m.deleted_at IS NULL
+          AND m.created_ms > mem.last_read_ms
+          AND mem.muted = 0 AND ch.archived_at IS NULL
+          AND (m.mentions IS NULL OR m.mentions NOT LIKE ?)
+        GROUP BY ch.id
+        ORDER BY last_ms DESC LIMIT 15`
+    ).bind(user.id, user.id, `%"${user.id}"%`).all().catch(() => ({ results: [] })),
   ]);
 
   const items = [];
@@ -190,6 +217,24 @@ export async function gather(env, user) {
       // mention you have to open the page to understand, which is the work the
       // bell exists to save.
       detail: String(r.body || '').replace(/\s+/g, ' ').slice(0, 120),
+      late: false,
+      href: `/app/chat?c=${encodeURIComponent(r.channel_id)}`,
+    });
+  }
+
+  for (const r of talking.results || []) {
+    const who = [r.first_name, r.last_name].filter(Boolean).join(' ') || r.email || 'Somebody';
+    // A direct message is named by the person who wrote it, and naming the
+    // room as well would say their name twice.
+    const title = r.kind === 'dm'
+      ? `${who} sent you a message`
+      : `${who} in ${r.room_name || 'chat'}`;
+    const words = String(r.body || '').replace(/\s+/g, ' ').slice(0, 110);
+    items.push({
+      id: `talk:${r.channel_id}`, kind: 'chat',
+      at: r.last_at,
+      title,
+      detail: r.n > 1 ? `${r.n} new  ·  ${words}` : words,
       late: false,
       href: `/app/chat?c=${encodeURIComponent(r.channel_id)}`,
     });
