@@ -5510,6 +5510,12 @@ async function main() {
   // the agency keeps, which have to add up or a payout cannot be checked
   // against the bank.
   const payRow = (after.data?.rows || []).find((r) => r.id === stale.data.booking.id);
+  // Read on the advisor's own call, deliberately. What the agency took is
+  // the figure an advisor most wants and the one an agency looks worst for
+  // keeping to itself, so it is on their screen and not only on an owner's.
+  check(payRow && typeof payRow.agency_received_cents === 'number',
+    'an advisor sees what the agency took out of their commission',
+    JSON.stringify(payRow && payRow.agency_received_cents));
   check(payRow && payRow.payout_cents + payRow.agency_received_cents === payRow.received_cents,
     'the payout and the agency\'s half add up to the money that arrived',
     JSON.stringify({ payout: payRow?.payout_cents, agency: payRow?.agency_received_cents,
