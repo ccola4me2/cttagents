@@ -8102,6 +8102,24 @@ async function main() {
     'with nothing further to share, their trips being shared already',
     String(back.data?.shared_trips));
 
+  // The rule check-sending exists for, pinned here too. A quote reaches a
+  // client when somebody presses send on that quote and at no other time, so
+  // giving them a page must not publish one.
+  const quoted = await call(advisor, 'POST', '/api/bookings', {
+    clientName: who, supplier: 'Celebrity Cruises', status: 'quoted',
+    productName: `Unsent quote ${stamp}`, departDate: isoDay(200), gross: '9000',
+  });
+  const quotedId = quoted.data?.booking?.id;
+  if (quotedId) cleanup('the unsent quote', () => dropBooking(quotedId));
+
+  const afterQuote = await call(advisor, 'POST', `/api/clients/${clientId}/hub`, {});
+  check(afterQuote.data?.shared_trips === 0,
+    'giving them a page does not send an unsent quote',
+    String(afterQuote.data?.shared_trips));
+  const stillQuiet = await call(null, 'GET', `/c/${afterQuote.data?.code}`);
+  check(!(stillQuiet.raw || '').includes(`Unsent quote ${stamp}`),
+    'and the quote is not on the page', 'the quote appeared');
+
   // Reached through db.writerFor like every other write, so a client this
   // advisor cannot touch answers the same way one that does not exist does.
   const notYours = await call(advisor, 'POST', '/api/clients/not-a-real-client/hub', {});

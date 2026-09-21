@@ -39,6 +39,14 @@ const SENDING_COLUMNS = ['quote_sent_at', 'statement_sent_at', 'share_code'];
 const SENDERS = new Map([
   ['statement.js', 'POST /api/bookings/:id/statement, which an advisor presses after a preview'],
   ['share.js', 'POST /api/bookings/:id/share, which an advisor presses to make the link'],
+  // The third, added when the client hub shipped and only after this check
+  // caught it minting codes for quotes. It is an advisor pressing a button on
+  // a client record, the same act one level up, and its statement is narrowed
+  // to status IN ('booked','travelled') so it cannot reach a quote. The page
+  // it serves shows a quote only where a share code already exists, which is
+  // to say only where somebody pressed send on that quote.
+  ['hub.js', "POST /api/clients/:id/hub, which an advisor presses to give one client a page; "
+    + "its write names status IN ('booked','travelled') so it can never mint a code for a quote"],
 ]);
 
 const files = readdirSync(SRC).filter((f) => f.endsWith('.js'));

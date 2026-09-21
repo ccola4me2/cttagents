@@ -69,12 +69,17 @@ export async function handleShareClient(request, env, id) {
 
   const code = client.hub_code || shareCode();
 
-  // Every trip on the page has to open. A cancelled one is left alone: it is
-  // on the page as history and there is nothing to show them.
+  // Booked and travelled only. Never a quote.
+  //
+  // A quoted reservation without a share code is a proposal the advisor has
+  // not sent, and minting one here would put a price in front of a client
+  // because somebody pressed a button about a different thing entirely. A
+  // quote reaches a client when somebody presses send on that quote, and at
+  // no other time; the page shows the ones that have been.
   const { results: unshared } = await env.DB.prepare(
     `SELECT id FROM bookings
       WHERE client_id = ? AND user_id = ? AND share_code IS NULL
-        AND status != 'cancelled'`
+        AND status IN ('booked','travelled')`
   ).bind(id, owner.id).all().catch(() => ({ results: [] }));
 
   const writes = [env.DB.prepare(
@@ -130,6 +135,9 @@ async function loadHub(env, code) {
             depart_date, return_date, confirmation_number, gross_cents, travellers
        FROM bookings
       WHERE client_id = ? AND user_id = ? AND status != 'cancelled'
+        -- A quote is on this page only once the advisor has sent it. The
+        -- share code is what "sent" means, so it is also the test.
+        AND (share_code IS NOT NULL OR status IN ('booked','travelled'))
       ORDER BY COALESCE(depart_date, '9999-12-31') ASC`
   ).bind(client.id, owner).all().catch(() => ({ results: [] }));
 

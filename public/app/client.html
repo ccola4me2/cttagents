@@ -573,8 +573,8 @@ function drawHub(d) {
          <a class="btn btn-ghost btn-sm" href="${esc(url)}" target="_blank" rel="noopener">Open</a>
        </div>`
     : `<p class="field-hint" style="margin:0;">One link showing ${esc(c.name)} everything we hold
-         for them, with no password. Turning it on also gives each of their trips its own page,
-         so every line on the list opens.</p>`;
+         for them, with no password. Turning it on also gives each booked trip its own page,
+         so every line on the list opens. Quotes stay off it until you send them.</p>`;
 
   const off = document.getElementById('hub-off');
   if (off) off.addEventListener('click', async () => {
