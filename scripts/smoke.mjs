@@ -8106,6 +8106,24 @@ async function main() {
   check(back.data?.shared_trips === 0,
     'with nothing further to share, their trips being shared already',
     String(back.data?.shared_trips));
+  const hubCode2 = back.data?.code;
+
+  // A way back from a trip to the list it was opened from, for somebody who
+  // came from that list. The escalation is the thing to pin: the trip link on
+  // its own must never hand out a link to every trip the client has.
+  const firstShare = (await call(advisor, 'GET', `/api/bookings/${firstId}/record`))
+    .data?.booking?.share_code;
+  if (firstShare) {
+    const fromHub = await call(null, 'GET', `/t/${firstShare}?c=${hubCode2}`);
+    check((fromHub.raw || '').includes(`/c/${hubCode2}`),
+      'a trip opened from the client page offers a way back to it');
+    const onItsOwn = await call(null, 'GET', `/t/${firstShare}`);
+    check(!/\/c\//.test(onItsOwn.raw || ''),
+      'and a trip link on its own offers nothing of the sort');
+    const wrongCode = await call(null, 'GET', `/t/${firstShare}?c=not-a-real-hub`);
+    check(!/\/c\//.test(wrongCode.raw || ''),
+      'nor does a made-up one');
+  }
 
   // The rule check-sending exists for, pinned here too. A quote reaches a
   // client when somebody presses send on that quote and at no other time, so

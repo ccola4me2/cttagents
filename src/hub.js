@@ -230,8 +230,10 @@ export async function renderHubPage(request, env, code) {
   const owedOn = (b) => (paid.get(b.id) || {}).due_cents || 0;
   const paidOn = (b) => (paid.get(b.id) || {}).paid_cents || 0;
 
+  // The code goes with the link so the trip page can offer a way back. It is
+  // the code they already hold: nothing is revealed by passing it on.
   const row = (b) => `<li class="trip-row">
-    ${b.share_code ? `<a href="/t/${esc(b.share_code)}">` : '<span>'}
+    ${b.share_code ? `<a href="/t/${esc(b.share_code)}?c=${esc(client.hub_code)}">` : '<span>'}
       <span class="t">${esc(b.product_name || b.supplier || 'Booking')}</span>
       <span class="m">${esc(b.depart_date ? shortDate(b.depart_date) : 'no date')}${
         b.return_date && b.return_date !== b.depart_date ? ` to ${esc(shortDate(b.return_date))}` : ''

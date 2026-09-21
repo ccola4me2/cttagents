@@ -172,6 +172,7 @@ async function loadTrip(env, code) {
             b.itinerary, b.itinerary_shared, b.confirmation_number, b.depart_date,
             b.return_date, b.gross_cents, b.status, b.cabin, b.cabin_category,
             b.options_open, b.share_code, b.shared_at, b.travellers, b.ghl_contact_id,
+            b.client_id,
             u.first_name, u.last_name, u.email AS advisor_email,
             u.notify_email, u.phone AS advisor_phone, u.agency_name,
             u.seller_of_travel, u.agency_id
@@ -555,7 +556,18 @@ export async function renderTripPage(request, env, code) {
     ['Confirmation', b.confirmation_number],
   ].filter(([, v]) => v);
 
+  // Back to the client's own page, for somebody who came from it.
+  //
+  // Only for somebody who already holds that code. Showing it to anybody with
+  // the trip link would turn a link to one trip into a link to every trip
+  // that client has, and those are two different things to have been given.
+  const from = clean(new URL(request.url).searchParams.get('c'), 40);
+  const back = from && b.client_id ? await env.DB.prepare(
+    'SELECT hub_code FROM clients WHERE hub_code = ? AND id = ? AND user_id = ?'
+  ).bind(from, b.client_id, b.user_id).first() : null;
+
   const body = `
+    ${back ? `<p class="backlink"><a href="/c/${esc(back.hub_code)}">&larr; All your trips</a></p>` : ''}
     <header class="hero">
       <p class="eyebrow">${esc(b.supplier || 'Your trip')}</p>
       <h1>${esc(b.itinerary || b.product_name || 'Your trip')}</h1>
@@ -1081,6 +1093,9 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
     font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     -webkit-font-smoothing:antialiased;padding:2rem 1rem 4rem}
   .wrap{max-width:720px;margin:0 auto}
+  .backlink{margin:0 0 .9rem}
+  .backlink a{color:var(--dim);text-decoration:none;font-size:.9rem}
+  .backlink a:hover{color:var(--navy)}
   .brand{display:flex;align-items:center;gap:.6rem;margin-bottom:2rem}
   .brand img{width:36px;height:36px}
   .brand b{font-size:1rem;letter-spacing:.26em;text-transform:uppercase;color:var(--navy);font-weight:650}
