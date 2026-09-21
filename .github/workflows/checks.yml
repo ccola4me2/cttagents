@@ -127,6 +127,13 @@ jobs:
       - name: Only an advisor sends a quote
         run: npm run check:sending
 
+      # The other half of that promise. A quote reaching a client early is bad;
+      # a client reading what the agency earns on their trip is worse, and the
+      # trip page used to select the whole reservation row, so every private
+      # column sat one template line from being printed.
+      - name: A client never sees what the agency earns
+        run: npm run check:private
+
       - name: What a rendered email says
         run: npm run check:email
 

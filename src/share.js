@@ -163,8 +163,16 @@ export function appUrl(env) {
 // ---------------------------------------------------------------------------
 
 async function loadTrip(env, code) {
+  // Named, never b.*. Everything a client may read about their own trip and
+  // nothing else: no commission, no split, no agreed percentages, no lead
+  // source, no advisor notes. The old SELECT b.* printed none of those, and
+  // put every one of them one template line away from being printed.
   const booking = await env.DB.prepare(
-    `SELECT b.*, u.first_name, u.last_name, u.email AS advisor_email,
+    `SELECT b.id, b.user_id, b.client_name, b.supplier, b.product_name, b.destination,
+            b.itinerary, b.itinerary_shared, b.confirmation_number, b.depart_date,
+            b.return_date, b.gross_cents, b.status, b.cabin, b.cabin_category,
+            b.options_open, b.share_code, b.shared_at, b.travellers, b.ghl_contact_id,
+            u.first_name, u.last_name, u.email AS advisor_email,
             u.notify_email, u.phone AS advisor_phone, u.agency_name,
             u.seller_of_travel, u.agency_id
        FROM bookings b JOIN users u ON u.id = b.user_id

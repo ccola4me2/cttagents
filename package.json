@@ -5,9 +5,10 @@
   "type": "module",
   "description": "CTT Agent Portal: a travel-advisor CRM front end over GoHighLevel, on Cloudflare Workers + D1.",
   "scripts": {
-    "check:all": "npm run check:migrations && npm run check:wiring && npm run check:payments && npm run check:writes && npm run check:forms && npm run check:dom && npm run check:fork && npm run check:dashes && npm run check:escapes && npm run check:sending && npm run check:email && npm run check:routes && npm run check:columns && npm run check:shapes && npm run check:keep && npm run check:reads && npm run check:contracts && npm run check:smoke",
+    "check:all": "npm run check:migrations && npm run check:wiring && npm run check:payments && npm run check:writes && npm run check:forms && npm run check:dom && npm run check:fork && npm run check:dashes && npm run check:escapes && npm run check:sending && npm run check:private && npm run check:email && npm run check:routes && npm run check:columns && npm run check:shapes && npm run check:keep && npm run check:reads && npm run check:contracts && npm run check:smoke",
     "check:columns": "node scripts/check-columns.mjs",
     "check:dashes": "node scripts/check-dashes.mjs",
+    "check:private": "node scripts/check-private.mjs",
     "check:reads": "node scripts/check-reads.mjs",
     "check:dom": "node scripts/check-dom.mjs",
     "check:conditional": "node scripts/check-conditional.mjs",
