@@ -26,6 +26,13 @@
         <div class="card-head"><h2>Contact</h2><span id="contact-actions"></span></div>
         <div class="card-pad" id="contact"></div>
       </section>
+      <!-- Everything we hold for them, on one page they can open. The trip
+           page one level up: a code on the person rather than on the trip. -->
+      <section class="card" id="hub-card" style="margin-top:1.5rem;">
+        <div class="card-head" id="sec-hub"><h2>Their own page</h2>
+          <span id="hub-actions"></span></div>
+        <div class="card-pad" id="hub"></div>
+      </section>
       <section class="card" id="answers-card" style="margin-top:1.5rem;" hidden>
         <div class="card-head"><h2>What they told you</h2>
           <span><span class="muted" id="answers-when"></span>
@@ -430,6 +437,7 @@ function render(d) {
   });
 
   drawContact(d);
+  drawHub(d);
   drawHousehold(d);
 
   document.getElementById('stats').innerHTML = `
@@ -536,6 +544,71 @@ function loyaltyFromText(text) {
       return m ? { line: m[1].trim(), number: m[2] } : { line, number: '' };
     })
     .slice(0, 20);
+}
+
+/**
+ * The page the client can open, and the link to it.
+ *
+ * The same shape as sharing one trip, one level up: they see every trip they
+ * have with us rather than the one somebody happened to send. Turning it on
+ * shares their trips too, because a list whose rows do not open is a list of
+ * things somebody is told they may not look at, and the button says so.
+ */
+function drawHub(d) {
+  const c = d.client;
+  const on = Boolean(c.hub_code);
+  const url = on ? `${location.origin}/c/${c.hub_code}` : '';
+
+  document.getElementById('hub-actions').innerHTML = on
+    ? '<button class="btn btn-ghost btn-sm" id="hub-off">Turn it off</button>'
+    : '<button class="btn btn-secondary btn-sm" id="hub-on">Give them a page</button>';
+
+  document.getElementById('hub').innerHTML = on
+    ? `<p class="field-hint" style="margin:0 0 .6rem;">Anyone with this link sees every trip
+         ${esc(c.name)} has with us: what is booked, what is paid, what is still to pay and
+         what is quoted. Nothing about commission.</p>
+       <div class="toolbar" style="margin:0;">
+         <input id="hub-url" value="${esc(url)}" readonly style="min-width:0;flex:1;">
+         <button class="btn btn-secondary btn-sm" id="hub-copy">Copy</button>
+         <a class="btn btn-ghost btn-sm" href="${esc(url)}" target="_blank" rel="noopener">Open</a>
+       </div>`
+    : `<p class="field-hint" style="margin:0;">One link showing ${esc(c.name)} everything we hold
+         for them, with no password. Turning it on also gives each of their trips its own page,
+         so every line on the list opens.</p>`;
+
+  const off = document.getElementById('hub-off');
+  if (off) off.addEventListener('click', async () => {
+    if (!confirm(`Turn off ${c.name}'s page?\n\n`
+      + 'The link stops working. Their individual trip pages keep working; turn those off '
+      + 'on each trip.')) return;
+    off.disabled = true;
+    try { await api(`/api/clients/${encodeURIComponent(c.id)}/hub`, { method: 'POST', body: { on: false } }); await load(); }
+    catch (e) { showError(err, e); off.disabled = false; }
+  });
+
+  const go = document.getElementById('hub-on');
+  if (go) go.addEventListener('click', async () => {
+    go.disabled = true;
+    try {
+      const out = await api(`/api/clients/${encodeURIComponent(c.id)}/hub`, { method: 'POST', body: {} });
+      // Said out loud, because sharing their trips is the part that happened
+      // without being asked for in so many words.
+      if (out.shared_trips) {
+        err.innerHTML = `<div class="notice notice-info">Page created. ${out.shared_trips}
+          trip${out.shared_trips === 1 ? '' : 's'} now open from it.</div>`;
+      }
+      await load();
+    } catch (e) { showError(err, e); go.disabled = false; }
+  });
+
+  const copy = document.getElementById('hub-copy');
+  if (copy) copy.addEventListener('click', async () => {
+    const box = document.getElementById('hub-url');
+    box.select();
+    try { await navigator.clipboard.writeText(url); copy.textContent = 'Copied'; }
+    catch { document.execCommand('copy'); copy.textContent = 'Copied'; }
+    setTimeout(() => { copy.textContent = 'Copy'; }, 1500);
+  });
 }
 
 function drawContact(d) {

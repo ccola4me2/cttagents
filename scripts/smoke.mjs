@@ -8032,6 +8032,83 @@ async function main() {
   }
   }
 
+  // ------------------------------------------------ the client's own page ----
+  // A code on the person rather than on the trip. One link showing everything
+  // we hold for them, no password, the link is the credential.
+  {
+  step('One page a client opens to see everything');
+
+  const who = `Hub Client ${stamp}`;
+  const first = await call(advisor, 'POST', '/api/bookings', {
+    clientName: who, supplier: 'Iberia', status: 'booked', productName: 'Madrid flights',
+    destination: 'Madrid Spain', departDate: isoDay(40), returnDate: isoDay(50),
+    gross: '2000', commission: '260',
+  });
+  const firstId = first.data?.booking?.id;
+  if (firstId) cleanup('the hub trip', () => dropBooking(firstId));
+  const clientId = first.data?.booking?.client_id;
+
+  // A second booking inside the same fortnight: one holiday, two vendors.
+  const second = await call(advisor, 'POST', '/api/bookings', {
+    clientName: who, supplier: 'Parador', status: 'booked', productName: 'Parador de Antequera',
+    destination: 'Antequera Spain', departDate: isoDay(42), returnDate: isoDay(44),
+    gross: '1000', commission: '130',
+  });
+  const secondId = second.data?.booking?.id;
+  if (secondId) cleanup('the second hub trip', () => dropBooking(secondId));
+
+  const before = await call(null, 'GET', '/c/not-a-real-code');
+  check(before.status === 404, 'a page nobody shared is not there', `status ${before.status}`);
+
+  const shared = await call(advisor, 'POST', `/api/clients/${clientId}/hub`, {});
+  check(shared.status === 200 && shared.data?.code,
+    'the advisor gives the client a page', JSON.stringify(shared.data?.shared));
+  check(shared.data?.shared_trips === 2,
+    'and their trips are shared with it, so every line opens',
+    String(shared.data?.shared_trips));
+  const hubCode = shared.data?.code;
+
+  const pageRes = await call(null, 'GET', `/c/${hubCode}`);
+  check(pageRes.status === 200, 'anyone with the link can open it', `status ${pageRes.status}`);
+  const html = pageRes.raw || '';
+  check(html.includes(who), 'it is their page, by name');
+  check(html.includes('Madrid flights') && html.includes('Parador de Antequera'),
+    'both bookings are on it');
+  check(html.includes('$3,000.00'),
+    'the two are added up as one holiday', html.includes('$3,000.00') ? '' : 'no total');
+
+  // The half that would be expensive to get wrong. The bookings row carries
+  // the commission, the split and the lead source; none of them belong on a
+  // page anybody with a link can read.
+  // The figures themselves, and the column names, rather than the English
+  // words: the page's own stylesheet has a comment about columns that "must
+  // not split", and a check that fails on prose is a check nobody trusts.
+  const leaked = ['260.00', '130.00', '390.00', 'commission_cents', 'commission_status',
+    'advisor_split', 'agreed_split', 'lead_source'].filter((w) => html.includes(w));
+  check(!leaked.length, 'and it says nothing about what the agency earns',
+    leaked.join(', '));
+
+  // Turning it off drops the code rather than hiding it.
+  const off = await call(advisor, 'POST', `/api/clients/${clientId}/hub`, { on: false });
+  const gone = await call(null, 'GET', `/c/${hubCode}`);
+  check(off.status === 200 && gone.status === 404,
+    'turning it off stops the link working', `status ${gone.status}`);
+
+  const back = await call(advisor, 'POST', `/api/clients/${clientId}/hub`, {});
+  check(back.data?.code && back.data.code !== hubCode,
+    'and turning it on again mints a new one rather than reviving the old',
+    `${back.data?.code === hubCode ? 'same code' : 'new code'}`);
+  check(back.data?.shared_trips === 0,
+    'with nothing further to share, their trips being shared already',
+    String(back.data?.shared_trips));
+
+  // Reached through db.writerFor like every other write, so a client this
+  // advisor cannot touch answers the same way one that does not exist does.
+  const notYours = await call(advisor, 'POST', '/api/clients/not-a-real-client/hub', {});
+  check(notYours.status === 404, 'a client who is not theirs is not found',
+    `status ${notYours.status}`);
+  }
+
   // ------------------------------------------------- paying the advisors ----
   // The last step of the money. Everything before this says what an advisor
   // has earned out of what the vendor sent; this is the agency writing the

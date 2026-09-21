@@ -1884,7 +1884,8 @@ const CLIENT_COLUMNS = `
   c.address1, c.address2, c.city, c.state, c.postcode, c.country,
   c.loyalty_json, c.known_traveler, c.redress, c.nickname, c.source,
   c.source_kind, c.referred_by_client_id,
-  c.lead_stage, c.lead_at, c.lead_asked_about, c.lead_next_step, c.lead_next_step_on
+  c.lead_stage, c.lead_at, c.lead_asked_about, c.lead_next_step, c.lead_next_step_on,
+  c.hub_code, c.hub_at
 `;
 
 /** The client record for a name, made if it is new. Null for a blank name. */

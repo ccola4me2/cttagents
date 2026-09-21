@@ -39,16 +39,16 @@ import { submitReview, reviewFor, tripIsOver } from './reviews.js';
 
 // Both digits, always, including on nought. A client's own page is the last
 // place a column of money should fail to line up.
-const money = (cents) => ((Number(cents) || 0) / 100).toLocaleString('en-US',
+export const money = (cents) => ((Number(cents) || 0) / 100).toLocaleString('en-US',
   { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-function sayDate(iso) {
+export function sayDate(iso) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || '')) return '';
   return new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US',
     { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 }
 
-function shortDate(iso) {
+export function shortDate(iso) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || '')) return '';
   return new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US',
     { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
@@ -66,7 +66,7 @@ function nights(from, to) {
  * A trip page reachable by counting is not a page, and the id already appears
  * in links the advisor opens with somebody looking over their shoulder.
  */
-function shareCode() {
+export function shareCode() {
   const alphabet = 'abcdefghijkmnpqrstuvwxyz23456789';
   const bytes = crypto.getRandomValues(new Uint8Array(18));
   return [...bytes].map((b) => alphabet[b % alphabet.length]).join('');
@@ -154,7 +154,7 @@ export async function handleReadTripMessage(request, env, msgId) {
   return json({ ok: true });
 }
 
-function appUrl(env) {
+export function appUrl(env) {
   return (env.APP_URL || 'https://cttagents.com').replace(/\/$/, '');
 }
 
@@ -1047,7 +1047,7 @@ const REVIEW_SCRIPT = `<scr${''}ipt>
  * superseded document would be believed. Offline can come once there is
  * somewhere honest to put "shown as of Tuesday".
  */
-function page(title, body, brand, code) {
+export function page(title, body, brand, code) {
   const b = brand || DEFAULT_BRAND;
   const accent = readableOnWhite(b.color) ? b.color : DEFAULT_BRAND.color;
   return `<!doctype html>

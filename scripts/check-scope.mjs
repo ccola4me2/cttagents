@@ -166,6 +166,12 @@ const ALLOWED = [
   ['SELECT l.id, l.name, l.email, l.phone, l.party_size, l.notes, l.booking_id',
     'the enquiries on one deal, reached only after the deal itself was fetched under '
     + 'the reader\'s scope; a deal they cannot see returns before this runs'],
+  ['FROM clients c JOIN users u ON u.id = c.user_id
+      WHERE c.hub_code = ?',
+    'the client\'s own page. The code is the URL somebody was given and is unique '
+    + 'across every advisor, so this looks up one shared client by the address that was '
+    + 'handed out rather than asking whose it is. Everything the page loads underneath '
+    + 'names the owner this returns'],
   ['SELECT id FROM travel_groups WHERE group_code = ?',
     'deliberately every advisor: the code is a public web address, so it has to be '
     + 'unique across all of them, not just within one book'],
