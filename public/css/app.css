@@ -924,6 +924,12 @@ dialog > form > .card-pad:has(.picker-results) { overflow: visible; }
 }
 .task-rows .marks .tag.hot { background: var(--coral-50); color: var(--coral-600); }
 .task-rows .marks .tag.all { background: var(--green-50); color: var(--green-600); }
+/* Who is in a household, and when each of them was born. A table rather than
+   a list because the second column is a control, and controls that do not
+   line up read as belonging to whatever is nearest. */
+.house-dob { width: 100%; border-collapse: collapse; }
+.house-dob td { padding: .25rem .4rem .25rem 0; vertical-align: middle; font-size: .9rem; }
+.house-dob input { margin: 0; }
 /* One person, more than one thing waiting. A button rather than a label,
    because pressing it is the whole point. */
 .task-rows .marks .whotag {

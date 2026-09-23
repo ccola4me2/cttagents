@@ -602,7 +602,8 @@ function personRow(n) {
     <div class="field"><label>Name${n < 2 ? ' *' : ''}</label>
       <input data-p="name" ${n < 2 ? 'required' : ''} autocomplete="off"></div>
     <div class="field"><label>Email</label><input data-p="email" type="email"></div>
-    <div class="field"><label>Phone</label><input data-p="phone"></div>`;
+    <div class="field"><label>Phone</label><input data-p="phone"></div>
+    <div class="field"><label>Born</label><input data-p="birthday" type="date"></div>`;
   return row;
 }
 
@@ -627,7 +628,12 @@ houseForm.addEventListener('submit', async (e) => {
 
   const people = [...housePeople.children].map((row) => {
     const get = (k) => row.querySelector(`[data-p="${k}"]`).value.trim();
-    return { name: get('name'), email: get('email'), phone: get('phone') };
+    return {
+      name: get('name'), email: get('email'), phone: get('phone'),
+      // Blank leaves whatever the record already has: upsertClient keeps a
+      // value rather than writing an empty string over it.
+      birthday: get('birthday'),
+    };
   }).filter((p) => p.name);
 
   if (people.length < 2) {

@@ -14,7 +14,7 @@
 // and dissolving a household leaves every client exactly where they were.
 
 import {
-  json, badRequest, notFound, clean, cleanText, uid, now, readJson,
+  json, badRequest, notFound, clean, cleanDate, cleanText, uid, now, readJson,
 } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
@@ -179,6 +179,33 @@ export async function handleSuggestHouseholds(request, env) {
   return json({ suggestions });
 }
 
+/**
+ * Birthdays typed alongside the people, written onto their own records.
+ *
+ * Only for the clients this caller was already proved to own, and only for
+ * the ones with something in the box. Blank means somebody did not type,
+ * which is not the same as asking for a date to be cleared: a date of birth
+ * usually arrives by asking, and losing one to an empty field on an unrelated
+ * screen would be the worst kind of silent.
+ *
+ * Its own statements rather than a column on the household. A birthday
+ * belongs to a person and moves with them when they move out.
+ */
+async function saveBirthdays(env, userId, clients, given) {
+  if (!given || typeof given !== 'object') return 0;
+  const ts = now();
+  const writes = [];
+  for (const c of clients) {
+    const day = cleanDate(given[c.id]);
+    if (!day) continue;
+    writes.push(env.DB.prepare(
+      'UPDATE clients SET birthday = ?, updated_at = ? WHERE id = ? AND user_id = ?'
+    ).bind(day, ts, c.id, userId));
+  }
+  if (writes.length) await env.DB.batch(writes);
+  return writes.length;
+}
+
 export async function handleCreateHousehold(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
@@ -208,10 +235,12 @@ export async function handleCreateHousehold(request, env) {
       WHERE user_id = ? AND id IN (${marks})`
   ).bind(id, ts, user.id, ...found.map((c) => c.id)).run();
 
-  await db.logActivity(env, user.id, 'household.create',
-    `Made a household of ${found.length}: ${name}`, { id });
+  const dated = await saveBirthdays(env, user.id, found, body.birthdays);
 
-  return json({ ok: true, id, name, members: found.length }, 201);
+  await db.logActivity(env, user.id, 'household.create',
+    `Made a household of ${found.length}: ${name}`, { id, birthdays: dated });
+
+  return json({ ok: true, id, name, members: found.length, birthdays: dated }, 201);
 }
 
 export async function handleUpdateHousehold(request, env, id) {
@@ -284,7 +313,11 @@ export async function handleAddMember(request, env, id) {
     'UPDATE clients SET household_id = ?, updated_at = ? WHERE id = ? AND user_id = ?'
   ).bind(id, now(), found[0].id, owner.id).run();
 
-  return json({ ok: true });
+  // The same box as on the way in through a new household, for the same
+  // reason: this is the screen where somebody is looking at the person.
+  const dated = await saveBirthdays(env, owner.id, found, { [found[0].id]: body.birthday });
+
+  return json({ ok: true, birthdays: dated });
 }
 
 /**

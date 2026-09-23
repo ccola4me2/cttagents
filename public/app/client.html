@@ -134,6 +134,9 @@
         <div class="field"><label for="join-pick">An existing household</label>
           <select id="join-pick"></select>
           <p class="field-hint">They move in, keeping their own trips and credits.</p></div>
+        <div class="field"><label for="join-move-dob">Their birthday</label>
+          <input id="join-move-dob" type="date">
+          <p class="field-hint">While you are here. Blank leaves whatever is on their record.</p></div>
         <button class="btn btn-primary btn-sm" type="button" id="join-move-in">Move them in</button>
         <hr style="margin:1.4rem 0;border:0;border-top:1px solid var(--navy-100);">
       </div>
@@ -416,7 +419,7 @@ function render(d) {
   // for ever with nothing on screen to show for it.
   if (!thread) thread = mountThread(document.getElementById('chat-host'),
     { subjectKind: 'client', subjectId: c.id });
-  current = { id: c.id, name: c.name };
+  current = { id: c.id, name: c.name, birthday: c.birthday || '' };
   document.getElementById('name').textContent = c.name;
   document.getElementById('sub').textContent = c.nextDeparture
     ? `Next trip ${short(c.nextDeparture)}`
@@ -855,19 +858,49 @@ const joinPickedBox = document.getElementById('join-picked');
 const joinPicked = new Map();
 let joinTimer = null;
 
+/**
+ * Everybody who will be in the house, with a box for their birthday.
+ *
+ * The date of birth is the one thing a household is supposed to know that it
+ * almost never does, because the only place to type it was the client record
+ * one person at a time, after the filing was already done. Here it is typed
+ * where the people are.
+ *
+ * Pre-filled where the portal already knows one. Left blank it changes
+ * nothing: an empty box is somebody who did not type, not an instruction to
+ * delete a date that took a phone call to get.
+ */
 function drawJoinPicked() {
+  const who = [{ id: current.id, name: current.name, birthday: current.birthday },
+    ...[...joinPicked.entries()].map(([cid, c]) => ({ id: cid, ...c }))];
+
   joinPickedBox.innerHTML = joinPicked.size
-    ? `<div class="notice notice-info call-undo" style="margin:0;">
-        <span>With <strong>${esc(current.name)}</strong>: ${
-          [...joinPicked.values()].map(esc).join(', ')}</span>
-        <button class="btn btn-ghost btn-sm" type="button" id="join-clear">Clear</button></div>`
+    ? `<p class="label" style="margin:1rem 0 .4rem;">Who is in it</p>
+       <table class="house-dob"><tbody>${who.map((p) => `<tr>
+         <td>${esc(p.name)}</td>
+         <td style="width:11rem;"><input type="date" data-dob="${esc(p.id)}"
+           aria-label="Birthday for ${esc(p.name)}" value="${esc(p.birthday || '')}"></td>
+       </tr>`).join('')}</tbody></table>
+       <p class="field-hint">Their birthdays, so the next booking has them. Leave one blank and
+         nothing about that person changes.</p>
+       <button class="btn btn-ghost btn-sm" type="button" id="join-clear">Start again</button>`
     : '';
   const clear = document.getElementById('join-clear');
   if (clear) clear.addEventListener('click', () => { joinPicked.clear(); drawJoinPicked(); });
 }
 
+/** The boxes above, as the endpoint wants them: id to day, blanks left out. */
+function pickedBirthdays() {
+  const out = {};
+  document.querySelectorAll('[data-dob]').forEach((el) => {
+    if (el.value) out[el.dataset.dob] = el.value;
+  });
+  return out;
+}
+
 async function openJoinDialog() {
   joinForm.reset();
+  document.getElementById('join-move-dob').value = current.birthday || '';
   joinForm.querySelector('.notice-error').hidden = true;
   joinPicked.clear();
   drawJoinPicked();
@@ -897,7 +930,8 @@ joinMoveIn.addEventListener('click', async () => {
   joinMoveIn.disabled = true;
   try {
     await api(`/api/households/${encodeURIComponent(pick.value)}/members`,
-      { method: 'POST', body: { clientId: current.id } });
+      { method: 'POST',
+        body: { clientId: current.id, birthday: document.getElementById('join-move-dob').value } });
     joinDlg.close();
     await load();
   } catch (e) {
@@ -918,12 +952,13 @@ joinSearch.addEventListener('input', () => {
       // offering them is how you end up with a household of one.
       const hits = clients.filter((c) => c.id && c.id !== current.id && !joinPicked.has(c.id));
       joinResults.innerHTML = hits.length
-        ? hits.map((c) => `<button type="button" data-add="${esc(c.id)}" data-name="${esc(c.name)}">
+        ? hits.map((c) => `<button type="button" data-add="${esc(c.id)}" data-name="${esc(c.name)}"
+            data-dob="${esc(c.birthday || '')}">
             ${esc(c.name)}${c.email ? ` <span class="muted">${esc(c.email)}</span>` : ''}</button>`).join('')
         : '<button type="button" disabled>Nobody else by that name.</button>';
       joinResults.hidden = false;
       joinResults.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => {
-        joinPicked.set(b.dataset.add, b.dataset.name);
+        joinPicked.set(b.dataset.add, { name: b.dataset.name, birthday: b.dataset.dob || '' });
         joinSearch.value = '';
         joinResults.hidden = true;
         drawJoinPicked();
@@ -949,6 +984,7 @@ joinForm.addEventListener('submit', async (e) => {
       body: {
         clientIds: [current.id, ...joinPicked.keys()],
         name: document.getElementById('join-name').value,
+        birthdays: pickedBirthdays(),
       },
     });
     joinDlg.close();
