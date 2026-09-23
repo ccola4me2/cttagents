@@ -103,6 +103,25 @@ async function owedTrips(env, advisorId) {
   return results || [];
 }
 
+/**
+ * What each advisor has been paid, all time.
+ *
+ * The other half of owedByAdvisor: that one says what is waiting, this says
+ * what has gone. Together they are the two figures a report about paying
+ * people is made of.
+ */
+export async function paidByAdvisor(env, scope) {
+  const scoped = db.scopeWhere(scope, 'p.user_id');
+  const { results } = await env.DB.prepare(
+    `SELECT p.user_id, COALESCE(SUM(p.amount_cents), 0) AS paid_cents,
+            COUNT(*) AS payouts, MAX(p.paid_on) AS last_paid_on
+       FROM advisor_payouts p
+      WHERE ${scoped.sql}
+      GROUP BY p.user_id`
+  ).bind(...scoped.binds).all().catch(() => ({ results: [] }));
+  return results || [];
+}
+
 export async function handleListPayouts(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;

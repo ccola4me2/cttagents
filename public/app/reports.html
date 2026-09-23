@@ -50,8 +50,14 @@
         <div class="card-head"><h2>How the selling is going</h2></div>
         <div class="card-pad" id="mix"></div>
       </section>
+      <!-- The agency's own report: every advisor on one table, and a way to
+           take it out of the portal. A report nobody can send is a screen. -->
       <section class="card" id="advisor-card" hidden>
-        <div class="card-head"><h2>By advisor</h2></div>
+        <div class="card-head"><h2>By advisor</h2>
+          <span>
+            <button class="btn btn-ghost btn-sm" type="button" id="advisor-csv">Download</button>
+            <button class="btn btn-ghost btn-sm" type="button" id="advisor-print">Print</button>
+          </span></div>
         <div id="by-advisor"></div>
       </section>
       <section class="card">
@@ -148,13 +154,35 @@ function render(data) {
     // Only shown when somebody is actually on a split. An agency of one would
     // otherwise get two identical columns and a question about which is which.
     const split = rows.some((r) => (r.advisor_share_cents || 0) !== (r.commission_cents || 0));
+    // A totals line, because the first question anybody asks of a table of
+    // people is what it comes to.
+    const sum = (k) => rows.reduce((n, r) => n + (Number(r[k]) || 0), 0);
+
+    advisorReport = {
+      columns: ['Advisor', 'Clients', 'New this year', 'Reservations', 'Volume',
+        'Commission billed', ...(split ? ['They keep', 'Agency keeps'] : []),
+        'Received from vendors', 'Paid out', 'Still to pay'],
+      rows: rows.map((r) => [r.advisor_name, r.clients || 0, r.new_clients || 0, r.bookings,
+        money(r.gross_cents), money(r.commission_cents),
+        ...(split ? [money(r.advisor_share_cents), money(r.agency_share_cents)] : []),
+        money(r.commission_paid_cents), money(r.paid_out_cents), money(r.due_cents)]),
+      total: ['All advisors', sum('clients'), sum('new_clients'), sum('bookings'),
+        money(sum('gross_cents')), money(sum('commission_cents')),
+        ...(split ? [money(sum('advisor_share_cents')), money(sum('agency_share_cents'))] : []),
+        money(sum('commission_paid_cents')), money(sum('paid_out_cents')), money(sum('due_cents'))],
+    };
+
     document.getElementById('by-advisor').innerHTML = `<div class="table-wrap"><table>
-      <thead><tr><th>Advisor</th><th class="num">Reservations</th><th class="num">Volume</th>
+      <thead><tr><th>Advisor</th><th class="num">Clients</th><th class="num">New this year</th>
+        <th class="num">Reservations</th><th class="num">Volume</th>
         <th class="num">Commission billed</th>${split
           ? '<th class="num">They keep</th><th class="num">Agency keeps</th>' : ''}
-        <th class="num">Received from vendors</th><th>Share</th></tr></thead>
+        <th class="num">Received</th><th class="num">Paid out</th>
+        <th class="num">Still to pay</th><th>Share</th></tr></thead>
       <tbody>${rows.map((r) => `<tr>
         <td><span class="name">${esc(r.advisor_name)}</span>${r.role === 'admin' ? ' <span class="badge badge-navy">owner</span>' : ''}</td>
+        <td class="num">${r.clients || 0}</td>
+        <td class="num">${r.new_clients || 0}</td>
         <td class="num">${r.bookings}</td>
         <td class="num">${money(r.gross_cents)}</td>
         <td class="num">${money(r.commission_cents)}</td>
@@ -163,9 +191,25 @@ function render(data) {
             : `<div class="muted" style="font-size:.72rem;">${esc(String(r.default_split_pct))}%</div>`}</td>
           <td class="num">${money(r.agency_share_cents)}</td>` : ''}
         <td class="num">${money(r.commission_paid_cents)}</td>
+        <td class="num">${money(r.paid_out_cents)}${r.last_paid_on
+          ? `<div class="muted" style="font-size:.72rem;">${esc(r.last_paid_on)}</div>` : ''}</td>
+        <td class="num">${(r.due_cents || 0) > 0
+          ? `<strong>${money(r.due_cents)}</strong>` : '<span class="muted">-</span>'}</td>
         <td style="min-width:120px;"><span style="display:block;height:8px;border-radius:4px;background:var(--navy-100);">
           <span style="display:block;height:8px;border-radius:4px;width:${Math.round(((r.gross_cents || 0) / top) * 100)}%;background:var(--coral-400);"></span>
-        </span></td></tr>`).join('')}</tbody></table></div>`;
+        </span></td></tr>`).join('')}
+        <tr class="grand"><th>All advisors</th>
+          <th class="num">${sum('clients')}</th>
+          <th class="num">${sum('new_clients')}</th>
+          <th class="num">${sum('bookings')}</th>
+          <th class="num">${money(sum('gross_cents'))}</th>
+          <th class="num">${money(sum('commission_cents'))}</th>
+          ${split ? `<th class="num">${money(sum('advisor_share_cents'))}</th>
+            <th class="num">${money(sum('agency_share_cents'))}</th>` : ''}
+          <th class="num">${money(sum('commission_paid_cents'))}</th>
+          <th class="num">${money(sum('paid_out_cents'))}</th>
+          <th class="num">${money(sum('due_cents'))}</th>
+          <th></th></tr></tbody></table></div>`;
   }
 
   drawComparison(data);
@@ -189,6 +233,42 @@ function render(data) {
  * quiet selling month with a busy departure month looks healthy on one and
  * alarming on the other, and only the pair tells you which is true.
  */
+/**
+ * The advisor table as plain rows, kept for the download.
+ *
+ * Built where the table is built rather than scraped back out of the page
+ * afterwards: a file made by reading the screen carries whatever the screen
+ * happens to be showing, including the bar chart cell and a percentage in
+ * small type under a figure.
+ */
+let advisorReport = null;
+
+/** One CSV field, quoted the way a spreadsheet expects. */
+function csvField(v) {
+  const s = String(v === null || v === undefined ? '' : v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function downloadAdvisorReport() {
+  if (!advisorReport) return;
+  const when = new Date().toISOString().slice(0, 10);
+  const lines = [advisorReport.columns, ...advisorReport.rows, advisorReport.total]
+    .map((row) => row.map(csvField).join(','));
+  const blob = new Blob([`\ufeff${lines.join('\r\n')}\r\n`], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `advisors-${when}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Revoked on the next turn of the loop: revoking it immediately races the
+  // download in Safari, which has not read the blob yet.
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+document.getElementById('advisor-csv').addEventListener('click', downloadAdvisorReport);
+document.getElementById('advisor-print').addEventListener('click', () => window.print());
+
 function drawComparison(data) {
   const c = data.comparison;
   if (!c) { document.getElementById('comparison').innerHTML = ''; return; }

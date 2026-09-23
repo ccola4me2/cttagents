@@ -8,6 +8,7 @@
 // an empty panel means there is nothing to do and not that something broke.
 
 import { json, now } from './util.js';
+import { owedByAdvisor, paidByAdvisor } from './payouts.js';
 import { COMMISSION_RECEIVED, NO_COMMISSION } from './split.js';
 import { tenantFor } from './tenant.js';
 import { requireUser } from './auth.js';
@@ -251,7 +252,8 @@ export async function handleProduction(request, env) {
 
   const scope = db.scopeFor(env, user, request);
 
-  const [byMonth, stats, cashflow, payStats, byAdvisor] = await Promise.all([
+  const [byMonth, stats, cashflow, payStats, byAdvisor,
+         clientCounts, paidOut, stillOwed] = await Promise.all([
     db.productionByMonth(env, scope, since, { includePersonal }),
     db.bookingStats(env, scope),
     db.paymentsByMonth(env, scope, since),
@@ -259,7 +261,28 @@ export async function handleProduction(request, env) {
     // An owner's combined report is only useful if it breaks down. An advisor
     // sees a one row version of this, which is their own line.
     db.productionByAdvisor(env, scope, since, { includePersonal }),
+    // The book each of them is working, and the two sides of paying them.
+    // Separate queries rather than more subselects on the production one:
+    // clients and payouts are not reservations, and joining them in would
+    // multiply the rows they are summed from.
+    db.clientCountsByAdvisor(env, scope, Math.floor(Date.UTC(new Date().getUTCFullYear(), 0, 1) / 1000)),
+    paidByAdvisor(env, scope),
+    owedByAdvisor(env, scope),
   ]);
+
+  // One row per advisor, whichever of the four a figure came from.
+  const byId = (rows) => new Map((rows || []).map((r) => [r.user_id, r]));
+  const books = byId(clientCounts);
+  const paid = byId(paidOut);
+  const owed = byId(stillOwed);
+  for (const row of byAdvisor) {
+    const b = books.get(row.user_id) || {};
+    row.clients = b.clients || 0;
+    row.new_clients = b.new_clients || 0;
+    row.paid_out_cents = (paid.get(row.user_id) || {}).paid_cents || 0;
+    row.last_paid_on = (paid.get(row.user_id) || {}).last_paid_on || null;
+    row.due_cents = (owed.get(row.user_id) || {}).due_cents || 0;
+  }
 
   // Collection rate: of everything that has already fallen due, how much has
   // actually been posted. A low number here is the early warning that a

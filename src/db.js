@@ -1078,6 +1078,29 @@ export async function productionByMonth(env, scope, sinceDate, { includePersonal
  * Their past production is real and belongs in the total, but a row of zeros
  * for someone who no longer works here is noise, not information.
  */
+/**
+ * How big a book each advisor is working, and how much of it is new.
+ *
+ * Counted from the clients rather than from reservations: somebody with forty
+ * clients and six trips this year is a different person from somebody with
+ * six clients and six trips, and production alone cannot tell them apart.
+ *
+ * `since` is an epoch second rather than a day, because clients.created_at is
+ * a stamp rather than a date and comparing it to '2026-01-01' is a comparison
+ * between a number and a string, which SQLite answers without complaining.
+ */
+export async function clientCountsByAdvisor(env, scope, since) {
+  const scoped = scopeWhere(scope, 'c.user_id');
+  const { results } = await env.DB.prepare(
+    `SELECT c.user_id, COUNT(*) AS clients,
+            SUM(CASE WHEN c.created_at >= ? THEN 1 ELSE 0 END) AS new_clients
+       FROM clients c
+      WHERE ${scoped.sql}
+      GROUP BY c.user_id`
+  ).bind(since, ...scoped.binds).all().catch(() => ({ results: [] }));
+  return results || [];
+}
+
 export async function productionByAdvisor(env, scope, sinceDate, { includePersonal = false } = {}) {
   const scoped = scopeWhere(scope, 'u.id');
   const { results } = await env.DB.prepare(
