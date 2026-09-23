@@ -498,6 +498,21 @@ export function scopeWhere(scope, column = 'user_id') {
 const ADVISOR_NAME =
   "COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''), u.email) AS advisor_name";
 
+/**
+ * The week a date falls in, as the date that week began, or null for months.
+ *
+ * Sunday, not Monday. This is a US agency and their week starts on Sunday;
+ * the ISO week would file a Sunday departure, which is most of a cruise
+ * book, under the week before the one everybody means.
+ *
+ * Returned as a yyyy-mm-dd string so it sorts the same as a month bucket and
+ * the screen can read it as a date without knowing which it asked for.
+ */
+function weekBucket(by, column) {
+  if (by !== 'week') return null;
+  return `date(${column}, '-' || strftime('%w', ${column}) || ' days')`;
+}
+
 // How long after joining an advisor's records still count as the book they
 // arrived with. Long enough to cover an import that takes a few goes, short
 // enough that real work in the first fortnight is not written off.
@@ -1074,18 +1089,21 @@ export async function upcomingPayments(env, scope, through) {
 }
 
 /** Gross and commission grouped by departure month, for the reports chart. */
-export async function productionByMonth(env, scope, sinceDate, { includePersonal = false } = {}) {
+export async function productionByMonth(env, scope, sinceDate,
+  { includePersonal = false, until = null, by = 'month' } = {}) {
   const scoped = scopeWhere(scope);
+  const bucket = weekBucket(by, 'depart_date');
   const { results } = await env.DB.prepare(
-    `SELECT substr(depart_date, 1, 7) AS month,
+    `SELECT ${bucket || 'substr(depart_date, 1, 7)'} AS month,
             COUNT(*) AS bookings,
             SUM(gross_cents) AS gross_cents,
             SUM(${EARNED_SQL('commission_cents', 'commission_status')}) AS commission_cents
        FROM bookings
       WHERE ${scoped.sql} AND depart_date IS NOT NULL AND depart_date >= ?
+        ${until ? 'AND depart_date <= ?' : ''}
         AND status IN ('booked','travelled')${personalFilter(includePersonal)}
-      GROUP BY month ORDER BY month ASC LIMIT 36`
-  ).bind(...scoped.binds, sinceDate).all();
+      GROUP BY month ORDER BY month ASC LIMIT ${bucket ? 260 : 36}`
+  ).bind(...scoped.binds, sinceDate, ...(until ? [until] : [])).all();
   return results || [];
 }
 
@@ -1212,7 +1230,8 @@ export async function associateStats(env, scope, { agencyId, yearStart, today })
   return rows.map((r) => ({ ...r, opted_out: optedOut.get(r.user_id) || 0 }));
 }
 
-export async function productionByAdvisor(env, scope, sinceDate, { includePersonal = false } = {}) {
+export async function productionByAdvisor(env, scope, sinceDate,
+  { includePersonal = false, until = null } = {}) {
   const scoped = scopeWhere(scope, 'u.id');
   const { results } = await env.DB.prepare(
     `SELECT u.id AS user_id, ${ADVISOR_NAME}, u.role, u.status,
@@ -1234,11 +1253,12 @@ export async function productionByAdvisor(env, scope, sinceDate, { includePerson
          ON b.user_id = u.id
         AND b.status IN ('booked','travelled')${personalFilter(includePersonal, 'b')}
         AND b.depart_date IS NOT NULL AND b.depart_date >= ?
+        ${until ? 'AND b.depart_date <= ?' : ''}
       WHERE ${scoped.sql} AND u.status != 'pending'
       GROUP BY u.id
       HAVING u.status = 'active' OR COUNT(b.id) > 0
       ORDER BY gross_cents DESC, advisor_name ASC`
-  ).bind(sinceDate, ...scoped.binds).all();
+  ).bind(sinceDate, ...(until ? [until] : []), ...scoped.binds).all();
   // The agency's share is the remainder, never its own rounded figure, so an
   // advisor's share and the agency's always add back to the commission.
   return (results || []).map((r) => ({
@@ -2420,10 +2440,11 @@ export async function bookingBalances(env, scope) {
  * landing when", which is the question that decides whether a booking survives
  * its supplier deadline.
  */
-export async function paymentsByMonth(env, scope, sinceDate) {
+export async function paymentsByMonth(env, scope, sinceDate, { until = null, by = 'month' } = {}) {
   const scoped = scopeWhere(scope, 'p.user_id');
+  const bucket = weekBucket(by, 'p.due_date');
   const { results } = await env.DB.prepare(
-    `SELECT substr(p.due_date, 1, 7) AS month,
+    `SELECT ${bucket || 'substr(p.due_date, 1, 7)'} AS month,
             -- Hard rows only, the same as the two sums below it. A final
             -- balance is two rows, the vendor's deadline and this portal's own
             -- reminder ten days ahead of it, and both usually fall in the same
@@ -2437,9 +2458,10 @@ export async function paymentsByMonth(env, scope, sinceDate) {
        FROM booking_payments p
        JOIN bookings b ON b.id = p.booking_id
       WHERE ${scoped.sql} AND p.due_date IS NOT NULL AND p.due_date >= ?
+        ${until ? 'AND p.due_date <= ?' : ''}
         AND b.status IN ('quoted','booked','travelled')
-      GROUP BY month ORDER BY month ASC LIMIT 36`
-  ).bind(...scoped.binds, sinceDate).all();
+      GROUP BY month ORDER BY month ASC LIMIT ${bucket ? 260 : 36}`
+  ).bind(...scoped.binds, sinceDate, ...(until ? [until] : [])).all();
   return results || [];
 }
 

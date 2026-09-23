@@ -250,7 +250,20 @@ export async function handleProduction(request, env) {
 
   const url = new URL(request.url);
   const months = Math.min(Math.max(Number(url.searchParams.get('months')) || 12, 1), 36);
-  const since = isoDay(-months * 31);
+
+  // Two dates beat a number of months back from today, which can only answer
+  // "the last year" and never "June". Either may be given on its own: a from
+  // with no to runs to the end of the book, which is how you ask what is
+  // still ahead.
+  const day = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : null);
+  let from = day(url.searchParams.get('from'));
+  let to = day(url.searchParams.get('to'));
+  // Entered the wrong way round is a slip, not a request for nothing.
+  if (from && to && from > to) [from, to] = [to, from];
+
+  const by = url.searchParams.get('by') === 'week' ? 'week' : 'month';
+  const since = from || isoDay(-months * 31);
+  const until = to;
   // Off unless asked for. An advisor's own holiday earns real commission and
   // is real production, and it is also not the client selling a target is
   // usually about, so the report shows one view at a time and names which.
@@ -260,13 +273,13 @@ export async function handleProduction(request, env) {
 
   const [byMonth, stats, cashflow, payStats, byAdvisor,
          clientCounts, paidOut, stillOwed] = await Promise.all([
-    db.productionByMonth(env, scope, since, { includePersonal }),
+    db.productionByMonth(env, scope, since, { includePersonal, until, by }),
     db.bookingStats(env, scope),
-    db.paymentsByMonth(env, scope, since),
+    db.paymentsByMonth(env, scope, since, { until, by }),
     db.paymentStats(env, scope, { today: isoDay(0), soonThrough: isoDay(30), urgentThrough: isoDay(14) }),
     // An owner's combined report is only useful if it breaks down. An advisor
     // sees a one row version of this, which is their own line.
-    db.productionByAdvisor(env, scope, since, { includePersonal }),
+    db.productionByAdvisor(env, scope, since, { includePersonal, until }),
     // The book each of them is working, and the two sides of paying them.
     // Separate queries rather than more subselects on the production one:
     // clients and payouts are not reservations, and joining them in would
@@ -306,6 +319,9 @@ export async function handleProduction(request, env) {
 
   return json({
     months, since, byMonth, stats, cashflow, payments: payStats, collectionRate,
+    // What was actually asked for, so the screen can say it rather than
+    // keeping its own copy of the range and drifting from it.
+    from: since, to: until, by, custom: Boolean(from || to),
     comparison, mix, today,
     byAdvisor,
     scope: db.scopeLabel(scope, user),

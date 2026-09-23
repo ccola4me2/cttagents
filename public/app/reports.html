@@ -13,13 +13,23 @@
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main">
     <header class="topbar">
-      <div><h1>Production</h1><p class="sub">Volume and commission by departure month.</p></div>
+      <div><h1>Production</h1><p class="sub">Volume and commission by departure date.</p></div>
       <div class="toolbar" style="margin:0;">
       <span id="scope"></span>
       <select id="range" aria-label="Range" style="width:auto;">
         <option value="12">Last 12 months</option>
         <option value="24">Last 24 months</option>
         <option value="36">Last 36 months</option>
+        <option value="custom">Between two dates</option>
+      </select>
+      <span id="dates" hidden style="display:inline-flex;align-items:center;gap:.35rem;">
+        <input type="date" id="from" aria-label="From" style="width:auto;">
+        <span class="muted" style="font-size:.8rem;">to</span>
+        <input type="date" id="to" aria-label="To" style="width:auto;">
+      </span>
+      <select id="by" aria-label="Grouped by" style="width:auto;">
+        <option value="month">By month</option>
+        <option value="week">By week</option>
       </select>
       <select id="personal" aria-label="Whose travel" style="width:auto;">
         <option value="">Client trips only</option>
@@ -83,9 +93,34 @@ const range = document.getElementById('range');
 const personal = document.getElementById('personal');
 
 function monthLabel(ym) {
-  const [y, m] = String(ym).split('-');
+  const s = String(ym);
+  // A week bucket is the Sunday it began, so it arrives as a full date and a
+  // month bucket does not. Which one is in the data decides how it reads,
+  // rather than the page keeping its own note of what it asked for.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, m, dd] = s.split('-').map(Number);
+    const d = new Date(y, m - 1, dd);
+    return Number.isNaN(d.getTime()) ? s
+      : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+  const [y, m] = s.split('-');
   const d = new Date(Number(y), Number(m) - 1, 1);
   return Number.isNaN(d.getTime()) ? ym : d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+}
+
+/** What the report is actually showing, said in words above the chart. */
+function rangeLabel(data) {
+  const said = (iso) => {
+    const [y, m, d] = String(iso).split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    return Number.isNaN(dt.getTime()) ? iso
+      : dt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  };
+  const grouped = data.by === 'week' ? 'week' : 'month';
+  if (!data.custom) return `Departures in the last ${data.months} months, by ${grouped}.`;
+  if (data.from && data.to) return `Departures from ${said(data.from)} to ${said(data.to)}, by ${grouped}.`;
+  if (data.to) return `Departures up to ${said(data.to)}, by ${grouped}.`;
+  return `Departures from ${said(data.from)} onwards, by ${grouped}.`;
 }
 
 function render(data) {
@@ -115,7 +150,7 @@ function render(data) {
   const cf = data.cashflow || [];
   document.getElementById('cashflow').innerHTML = cf.length
     ? `<div class="table-wrap"><table>
-        <thead><tr><th>Month due</th><th class="num">Payments</th>
+        <thead><tr><th>${data.by === 'week' ? 'Week due' : 'Month due'}</th><th class="num">Payments</th>
           <th class="num">Posted</th><th class="num">Still due</th></tr></thead>
         <tbody>${cf.map((m) => `<tr>
           <td><span class="name">${esc(monthLabel(m.month))}</span></td>
@@ -133,13 +168,23 @@ function render(data) {
 
   const max = Math.max(...data.byMonth.map((m) => m.gross_cents || 0), 1);
   // Simple inline bar chart. Keeps the page dependency free.
-  chart.innerHTML = `<div style="display:flex;align-items:flex-end;gap:.5rem;height:190px;overflow-x:auto;padding-top:.5rem;">
-    ${data.byMonth.map((m) => {
+  //
+  // Weeks are narrower and only every third one is named. Fifty-two bars at
+  // the month width is a chart nobody can see the shape of, and fifty-two
+  // labels at that width overlap into a grey smear.
+  const week = data.by === 'week';
+  const bar = week ? 22 : 46;
+  const every = week ? 3 : 1;
+  chart.innerHTML = `<p class="muted" style="font-size:.78rem;margin:0 0 .6rem;">${esc(rangeLabel(data))}</p>
+    <div style="display:flex;align-items:flex-end;gap:${week ? '.2rem' : '.5rem'};height:190px;overflow-x:auto;padding-top:.5rem;">
+    ${data.byMonth.map((m, i) => {
       const h = Math.max(Math.round(((m.gross_cents || 0) / max) * 150), 3);
-      return `<div style="flex:0 0 46px;text-align:center;">
-        <div title="${esc(money(m.gross_cents))} gross, ${esc(money(m.commission_cents))} commission"
+      const named = i % every === 0 || i === data.byMonth.length - 1;
+      return `<div style="flex:0 0 ${bar}px;text-align:center;">
+        <div title="${esc(monthLabel(m.month))}: ${esc(money(m.gross_cents))} gross, ${esc(money(m.commission_cents))} commission"
              style="height:${h}px;background:linear-gradient(180deg,var(--navy-600),var(--navy-800));border-radius:5px 5px 0 0;"></div>
-        <div style="font-size:.66rem;color:var(--ink-400);margin-top:.35rem;">${esc(monthLabel(m.month))}</div>
+        <div style="font-size:.66rem;color:var(--ink-400);margin-top:.35rem;white-space:nowrap;">${
+          named ? esc(monthLabel(m.month)) : '&nbsp;'}</div>
       </div>`;
     }).join('')}
   </div>`;
@@ -405,17 +450,47 @@ async function loadAttribution() {
   } catch (err) { showError(document.getElementById('attribution'), err); }
 }
 
+const dates = document.getElementById('dates');
+const fromEl = document.getElementById('from');
+const toEl = document.getElementById('to');
+const byEl = document.getElementById('by');
+
+function query() {
+  const q = [];
+  if (range.value === 'custom') {
+    if (fromEl.value) q.push(`from=${encodeURIComponent(fromEl.value)}`);
+    if (toEl.value) q.push(`to=${encodeURIComponent(toEl.value)}`);
+    // Neither filled in yet is still a request, and it should mean the same
+    // as it did a moment ago rather than the whole book.
+    if (!q.length) q.push('months=12');
+  } else {
+    q.push(`months=${range.value}`);
+  }
+  if (byEl.value === 'week') q.push('by=week');
+  if (personal.value) q.push('personal=1');
+  if (advisorParam()) q.push(advisorParam());
+  return q.join('&');
+}
+
 async function load() {
   chart.innerHTML = '<p class="spinner">Loading...</p>';
   try {
-    const d = await api(`/api/reports/production?months=${range.value}${
-      personal.value ? '&personal=1' : ''}${advisorParam() ? '&' + advisorParam() : ''}`);
+    const d = await api(`/api/reports/production?${query()}`);
     mountScopePicker(document.getElementById('scope'), d, load);
     render(d);
   }
   catch (err) { showError(chart, err); }
 }
-range.addEventListener('change', load);
+range.addEventListener('change', () => {
+  dates.hidden = range.value !== 'custom';
+  // Nothing to ask for until one of them is filled in, and reloading on the
+  // way to the date picker throws the report away for no reason.
+  if (range.value === 'custom' && !fromEl.value && !toEl.value) return;
+  load();
+});
+fromEl.addEventListener('change', load);
+toEl.addEventListener('change', load);
+byEl.addEventListener('change', load);
 personal.addEventListener('change', load);
 await load();
 await loadAttribution();
