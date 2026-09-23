@@ -117,7 +117,10 @@ function rangeLabel(data) {
       : dt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   };
   const grouped = data.by === 'week' ? 'week' : 'month';
-  if (!data.custom) return `Departures in the last ${data.months} months, by ${grouped}.`;
+  // "Last 12 months" is a starting point and not a window: the book ahead is
+  // the half of it anybody cares about, so a 2030 departure belongs on this
+  // chart. What it must not do is call that the last twelve months.
+  if (!data.custom) return `Departures from ${said(data.from)} onwards, by ${grouped}.`;
   if (data.from && data.to) return `Departures from ${said(data.from)} to ${said(data.to)}, by ${grouped}.`;
   if (data.to) return `Departures up to ${said(data.to)}, by ${grouped}.`;
   return `Departures from ${said(data.from)} onwards, by ${grouped}.`;
