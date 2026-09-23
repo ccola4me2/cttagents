@@ -5878,6 +5878,43 @@ async function main() {
       `${(commAdvisorPaid.data?.rows || []).length} received row(s)`);
   }
 
+  // The rule the whole commission screen rests on: an advisor sees their own
+  // money, the agency sees everybody's, and nothing an advisor can type into
+  // the address bar moves that line. Proved from their own session, against
+  // an owner id they know, because guessing one is the attack.
+  const commForged = await call(advisor, 'GET',
+    `/api/commissions?advisor=${encodeURIComponent(adminId)}&advisor=all`);
+  const commForgedRows = commForged.data?.rows || [];
+  check(commForgedRows.length > 0 && commForgedRows.every((r) => r.user_id === advisorId),
+    'an advisor cannot reach another advisor\'s commission with ?advisor=',
+    `${commForgedRows.length} row(s), ${new Set(commForgedRows.map((r) => r.user_id)).size} advisor(s)`);
+  check(commForged.data?.scope?.canPick === false && commForged.data?.scope?.all === false,
+    'and is not offered the agency view', JSON.stringify(commForged.data?.scope));
+  check((commForged.data?.owed || []).every((o) => o.user_id === advisorId),
+    'nor what the agency owes anybody else',
+    JSON.stringify((commForged.data?.owed || []).map((o) => o.user_id)));
+  check(commForged.data?.mayPay === false,
+    'nor the means to pay anybody', JSON.stringify(commForged.data?.mayPay));
+
+  // The payout run is the same question asked about money that has already
+  // gone out, which is a record of what a colleague earns.
+  const payForged = await call(advisor, 'GET', '/api/payouts?advisor=all');
+  const payForgedRows = payForged.data?.payouts || [];
+  check(payForgedRows.every((p) => p.user_id === advisorId),
+    'nor a payout the agency made to somebody else',
+    `${payForgedRows.length} payout(s)`);
+  check((payForged.data?.owed || []).every((o) => o.user_id === advisorId),
+    'nor what is waiting to be paid to somebody else',
+    JSON.stringify((payForged.data?.owed || []).map((o) => o.user_id)));
+
+  // And the scorecard on the dashboard, which is new and lists advisors by
+  // name. Their own row alone.
+  const statsForged = await call(advisor, 'GET', '/api/dashboard?advisor=all');
+  const statsRows = statsForged.data?.associates || [];
+  check(statsRows.length === 1 && statsRows[0]?.user_id === advisorId,
+    'and associate stats is their own row and no one else\'s',
+    `${statsRows.length} row(s)`);
+
   await call(advisor, 'DELETE', `/api/commissions/statements/${stmtId}`);
   const afterDelete = await call(advisor, 'GET', '/api/commissions');
   const stillPaid = (afterDelete.data?.rows || []).find((r) => r.id === shortId);

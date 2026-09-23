@@ -891,12 +891,18 @@ function trendBars(field) {
 // Once on the container, which outlives every redraw inside it.
 let rowLinksWired = false;
 
+// Panels that take the whole width of the grid. Associate stats is seven
+// columns across and measured 735 pixels in a 515 pixel column, which is a
+// table clipped rather than a table on a dashboard.
+const WIDE = new Set(['associates']);
+
 function drawPanels() {
   if (!rowLinksWired) { wireRowLinks(widgetsEl); rowLinksWired = true; }
   const visible = layout.widgets.filter((w) => !w.hidden && PANELS[w.id]);
   widgetsEl.replaceChildren(...visible.map((w) => {
     const el = PANELS[w.id]();
     el.dataset.panel = w.id;
+    if (WIDE.has(w.id)) el.classList.add('wide');
     return el;
   }));
   // Delegated, because a widget redraws its body whenever a tab is clicked and

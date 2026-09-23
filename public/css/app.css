@@ -777,6 +777,9 @@ dialog > form > .card-pad:has(.picker-results) { overflow: visible; }
 .assoc-stats th:first-child, .assoc-stats td:first-child { padding-left: 1rem; }
 .assoc-stats th:last-child, .assoc-stats td:last-child { padding-right: 1rem; }
 .assoc-stats tr.tot td { border-top: 2px solid var(--navy-200); font-weight: 700; }
+/* And the panel holding it takes both columns. Below 1100 the grid is already
+   one column and this changes nothing. */
+.widgets > .widget.wide { grid-column: 1 / -1; }
 /* Except the ones that are not lists.
    The cap exists so a long list scrolls inside its card instead of running
    down the page, which is right for bookings and tasks. The month calendar is
