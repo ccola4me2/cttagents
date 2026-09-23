@@ -265,7 +265,7 @@ export async function handleProduction(request, env) {
     // Separate queries rather than more subselects on the production one:
     // clients and payouts are not reservations, and joining them in would
     // multiply the rows they are summed from.
-    db.clientCountsByAdvisor(env, scope, Math.floor(Date.UTC(new Date().getUTCFullYear(), 0, 1) / 1000)),
+    db.clientCountsByAdvisor(env, scope, `${new Date().getUTCFullYear()}-01-01`),
     paidByAdvisor(env, scope),
     owedByAdvisor(env, scope),
   ]);

@@ -1089,11 +1089,24 @@ export async function productionByMonth(env, scope, sinceDate, { includePersonal
  * a stamp rather than a date and comparing it to '2026-01-01' is a comparison
  * between a number and a string, which SQLite answers without complaining.
  */
+/**
+ * How many clients each advisor holds, and how many of them are new.
+ *
+ * New is measured from their earliest departure, not from when the record was
+ * made. Every record in this database was made the week the portal went live,
+ * so counting records created since January counts the entire book and the
+ * column can never differ from the one beside it.
+ *
+ * A client with no trip on file falls back to when their record was made,
+ * which is the only date they have. `since` is a date string, not a stamp.
+ */
 export async function clientCountsByAdvisor(env, scope, since) {
   const scoped = scopeWhere(scope, 'c.user_id');
   const { results } = await env.DB.prepare(
     `SELECT c.user_id, COUNT(*) AS clients,
-            SUM(CASE WHEN c.created_at >= ? THEN 1 ELSE 0 END) AS new_clients
+            SUM(CASE WHEN COALESCE(
+                  (SELECT MIN(b.depart_date) FROM bookings b WHERE b.client_id = c.id),
+                  date(c.created_at, 'unixepoch')) >= ? THEN 1 ELSE 0 END) AS new_clients
        FROM clients c
       WHERE ${scoped.sql}
       GROUP BY c.user_id`
