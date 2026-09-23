@@ -173,7 +173,7 @@ function render(data) {
     };
 
     document.getElementById('by-advisor').innerHTML = `<div class="table-wrap"><table>
-      <thead><tr><th>Advisor</th><th class="num">Clients</th><th class="num" title="Clients whose first trip departs this year, or who have no trip yet and were added this year">New this year</th>
+      <thead><tr><th>Advisor</th><th class="num">Clients</th><th class="num" title="Clients whose first trip departs this year, or who have no trip yet and were added this year. The book an advisor brought with them when they joined is not counted as new.">New this year</th>
         <th class="num">Reservations</th><th class="num">Volume</th>
         <th class="num">Commission billed</th>${split
           ? '<th class="num">They keep</th><th class="num">Agency keeps</th>' : ''}

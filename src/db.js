@@ -498,6 +498,31 @@ export function scopeWhere(scope, column = 'user_id') {
 const ADVISOR_NAME =
   "COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''), u.email) AS advisor_name";
 
+// How long after joining an advisor's records still count as the book they
+// arrived with. Long enough to cover an import that takes a few goes, short
+// enough that real work in the first fortnight is not written off.
+const OPENING_DAYS = 7;
+
+/**
+ * When a client became a client, as near as this portal can tell.
+ *
+ * Their earliest departure if they have one, which is a real date and needs
+ * no interpretation. If they have no trip on file, when the record was made,
+ * and only then if it was made after the advisor's opening week: a book that
+ * arrived with somebody on their first day is not new business, and counting
+ * it as such reported every client the agency has as won this year.
+ *
+ * NULL for an imported client with no trip, which is the honest answer. A
+ * comparison against NULL is false, so they fall out of the count rather than
+ * into it.
+ *
+ * Expects `c` for the client and `u` for the advisor who holds them.
+ */
+const CLIENT_SINCE = `COALESCE(
+  (SELECT MIN(b.depart_date) FROM bookings b WHERE b.client_id = c.id),
+  CASE WHEN c.created_at >= COALESCE(u.created_at, 0) + ${OPENING_DAYS * 86400}
+       THEN date(c.created_at, 'unixepoch') END)`;
+
 /**
  * What the vendor is still waiting for on a reservation, for a list that has to
  * decide whether it is at risk without loading its schedule.
@@ -1092,22 +1117,20 @@ export async function productionByMonth(env, scope, sinceDate, { includePersonal
 /**
  * How many clients each advisor holds, and how many of them are new.
  *
- * New is measured from their earliest departure, not from when the record was
- * made. Every record in this database was made the week the portal went live,
- * so counting records created since January counts the entire book and the
- * column can never differ from the one beside it.
+ * New is CLIENT_SINCE above, not the date the record was made. Every record
+ * in this database was made the week its advisor joined, so counting records
+ * created since January counted the entire book and the column could never
+ * differ from the one beside it.
  *
- * A client with no trip on file falls back to when their record was made,
- * which is the only date they have. `since` is a date string, not a stamp.
+ * `since` is a date string, not a stamp.
  */
 export async function clientCountsByAdvisor(env, scope, since) {
   const scoped = scopeWhere(scope, 'c.user_id');
   const { results } = await env.DB.prepare(
     `SELECT c.user_id, COUNT(*) AS clients,
-            SUM(CASE WHEN COALESCE(
-                  (SELECT MIN(b.depart_date) FROM bookings b WHERE b.client_id = c.id),
-                  date(c.created_at, 'unixepoch')) >= ? THEN 1 ELSE 0 END) AS new_clients
+            SUM(CASE WHEN ${CLIENT_SINCE} >= ? THEN 1 ELSE 0 END) AS new_clients
        FROM clients c
+       JOIN users u ON u.id = c.user_id
       WHERE ${scoped.sql}
       GROUP BY c.user_id`
   ).bind(since, ...scoped.binds).all().catch(() => ({ results: [] }));
@@ -1121,9 +1144,10 @@ export async function clientCountsByAdvisor(env, scope, since) {
  * the portal went live, so a year-to-date figure measured from created_at
  * counts the entire imported book and reports it as this year's work.
  *
- *   new clients   the earliest departure they have, falling back to when the
- *                 record was made for somebody with no trip at all. Same rule
- *                 as the agency report, so the two cannot disagree.
+ *   new clients   CLIENT_SINCE: the earliest departure they have, or when the
+ *                 record was made if they have no trip and it was made after
+ *                 the advisor's opening week. Same expression as the agency
+ *                 report, so the two cannot disagree.
  *   purchases     added this year, less the history keyed in after it had
  *                 already sailed. A trip that departed before it was typed up
  *                 is a record of the past, not a sale made this year.
@@ -1141,10 +1165,7 @@ export async function associateStats(env, scope, { agencyId, yearStart, today })
             (SELECT COUNT(*) FROM clients c
               WHERE c.user_id = u.id AND TRIM(COALESCE(c.email, '')) != '') AS emailable,
             (SELECT COUNT(*) FROM clients c
-              WHERE c.user_id = u.id
-                AND COALESCE(
-                      (SELECT MIN(b.depart_date) FROM bookings b WHERE b.client_id = c.id),
-                      date(c.created_at, 'unixepoch')) >= ?) AS new_clients,
+              WHERE c.user_id = u.id AND ${CLIENT_SINCE} >= ?) AS new_clients,
             (SELECT COUNT(*) FROM bookings b
               WHERE b.user_id = u.id AND b.status IN ('booked','travelled')
                 ${personalFilter(false, 'b')}
