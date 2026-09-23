@@ -188,6 +188,10 @@ function kindSplit(r) {
 
 function render() {
   const t = d.totals;
+  // Named only when the list spans more than one advisor, the same rule the
+  // payments page uses. An owner reading fifteen rows could not tell whose
+  // any of them were.
+  const showAdvisor = Boolean(d.scope && d.scope.all);
   document.getElementById('stats').innerHTML = `
     <div class="stat"><p class="label">Claimable now</p>
       <p class="value">${money(t.claimableCents)}</p>
@@ -265,14 +269,16 @@ function render() {
         <thead><tr><th style="width:2rem;"></th><th>Client</th><th>Vendor</th><th>Home</th>
           <th>Settlement</th><th class="num">Expected</th><th class="num">Received</th>
           <th class="num">Still out</th><th class="num">Difference</th>
-          <th class="num">Taken</th><th class="num">Paid out</th><th></th></tr></thead>
+          <th class="num">Taken</th><th class="num">Paid out</th>
+          <th class="num">To be paid</th><th></th></tr></thead>
         <tbody>${rows.map((r) => `<tr>
           <td>${mayTouch(r)
             ? `<input type="checkbox" data-pick="${esc(r.id)}"${chosen.has(r.id) ? ' checked' : ''}
                  aria-label="Select ${esc(r.client_name)}">`
             : ''}</td>
           <td><a class="name" href="/app/reservation?id=${esc(r.id)}">${esc(r.client_name)}</a>
-            <div class="muted">${esc(r.confirmation_number || '')}</div></td>
+            <div class="muted">${esc(r.confirmation_number || '')}</div>${
+            showAdvisor ? `<div class="muted">${esc(r.advisor_name || '')}</div>` : ''}</td>
           <td>${esc(r.supplier || '-')}</td>
           <td>${esc(short(r.back))}<div class="muted" style="font-size:.72rem;">${esc(ageLabel(r))}</div></td>
           <td><span class="badge ${SETTLE[r.settlement].tone}">${esc(SETTLE[r.settlement].label)}</span>
@@ -289,19 +295,20 @@ function render() {
                 money(r.variance_cents)}</strong>`
             : '<span class="muted">-</span>'}</td>
           <td class="num">${money(r.agency_received_cents)}</td>
-          <td class="num">${money(r.payout_cents)}
+          <td class="num">${money(r.paid_out_cents)}
+            ${r.last_paid_out_on
+    ? `<div class="muted" style="font-size:.72rem;">${esc(short(r.last_paid_out_on))}</div>` : ''}</td>
+          <td class="num">${(r.due_cents || 0) > 0
+    ? `<strong>${money(r.due_cents)}</strong>` : '<span class="muted">-</span>'}
             <div class="muted" style="font-size:.72rem;">${esc(String(r.split_pct))}%${
   r.payout_cents === r.advisor_cents ? ''
-    : ` &middot; ${money(r.advisor_cents)} in full`}</div>
-            ${r.paid_out_cents ? `<div class="muted" style="font-size:.72rem;color:var(--green-600);">${
-    (r.due_cents || 0) > 0 ? `${money(r.paid_out_cents)} paid` : 'paid'}${
-    r.last_paid_out_on ? ` ${esc(short(r.last_paid_out_on))}` : ''}</div>` : ''}</td>
+    : ` &middot; ${money(r.advisor_cents)} in full`}</div></td>
           <td class="num">${mayTouch(r)
             ? `<button class="btn btn-ghost btn-sm" data-record="${esc(r.id)}">Record</button>` : ''}</td>
         </tr>
         ${recording === r.id ? `<tr class="record-row"><td></td>
           <!-- Every column after the tick box. -->
-          <td colspan="11">
+          <td colspan="12">
             <form data-receipt="${esc(r.id)}" class="row-between" style="gap:.6rem;flex-wrap:wrap;">
               <div class="field" style="margin:0;"><label>Amount arrived</label>
                 <input name="amount" inputmode="decimal" required
