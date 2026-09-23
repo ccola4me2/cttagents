@@ -553,6 +553,51 @@ const PANELS = {
     { key: 'vendor', label: 'By vendor', render: () => breakdown(d.byVendor) },
   ], 'gross'),
 
+  associates: () => widget('Associate stats', { href: '/app/reports', label: 'Full report' }, [
+    { key: 'all', label: 'Everyone', render: () => {
+      const rows = d.associates || [];
+      if (!rows.length) return '<p class="wempty">Nothing to count yet.</p>';
+
+      // Of the people we hold an email address for, the share we may still
+      // write to. Nobody with an address means there is no percentage to
+      // give, and an unreadable suppression list means it is not known;
+      // neither is nought, which would read as "everybody is opted in".
+      const share = (have, out) => {
+        if (out === null || out === undefined) return '<span class="muted">not known</span>';
+        if (!have) return '<span class="muted">-</span>';
+        return `${Math.round(((have - out) / have) * 100)}%`;
+      };
+      const sum = (k) => rows.reduce((n, r) => n + (Number(r[k]) || 0), 0);
+      const anyUnknown = rows.some((r) => r.opted_out === null || r.opted_out === undefined);
+
+      const cells = (r) => `<td class="num">${r.clients}</td>
+        <td class="num">${share(r.emailable, r.opted_out)}</td>
+        <td class="num">${r.new_clients}</td>
+        <td class="num">${r.purchases_ytd}</td>
+        <td class="num">${r.departures_ytd}</td>
+        <td class="num">${r.departures_total}</td>`;
+
+      return `<div class="table-wrap"><table class="assoc-stats">
+        <thead><tr><th>Associate</th><th class="num">Clients</th>
+          <th class="num" title="Of the clients we hold an email address for, the share who have not asked us to stop">Opted in</th>
+          <th class="num" title="Their first trip departs this year, or they were added this year with nothing booked yet">New YTD</th>
+          <th class="num" title="Reservations added this year, not counting history keyed in after it had already sailed">Purchases YTD</th>
+          <th class="num" title="Departed between 1 January and today">Departures YTD</th>
+          <th class="num" title="Every trip that has departed">Total departures</th></tr></thead>
+        <tbody>${rows.map((r) => `<tr>
+          <td><span class="name">${esc(r.advisor_name)}</span></td>${cells(r)}</tr>`).join('')}
+          <tr class="tot"><td>All advisors</td>
+            <td class="num">${sum('clients')}</td>
+            <td class="num">${anyUnknown ? '<span class="muted">not known</span>'
+              : share(sum('emailable'), sum('opted_out'))}</td>
+            <td class="num">${sum('new_clients')}</td>
+            <td class="num">${sum('purchases_ytd')}</td>
+            <td class="num">${sum('departures_ytd')}</td>
+            <td class="num">${sum('departures_total')}</td></tr>
+        </tbody></table></div>`;
+    } },
+  ], 'all'),
+
   links: () => widget('Quick links', null, [
     { key: 'all', label: 'All', render: () => layout.links.length
       ? `<ul class="rows">${layout.links.map((l) => `<li>

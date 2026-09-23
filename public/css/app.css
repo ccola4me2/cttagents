@@ -768,6 +768,15 @@ dialog > form > .card-pad:has(.picker-results) { overflow: visible; }
 .wtab[aria-selected="true"] { color: var(--navy-800); border-bottom-color: var(--coral-400); }
 .wtab:hover { color: var(--navy-800); }
 .wbody { max-height: 320px; overflow-y: auto; }
+/* Seven columns in a panel column. The dashboard's ordinary cell padding puts
+   this table wider than the space it sits in, so it is tightened here rather
+   than left to scroll sideways on a screen nobody scrolls sideways on. The
+   class is on the table itself: the last two collisions this week were both a
+   dashboard rule and a page rule sharing a name. */
+.assoc-stats th, .assoc-stats td { padding: .5rem .55rem; }
+.assoc-stats th:first-child, .assoc-stats td:first-child { padding-left: 1rem; }
+.assoc-stats th:last-child, .assoc-stats td:last-child { padding-right: 1rem; }
+.assoc-stats tr.tot td { border-top: 2px solid var(--navy-200); font-weight: 700; }
 /* Except the ones that are not lists.
    The cap exists so a long list scrolls inside its card instead of running
    down the page, which is right for bookings and tasks. The month calendar is

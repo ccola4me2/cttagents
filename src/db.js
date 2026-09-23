@@ -1114,6 +1114,83 @@ export async function clientCountsByAdvisor(env, scope, since) {
   return results || [];
 }
 
+/**
+ * Each advisor's book, counted the way a host agency counts it.
+ *
+ * The dates are the whole difficulty. Every record here was created the week
+ * the portal went live, so a year-to-date figure measured from created_at
+ * counts the entire imported book and reports it as this year's work.
+ *
+ *   new clients   the earliest departure they have, falling back to when the
+ *                 record was made for somebody with no trip at all. Same rule
+ *                 as the agency report, so the two cannot disagree.
+ *   purchases     added this year, less the history keyed in after it had
+ *                 already sailed. A trip that departed before it was typed up
+ *                 is a record of the past, not a sale made this year.
+ *   departures    by departure date, which is a real date on every row and
+ *                 needs no such care.
+ *
+ * Own travel is left out throughout. It is the advisor's holiday, not their
+ * production, and it is excluded from every other report for the same reason.
+ */
+export async function associateStats(env, scope, { agencyId, yearStart, today }) {
+  const scoped = scopeWhere(scope, 'u.id');
+  const { results } = await env.DB.prepare(
+    `SELECT u.id AS user_id, ${ADVISOR_NAME}, u.role, u.status,
+            (SELECT COUNT(*) FROM clients c WHERE c.user_id = u.id) AS clients,
+            (SELECT COUNT(*) FROM clients c
+              WHERE c.user_id = u.id AND TRIM(COALESCE(c.email, '')) != '') AS emailable,
+            (SELECT COUNT(*) FROM clients c
+              WHERE c.user_id = u.id
+                AND COALESCE(
+                      (SELECT MIN(b.depart_date) FROM bookings b WHERE b.client_id = c.id),
+                      date(c.created_at, 'unixepoch')) >= ?) AS new_clients,
+            (SELECT COUNT(*) FROM bookings b
+              WHERE b.user_id = u.id AND b.status IN ('booked','travelled')
+                ${personalFilter(false, 'b')}
+                AND date(b.created_at, 'unixepoch') >= ?
+                AND (b.depart_date IS NULL
+                     OR b.depart_date >= date(b.created_at, 'unixepoch'))) AS purchases_ytd,
+            (SELECT COUNT(*) FROM bookings b
+              WHERE b.user_id = u.id AND b.status IN ('booked','travelled')
+                ${personalFilter(false, 'b')}
+                AND b.depart_date >= ? AND b.depart_date <= ?) AS departures_ytd,
+            (SELECT COUNT(*) FROM bookings b
+              WHERE b.user_id = u.id AND b.status IN ('booked','travelled')
+                ${personalFilter(false, 'b')}
+                AND b.depart_date IS NOT NULL AND b.depart_date <= ?) AS departures_total
+       FROM users u
+      WHERE ${scoped.sql} AND u.status != 'pending'
+      ORDER BY advisor_name ASC`
+  ).bind(yearStart, yearStart, yearStart, today, today, ...scoped.binds).all();
+
+  const rows = results || [];
+
+  // Who has asked this agency to stop emailing them. Its own statement, and
+  // its own catch: one of the two portals has no suppression list at all, and
+  // a missing table must leave the column saying "not known" rather than
+  // taking the whole panel down or claiming nobody has opted out.
+  const optedOut = new Map();
+  try {
+    const scopedC = scopeWhere(scope, 'c.user_id');
+    const { results: outs } = await env.DB.prepare(
+      `SELECT c.user_id, COUNT(*) AS opted_out
+         FROM clients c
+        WHERE ${scopedC.sql} AND TRIM(COALESCE(c.email, '')) != ''
+          AND EXISTS (SELECT 1 FROM email_suppression s
+                       WHERE s.email = LOWER(TRIM(c.email))
+                         AND (s.agency_id IS ? OR s.agency_id IS NULL))
+        GROUP BY c.user_id`
+    ).bind(...scopedC.binds, agencyId || null).all();
+    for (const r of outs || []) optedOut.set(r.user_id, r.opted_out || 0);
+  } catch (e) {
+    console.error('associateStats optedOut', e);
+    return rows.map((r) => ({ ...r, opted_out: null }));
+  }
+
+  return rows.map((r) => ({ ...r, opted_out: optedOut.get(r.user_id) || 0 }));
+}
+
 export async function productionByAdvisor(env, scope, sinceDate, { includePersonal = false } = {}) {
   const scoped = scopeWhere(scope, 'u.id');
   const { results } = await env.DB.prepare(

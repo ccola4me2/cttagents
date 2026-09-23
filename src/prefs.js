@@ -35,6 +35,7 @@ export const PANELS = [
   { id: 'goal', title: 'Target', hint: 'This year against what you set out to do' },
   { id: 'commission', title: 'Commission owed', hint: 'Earned, not yet paid, by age' },
   { id: 'trend', title: 'Production trend', hint: 'Booked value by month' },
+  { id: 'associates', title: 'Associate stats', hint: 'Clients, new business and departures, advisor by advisor' },
   { id: 'links', title: 'Quick links', hint: 'Your own shortcuts' },
   { id: 'activity', title: 'Activity', hint: 'What has happened recently' },
 ];

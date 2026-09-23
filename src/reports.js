@@ -190,6 +190,12 @@ export async function handleDashboard(request, env) {
     // something goes wrong.
     insurance: await panel(failed, 'insurance', db.insuranceExposure(env, scope, { today }), []),
     pinned: await panel(failed, 'pinned', db.listClients(env, scope, { pinnedOnly: true, limit: 12 }), []),
+    // The host agency's own scorecard, advisor by advisor. Scoped like
+    // everything else, so an advisor reading it sees one row and an owner
+    // sees the team.
+    associates: await panel(failed, 'associates', db.associateStats(env, scope, {
+      agencyId: user.agency_id, yearStart: `${today.slice(0, 4)}-01-01`, today,
+    }), []),
     // Always the reader's own target, whatever scope the rest of the screen
     // is showing. A target you did not set is not your target.
     goal: await panel(failed, 'goal',
