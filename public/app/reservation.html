@@ -46,6 +46,7 @@
           <section class="card" style="margin-bottom:1.5rem;">
             <div class="card-head" id="sec-travellers"><h2>Travellers</h2>
               <span id="traveller-actions"></span></div>
+            <div id="household-pick"></div>
             <div id="travellers"></div>
           </section>
           <section class="card" style="margin-bottom:1.5rem;">
@@ -226,6 +227,11 @@
         <input type="checkbox" id="t-lead" name="isLead" style="width:auto;"> Lead traveller</label>
       <p class="field-hint" style="margin-top:.3rem;">The person the vendor's confirmation is in.
         One per reservation, and nothing to do with a sales lead.</p>
+      <label id="t-save-wrap" style="display:flex;align-items:center;gap:.5rem;font-weight:400;margin-top:.7rem;">
+        <input type="checkbox" id="t-save-client" style="width:auto;"> Also add them to my clients</label>
+      <p class="field-hint" style="margin-top:.3rem;">For somebody nobody has yet. A traveller
+        belongs to this reservation; a client is somebody you can sell to again. Ticking it for
+        somebody already on your books fills in what was missing and blanks nothing.</p>
     </div>
     <div class="card-foot">
       <button class="btn btn-danger btn-sm" type="button" id="t-delete" hidden>Remove</button>
@@ -1660,9 +1666,11 @@ function wireCommission() {
 
 function drawTravellers() {
   document.getElementById('traveller-actions').innerHTML = d.editable
-    ? '<button class="btn btn-ghost btn-sm" id="add-traveller">Add a traveller</button>' : '';
+    ? `<button class="btn btn-ghost btn-sm" id="house-traveller" hidden>From the household</button>
+       <button class="btn btn-ghost btn-sm" id="add-traveller">Add a traveller</button>` : '';
   const add = document.getElementById('add-traveller');
   if (add) add.addEventListener('click', () => openTraveller(null));
+  if (d.editable) drawHousehold();
 
   document.getElementById('travellers').innerHTML = d.travellers.length
     ? `<div class="table-wrap"><table>
@@ -1687,6 +1695,64 @@ function drawTravellers() {
 
   document.querySelectorAll('[data-traveller]').forEach((btn) => {
     btn.addEventListener('click', () => openTraveller(d.travellers.find((t) => t.id === btn.dataset.traveller)));
+  });
+}
+
+/**
+ * Everybody else at the client's address, ready to add.
+ *
+ * Asked for by client id where the reservation has one and by name where it
+ * does not, which is the pair the endpoint has always taken. Fetched once:
+ * who lives with somebody does not change between saving two travellers.
+ *
+ * Anybody already named on this trip is dropped from the offer, so the button
+ * disappears once the family is all on it rather than offering duplicates.
+ */
+let houseCache = null;
+async function loadHouse() {
+  if (houseCache) return houseCache;
+  const b = d.booking || {};
+  const q = b.client_id ? `client=${encodeURIComponent(b.client_id)}`
+    : (b.client_name ? `name=${encodeURIComponent(b.client_name)}` : '');
+  if (!q) return { household: null, travellers: [] };
+  try { houseCache = await api(`/api/households/travellers?${q}`); }
+  catch { houseCache = { household: null, travellers: [] }; }
+  return houseCache;
+}
+
+async function drawHousehold() {
+  const btn = document.getElementById('house-traveller');
+  const box = document.getElementById('household-pick');
+  if (!btn || !box) return;
+  box.innerHTML = '';
+  const h = await loadHouse();
+  const here = new Set(d.travellers.map((t) => String(t.name || '').trim().toLowerCase()));
+  const left = (h.travellers || [])
+    .filter((t) => !here.has(String(t.name || '').trim().toLowerCase()));
+  if (!h.household || !left.length) { btn.hidden = true; return; }
+  btn.hidden = false;
+
+  btn.addEventListener('click', () => {
+    box.innerHTML = `<div class="notice notice-info" style="margin:0 0 .9rem;">
+      <div style="margin-bottom:.55rem;">Also at <strong>${esc(h.household.name)}</strong>.
+        Their date of birth and passport come with them.</div>
+      <div style="display:flex;gap:.4rem;flex-wrap:wrap;">${left.map((t, i) => `
+        <button type="button" class="btn btn-secondary btn-sm"
+          data-house="${i}">${esc(t.name)}</button>`).join('')}</div></div>`;
+    box.querySelectorAll('[data-house]').forEach((pick) => pick.addEventListener('click', () => {
+      const who = left[Number(pick.dataset.house)];
+      box.innerHTML = '';
+      openTraveller(null);
+      // Only what they actually have. A blank on the record must not write an
+      // empty string over a field the dialog would otherwise leave alone.
+      const set = (n, v) => { const el = travellerForm.elements[n]; if (el && v) el.value = v; };
+      set('name', who.name); set('dob', who.dob); set('email', who.email);
+      set('phone', who.phone); set('passportNumber', who.passportNumber);
+      set('passportExpiry', who.passportExpiry); set('passportCountry', who.passportCountry);
+      // Already a client, by definition: they are in the household.
+      const save = document.getElementById('t-save-client');
+      if (save) { save.checked = false; document.getElementById('t-save-wrap').hidden = true; }
+    }));
   });
 }
 
@@ -2934,6 +3000,13 @@ function openTraveller(t) {
   travellerForm.querySelector('.notice-error').hidden = true;
   document.getElementById('traveller-title').textContent = t ? 'Edit traveller' : 'Add a traveller';
   document.getElementById('t-delete').hidden = !t;
+  // Only when adding. Editing a traveller is not the moment to be offered a
+  // new client record for somebody who has been on the trip for a month.
+  const saveWrap = document.getElementById('t-save-wrap');
+  if (saveWrap) {
+    saveWrap.hidden = Boolean(t);
+    document.getElementById('t-save-client').checked = false;
+  }
   document.getElementById('t-name-hint').innerHTML = t
     ? 'Vendors match documents on this, not on what the client is called.'
     : `Start typing to find somebody already on your books, or type a name nobody has yet.
@@ -2984,6 +3057,23 @@ document.getElementById('a-delete').addEventListener('click', async () => {
 
 onSubmit(travellerForm, async (values) => {
   values.isLead = document.getElementById('t-lead').checked;
+
+  // The client first, deliberately. If this is going to fail it should fail
+  // while the dialog is still open and nothing has been written, rather than
+  // after a traveller is saved and pressing the button again would file them
+  // twice. upsertClient fills in blanks and never blanks what is there, so
+  // ticking it for somebody already known is safe.
+  const saveClient = !editingTraveller
+    && document.getElementById('t-save-client')
+    && document.getElementById('t-save-client').checked;
+  if (saveClient) {
+    await api('/api/clients', { method: 'POST', body: {
+      name: values.name, email: values.email, phone: values.phone,
+      birthday: values.dob, passportNumber: values.passportNumber,
+      passportExpiry: values.passportExpiry, passportCountry: values.passportCountry,
+    } });
+  }
+
   const path = editingTraveller
     ? `/api/travellers/${encodeURIComponent(editingTraveller)}`
     : `/api/bookings/${encodeURIComponent(id)}/travellers`;
