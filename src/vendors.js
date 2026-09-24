@@ -49,6 +49,7 @@ export const CATEGORIES = [
   'Rail Vacations',
   'Attractions',
   'Excursions',
+  'Insurance',
   'Value Add & Other',
   'Tourism Boards',
   'Other',
