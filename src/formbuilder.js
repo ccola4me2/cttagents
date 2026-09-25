@@ -493,7 +493,7 @@ export const FORM_TEMPLATES = [
   },
   {
     key: 'new_client',
-    label: 'New client',
+    label: 'New client form',
     blurb: 'Opens a file and collects every traveller, passports and all, in one go.',
     headline: 'Let us get you on the books',
     description: 'A few details about you, then everyone who is travelling. Names have to '
