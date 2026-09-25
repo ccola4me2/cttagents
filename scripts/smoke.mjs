@@ -5915,6 +5915,43 @@ async function main() {
     'and associate stats is their own row and no one else\'s',
     `${statsRows.length} row(s)`);
 
+  // --------------------------------------------------------- merging clients --
+  // Two records, one person. This exists because a rewrite once deleted the
+  // half of the merge that copies fields across and nothing noticed: the rows
+  // moved, the loser went, and what it knew went with it.
+  const mergeA = await call(advisor, 'POST', '/api/clients',
+    { name: `Merge Keeper${stamp}`, phone: `555${stamp}` });
+  const mergeB = await call(advisor, 'POST', '/api/clients',
+    { name: `Merge Loser${stamp}`, phone: `555${stamp}`, birthday: '1979-03-04',
+      passportNumber: `PX${stamp}` });
+  const keepId = mergeA.data?.client?.id;
+  const dropId = mergeB.data?.client?.id;
+  check(Boolean(keepId && dropId), 'two records to merge', `${keepId} / ${dropId}`);
+
+  if (keepId && dropId) {
+    const pairs = await call(advisor, 'GET', '/api/clients/duplicates');
+    const seen = (pairs.data?.pairs || []).some(
+      (p) => (p.a_id === keepId && p.b_id === dropId) || (p.a_id === dropId && p.b_id === keepId));
+    check(seen, 'a shared phone number puts them on the duplicates list',
+      `${(pairs.data?.pairs || []).length} pair(s)`);
+
+    const merged = await call(advisor, 'POST', '/api/clients/merge',
+      { keep: keepId, drop: dropId });
+    check(merged.status === 200, 'they merge', `status ${merged.status}`);
+    // The whole point: what the loser knew is now on the keeper.
+    check((merged.data?.filled || []).includes('birthday')
+      && (merged.data?.filled || []).includes('passport_number'),
+      'and the keeper gains what only the loser had',
+      JSON.stringify(merged.data?.filled));
+
+    const after = await call(advisor, 'GET', `/api/client?id=${keepId}`);
+    check(after.data?.client?.birthday === '1979-03-04',
+      'confirmed on the record itself', String(after.data?.client?.birthday));
+    const goneCheck = await call(advisor, 'GET', `/api/client?id=${dropId}`);
+    check(goneCheck.status === 404, 'and the absorbed record is gone',
+      `status ${goneCheck.status}`);
+  }
+
   // ------------------------------------------------------- the client portal --
   // Signed out, because that is who opens it. These three would have caught a
   // ReferenceError in the route that every offline check walked straight past.

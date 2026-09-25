@@ -192,6 +192,29 @@ export async function handleMergeClients(request, env) {
   await move('form_submissions',
     'UPDATE form_submissions SET contact_id = ? WHERE contact_id = ?', [keepId, dropId]);
 
+  // Everything the keeper has no answer for, taken from the loser. Never the
+  // other way round: the record the advisor chose to keep wins every field it
+  // has an opinion about, and this only fills the silences.
+  const filled = [];
+  const sets = [];
+  const binds = [];
+  for (const f of FILLABLE) {
+    const mine2 = keep[f];
+    const theirs = drop[f];
+    const blank = mine2 === null || mine2 === undefined || String(mine2).trim() === '';
+    const has = theirs !== null && theirs !== undefined && String(theirs).trim() !== '';
+    if (blank && has) { sets.push(`${f} = ?`); binds.push(theirs); filled.push(f); }
+  }
+  // Who they live with, if the keeper lives nowhere.
+  if (!keep.household_id && drop.household_id) {
+    sets.push('household_id = ?'); binds.push(drop.household_id); filled.push('household_id');
+  }
+  if (sets.length) {
+    await env.DB.prepare(
+      `UPDATE clients SET ${sets.join(', ')}, updated_at = ? WHERE id = ? AND user_id = ?`
+    ).bind(...binds, now(), keepId, owner).run();
+  }
+
   await env.DB.prepare(
     `UPDATE clients SET referred_by_client_id = NULL
       WHERE id = ? AND referred_by_client_id = ? AND user_id = ?`
