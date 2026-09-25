@@ -767,11 +767,21 @@ export async function handlePublicSubmit(request, env, slug) {
 
   if (!clientId && name) {
     try {
-      const before = await env.DB.prepare(
+      // The address first, the name second, the same rule upsertClient uses.
+      // An email already on a record is that person however they spelled
+      // themselves this time, and a form is not a good enough reason to make
+      // a second copy of somebody.
+      const byEmail = email
+        ? await env.DB.prepare(
+          `SELECT id FROM clients
+            WHERE user_id = ? AND LOWER(TRIM(email)) = LOWER(TRIM(?)) LIMIT 1`
+        ).bind(owner, email).first().catch(() => null)
+        : null;
+      const before = byEmail || await env.DB.prepare(
         'SELECT id FROM clients WHERE user_id = ? AND name = ?'
       ).bind(owner, name).first();
       clientIsNew = !before;
-      clientId = await db.resolveClient(env, owner, name);
+      clientId = before ? before.id : await db.resolveClient(env, owner, name);
       if (clientId) {
         // On the lead board as well as on the book. A lead that lands in a
         // table nobody opens is a lead nobody rings: the board is where the
