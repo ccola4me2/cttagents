@@ -487,6 +487,36 @@ export const FORM_TEMPLATES = [
     ],
   },
   {
+    key: 'new_client',
+    label: 'New client',
+    blurb: 'Opens a file and collects every traveller, passports and all, in one go.',
+    headline: 'Let us get you on the books',
+    description: 'A few details about you, then everyone who is travelling. Names have to '
+      + 'match the passport exactly, because that is what the cruise line issues documents '
+      + 'against.',
+    fields: [
+      ...REACH,
+      { label: 'Where you live', key: 'address', type: 'textarea', required: false,
+        hint: 'Where documents and anything we post should go.' },
+      { label: 'How did you hear about us', key: 'heard_about', type: 'select', required: false,
+        options: ['A friend or family member', 'Booked with us before', 'Social media',
+          'A web search', 'An event or show', 'Somewhere else'] },
+      { label: 'What are you thinking about', key: 'travel_type', type: 'select', required: false,
+        options: ['A cruise', 'An all-inclusive resort', 'A tour', 'A flight and hotel',
+          'Not sure yet'] },
+      { label: 'Roughly when', key: 'travel_date', type: 'date', required: false },
+      // The reason this template exists. Everything it collects lands on a
+      // client record, and the people named become a household, so a family
+      // of four is on the books properly rather than as one name and a number.
+      { label: 'Who is travelling', key: 'travellers', type: 'travellers', required: false,
+        hint: 'Names exactly as the passport has them. Add the passport details now if you '
+          + 'have them to hand, or leave them and we will ask later.',
+        max: 8, details: ['dob', 'passport_number', 'passport_expiry', 'passport_country'] },
+      { label: 'Anything we should know', key: 'notes', type: 'textarea', required: false,
+        hint: 'Dietary needs, access needs, a birthday we should make a fuss of.' },
+    ],
+  },
+  {
     key: 'consumer_show',
     label: 'Travel show',
     blurb: 'A short form for a busy stand, where nobody fills in ten boxes.',

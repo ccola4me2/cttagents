@@ -250,6 +250,13 @@ function drawChosen() {
           <input type="checkbox" class="req"${f.required ? ' checked' : ''}>
           must answer
         </label>`}
+        ${f.type === 'select'
+          // Only where there are choices to have. A box like this on a date
+          // field would be a control that does nothing.
+          ? `<input class="opts" value="${esc((f.options || []).join(', '))}"
+               placeholder="Choices, separated by commas"
+               aria-label="Choices for ${esc(f.label)}"
+               style="flex:1 1 14rem;min-width:9rem;font-size:.82rem;">` : ''}
         <button class="btn btn-ghost btn-sm" type="button" data-drop="${esc(f.key)}">Remove</button>
       </li>`).join('')
     : '<li class="muted" style="padding:.6rem 0;">No questions yet. Pick some from the right.</li>';
@@ -269,6 +276,17 @@ function drawChosen() {
     // A heading has no tick to bind to. Not an oddity worth an early return:
     // a heading is still dragged, still renamed and still removed, so only
     // this one line is conditional.
+    // Choices, where the question has them. Split on the way in and joined on
+    // the way out, so what is stored is a list and what is typed is a line.
+    const opts = li.querySelector('.opts');
+    if (opts) {
+      opts.addEventListener('input', (e) => {
+        const f = chosen.find((x) => x.key === key);
+        if (!f) return;
+        f.options = e.target.value.split(',').map((o) => o.trim()).filter(Boolean).slice(0, 40);
+      });
+    }
+
     const req = li.querySelector('.req');
     if (req) {
       req.addEventListener('change', (e) => {
@@ -330,8 +348,15 @@ document.getElementById('add-custom').addEventListener('click', () => {
   const type = prompt(`What kind of answer? One of: ${TYPES.join(', ')}`, 'text');
   const key = `custom_${label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40)}`;
   if (chosen.some((f) => f.key === key)) { showError(err, new Error('You already ask that.')); return; }
+  const kind = TYPES.includes(type) ? type : 'text';
   chosen.push({
-    key, label: label.trim(), type: TYPES.includes(type) ? type : 'text',
+    key, label: label.trim(), type: kind,
+    // A select with no choices is a dropdown nobody can answer. Asked for now
+    // rather than left to be discovered on the live form.
+    options: kind === 'select'
+      ? String(prompt('The choices, separated by commas', 'Yes, No') || '')
+        .split(',').map((o) => o.trim()).filter(Boolean).slice(0, 40)
+      : [],
     required: false, custom: true,
   });
   drawChosen();
