@@ -23,6 +23,11 @@
     </header>
     <div class="content">
       <div id="err"></div>
+      <section class="card" id="dupe-card" hidden style="margin-bottom:1.5rem;">
+        <div class="card-head"><h2>Possibly the same person</h2>
+          <span class="muted" id="dupe-count"></span></div>
+        <div class="card-pad" id="dupes"></div>
+      </section>
       <section id="stats" class="stat-grid"></section>
       <div class="toolbar">
         <input id="q" type="search" placeholder="Name, email or phone" style="min-width:240px;">
@@ -507,6 +512,66 @@ function render(d) {
   });
 }
 
+/**
+ * Two records that look like one person.
+ *
+ * Nothing is merged without somebody saying so, and which one survives is
+ * their call: the older record usually carries the history, the newer one
+ * usually carries the passport, and a default would be wrong about half the
+ * time. The trip counts are there so the choice takes a glance.
+ */
+async function drawDupes() {
+  const card = document.getElementById('dupe-card');
+  const box = document.getElementById('dupes');
+  let pairs = [];
+  try { ({ pairs = [] } = await api(`/api/clients/duplicates${
+    advisorParam() ? `?${advisorParam()}` : ''}`)); }
+  catch { card.hidden = true; return; }
+
+  card.hidden = !pairs.length;
+  if (!pairs.length) return;
+  document.getElementById('dupe-count').textContent =
+    `${pairs.length} to look at`;
+
+  const side = (id, name, email, phone, trips, other) => `
+    <button class="btn btn-secondary btn-sm" data-keep="${esc(id)}" data-drop="${esc(other)}"
+      style="text-align:left;flex:1 1 15rem;white-space:normal;">
+      <span style="display:block;font-weight:650;">Keep ${esc(name)}</span>
+      <span class="muted" style="display:block;font-size:.78rem;">${
+        esc([email, phone].filter(Boolean).join(' &middot; ') || 'nothing on file')}</span>
+      <span class="muted" style="display:block;font-size:.78rem;">${
+        trips} reservation${trips === 1 ? '' : 's'}</span>
+    </button>`;
+
+  box.innerHTML = `<p class="field-hint" style="margin:0 0 .9rem;">Matched on a shared email
+    address, a shared phone number, or the same name. Pick the record to keep: everything on
+    the other one moves across, and anything the keeper has no answer for is filled in from
+    it. Nothing is lost.</p>
+    <ul class="rows">${pairs.map((p, i) => `<li style="padding-left:0;padding-right:0;">
+      <div class="muted" style="font-size:.78rem;margin-bottom:.4rem;">${esc(p.why)}</div>
+      <div style="display:flex;gap:.6rem;flex-wrap:wrap;" data-pair="${i}">
+        ${side(p.a_id, p.a_name, p.a_email, p.a_phone, p.a_trips, p.b_id)}
+        ${side(p.b_id, p.b_name, p.b_email, p.b_phone, p.b_trips, p.a_id)}
+      </div></li>`).join('')}</ul>`;
+
+  box.querySelectorAll('[data-keep]').forEach((b) => b.addEventListener('click', async () => {
+    const row = b.closest('[data-pair]');
+    row.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+    try {
+      const out = await api('/api/clients/merge', {
+        method: 'POST', body: { keep: b.dataset.keep, drop: b.dataset.drop },
+      });
+      err.innerHTML = `<div class="notice notice-ok">${esc(out.absorbed)} is now part of
+        ${esc(out.keep.name)}.</div>`;
+      await load();
+      await drawDupes();
+    } catch (e) {
+      showError(err, e);
+      row.querySelectorAll('button').forEach((x) => { x.disabled = false; });
+    }
+  }));
+}
+
 async function load() {
   try {
     const params = [];
@@ -673,5 +738,6 @@ houseForm.addEventListener('submit', async (e) => {
 q.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(load, 200); });
 pinnedOnly.addEventListener('change', load);
 await load();
+await drawDupes();
 </script>
 </body></html>

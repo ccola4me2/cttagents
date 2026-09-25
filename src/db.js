@@ -2030,7 +2030,7 @@ export async function salesMix(env, scope, { from, to, includePersonal = false }
 // record, creating one the first time it is seen. Nothing in the forms had to
 // change: the record appears as a side effect of doing the work.
 
-const CLIENT_COLUMNS = `
+export const CLIENT_COLUMNS = `
   c.id, c.user_id, c.name, c.email, c.phone, c.notes, c.ghl_contact_id,
   c.birthday, c.anniversary, c.household_id, c.pinned_at, c.created_at, c.updated_at,
   c.legal_first, c.legal_middle, c.legal_last, c.gender, c.citizenship,

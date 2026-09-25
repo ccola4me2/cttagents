@@ -375,10 +375,28 @@ export async function upsertClient(env, user, body) {
   // Asked before creating, rather than worked out afterwards from how recent
   // the row looks. resolveClient is happy either way; the caller wants to be
   // told which happened.
-  const before = await db.getClient(env, db.selfScope(user), { name });
+  // The address first, the name second.
+  //
+  // Matching on name alone is what makes duplicates: a form filled in as Bob
+  // Smith by the Robert Smith already on the book used to make a second
+  // record, and the traveller block files whole families at once so it makes
+  // them faster than anything before it.
+  //
+  // An email address is the closest thing to a person's identity this book
+  // holds, so somebody writing in with an address already on a record is that
+  // record, whatever they called themselves this time. Their name is left
+  // alone: what the advisor filed them under is not a form's to overwrite.
+  const email = clean(body.email, 160);
+  let before = email
+    ? await env.DB.prepare(
+      `SELECT ${db.CLIENT_COLUMNS} FROM clients c
+        WHERE c.user_id = ? AND LOWER(TRIM(c.email)) = LOWER(TRIM(?)) LIMIT 1`
+    ).bind(user.id, email).first().catch(() => null)
+    : null;
+  if (!before) before = await db.getClient(env, db.selfScope(user), { name });
   const existed = Boolean(before);
 
-  const existingId = await db.resolveClient(env, user.id, name);
+  const existingId = before ? before.id : await db.resolveClient(env, user.id, name);
   if (!existingId) return { error: 'A client needs a name.' };
 
   // Everything else is optional and written over the top, so adding somebody
