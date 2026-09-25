@@ -2058,37 +2058,6 @@ function render() {
       } catch (e) { showError(err, e); btn.disabled = false; }
     });
   });
-
-  // A section nav, because this page is long and getting longer. CP Maxx puts
-  // one on its reservation for the same reason. Hidden sections are left out
-  // rather than linked to nothing: a quote with no options and a trip sold
-  // outside a group both have cards that are not there.
-  const sections = [
-    ['sec-detail', 'Reservation'],
-    ['sec-travellers', 'Travellers'],
-    ['sec-pricing', 'Pricing'],
-    ['sec-payments', 'Payments'],
-    ['sec-penalty', 'If they cancel'],
-    ['sec-commission', 'Commission'],
-    // Only on the few trips that still carry one: the filter below drops any
-    // section whose card is hidden, and that card hides itself when empty.
-    ['sec-components', 'Other vendors'],
-    ['sec-options', 'Choices'],
-    ['sec-share', 'Client page'],
-    ['sec-docs', 'Documents'],
-    ['sec-amenities', 'Amenities'],
-    ['sec-credits', 'Credits'],
-    ['sec-tasks', 'To do'],
-    ['sec-group', 'Group'],
-  ].filter(([anchorId]) => {
-    const head = document.getElementById(anchorId);
-    const card = head && head.closest('section');
-    return card && !card.hidden;
-  });
-
-  document.getElementById('section-nav').innerHTML = sections
-    .map(([anchorId, label]) => `<a href="#${anchorId}">${esc(label)}</a>`).join('');
-
   drawDetail();
 
   drawCommission();
@@ -2142,6 +2111,45 @@ function render() {
         d.group.option_date ? ` &middot; unsold space released ${esc(short(d.group.option_date))}${
           days !== null && days >= 0 ? `, in ${days} days` : ''}` : ''}</p>`;
   }
+
+  // A section nav, because this page is long and getting longer. CP Maxx puts
+  // one on its reservation for the same reason. Hidden sections are left out
+  // rather than linked to nothing: a trip sold outside a group has no group
+  // card to jump to.
+  //
+  // Last, after every draw above, and that is the whole of why it is down
+  // here. It reads each card's hidden attribute, and the cards that appear
+  // conditionally start hidden in the markup and are un-hidden by the draw
+  // that fills them. Built before those ran it asked the question before the
+  // answer existed, so Choices was absent from the nav on every quote ever
+  // written, including the ones where the card was sitting on the page a
+  // scroll below. That is the row an advisor looking for where to add the
+  // cabins reads first, and it was never there.
+  const sections = [
+    ['sec-detail', 'Reservation'],
+    ['sec-travellers', 'Travellers'],
+    ['sec-pricing', 'Pricing'],
+    ['sec-payments', 'Payments'],
+    ['sec-penalty', 'If they cancel'],
+    ['sec-commission', 'Commission'],
+    // Only on the few trips that still carry one: the filter below drops any
+    // section whose card is hidden, and that card hides itself when empty.
+    ['sec-components', 'Other vendors'],
+    ['sec-options', 'Choices'],
+    ['sec-share', 'Client page'],
+    ['sec-docs', 'Documents'],
+    ['sec-amenities', 'Amenities'],
+    ['sec-credits', 'Credits'],
+    ['sec-tasks', 'To do'],
+    ['sec-group', 'Group'],
+  ].filter(([anchorId]) => {
+    const head = document.getElementById(anchorId);
+    const card = head && head.closest('section');
+    return card && !card.hidden;
+  });
+
+  document.getElementById('section-nav').innerHTML = sections
+    .map(([anchorId, label]) => `<a href="#${anchorId}">${esc(label)}</a>`).join('');
 }
 
 /**
