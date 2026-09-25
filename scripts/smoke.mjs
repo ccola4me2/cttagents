@@ -4363,6 +4363,45 @@ async function main() {
     'while saying nothing leaves it unknown, not declined',
     silent.data?.booking?.insurance_status);
 
+  // ------------------------------------- a proposal becomes a reservation --
+  // The conversion is one field. That is the whole argument for never having
+  // built a second kind of record: there is no copy step, so there is nothing
+  // for a copy step to drop. The guard is the half worth testing, because this
+  // is a button on a list of rows that were fetched a minute ago.
+  const propose = await call(advisor, 'POST', '/api/bookings', {
+    clientName: `Chose It ${stamp}`, departDate: isoDay(260), status: 'quoted',
+    grossCents: 240000,
+  });
+  const proposeId = propose.data?.booking?.id;
+  if (proposeId) cleanup('the proposal', () => dropBooking(proposeId));
+
+  if (!proposeId) {
+    skip('turning a proposal into a reservation', `creating it answered ${propose.status}`);
+  } else {
+    const out = await call(advisor, 'GET', '/api/proposals');
+    const onList = (g) => (g.data?.groups || []).flatMap((x) => x.items || [])
+      .some((i) => i.id === proposeId);
+    check(onList(out), 'a quote is on the proposals list the moment it is written',
+      'not listed');
+
+    const booked = await call(advisor, 'POST', `/api/bookings/${proposeId}/booked`, {});
+    check(booked.status === 200 && booked.data?.status === 'booked',
+      'and one button turns it into a reservation', `status ${booked.status}`);
+
+    const after = await call(advisor, 'GET', `/api/bookings/${proposeId}/record`);
+    check(after.data?.booking?.status === 'booked',
+      'which the record itself agrees with', after.data?.booking?.status);
+    check(after.data?.booking?.id === proposeId,
+      'and it is the same record rather than a copy of one');
+
+    const again = await call(advisor, 'POST', `/api/bookings/${proposeId}/booked`, {});
+    check(again.status === 400, 'pressing it a second time books nothing twice',
+      `status ${again.status}`);
+
+    check(!onList(await call(advisor, 'GET', '/api/proposals')),
+      'and it leaves the proposals list, having been answered');
+  }
+
   const lead = await call(advisor, 'POST', `/api/bookings/${tripId}/travellers`, {
     name: 'Ada Lovelace', dob: '1965-12-10', email: 'ada@example.com',
     passportNumber: 'P1', passportExpiry: isoDay(3000), isLead: true,

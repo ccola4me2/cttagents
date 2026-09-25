@@ -203,6 +203,11 @@ const NAV = [
       { href: '/app/import', label: 'Import reservations' },
       { href: '/app/payments', label: 'Payments Due' },
       { href: '/app/commissions', label: 'Commission owed' },
+      // Quoted and unanswered, which is a reservation at an earlier stage and
+      // not a kind of client. It sat under Client for a year, between
+      // Households and the board, and an advisor looking for the trips they
+      // had quoted looked here.
+      { href: '/app/proposals', label: 'Proposals out' },
     ],
   },
   // A page of its own, next to the dashboard. A supplier directory is opened
@@ -223,7 +228,6 @@ const NAV = [
       { href: '/app/clients', label: 'Clients' },
       { href: '/app/import-clients', label: 'Import clients' },
       { href: '/app/households', label: 'Households' },
-      { href: '/app/proposals', label: 'Proposals out' },
       { href: '/app/pipeline', label: 'Reservation board' },
       { href: '/app/segments', label: 'Lists' },
       { href: '/app/broadcasts', label: 'Emails' },

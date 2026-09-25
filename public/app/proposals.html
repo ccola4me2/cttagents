@@ -78,7 +78,8 @@ function heard(p) {
 function table(items) {
   return `<div class="table-wrap"><table class="grid">
     <thead><tr><th>Client</th><th>Trip</th><th>Departing</th>
-      <th class="num">Quoted</th><th>What has happened</th><th class="num">Waiting</th></tr></thead>
+      <th class="num">Quoted</th><th>What has happened</th><th class="num">Waiting</th>
+      <th></th></tr></thead>
     <tbody>${items.map((p) => `<tr>
       <td><a class="name" href="/app/reservation?id=${esc(p.id)}">${esc(p.clientName)}</a>
         ${p.advisorName ? `<div class="muted" style="font-size:.74rem;">${esc(p.advisorName)}</div>` : ''}</td>
@@ -90,6 +91,9 @@ function table(items) {
       <td style="font-size:.82rem;">${heard(p)}</td>
       <td class="num agecell${p.age !== null && p.age >= 14 ? ' old' : ''}">${
         p.age === null ? '' : `${p.age} day${p.age === 1 ? '' : 's'}`}</td>
+      <td class="num" style="white-space:nowrap;">${p.state === 'chosen'
+        ? `<button class="btn btn-primary btn-sm" data-booked="${esc(p.id)}">They booked it</button>`
+        : ''}</td>
     </tr>`).join('')}</tbody></table></div>`;
 }
 
@@ -116,6 +120,32 @@ function render(d) {
     <p class="hint">${esc(g.hint)}</p>
     ${table(g.items)}
   </section>`).join('');
+
+  // The one row on this page that is a decision already made.
+  //
+  // "They chose, not booked yet" is the money sitting between somebody saying
+  // yes and the trip existing, and clearing it meant opening the reservation
+  // and changing a dropdown. The client already picked their cabin, so the
+  // price on the record is the price they agreed: there is nothing left to
+  // decide and nothing here to fill in.
+  //
+  // It converts nothing. A quote is a reservation whose status says quoted,
+  // so this sets one field and the record it was is the record it becomes.
+  document.querySelectorAll('[data-booked]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = 'Booking...';
+      try {
+        await api(`/api/bookings/${encodeURIComponent(btn.dataset.booked)}/booked`,
+          { method: 'POST', body: {} });
+        await load();
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'They booked it';
+        showError(err, e);
+      }
+    });
+  });
 }
 
 async function load() {

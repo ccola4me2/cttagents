@@ -12,7 +12,7 @@
 // could pick an option. Nothing new is recorded; this is the first time any of
 // it is read together.
 
-import { json, clean } from './util.js';
+import { json, clean, badRequest, notFound, now } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 
@@ -48,6 +48,53 @@ function stateOf(b) {
 }
 
 const days = (from, nowSec) => (from ? Math.floor((nowSec - from) / 86400) : null);
+
+/**
+ * They said yes.
+ *
+ * The whole of turning a proposal into a reservation is this one field, and
+ * that is the argument for never building a second kind of record. The trip
+ * page link the client already holds keeps working. The options they turned
+ * down stay where they are, and what somebody declined is the most useful
+ * thing you can know the next time you quote them. The view count, the
+ * payment schedule, the client and the agreed commission split are all still
+ * attached to the same row, rather than copied across at the exact moment the
+ * money became real.
+ *
+ * Only from quoted, and the condition is in the UPDATE rather than in a read
+ * followed by a write. This is a button on a list of rows that were fetched a
+ * minute ago: the trip may have been booked from another tab, or cancelled,
+ * and a list button that can move a cancelled trip to booked is one misclick
+ * from a reservation nobody can account for.
+ *
+ * It does not touch the price. handleChooseOption already made the trip total
+ * follow the option the client picked, so by the time anybody presses this the
+ * figure is right, and a second opinion about it here would be a way for the
+ * two to disagree.
+ */
+export async function handleMarkBooked(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, id);
+  if (!owner) return notFound('Reservation not found.');
+
+  const res = await env.DB.prepare(
+    `UPDATE bookings SET status = 'booked', updated_at = ?
+      WHERE id = ? AND user_id = ? AND status = 'quoted'`
+  ).bind(now(), id, owner.id).run();
+
+  if (!res.meta || res.meta.changes === 0) {
+    return badRequest('That is not a quote any more. Open it and see where it got to.');
+  }
+
+  const booking = await db.getBooking(env, id, owner.id);
+  await db.logActivity(env, owner.id, 'booking.booked',
+    `Booked ${booking?.client_name || 'a trip'} from the proposals list`, { booking: id });
+
+  return json({ ok: true, id, status: 'booked' });
+}
 
 export async function handleProposals(request, env) {
   const { user, response } = await requireUser(request, env);

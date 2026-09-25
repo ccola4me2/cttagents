@@ -28,7 +28,7 @@ import {
   handleLeadBoard, handleAddLead, handleUpdateLead, handleMoveLead, handleCloseLead,
   handleFollowedUp,
 } from './leads.js';
-import { handleProposals } from './proposals.js'; import {
+import { handleProposals, handleMarkBooked } from './proposals.js'; import {
   handleListBookings,
   handleGetBooking,
   handleBookingRecord,
@@ -711,6 +711,8 @@ async function routeApi(request, env, path, method) {
   // ---- pipeline ---------------------------------------------------------
   // Everything quoted and still unanswered, by who is holding it up.
   if (path === '/api/proposals' && method === 'GET') return handleProposals(request, env);
+  const bookedMatch = path.match(/^\/api\/bookings\/([^/]+)\/booked$/);
+  if (bookedMatch && method === 'POST') return handleMarkBooked(request, env, bookedMatch[1]);
 
   // The marketing pipeline: people who have not booked yet.
   if (path === '/api/leads' && method === 'GET') return handleLeadBoard(request, env);
