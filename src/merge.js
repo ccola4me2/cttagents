@@ -20,32 +20,6 @@ import { json, badRequest, notFound, clean, now, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 
-/**
- * Every column that holds a clients.id.
- *
- * Written out rather than derived. `contact_id` on tasks and client_credits
- * sits beside a `client_id` and holds the old CRM's id, not ours, so moving it
- * would point a live row at a contact in a system that no longer exists. Only
- * form_submissions uses contact_id for a real client, because that is what
- * publicform.js puts there.
- *
- * A table missed here is a row left pointing at a record that is about to be
- * deleted, so this list is the whole safety of the operation.
- */
-export const CLIENT_LINKS = [
-  ['bookings', 'client_id'],
-  ['client_credits', 'client_id'],
-  ['tasks', 'client_id'],
-  ['appointments', 'client_id'],
-  ['reviews', 'client_id'],
-  ['form_invites', 'client_id'],
-  ['broadcast_recipients', 'client_id'],
-  ['form_submissions', 'contact_id'],
-  // Somebody referred by the record about to go needs repointing too, or the
-  // referral chain breaks at exactly the person who did the referring.
-  ['clients', 'referred_by_client_id'],
-];
-
 // What the keeper takes from the loser wherever the keeper has nothing. Not
 // name, which is the thing being chosen between, and not household_id, which
 // is handled on its own because it decides who somebody lives with.
@@ -167,51 +141,61 @@ export async function handleMergeClients(request, env) {
   ).bind(dropId, owner).first();
   if (!keep || !drop) return notFound('Client not found.');
 
+  // Written out rather than looped over a list with the table name
+  // interpolated. A built table name is a statement no checker can read, and
+  // this is the operation where a missed table leaves live rows pointing at a
+  // record that is about to be deleted. Eight statements somebody can audit
+  // beats one clever one.
+  //
+  // contact_id on tasks and client_credits is NOT moved: it sits beside a
+  // client_id and holds the old CRM's id, not ours, so pointing it at a client
+  // would aim a live row at a contact in a system that no longer exists. Only
+  // form_submissions uses contact_id for a real client, because that is what
+  // publicform.js puts there.
+  //
+  // Every table but form_submissions is the advisor's own, so each names
+  // user_id as well: the client id already implies the owner, and saying so
+  // again is what makes that readable from the statement. form_submissions
+  // belongs to the agency and has no user_id to name.
   const moved = [];
-  for (const [table, column] of CLIENT_LINKS) {
+  const move = async (table, sql, binds) => {
     try {
-      const res = await env.DB.prepare(
-        `UPDATE ${table} SET ${column} = ? WHERE ${column} = ?`
-      ).bind(keepId, dropId).run();
+      const res = await env.DB.prepare(sql).bind(...binds).run();
       const n = res && res.meta ? res.meta.changes : 0;
       if (n) moved.push({ table, rows: n });
     } catch (e) {
       // A table this deployment does not have is not a reason to abandon a
-      // merge. Anything else is worth knowing about, and neither is worth
-      // leaving the advisor with two records.
+      // merge half way through.
       console.error('merge link', table, e);
     }
-  }
-  // Everything the keeper has no answer for, taken from the loser. Never the
-  // other way round: the record the advisor chose to keep wins every field it
-  // has an opinion about.
-  const filled = [];
-  const sets = [];
-  const binds = [];
-  for (const f of FILLABLE) {
-    const mine = keep[f];
-    const theirs = drop[f];
-    const blank = mine === null || mine === undefined || String(mine).trim() === '';
-    const has = theirs !== null && theirs !== undefined && String(theirs).trim() !== '';
-    if (blank && has) { sets.push(`${f} = ?`); binds.push(theirs); filled.push(f); }
-  }
-  // Who they live with, if the keeper lives nowhere.
-  if (!keep.household_id && drop.household_id) {
-    sets.push('household_id = ?'); binds.push(drop.household_id); filled.push('household_id');
-  }
-  if (sets.length) {
-    await env.DB.prepare(
-      `UPDATE clients SET ${sets.join(', ')}, updated_at = ? WHERE id = ? AND user_id = ?`
-    ).bind(...binds, now(), keepId, owner).run();
-  }
+  };
+  const mine = [keepId, dropId, owner];
+  await move('bookings',
+    'UPDATE bookings SET client_id = ? WHERE client_id = ? AND user_id = ?', mine);
+  await move('client_credits',
+    'UPDATE client_credits SET client_id = ? WHERE client_id = ? AND user_id = ?', mine);
+  await move('tasks',
+    'UPDATE tasks SET client_id = ? WHERE client_id = ? AND user_id = ?', mine);
+  await move('appointments',
+    'UPDATE appointments SET client_id = ? WHERE client_id = ? AND user_id = ?', mine);
+  await move('reviews',
+    'UPDATE reviews SET client_id = ? WHERE client_id = ? AND user_id = ?', mine);
+  await move('form_invites',
+    'UPDATE form_invites SET client_id = ? WHERE client_id = ? AND user_id = ?', mine);
+  await move('broadcast_recipients',
+    'UPDATE broadcast_recipients SET client_id = ? WHERE client_id = ? AND user_id = ?', mine);
+  await move('clients',
+    'UPDATE clients SET referred_by_client_id = ? WHERE referred_by_client_id = ? AND user_id = ?',
+    mine);
+  // The submission belongs to the agency, not to an advisor, so the client id
+  // is the whole of the predicate it can have.
+  await move('form_submissions',
+    'UPDATE form_submissions SET contact_id = ? WHERE contact_id = ?', [keepId, dropId]);
 
-  // After the fill, not before it. The loser referred the keeper, the link
-  // move pointed that at the keeper, and then the fill copied it onto the
-  // keeper: a record that referred itself. Caught by testing the merge rather
-  // than by reading it.
   await env.DB.prepare(
-    'UPDATE clients SET referred_by_client_id = NULL WHERE id = ? AND referred_by_client_id = ?'
-  ).bind(keepId, keepId).run().catch(() => {});
+    `UPDATE clients SET referred_by_client_id = NULL
+      WHERE id = ? AND referred_by_client_id = ? AND user_id = ?`
+  ).bind(keepId, keepId, owner).run().catch(() => {});
 
   await env.DB.prepare('DELETE FROM clients WHERE id = ? AND user_id = ?')
     .bind(dropId, owner).run();
