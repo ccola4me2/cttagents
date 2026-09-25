@@ -828,6 +828,11 @@ function drawDetail() {
   if (!ro && clientBox && !clientBox.dataset.suggesting) {
     clientBox.dataset.suggesting = '1';
     mountClientSuggest(clientBox, {
+      // Their own book, never the agency's. An owner reads every advisor's
+      // clients, which is right for a list and wrong here: the save is
+      // self-scoped, so another advisor's client is one this box would offer
+      // and the next screen would refuse.
+      mineOnly: me.id,
       emptyText: 'Nobody by that name yet. Keep typing to book for somebody new.',
     });
   }
@@ -2964,6 +2969,10 @@ let editingAmenity = null;
  * record being corrected.
  */
 mountClientSuggest(document.getElementById('t-name'), {
+  // As above: the advisor's own book. Picking somebody else's client here then
+  // reads their record to fill the passport boxes, which is a different
+  // permission from the one this screen has.
+  mineOnly: me.id,
   emptyText: 'Nobody by that name yet. Keep typing to add them as a new traveller.',
   async onChoose(row) {
     if (editingTraveller || !row.id) return;

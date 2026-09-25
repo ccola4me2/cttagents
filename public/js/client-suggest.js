@@ -32,6 +32,22 @@ const CSS = `
   .suggest-empty { margin: 0; padding: .55rem .7rem; font-size: .84rem; color: var(--navy-400, #7b8798); }
 `;
 
+/**
+ * Whose book to search, when the caller has not said.
+ *
+ * Asked once and kept, because it cannot change without a page load: acting as
+ * another advisor is a different session, and the shell reloads for it.
+ * Answering null is safe, since the endpoint already fences a plain advisor to
+ * themselves; the only reader it changes is an owner.
+ */
+let meId;
+async function whoAmI() {
+  if (meId === undefined) {
+    try { meId = (await api('/api/auth/me')).user?.id || null; } catch { meId = null; }
+  }
+  return meId;
+}
+
 function ensureStyles() {
   if (document.getElementById(CSS_ID)) return;
   const el = document.createElement('style');
@@ -48,7 +64,9 @@ function ensureStyles() {
  * has is still allowed: a new client is a real thing that happens, and a box
  * that refuses one is a box people work around.
  */
-export function mountClientSuggest(input, { onChoose, emptyText, mineOnly } = {}) {
+export function mountClientSuggest(input, {
+  onChoose, emptyText, mineOnly, agencyWide = false,
+} = {}) {
   if (!input) return;
   ensureStyles();
 
@@ -127,8 +145,15 @@ export function mountClientSuggest(input, { onChoose, emptyText, mineOnly } = {}
         // to: writes are always self-scoped, so offering another advisor's
         // client means offering one the save will then refuse. It also showed
         // four identical rows, one per advisor, with nothing to tell them apart.
+        //
+        // Defaulted here rather than asked of each caller. It was a named
+        // option for a while and of the seven boxes that mount this, two
+        // remembered to pass it: an owner starting a reservation was offered
+        // the whole agency's book and could pick somebody the save would then
+        // refuse. Narrow unless somebody says otherwise, in writing.
+        const only = agencyWide ? null : (mineOnly || await whoAmI());
         found = await api(`/api/clients?q=${encodeURIComponent(q)}&limit=8`
-          + (mineOnly ? `&advisor=${encodeURIComponent(mineOnly)}` : ''));
+          + (only ? `&advisor=${encodeURIComponent(only)}` : ''));
       } catch {
         note('Could not check just now. Type the name if you are sure they are new.');
         return;

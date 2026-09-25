@@ -107,6 +107,11 @@ let crmByName = new Map();
 // The box itself is shared with the task form, which asks the same question
 // for the same reason. See /js/client-suggest.js.
 const suggestClients = (input) => mountClientSuggest(input, {
+  // Their own book, never the agency's. An owner reads every advisor's clients
+  // and that is right for a list; it is wrong for the box that picks who a
+  // reservation is for, because the save is self-scoped and would refuse the
+  // pick. The same rule the groups line above already follows.
+  mineOnly: ME,
   onChoose(row) { if (row.source === 'crm') crmByName.set(row.name, row); },
 });
 

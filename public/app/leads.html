@@ -104,7 +104,7 @@
 import { api, mountShell, esc, dateFmt, timeAgo, showError, onSubmit,
   mountScopePicker, advisorParam } from '/js/app.js';
 import { mountClientSuggest } from '/js/client-suggest.js';
-await mountShell();
+const me = await mountShell();
 
 const panel = document.getElementById('panel');
 const summary = document.getElementById('summary');
@@ -312,6 +312,9 @@ document.getElementById('sourceKind').addEventListener('change', showReferred);
 // is so the advisor can see the match while they are still typing, and see the
 // phone and email that come with it.
 mountClientSuggest(document.getElementById('name'), {
+  // Their own book. The note below says saving adds to that person rather than
+  // making a second one, and that is only true of a person they own.
+  mineOnly: me.id,
   onChoose: (row) => {
     const f = document.getElementById('form');
     // Only into empty boxes. Somebody typing a new number for a client whose
@@ -328,6 +331,10 @@ mountClientSuggest(document.getElementById('name'), {
 });
 
 mountClientSuggest(document.getElementById('referredByName'), {
+  // referred_by_client_id lives on the advisor's own client row and points at
+  // another of their own. Offering the agency's book here would write a link
+  // across two advisors' books that nothing else in the portal can read.
+  mineOnly: me.id,
   onChoose: (row) => { document.getElementById('referredBy').value = row.id; },
 });
 // Typing over a chosen name without picking anybody clears the link rather than

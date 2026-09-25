@@ -174,7 +174,7 @@ import { mountThread } from '/js/chat-thread.js';
 /** A channel's name, from the list the server sent with the record. */
 const sourceKindName = (d, id) =>
   ((d.sourceKinds || []).find((k) => k.id === id) || {}).name || 'Not recorded';
-await mountShell();
+const me = await mountShell();
 
 const params = new URLSearchParams(location.search);
 const id = params.get('id') || '';
@@ -824,6 +824,9 @@ function drawContact(d) {
   // at whoever was there before.
   const refName = document.getElementById('creferredByName');
   mountClientSuggest(refName, {
+    // Their own book: the id this writes belongs to the advisor's own record
+    // and points at another of theirs.
+    mineOnly: me.id,
     onChoose: (row) => { document.getElementById('creferredBy').value = row.id; },
   });
   refName.addEventListener('input', () => {
