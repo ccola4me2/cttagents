@@ -939,6 +939,19 @@ export async function handleDeleteBooking(request, env, id) {
       WHERE booking_id = ? AND user_id = ? AND credit_id IS NOT NULL`
   ).bind(id, owner.id).all().catch(() => ({ results: [] }));
 
+  // The files before the rows that name them, which is the order
+  // handleDeleteDocument uses one document at a time and for the same reason.
+  // Best effort on each: an object already gone, or a bucket not bound on this
+  // deployment, is not a reason to leave the reservation standing.
+  if (env.DOCS) {
+    const files = await env.DB.prepare(
+      'SELECT object_key FROM documents WHERE booking_id = ? AND user_id = ?'
+    ).bind(id, owner.id).all().catch(() => ({ results: [] }));
+    for (const f of files.results || []) {
+      if (f.object_key) await env.DOCS.delete(f.object_key).catch(() => null);
+    }
+  }
+
   const removed = await db.deleteBooking(env, id, owner.id);
   if (!removed) return notFound('Booking not found.');
 

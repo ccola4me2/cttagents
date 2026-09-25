@@ -4402,6 +4402,40 @@ async function main() {
       'and it leaves the proposals list, having been answered');
   }
 
+  // -------------------------------- deleting a trip takes the rest with it --
+  // Asked of the health endpoint rather than of a page, because there is no
+  // page to ask. Every screen reads a reservation's rows through the
+  // reservation, so a traveller whose trip was deleted is read by nothing and
+  // appears nowhere: a check written against any other endpoint would pass
+  // whether or not the rows were still there. That is how the delete ran for a
+  // year against bookings alone.
+  const orphansBefore = (await call(admin, 'GET', '/api/admin/health')).data?.orphans?.total;
+  const doomed = await call(advisor, 'POST', '/api/bookings', {
+    clientName: `Doomed ${stamp}`, departDate: isoDay(280), status: 'quoted',
+  });
+  const doomedId = doomed.data?.booking?.id;
+
+  if (!doomedId) {
+    skip('deleting a reservation with things on it',
+      `creating it answered ${doomed.status}`);
+  } else {
+    await call(advisor, 'POST', `/api/bookings/${doomedId}/travellers`,
+      { name: `Goes With It ${stamp}` });
+    await call(advisor, 'POST', `/api/bookings/${doomedId}/options`,
+      { label: 'Also goes with it', amount: '100.00' });
+
+    const bye = await dropBooking(doomedId);
+    check(bye.status === 200, 'a reservation with things on it deletes',
+      `status ${bye.status}`);
+
+    const health = await call(admin, 'GET', '/api/admin/health');
+    const now = health.data?.orphans?.total;
+    check(typeof now === 'number', 'the health page counts rows with no reservation',
+      `got ${JSON.stringify(health.data?.orphans)}`);
+    check(now === orphansBefore, 'and deleting one leaves none of it behind',
+      `${orphansBefore} before, ${now} after: ${JSON.stringify(health.data?.orphans?.tables)}`);
+  }
+
   const lead = await call(advisor, 'POST', `/api/bookings/${tripId}/travellers`, {
     name: 'Ada Lovelace', dob: '1965-12-10', email: 'ada@example.com',
     passportNumber: 'P1', passportExpiry: isoDay(3000), isLead: true,

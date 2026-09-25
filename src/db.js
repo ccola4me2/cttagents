@@ -1015,7 +1015,52 @@ export async function updateBooking(env, id, userId, f) {
   return getBooking(env, id, userId);
 }
 
+/**
+ * Everything that is part of a reservation and dies with it.
+ *
+ * BOOKING_CHILDREN without client_credits, which is the one row on that list
+ * that does not belong to the trip. A credit belongs to the client: it was
+ * going to be spent here and now it will be spent somewhere else, so the
+ * caller hands it back by nulling its booking_id rather than destroying it.
+ * See handleDeleteBooking, which also releases whatever the deleted payments
+ * had already spent.
+ */
+export const BOOKING_OWNED = BOOKING_CHILDREN.filter((t) => t !== 'client_credits');
+
+/**
+ * Delete a reservation and everything on it.
+ *
+ * For a year this was the DELETE on bookings alone. Nothing ever looked wrong,
+ * because every screen in the portal reads these tables through the booking
+ * they hang off: a pricing line whose reservation is gone is invisible to the
+ * commission page, an orphaned receipt adds to nobody's total, and a traveller
+ * nobody can reach shows up on no manifest. They are not invisible to the
+ * database, though, and the live book was carrying six travellers and fifteen
+ * pricing lines belonging to reservations deleted months ago.
+ *
+ * Driven off the list rather than a second copy of it written out here, so a
+ * table added to a reservation next month is deleted with it the day it is
+ * added rather than the day somebody remembers this function.
+ *
+ * The children first and the reservation last, deliberately. A failure part
+ * way then leaves rows pointing at a reservation that still exists, which is
+ * the state the portal already copes with, rather than rows pointing at one
+ * that has gone, which is the state it does not.
+ *
+ * Files are not rows. The R2 objects behind documents are removed by the
+ * caller before this runs, for the reason handleDeleteDocument gives: a row
+ * without its file is a broken download, a file without its row is a few
+ * kilobytes nobody can reach, and only the first is visible to anybody.
+ */
 export async function deleteBooking(env, id, userId) {
+  const writes = BOOKING_OWNED.map((table) => env.DB.prepare(
+    `DELETE FROM ${table} WHERE booking_id = ? AND user_id = ?`
+  ).bind(id, userId));
+  // Best effort, and the reservation goes either way. A deployment missing one
+  // of these tables is not a reason to refuse to delete a trip, and the row
+  // that survives is one nothing can read.
+  await env.DB.batch(writes).catch((e) => { console.error('delete booking children', e); });
+
   const res = await env.DB.prepare('DELETE FROM bookings WHERE id = ? AND user_id = ?')
     .bind(id, userId).run();
   return Boolean(res.meta && res.meta.changes > 0);

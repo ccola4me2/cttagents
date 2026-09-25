@@ -574,6 +574,41 @@ export async function handleMirrorStatus(request, env) {
   return json(await mirrorStatus(env));
 }
 
+/**
+ * Rows left behind by a reservation that is gone.
+ *
+ * Here because an orphan is invisible everywhere else. Every screen reads
+ * these tables through the booking they hang off, so a pricing line whose
+ * reservation was deleted is read by nothing, reaches no total and appears on
+ * no page. That is exactly why deleteBooking could leave them for a year
+ * without anybody noticing, and why a smoke test written against the API
+ * could not have caught it either: there is no request whose answer changes.
+ *
+ * So the health page asks the database instead. Zero is the answer, and
+ * anything else is a delete that did not finish.
+ *
+ * client_credits is not on this list. A credit whose booking_id points at a
+ * deleted trip is not litter, it is a client's money waiting to be spent on
+ * something else, and handleDeleteBooking nulls the pointer on purpose.
+ */
+async function orphanRows(env) {
+  const counts = {};
+  let total = 0;
+  for (const table of db.BOOKING_OWNED) {
+    // One statement per table rather than one compound SELECT: D1 refuses a
+    // compound of this many terms, and a count that fails for a table this
+    // deployment does not have should not take the other thirteen with it.
+    const row = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM ${table} x
+        WHERE x.booking_id IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.id = x.booking_id)`
+    ).first().catch(() => null);
+    if (!row) continue;
+    if (row.n) { counts[table] = row.n; total += row.n; }
+  }
+  return { total, tables: counts };
+}
+
 export async function handleHealth(request, env) {
   const { response } = await requireAdmin(request, env);
   if (response) return response;
@@ -596,6 +631,9 @@ export async function handleHealth(request, env) {
 
   const schema = dbOk ? await schemaDrift(env) : null;
 
+  // Rows whose reservation has gone. Nothing else in the portal can see one.
+  const orphans = dbOk ? await orphanRows(env) : null;
+
   // What the cron has been doing. Cheap, one query, and the only place the
   // answer to "are the reminders still going out" exists at all.
   const jobs = dbOk ? await jobHealth(env) : { jobs: [], ok: false, error: 'no database' };
@@ -617,6 +655,9 @@ export async function handleHealth(request, env) {
     // are run by hand, so this is the one fact about the system that the
     // repository cannot tell you.
     schema,
+    // Should always be zero. Anything else is a reservation that was deleted
+    // and left part of itself behind.
+    orphans,
     appUrl: env.APP_URL || null,
     // Names of every binding and var the Worker can actually see. Values are
     // never included; this is here to catch a secret saved under the wrong
