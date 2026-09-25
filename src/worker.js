@@ -1228,13 +1228,13 @@ async function routePage(request, env, path) {
   // than keep a link, and the only one that can tell two people apart. Every
   // link already sent keeps working exactly as it did.
   if (path === '/portal' || path === '/portal/') {
-    if (method === 'POST') return handlePortalSignIn(request, env);
+    if (request.method === 'POST') return handlePortalSignIn(request, env);
     return renderPortal(request, env);
   }
   // Redeeming the emailed link. A GET because it is opened from an inbox, and
   // single use because the token is spent in the statement that checks it.
   if (path === '/portal/in') return handleClientLinkRedeem(request, env);
-  if (path === '/portal/out' && method === 'POST') return handleClientSignOut(request, env);
+  if (path === '/portal/out' && request.method === 'POST') return handleClientSignOut(request, env);
 
   // One client's own page: every trip they have with us, on the same terms as
   // a single trip's page. The code is the credential.

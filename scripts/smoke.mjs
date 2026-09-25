@@ -5915,6 +5915,21 @@ async function main() {
     'and associate stats is their own row and no one else\'s',
     `${statsRows.length} row(s)`);
 
+  // ------------------------------------------------------- the client portal --
+  // Signed out, because that is who opens it. These three would have caught a
+  // ReferenceError in the route that every offline check walked straight past.
+  const portalPage = await call(null, 'GET', '/portal');
+  check(portalPage.status === 200, 'the client portal serves its sign-in page',
+    `status ${portalPage.status}`);
+  const portalHtml = typeof portalPage.data === 'string' ? portalPage.data : (portalPage.raw || '');
+  check(/name="email"/.test(portalHtml), 'with somewhere to type an address');
+  check(!/commission/i.test(portalHtml), 'and no word about commission on it');
+
+  // A token that was never minted must not open anything.
+  const portalBad = await call(null, 'GET', '/portal/in?t=nonsense-not-a-token');
+  check(portalBad.status === 302 || portalBad.status === 200,
+    'a made-up sign-in link opens nothing', `status ${portalBad.status}`);
+
   await call(advisor, 'DELETE', `/api/commissions/statements/${stmtId}`);
   const afterDelete = await call(advisor, 'GET', '/api/commissions');
   const stillPaid = (afterDelete.data?.rows || []).find((r) => r.id === shortId);
