@@ -315,6 +315,17 @@ const INTERPOLATED_ALLOWED = [
     + 'from BOOKING_CHILDREN in db.js and nowhere else; the statement names the outgoing '
     + 'advisor in its WHERE, so it can only move rows the reservation being moved '
     + 'actually holds, and the caller is an owner put through reachable() first'],
+  ['DELETE FROM ${table} WHERE booking_id = ? AND user_id = ?',
+    'db.deleteBooking, which removes a reservation and everything on it. The table comes '
+    + 'from BOOKING_OWNED in db.js and nowhere else; the statement names the advisor in '
+    + 'its WHERE beside the reservation, so it can only delete rows that reservation '
+    + 'actually holds, and the caller is an administrator put through writerForBooking '
+    + 'first'],
+  ['SELECT COUNT(*) AS n FROM ${table} x',
+    'admin.orphanRows, which counts rows whose reservation has gone. The table comes '
+    + 'from BOOKING_OWNED in db.js and nowhere else; it returns a count and never a row, '
+    + 'and it names x.user_id against the reader\'s agency in its own text rather than '
+    + 'interpolating a scope helper, so the rule below can still read the fence'],
   ['SELECT t.user_id AS user_id FROM ${table} t',
     'db.writerFor, which resolves whose a reservation row is. The table comes from '
     + 'the WRITABLE set in db.js and nowhere else; the statement names t.user_id and '

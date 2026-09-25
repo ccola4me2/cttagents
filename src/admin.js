@@ -591,7 +591,26 @@ export async function handleMirrorStatus(request, env) {
  * deleted trip is not litter, it is a client's money waiting to be spent on
  * something else, and handleDeleteBooking nulls the pointer on purpose.
  */
-async function orphanRows(env) {
+async function orphanRows(env, user) {
+  // This agency's, like everything else an admin reads.
+  //
+  // The first version counted every row in the table, which check-scope refused
+  // and was right to. An orphan belongs to whoever owned the trip it came off,
+  // so an unfenced count told an agency owner how much litter the agency next
+  // door was carrying. A small fact, still not theirs, and a number nobody can
+  // act on is not worth a hole in the fence.
+  //
+  // The predicate is written out rather than interpolated from scopeWhere, and
+  // that is not style. A statement that builds its table name is read by no
+  // rule in check-scope except the one that insists it still names user_id in
+  // its own text, and `${scope.sql}` satisfies a human reading it while leaving
+  // the checker with nothing. The one statement in this file that can reach any
+  // of fourteen tables is the last one to hide its fence behind an
+  // interpolation.
+  //
+  // An admin with no agency counts nothing, because agency_id = NULL is true of
+  // no row. The fence failing shut is a health page reporting less than there
+  // is; failing open is one agency reading another's.
   const counts = {};
   let total = 0;
   for (const table of db.BOOKING_OWNED) {
@@ -600,9 +619,10 @@ async function orphanRows(env) {
     // deployment does not have should not take the other thirteen with it.
     const row = await env.DB.prepare(
       `SELECT COUNT(*) AS n FROM ${table} x
-        WHERE x.booking_id IS NOT NULL
+        WHERE x.user_id IN (SELECT id FROM users WHERE agency_id = ?)
+          AND x.booking_id IS NOT NULL
           AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.id = x.booking_id)`
-    ).first().catch(() => null);
+    ).bind(user.agency_id || null).first().catch(() => null);
     if (!row) continue;
     if (row.n) { counts[table] = row.n; total += row.n; }
   }
@@ -610,7 +630,7 @@ async function orphanRows(env) {
 }
 
 export async function handleHealth(request, env) {
-  const { response } = await requireAdmin(request, env);
+  const { user, response } = await requireAdmin(request, env);
   if (response) return response;
 
   const url = new URL(request.url);
@@ -632,7 +652,7 @@ export async function handleHealth(request, env) {
   const schema = dbOk ? await schemaDrift(env) : null;
 
   // Rows whose reservation has gone. Nothing else in the portal can see one.
-  const orphans = dbOk ? await orphanRows(env) : null;
+  const orphans = dbOk ? await orphanRows(env, user) : null;
 
   // What the cron has been doing. Cheap, one query, and the only place the
   // answer to "are the reminders still going out" exists at all.
