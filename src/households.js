@@ -216,9 +216,22 @@ export async function handleCreateHousehold(request, env) {
     return badRequest('Pick at least two people who live together.');
   }
 
-  // Somebody already in a house is moved into this one rather than refused: a
-  // client can only be in one household, and being told no here would mean
-  // finding and dissolving the old one first for no reason.
+  const made = await createHousehold(env, user.id, found, body);
+  return json({ ok: true, ...made }, 201);
+}
+
+/**
+ * Put a set of client rows in a house together.
+ *
+ * Its own function because a form submission is about to want exactly this,
+ * and two versions of "put these people in a house" would drift on the day one
+ * of them learned something the other did not.
+ *
+ * Somebody already in a house is moved into this one rather than refused: a
+ * client can only be in one household, and being told no here would mean
+ * finding and dissolving the old one first for no reason.
+ */
+export async function createHousehold(env, userId, found, body = {}) {
   const id = uid();
   const ts = now();
   const name = clean(body.name, 120) || suggestName(found.map((c) => c.name));
@@ -226,21 +239,21 @@ export async function handleCreateHousehold(request, env) {
   await env.DB.prepare(
     `INSERT INTO households (id, user_id, name, address, phone, notes, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, user.id, name, cleanText(body.address, 300) || null,
+  ).bind(id, userId, name, cleanText(body.address, 300) || null,
          clean(body.phone, 40) || null, cleanText(body.notes, 2000) || null, ts, ts).run();
 
   const marks = found.map(() => '?').join(',');
   await env.DB.prepare(
     `UPDATE clients SET household_id = ?, updated_at = ?
       WHERE user_id = ? AND id IN (${marks})`
-  ).bind(id, ts, user.id, ...found.map((c) => c.id)).run();
+  ).bind(id, ts, userId, ...found.map((c) => c.id)).run();
 
-  const dated = await saveBirthdays(env, user.id, found, body.birthdays);
+  const dated = await saveBirthdays(env, userId, found, body.birthdays);
 
-  await db.logActivity(env, user.id, 'household.create',
+  await db.logActivity(env, userId, 'household.create',
     `Made a household of ${found.length}: ${name}`, { id, birthdays: dated });
 
-  return json({ ok: true, id, name, members: found.length, birthdays: dated }, 201);
+  return { id, name, members: found.length, birthdays: dated };
 }
 
 export async function handleUpdateHousehold(request, env, id) {

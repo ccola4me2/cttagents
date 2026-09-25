@@ -21,8 +21,18 @@ import * as db from './db.js';
 // line that breaks forty questions into three parts somebody can face. Kept in
 // the same list so it travels through the builder, the catalogue and the
 // public page as an ordinary field rather than as a second concept.
+// 'travellers' is not one question either. It asks how many people are going
+// and then asks about each of them, which is the thing every version of this
+// form has needed and none of them could do: party_size went in a box and
+// four passports were typed out of an email afterwards.
 const FIELD_TYPES = ['text', 'email', 'tel', 'textarea', 'select',
-  'date', 'number', 'checkbox', 'heading'];
+  'date', 'number', 'checkbox', 'heading', 'travellers'];
+
+// What a traveller block may ask about each person. A whitelist rather than
+// free text, because every one of these lands on a client record by name and
+// an unknown key would land nowhere.
+export const TRAVELLER_DETAILS = ['dob', 'gender', 'email', 'phone',
+  'passport_number', 'passport_expiry', 'passport_country', 'known_traveler'];
 
 function slugify(s) {
   return String(s || '').toLowerCase().trim()
@@ -66,6 +76,15 @@ function parseFields(raw) {
       options: Array.isArray(f.options)
         ? f.options.map((o) => clean(o, 80)).filter(Boolean).slice(0, 40)
         : [],
+      // Only meaningful on a traveller block, and harmless everywhere else.
+      // Twelve is a cabin's worth of family; past that somebody is running a
+      // group and wants the group page, not a form.
+      max: type === 'travellers'
+        ? Math.min(Math.max(Number(f.max) || 8, 2), 12) : undefined,
+      details: type === 'travellers'
+        ? (Array.isArray(f.details) ? f.details : ['dob'])
+          .filter((d) => TRAVELLER_DETAILS.includes(d))
+        : undefined,
     });
   }
   return out;

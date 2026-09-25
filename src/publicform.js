@@ -11,6 +11,8 @@
 import { json, badRequest, notFound, uid, now, clean, cleanText, isValidEmail, normalizeEmail, sha256Hex, readJson, escapeHtml as esc } from './util.js';
 import * as db from './db.js';
 import { hydrateForm } from './formbuilder.js';
+import { upsertClient } from './clients.js';
+import { createHousehold } from './households.js';
 import { fireTrigger } from './automations.js';
 import { sendSignupNoticeEmail } from './email.js';
 import { brandForUser, brandOf, DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand.js';
@@ -91,6 +93,51 @@ function fieldMarkup(f, invite) {
   const hint = f.hint ? `<p class="hint" id="${id}_hint">${esc(f.hint)}</p>` : '';
   const described = f.hint ? ` aria-describedby="${id}_hint"` : '';
 
+  // How many are going, and then everything about each of them. Every block is
+  // rendered and the ones past the number given are hidden, so the answers are
+  // already in the page rather than built when somebody picks a number.
+  if (f.type === 'travellers') {
+    const max = f.max || 8;
+    const details = f.details || [];
+    const DETAIL = {
+      dob: ['Date of birth', 'date'],
+      gender: ['Gender', 'text'],
+      email: ['Email', 'email'],
+      phone: ['Phone', 'tel'],
+      passport_number: ['Passport number', 'text'],
+      passport_expiry: ['Passport expires', 'date'],
+      passport_country: ['Passport country', 'text'],
+      known_traveler: ['Known traveller number', 'text'],
+    };
+    const block = (n) => `<fieldset class="guest" data-guest="${n}"${n > 1 ? ' hidden' : ''}>
+      <legend>${n === 1 ? 'First traveller' : `Traveller ${n}`}</legend>
+      <div class="field">
+        <label for="${id}_${n}_name">Full name, as on the passport</label>
+        <input type="text" id="${id}_${n}_name" name="${esc(f.key)}__${n}__name"
+          data-guest-field="${n}"${n === 1 && known.full_name
+            ? ` value="${esc(known.full_name)}"` : ''}>
+      </div>
+      ${details.map((d) => {
+        const [label, kind] = DETAIL[d] || [];
+        if (!label) return '';
+        return `<div class="field">
+          <label for="${id}_${n}_${d}">${esc(label)}</label>
+          <input type="${kind}" id="${id}_${n}_${d}" name="${esc(f.key)}__${n}__${d}"
+            data-guest-field="${n}">
+        </div>`;
+      }).join('')}
+    </fieldset>`;
+
+    return `<div class="field"><label for="${id}">${esc(f.label)}${
+      f.required ? ' <span class="req">*</span>' : ''}</label>${hint}
+      <select id="${id}" name="${esc(f.key)}__count" data-guest-count${req}${described}>
+        ${Array.from({ length: max }, (_, i) => `<option value="${i + 1}">${
+          i + 1} ${i === 0 ? 'traveller' : 'travellers'}</option>`).join('')}
+      </select></div>
+      <div class="guests" data-guests-for="${esc(f.key)}">${
+        Array.from({ length: max }, (_, i) => block(i + 1)).join('')}</div>`;
+  }
+
   let input;
   if (f.type === 'textarea') {
     input = `<textarea id="${id}" name="${esc(f.key)}"${req}${ph}${described}></textarea>`;
@@ -168,6 +215,24 @@ export async function renderPublicForm(request, env, slug) {
       const form = document.getElementById('form');
       const err = document.getElementById('err');
       const ok = document.getElementById('ok');
+
+      // How many traveller blocks are on show. Every block is already in the
+      // page, so this hides rather than builds: with scripts blocked they are
+      // all visible and somebody fills in the ones they need, and the server
+      // keeps the number given rather than the number of boxes.
+      form.querySelectorAll('[data-guest-count]').forEach((sel) => {
+        const box = sel.closest('.field').nextElementSibling;
+        if (!box || !box.matches('[data-guests-for]')) return;
+        const draw = () => {
+          const n = Number(sel.value) || 1;
+          box.querySelectorAll('[data-guest]').forEach((g) => {
+            g.hidden = Number(g.dataset.guest) > n;
+          });
+        };
+        sel.addEventListener('change', draw);
+        draw();
+      });
+
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const btn = form.querySelector('button');
@@ -590,6 +655,28 @@ export async function handlePublicSubmit(request, env, slug) {
     // rather than relying on nothing being posted for it, so a crafted request
     // cannot put a value against one.
     if (f.type === 'heading') continue;
+
+    // A traveller block is a list, not an answer. Gathered here so the
+    // submission reads as people rather than as forty keys with numbers in
+    // them, and cut to the number actually given so hidden blocks somebody
+    // typed into before changing their mind do not arrive.
+    if (f.type === 'travellers') {
+      const wanted = Math.min(Math.max(Number(body[`${f.key}__count`]) || 1, 1), f.max || 8);
+      const people = [];
+      for (let n = 1; n <= wanted; n += 1) {
+        const person = { name: clean(body[`${f.key}__${n}__name`], 120) };
+        if (!person.name) continue;
+        for (const d of f.details || []) {
+          const v = clean(body[`${f.key}__${n}__${d}`], 120);
+          if (v) person[d] = v;
+        }
+        people.push(person);
+      }
+      if (f.required && !people.length) return badRequest(`${f.label} is required.`);
+      if (people.length) data[f.key] = people;
+      continue;
+    }
+
     const raw = clean(body[f.key], f.type === 'textarea' ? 4000 : 300);
     if (f.required && !raw) return badRequest(`${f.label} is required.`);
     if (f.type === 'email' && raw && !isValidEmail(raw)) {
@@ -725,6 +812,66 @@ export async function handlePublicSubmit(request, env, slug) {
     ).bind(email || null, phone || null, now(), clientId, owner).run().catch(() => null);
   }
 
+  // The people named on a traveller block become clients, and a household.
+  //
+  // This is the reason the block exists. Their passports have just been typed
+  // once; typing them a second time off an email is the job this replaces.
+  //
+  // Under the same advisor the submission itself landed under, and grouped
+  // with the person who filled the form in where that made a client record, so
+  // a family arrives as a family rather than as four unrelated names.
+  //
+  // Best effort, like the lead record above. Losing a submission because a
+  // household write failed would be far worse than one that arrives with the
+  // people still to be filed by hand.
+  const partyFields = form.fields.filter((f) => f.type === 'travellers');
+  if (owner && partyFields.length) {
+    try {
+      const made = [];
+      for (const f of partyFields) {
+        for (const person of data[f.key] || []) {
+          const out = await upsertClient(env, { id: owner }, {
+            name: person.name,
+            email: person.email,
+            phone: person.phone,
+            birthday: person.dob,
+            gender: person.gender,
+            passportNumber: person.passport_number,
+            passportExpiry: person.passport_expiry,
+            passportCountry: person.passport_country,
+            knownTraveler: person.known_traveler,
+            source: `Form: ${form.name}`.slice(0, 120),
+          });
+          if (out && out.id && !out.error) made.push({ id: out.id, name: person.name });
+        }
+      }
+
+      // The person who filled it in belongs in the house too, and is usually
+      // one of the travellers already. Matched on id so they are not added
+      // twice under two spellings of their own name.
+      if (clientId && !made.some((m) => m.id === clientId)) {
+        const me = await env.DB.prepare('SELECT id, name FROM clients WHERE id = ? AND user_id = ?')
+          .bind(clientId, owner).first();
+        if (me) made.unshift(me);
+      }
+
+      // Only where somebody is not already in one. A form filled in again must
+      // not make a second house and move everybody into it.
+      if (made.length >= 2) {
+        const marks = made.map(() => '?').join(',');
+        const housed = await env.DB.prepare(
+          `SELECT COUNT(*) AS n FROM clients
+            WHERE user_id = ? AND household_id IS NOT NULL AND id IN (${marks})`
+        ).bind(owner, ...made.map((m) => m.id)).first().catch(() => ({ n: 1 }));
+        if (!(housed && housed.n)) {
+          await createHousehold(env, owner, made, { notes: `From the ${form.name} form` });
+        }
+      }
+    } catch (e) {
+      console.error('form travellers', e);
+    }
+  }
+
   // Kick off any automations listening for this. Enqueue only, never execute
   // inline: a misconfigured automation must not slow down or fail a lead
   // submission.
@@ -803,6 +950,13 @@ function page(title, body, brand) {
   .field{margin-bottom:1.1rem}
   label{display:block;font-size:.85rem;font-weight:600;color:var(--navy);margin-bottom:.35rem}
   .req{color:var(--teal)}
+  /* A traveller block. Boxed so four of them read as four people rather than
+     as one very long form. */
+  .guests{margin:0 0 1.2rem}
+  .guest{border:1px solid #d9e2ec;border-radius:10px;padding:.9rem 1rem .2rem;margin:0 0 .8rem}
+  .guest[hidden]{display:none}
+  .guest legend{font-size:.78rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+    color:#5c7286;padding:0 .4rem}
   .form-section{font-size:1.05rem;margin:2.2rem 0 .2rem;padding-bottom:.5rem;
     border-bottom:2px solid #1f4d70;color:#1f4d70;}
   .form-section:first-child{margin-top:0;}

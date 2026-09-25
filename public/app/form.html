@@ -103,6 +103,7 @@
                 <ul class="chosen" id="chosen"></ul>
                 <div class="toolbar" style="padding:.6rem 0 0;">
                   <button class="btn btn-ghost btn-sm" type="button" id="add-custom">Add a question of your own</button>
+                  <button class="btn btn-ghost btn-sm" type="button" id="add-party">Ask about every traveller</button>
                 </div>
               </div>
             </section>
@@ -203,7 +204,13 @@ let dragKey = null;
 // questions into three sets of a dozen, which is the difference between a form
 // somebody finishes and one they close.
 const TYPES = ['text', 'email', 'tel', 'textarea', 'select',
-  'date', 'number', 'checkbox', 'heading'];
+  'date', 'number', 'checkbox', 'heading', 'travellers'];
+
+// What a traveller block asks about each person by default. Everything a
+// cruise line wants before it will issue documents, and nothing else: an
+// advisor can take a line off, and asking for a passport somebody has not
+// renewed yet is the one thing that stops a form being finished.
+const TRAVELLER_DEFAULTS = ['dob', 'passport_number', 'passport_expiry', 'passport_country'];
 
 function count() {
   document.getElementById('chosen-count').textContent =
@@ -326,6 +333,33 @@ document.getElementById('add-custom').addEventListener('click', () => {
   chosen.push({
     key, label: label.trim(), type: TYPES.includes(type) ? type : 'text',
     required: false, custom: true,
+  });
+  drawChosen();
+});
+
+/**
+ * One question that turns into as many as there are people.
+ *
+ * Asks how many are going and then asks about each of them, and the answers
+ * become clients and a household in the advisor's book rather than a list
+ * somebody retypes off an email.
+ *
+ * Only one per form. Two would ask the same family twice and file them twice.
+ */
+document.getElementById('add-party').addEventListener('click', () => {
+  if (chosen.some((f) => f.type === 'travellers')) {
+    showError(err, new Error('This form already asks about the travellers.'));
+    return;
+  }
+  chosen.push({
+    key: 'travellers',
+    label: 'Who is travelling',
+    hint: 'Names exactly as they appear on the passport, or the cruise line will not issue documents.',
+    type: 'travellers',
+    max: 8,
+    details: TRAVELLER_DEFAULTS.slice(),
+    required: false,
+    custom: true,
   });
   drawChosen();
 });
