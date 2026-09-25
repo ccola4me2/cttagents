@@ -129,23 +129,43 @@ async function loadHub(env, code) {
   ).bind(code).first();
   if (!client) return null;
 
-  const owner = client.user_id;
+  const book = await loadBookFor(env, [client]);
+  return { client, ...book };
+}
+
+/**
+ * Every reservation a set of client rows holds, and what is owed on each.
+ *
+ * A share link is one client row. Somebody signed in can be several: clients
+ * is unique on (user_id, name), so two advisors who both know a person hold a
+ * row each, and the portal is deliberately the union of them.
+ *
+ * Each row is paired with its own advisor rather than matching any client id
+ * against any advisor id. The looser version would let a reservation belonging
+ * to one advisor surface under another whose client happened to be in the same
+ * list.
+ */
+export async function loadBookFor(env, clients) {
+  const rows = (clients || []).filter((c) => c && c.id && c.user_id);
+  if (!rows.length) return { bookings: [], paid: new Map() };
+  const pairs = rows.map(() => '(client_id = ? AND user_id = ?)').join(' OR ');
+  const pairBinds = rows.flatMap((c) => [c.id, c.user_id]);
   const { results: bookings } = await env.DB.prepare(
     `SELECT id, share_code, status, supplier, product_name, destination, itinerary,
             depart_date, return_date, confirmation_number, gross_cents, travellers
        FROM bookings
-      WHERE client_id = ? AND user_id = ? AND status != 'cancelled'
+      WHERE (${pairs}) AND status != 'cancelled'
         -- A quote is on this page only once the advisor has sent it. The
         -- share code is what "sent" means, so it is also the test.
         AND (share_code IS NOT NULL OR status IN ('booked','travelled'))
       ORDER BY COALESCE(depart_date, '9999-12-31') ASC`
-  ).bind(client.id, owner).all().catch(() => ({ results: [] }));
+  ).bind(...pairBinds).all().catch(() => ({ results: [] }));
 
   const ids = (bookings || []).map((b) => b.id);
   const paid = new Map();
   if (ids.length) {
     const holes = ids.map(() => '?').join(', ');
-    const { results: rows } = await env.DB.prepare(
+    const { results: dueRows } = await env.DB.prepare(
       // Hard rows only. A soft row is the same balance shown early so somebody
       // rings in time, and counting both would tell the client they owe twice.
       `SELECT booking_id,
@@ -153,13 +173,13 @@ async function loadHub(env, code) {
               COALESCE(SUM(CASE WHEN paid_date IS NULL THEN amount_cents END), 0) AS due_cents,
               MIN(CASE WHEN paid_date IS NULL THEN due_date END) AS next_due
          FROM booking_payments
-        WHERE user_id = ? AND payment_class = 'hard' AND booking_id IN (${holes})
+        WHERE payment_class = 'hard' AND booking_id IN (${holes})
         GROUP BY booking_id`
-    ).bind(owner, ...ids).all().catch(() => ({ results: [] }));
-    for (const r of rows || []) paid.set(r.booking_id, r);
+    ).bind(...ids).all().catch(() => ({ results: [] }));
+    for (const r of dueRows || []) paid.set(r.booking_id, r);
   }
 
-  return { client, bookings: bookings || [], paid };
+  return { bookings: bookings || [], paid };
 }
 
 /**
@@ -205,17 +225,11 @@ function tripName(rows) {
   return rows[0].itinerary || rows[0].product_name || 'Your trip';
 }
 
-export async function renderHubPage(request, env, code) {
-  const hub = await loadHub(env, clean(code, 40));
-  if (!hub) {
-    return new Response(page('Not available', `<div class="wrap"><div class="card pad">
-      <h1>This page is not available</h1>
-      <p class="dim">The link may have been turned off, or it may have a typo in it.
-        Ask whoever sent it for a new one.</p></div></div>`, null),
-    { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } });
-  }
-
-  const { client, bookings, paid } = hub;
+export function bookBody({ client, bookings, paid, portal = false }) {
+  // A code in the link where they arrived by link, nothing where they are
+  // signed in: the trip page works out the way back from the session.
+  const back = portal ? '' : (client.hub_code ? `?c=${esc(client.hub_code)}` : '');
+  const heading = client.name;
   const advisor = [client.first_name, client.last_name].filter(Boolean).join(' ')
     || client.advisor_email;
   const contact = client.notify_email || client.advisor_email;
@@ -233,7 +247,7 @@ export async function renderHubPage(request, env, code) {
   // The code goes with the link so the trip page can offer a way back. It is
   // the code they already hold: nothing is revealed by passing it on.
   const row = (b) => `<li class="trip-row">
-    ${b.share_code ? `<a href="/t/${esc(b.share_code)}?c=${esc(client.hub_code)}">` : '<span>'}
+    ${b.share_code ? `<a href="/t/${esc(b.share_code)}${back}">` : '<span>'}
       <span class="t">${esc(b.product_name || b.supplier || 'Booking')}</span>
       <span class="m">${esc(b.depart_date ? shortDate(b.depart_date) : 'no date')}${
         b.return_date && b.return_date !== b.depart_date ? ` to ${esc(shortDate(b.return_date))}` : ''
@@ -264,7 +278,7 @@ export async function renderHubPage(request, env, code) {
 
   const body = `<div class="wrap">
     <header class="head">
-      <h1>${esc(client.name)}</h1>
+      <h1>${esc(heading)}</h1>
       <p class="dim">Everything ${esc(client.agency_name || 'we')} hold for you</p>
     </header>
 
@@ -304,6 +318,20 @@ export async function renderHubPage(request, env, code) {
     </footer>
   </div>`;
 
+  return body;
+}
+
+export async function renderHubPage(request, env, code) {
+  const hub = await loadHub(env, clean(code, 40));
+  if (!hub) {
+    return new Response(page('Not available', `<div class="wrap"><div class="card pad">
+      <h1>This page is not available</h1>
+      <p class="dim">The link may have been turned off, or it may have a typo in it.
+        Ask whoever sent it for a new one.</p></div></div>`, null),
+    { status: 404, headers: { 'content-type': 'text/html; charset=utf-8' } });
+  }
+  const { client, bookings, paid } = hub;
+  const body = bookBody({ client, bookings, paid });
   return new Response(
     page(client.name, body, await brandForUser(env, client.user_id)),
     { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }

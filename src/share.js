@@ -29,6 +29,7 @@
 import { json, badRequest, notFound, clean, cleanText, uid, now, sha256Hex, readJson,
   escapeHtml as esc } from './util.js';
 import { brandForUser, DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand.js';
+import { currentClient } from './clientauth.js';
 import { requireUser } from './auth.js';
 import { tenantFor } from './tenant.js';
 import * as db from './db.js';
@@ -562,12 +563,28 @@ export async function renderTripPage(request, env, code) {
   // the trip link would turn a link to one trip into a link to every trip
   // that client has, and those are two different things to have been given.
   const from = clean(new URL(request.url).searchParams.get('c'), 40);
-  const back = from && b.client_id ? await env.DB.prepare(
+  const held = from && b.client_id ? await env.DB.prepare(
     'SELECT hub_code FROM clients WHERE hub_code = ? AND id = ? AND user_id = ?'
   ).bind(from, b.client_id, b.user_id).first() : null;
 
+  // Or they are signed in to the portal and this trip is theirs. Checked
+  // against the session's own address and agency rather than against anything
+  // in the URL, so holding the trip link is never what makes this appear.
+  let mine = null;
+  if (!held && b.client_id) {
+    const who = await currentClient(request, env);
+    if (who && who.agencyId) {
+      mine = await env.DB.prepare(
+        `SELECT 1 AS yes FROM clients c JOIN users u ON u.id = c.user_id
+          WHERE c.id = ? AND LOWER(TRIM(c.email)) = ? AND u.agency_id = ?`
+      ).bind(b.client_id, who.email, who.agencyId).first().catch(() => null);
+    }
+  }
+
+  const back = held ? `/c/${esc(held.hub_code)}` : (mine ? '/portal' : null);
+
   const body = `
-    ${back ? `<p class="backlink"><a href="/c/${esc(back.hub_code)}">&larr; All your trips</a></p>` : ''}
+    ${back ? `<p class="backlink"><a href="${back}">&larr; All your trips</a></p>` : ''}
     <header class="hero">
       <p class="eyebrow">${esc(b.supplier || 'Your trip')}</p>
       <h1>${esc(b.itinerary || b.product_name || 'Your trip')}</h1>

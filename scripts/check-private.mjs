@@ -40,6 +40,8 @@ const CLIENT_FACING = [
   'publicform.js', // the public form and the group sign-up page
   'statement.js',  // the invoice and the quote a client is sent
   'reviews.js',    // the "how was it" form on the trip page
+  'clientauth.js', // signing a client in at /portal
+  'portal.js',     // the signed-in pages at /portal
 ];
 
 // What a client must never be shown, by the name the code would use.

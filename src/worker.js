@@ -60,6 +60,8 @@ import { handleProposals } from './proposals.js'; import {
   renderTripManifest,
 } from './share.js';
 import { handleShareClient, renderHubPage } from './hub.js';
+import { renderPortal, handlePortalSignIn } from './portal.js';
+import { handleClientLinkRedeem, handleClientSignOut } from './clientauth.js';
 import {
   handleReadConfirmation,
 } from './confirm.js';
@@ -1221,6 +1223,18 @@ async function routePage(request, env, path) {
       ? handleTripMessage(request, env, tripCode)
       : renderTripPage(request, env, tripCode);
   }
+
+  // The client portal. A second way in for somebody who would rather sign in
+  // than keep a link, and the only one that can tell two people apart. Every
+  // link already sent keeps working exactly as it did.
+  if (path === '/portal' || path === '/portal/') {
+    if (method === 'POST') return handlePortalSignIn(request, env);
+    return renderPortal(request, env);
+  }
+  // Redeeming the emailed link. A GET because it is opened from an inbox, and
+  // single use because the token is spent in the statement that checks it.
+  if (path === '/portal/in') return handleClientLinkRedeem(request, env);
+  if (path === '/portal/out' && method === 'POST') return handleClientSignOut(request, env);
 
   // One client's own page: every trip they have with us, on the same terms as
   // a single trip's page. The code is the credential.
