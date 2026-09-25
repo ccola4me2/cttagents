@@ -607,7 +607,9 @@ function drawDocuments() {
         <tbody>${rows.map((f) => `<tr>
           <td><a class="name" href="/api/documents/${esc(f.id)}">${esc(f.filename)}</a>
             <div class="muted">${esc(timeAgo(f.created_at))}</div></td>
-          <td><span class="badge badge-navy">${esc(f.category || 'other')}</span></td>
+          <td><span class="badge badge-navy">${esc(f.category || 'other')}</span>
+            ${f.from_client
+              ? '<div><span class="badge badge-amber">the client sent this</span></div>' : ''}</td>
           <td class="num">${esc(KB(f.size_bytes || 0))}</td>
           <td>${d.editable
             ? `<label style="display:flex;align-items:center;gap:.4rem;font-weight:400;margin:0;">

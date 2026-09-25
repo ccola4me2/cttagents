@@ -36,6 +36,7 @@ import * as db from './db.js';
 import { fireTrigger } from './automations.js';
 import { ITEM_KINDS } from './itinerary.js';
 import { sendTripMessageEmail, sendOptionChosenEmail } from './email.js';
+import { docsReady, safeName, MAX_BYTES } from './documents.js';
 import { submitReview, reviewFor, tripIsOver } from './reviews.js';
 
 // Both digits, always, including on nought. A client's own page is the last
@@ -209,8 +210,9 @@ async function loadTrip(env, code) {
     env.DB.prepare(`SELECT kind, amount_cents, due_date, paid_date FROM booking_payments
                      WHERE booking_id = ? AND user_id = ? ORDER BY COALESCE(due_date, paid_date) ASC`)
       .bind(booking.id, owner).all(),
-    env.DB.prepare(`SELECT id, filename, category, size_bytes FROM documents
-                     WHERE booking_id = ? AND user_id = ? AND shared = 1 ORDER BY created_at ASC`)
+    env.DB.prepare(`SELECT id, filename, category, size_bytes, from_client FROM documents
+                     WHERE booking_id = ? AND user_id = ?
+                       AND (shared = 1 OR from_client = 1) ORDER BY created_at ASC`)
       .bind(booking.id, owner).all(),
     // Only when the advisor has said it is ready. A half-written itinerary is
     // worse than none: four days filled in and three blank reads as a trip
@@ -654,13 +656,38 @@ export async function renderTripPage(request, env, code) {
         held until it is. Say the word to ${esc(advisor)} and they will take it from there.</p>
     </section>` : ''}
 
-    ${trip.documents.length ? `<section class="card pad">
+    <section class="card pad">
       <h2>Your documents</h2>
-      <ul class="plain docs">${trip.documents.map((d) => `<li>
+      ${trip.documents.length ? `<ul class="plain docs">${trip.documents.map((d) => `<li>
         <a href="/t/${esc(code)}/d/${esc(d.id)}">${esc(d.filename)}</a>
         ${d.category ? `<span class="dim"> · ${esc(d.category)}</span>` : ''}
-      </li>`).join('')}</ul>
-    </section>` : ''}
+        ${d.from_client ? '<span class="dim"> · you sent this</span>' : ''}
+      </li>`).join('')}</ul>` : `<p class="dim">Nothing here yet.</p>`}
+
+      <h3 style="margin:1.4rem 0 .4rem;font-size:1rem;">Send us something</h3>
+      <p class="dim small" style="margin:0 0 .8rem;">A photo of a passport, a visa, an
+        insurance policy. Images and PDFs, up to 10MB. It goes straight to
+        ${esc(advisor)} and nobody else.</p>
+      <form id="upload" enctype="multipart/form-data">
+        <div class="field">
+          <label for="up-file">The file</label>
+          <input type="file" id="up-file" name="file" required
+            accept="image/jpeg,image/png,image/heic,image/heif,image/webp,application/pdf">
+        </div>
+        <div class="field">
+          <label for="up-cat">What is it</label>
+          <select id="up-cat" name="category">
+            <option value="passport">Passport</option>
+            <option value="visa">Visa</option>
+            <option value="insurance">Insurance</option>
+            <option value="air">Flights</option>
+            <option value="other">Something else</option>
+          </select>
+        </div>
+        <button type="submit">Send it</button>
+        <p class="dim small" id="up-said" hidden></p>
+      </form>
+    </section>
 
     ${home ? `<section class="card pad" id="home">
       <h2>Welcome home</h2>
@@ -746,6 +773,7 @@ export async function renderTripPage(request, env, code) {
     </footer>
     ${home ? REVIEW_SCRIPT : ''}
     ${SAY_SCRIPT}
+    ${UPLOAD_SCRIPT}
     ${CHOOSE_SCRIPT}
     ${PRINT_SCRIPT}`;
 
@@ -845,6 +873,98 @@ export async function handleTripMessage(request, env, code) {
  * moving, and this portal never moves money on its own: the advisor applies
  * the price, exactly as they do when they take the answer over the phone.
  */
+/**
+ * A document, sent in by the client.
+ *
+ * The other direction has existed since documents were built. This one is the
+ * passport photo that used to arrive as an email attachment, which is the
+ * thing this page exists to replace.
+ *
+ * Open to whoever holds the trip link, so it is guarded three ways. The type
+ * list is the one that matters: without it an R2 bucket with a public write
+ * path is somewhere to host anything at all. The size limit is the advisor's
+ * storage bill. The hourly cap is so a script cannot fill either.
+ *
+ * Filed as the advisor's own document against their own trip, marked as having
+ * come from the client, and shared back so the sender can see it arrived.
+ */
+export async function handleTripUpload(request, env, code) {
+  const trip = await loadTrip(env, clean(code, 40));
+  if (!trip) return notFound('This trip page is not available.');
+  if (!docsReady(env)) return badRequest('File storage is not set up yet.');
+
+  const b = trip.booking;
+  let form;
+  try { form = await request.formData(); } catch { form = null; }
+  const file = form && form.get('file');
+  if (!file || typeof file === 'string' || !file.arrayBuffer) {
+    return badRequest('Choose a file to send.');
+  }
+
+  // What a traveller actually sends. Everything else is refused by name, so
+  // somebody who picked the wrong thing is told which kinds work rather than
+  // left guessing.
+  const ALLOWED = {
+    'image/jpeg': 'jpg', 'image/png': 'png', 'image/heic': 'heic',
+    'image/heif': 'heif', 'image/webp': 'webp', 'application/pdf': 'pdf',
+  };
+  const type = String(file.type || '').toLowerCase();
+  if (!ALLOWED[type]) {
+    return badRequest('Send a photo or a PDF. Other kinds of file are not accepted here.');
+  }
+  if (!file.size) return badRequest('That file is empty.');
+  if (file.size > MAX_BYTES) {
+    return badRequest(`That file is ${Math.round(file.size / 1024 / 1024)}MB. The limit is 10MB.`);
+  }
+
+  // Per trip rather than per address, because the link is the only identity
+  // this page has and an address changes faster than a link does.
+  const recent = await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM documents
+      WHERE booking_id = ? AND user_id = ? AND from_client = 1 AND created_at > ?`
+  ).bind(b.id, b.user_id, now() - 3600).first().catch(() => ({ n: 0 }));
+  if ((recent?.n || 0) >= 12) {
+    return json({ error: 'That is a lot of files at once. Try again a little later.' }, 429);
+  }
+
+  const CLIENT_CATEGORIES = ['other', 'passport', 'visa', 'insurance', 'air'];
+  const category = oneOf(form.get('category'), CLIENT_CATEGORIES);
+  const filename = safeName(file.name);
+  const id = uid();
+  const key = `${b.user_id}/${b.id}/${id}-${filename}`;
+
+  await env.DOCS.put(key, file.stream(), { httpMetadata: { contentType: type } });
+
+  const ts = now();
+  await env.DB.prepare(
+    `INSERT INTO documents
+       (id, user_id, booking_id, object_key, filename, content_type, size_bytes,
+        category, shared, from_client, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`
+  ).bind(id, b.user_id, b.id, key, filename, type, file.size, category, ts, ts).run();
+
+  // Told, or it sits there. The filename is left out for the same reason the
+  // advisor's own upload leaves it out: a passport scan named after its owner
+  // does not belong in a notification.
+  await db.logActivity(env, b.user_id, 'document.add',
+    `${b.client_name || 'A client'} sent a ${category}`, { bookingId: b.id, fromClient: true });
+
+  // Same shape the note email uses. It takes an address and a first name, not
+  // a user id: passing an id leaves `to` undefined, the helper returns
+  // { skipped: true }, and the advisor is never told at all.
+  await sendTripMessageEmail(env, {
+    to: b.notify_email || b.advisor_email,
+    firstName: b.first_name,
+    clientName: b.client_name || 'Your client',
+    tripName: b.itinerary || b.product_name || 'their trip',
+    body: `They sent a ${category} through their trip page. It is on the reservation, `
+      + 'under Documents.',
+    href: `${appUrl(env)}/app/reservation?id=${encodeURIComponent(b.id)}`,
+  }).catch((e) => { console.error('upload notice', e); });
+
+  return json({ ok: true, id, filename, category }, 201);
+}
+
 export async function handleClientChoose(request, env, code) {
   const trip = await loadTrip(env, clean(code, 40));
   if (!trip) return notFound('This trip page is not available.');
@@ -1001,6 +1121,36 @@ document.querySelectorAll('[data-choose]').forEach(function (b) {
     }
   });
 });
+</scr${''}ipt>`;
+
+const UPLOAD_SCRIPT = `<scr${''}ipt>
+(function () {
+  const form = document.getElementById('upload');
+  if (!form) return;
+  const said = document.getElementById('up-said');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const button = form.querySelector('button');
+    button.disabled = true;
+    said.hidden = false;
+    said.textContent = 'Sending...';
+    try {
+      const res = await fetch(location.pathname + '/upload', {
+        method: 'POST',
+        body: new FormData(form),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'That did not send.');
+      said.textContent = 'Sent. Your advisor has it.';
+      // Straight back, so the file shows in the list above rather than the
+      // page claiming something the list does not show.
+      setTimeout(() => location.reload(), 900);
+    } catch (err) {
+      said.textContent = err.message;
+      button.disabled = false;
+    }
+  });
+}());
 </scr${''}ipt>`;
 
 const SAY_SCRIPT = `<scr${''}ipt>

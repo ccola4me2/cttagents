@@ -19,7 +19,7 @@ import * as db from './db.js';
 // a couple more; anything much larger is a video somebody meant to send
 // elsewhere, and a Worker holding it in memory to write it is a Worker that
 // falls over.
-const MAX_BYTES = 10 * 1024 * 1024;
+export const MAX_BYTES = 10 * 1024 * 1024;
 
 // 'other' leads because oneOf falls back to the first entry, and filing an
 // unlabelled upload as an insurance policy is worse than filing it as nothing.
@@ -27,7 +27,7 @@ export const CATEGORIES = ['other', 'confirmation', 'invoice', 'insurance', 'air
 
 const COLUMNS = `
   id, user_id, booking_id, object_key, filename, content_type, size_bytes,
-  category, shared, created_at, updated_at
+  category, shared, from_client, created_at, updated_at
 `;
 
 /**
@@ -57,7 +57,7 @@ export async function listDocuments(env, bookingId, scope) {
 }
 
 /** Keeps a filename readable and harmless. */
-function safeName(raw) {
+export function safeName(raw) {
   const name = clean(raw, 120) || 'document';
   const stripped = name.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+/, '');
   return stripped || 'document';
