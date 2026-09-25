@@ -233,6 +233,52 @@ function count() {
   }
 }
 
+// Everything a traveller block can ask about each person. The labels are the
+// ones the client sees, so what is ticked here is literally what appears.
+const TRAVELLER_ASKS = [
+  ['dob', 'Date of birth'],
+  ['passport_number', 'Passport number'],
+  ['passport_expiry', 'Passport expires'],
+  ['passport_country', 'Passport country'],
+  ['gender', 'Gender'],
+  ['email', 'Email'],
+  ['phone', 'Phone'],
+  ['known_traveler', 'Known traveller number'],
+];
+
+/**
+ * What a traveller block is, spelled out on its own row.
+ *
+ * This question is not one question: on the form it asks how many are
+ * travelling and then asks about each of them. The row used to read like a
+ * text box, so the only way to learn what it did was to publish the form.
+ */
+function travellerControls(f) {
+  const picked = new Set(f.details || []);
+  return `<div class="party" style="flex:1 1 100%;margin:.5rem 0 0;padding:.5rem .7rem;
+      background:var(--navy-50, #f3f7fb);border-radius:8px;">
+    <p class="muted" style="margin:0 0 .45rem;font-size:.78rem;">
+      Asks how many are travelling, then shows that many sets of boxes, one per person.
+      Everyone named becomes a client record and they are put in a household together.</p>
+    <label style="display:inline-flex;align-items:center;gap:.4rem;font-weight:400;font-size:.78rem;margin:0 .8rem .3rem 0;">
+      Up to
+      <input class="party-max" type="number" min="2" max="12" value="${Number(f.max) || 8}"
+        aria-label="Most travellers this asks about"
+        style="width:4rem;font-size:.82rem;padding:.15rem .35rem;"> people
+    </label>
+    <span class="muted" style="font-size:.78rem;">Ask each of them for:</span>
+    <span style="display:flex;flex-wrap:wrap;gap:.2rem .9rem;margin-top:.25rem;">
+      ${TRAVELLER_ASKS.map(([key, label]) => `
+        <label style="display:inline-flex;align-items:center;gap:.3rem;font-weight:400;font-size:.78rem;margin:0;">
+          <input type="checkbox" class="party-ask" data-ask="${esc(key)}"${
+            picked.has(key) ? ' checked' : ''} style="width:auto;flex:none;">
+          ${esc(label)}</label>`).join('')}
+    </span>
+    <p class="muted" style="margin:.35rem 0 0;font-size:.74rem;">Their full name is always
+      asked, and always as it appears on the passport.</p>
+  </div>`;
+}
+
 function drawChosen() {
   chosenEl.innerHTML = chosen.length
     ? chosen.map((f) => `<li draggable="true" data-key="${esc(f.key)}">
@@ -257,6 +303,7 @@ function drawChosen() {
                placeholder="Choices, separated by commas"
                aria-label="Choices for ${esc(f.label)}"
                style="flex:1 1 14rem;min-width:9rem;font-size:.82rem;">` : ''}
+        ${f.type === 'travellers' ? travellerControls(f) : ''}
         <button class="btn btn-ghost btn-sm" type="button" data-drop="${esc(f.key)}">Remove</button>
       </li>`).join('')
     : '<li class="muted" style="padding:.6rem 0;">No questions yet. Pick some from the right.</li>';
@@ -276,6 +323,24 @@ function drawChosen() {
     // A heading has no tick to bind to. Not an oddity worth an early return:
     // a heading is still dragged, still renamed and still removed, so only
     // this one line is conditional.
+    // How many people a traveller block allows, and what it asks each of them.
+    const max = li.querySelector('.party-max');
+    if (max) {
+      max.addEventListener('input', (e) => {
+        const f = chosen.find((x) => x.key === key);
+        if (f) f.max = Math.min(Math.max(Number(e.target.value) || 8, 2), 12);
+      });
+    }
+    li.querySelectorAll('.party-ask').forEach((box) => {
+      box.addEventListener('change', () => {
+        const f = chosen.find((x) => x.key === key);
+        if (!f) return;
+        const asked = [...li.querySelectorAll('.party-ask')]
+          .filter((b) => b.checked).map((b) => b.dataset.ask);
+        f.details = asked;
+      });
+    });
+
     // Choices, where the question has them. Split on the way in and joined on
     // the way out, so what is stored is a list and what is typed is a line.
     const opts = li.querySelector('.opts');
