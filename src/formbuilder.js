@@ -160,6 +160,11 @@ export const FIELD_CATALOGUE = [
       { key: 'destination', label: 'Where you want to go', type: 'text' },
       { key: 'travel_date', label: 'Roughly when', type: 'date' },
       { key: 'party_size', label: 'How many travelling', type: 'number' },
+      // One question that becomes as many as there are people. Asks how many,
+      // then asks about each of them, and the answers become client records
+      // and a household rather than a number in a box.
+      { key: 'travellers', label: 'Who is travelling, one by one', type: 'travellers',
+        max: 8, details: ['dob', 'passport_number', 'passport_expiry', 'passport_country'] },
       // Cabins, not people. A group is held in cabins and a block is sized in
       // them, so eight travelling is four rooms or eight, and the difference
       // is the whole booking.

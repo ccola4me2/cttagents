@@ -475,6 +475,11 @@ document.getElementById('save').addEventListener('click', async () => {
       key: x.key, label: x.label, type: x.type,
       required: Boolean(x.required), options: x.options || [],
       hint: x.hint || '', placeholder: x.placeholder || '',
+      // A traveller block carries how many people it allows and what it asks
+      // about each. Left out of this map, a block configured for passports
+      // was saved asking only for dates of birth and nothing said so.
+      ...(x.type === 'travellers'
+        ? { max: x.max || 8, details: x.details || ['dob'] } : {}),
     })),
   };
 
