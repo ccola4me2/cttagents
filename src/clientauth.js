@@ -21,8 +21,7 @@
 // holds that line for every client-facing file and this one is on its list.
 
 import {
-  json, badRequest, clean, uid, now, readJson,
-  cookieHeader, clearCookieHeader, parseCookies,
+  clean, uid, now, cookieHeader, clearCookieHeader, parseCookies,
 } from './util.js';
 import { sendHtml } from './email.js';
 
@@ -76,14 +75,6 @@ async function agenciesFor(env, email) {
  * ask "is this person one of your clients", which is a fact about the client
  * and not ours to give away.
  */
-export async function handleClientLinkRequest(request, env) {
-  const body = await readJson(request);
-  const email = normaliseEmail(body.email);
-  if (!email || !email.includes('@')) return badRequest('Enter your email address.');
-  await requestLink(env, email, new URL(request.url).origin);
-  return json({ ok: true, sent: true });
-}
-
 /**
  * Mint a link and send it, or do nothing at all, without saying which.
  *
