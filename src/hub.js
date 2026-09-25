@@ -150,16 +150,22 @@ export async function loadBookFor(env, clients) {
   if (!rows.length) return { bookings: [], paid: new Map() };
   const pairs = rows.map(() => '(client_id = ? AND user_id = ?)').join(' OR ');
   const pairBinds = rows.flatMap((c) => [c.id, c.user_id]);
+  // The advisors those rows belong to, named again on their own. The pairs
+  // above already fence this, so this is the belt to their braces: it is a
+  // second predicate that has to pass, and it puts user_id in the statement
+  // where check-scope can see it rather than assembled out of a loop.
+  const owners = [...new Set(rows.map((c) => c.user_id))];
+  const ownerHoles = owners.map(() => '?').join(', ');
   const { results: bookings } = await env.DB.prepare(
     `SELECT id, share_code, status, supplier, product_name, destination, itinerary,
             depart_date, return_date, confirmation_number, gross_cents, travellers
        FROM bookings
-      WHERE (${pairs}) AND status != 'cancelled'
+      WHERE (${pairs}) AND user_id IN (${ownerHoles}) AND status != 'cancelled'
         -- A quote is on this page only once the advisor has sent it. The
         -- share code is what "sent" means, so it is also the test.
         AND (share_code IS NOT NULL OR status IN ('booked','travelled'))
       ORDER BY COALESCE(depart_date, '9999-12-31') ASC`
-  ).bind(...pairBinds).all().catch(() => ({ results: [] }));
+  ).bind(...pairBinds, ...owners).all().catch(() => ({ results: [] }));
 
   const ids = (bookings || []).map((b) => b.id);
   const paid = new Map();
@@ -173,9 +179,10 @@ export async function loadBookFor(env, clients) {
               COALESCE(SUM(CASE WHEN paid_date IS NULL THEN amount_cents END), 0) AS due_cents,
               MIN(CASE WHEN paid_date IS NULL THEN due_date END) AS next_due
          FROM booking_payments
-        WHERE payment_class = 'hard' AND booking_id IN (${holes})
+        WHERE user_id IN (${ownerHoles}) AND payment_class = 'hard'
+          AND booking_id IN (${holes})
         GROUP BY booking_id`
-    ).bind(...ids).all().catch(() => ({ results: [] }));
+    ).bind(...owners, ...ids).all().catch(() => ({ results: [] }));
     for (const r of dueRows || []) paid.set(r.booking_id, r);
   }
 
