@@ -8098,6 +8098,13 @@ async function main() {
     check(page.status === 200 && page.raw.includes(`/t/${shareCode}/app.webmanifest`),
       'the trip page offers itself to the phone', `status ${page.status}`);
 
+    // A portal nobody can find is a portal nobody uses. A trip link is where
+    // most clients meet this agency, and for a fortnight after the sign-in
+    // shipped, not one page or message anywhere pointed at it.
+    check((page.raw || '').includes('href="/portal"'),
+      'and says they can sign in and see the rest of what we hold',
+      'nothing on the page points at /portal');
+
 
     const mf = await call(null, 'GET', `/t/${shareCode}/app.webmanifest`);
     check(mf.status === 200 && mf.data, 'the manifest is served without a session',
@@ -8162,6 +8169,8 @@ async function main() {
   check(pageRes.status === 200, 'anyone with the link can open it', `status ${pageRes.status}`);
   const html = pageRes.raw || '';
   check(html.includes(who), 'it is their page, by name');
+  check(html.includes('href="/portal"'),
+    'it offers the sign-in to somebody who would rather not keep a link');
   check(html.includes('Madrid flights') && html.includes('Parador de Antequera'),
     'both bookings are on it');
   check(html.includes('$3,000.00'),

@@ -317,6 +317,9 @@ export function bookBody({ client, bookings, paid, portal = false }) {
       </p>
       <p class="dim small">Open any trip above for the full itinerary, the payment schedule and
         your documents.</p>
+      ${portal ? '' : `<p class="dim small">Would rather not keep a link?
+        <a href="/portal">Sign in with your email address</a> and this page is waiting for you
+        whenever you want it.</p>`}
     </section>
 
     <footer class="foot">

@@ -755,6 +755,11 @@ export async function renderTripPage(request, env, code) {
       </form>
     </section>
 
+    ${back ? '' : `<p class="portalnote dim small">Everything in one place:
+      <a href="/portal">sign in with the email address they have for you</a> to see every trip
+      you have with them, what is owed and when, and your documents. No password to remember,
+      and no link to keep hold of.</p>`}
+
     <div class="printbar">
       <button type="button" id="print-it">Print or save as PDF</button>
       <span class="dim small">Takes the itinerary and the costs. Leaves out the note box.</span>
@@ -1332,7 +1337,8 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
     @page { margin: 14mm; }
     body{background:#fff;padding:0;font-size:11pt}
     .wrap{max-width:none}
-    .printbar,.hp,form#say,#say,.obtn,#choose-said,.itin-map{display:none !important}
+    .printbar,.hp,form#say,#say,.obtn,#choose-said,.itin-map,
+    .portalnote{display:none !important}
     .card{border:0;box-shadow:none;padding:0;margin:0 0 12pt;break-inside:avoid}
     .card.pad{padding:0}
     h1{font-size:20pt;margin:0 0 4pt}
@@ -1489,6 +1495,7 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
   #review hr{border:0;border-top:1px solid var(--line);margin:1.4rem 0 1rem}
   #review .obtn{width:auto;margin-top:1.1rem;padding:.55rem 1.4rem}
   .sent{margin:0;font-weight:650;color:var(--navy)}
+  .portalnote{margin:1.6rem 0 .4rem;text-align:center}
   .foot{margin-top:2rem;text-align:center;font-size:.82rem;color:var(--dim)}
   .foot p{margin:.15rem 0}
   @media (max-width:520px){ h1{font-size:1.55rem} .pad{padding:1.2rem} }

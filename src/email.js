@@ -24,10 +24,13 @@ function appUrl(env) {
 }
 
 /**
- * `footer` replaces the portal line at the bottom. Messages to advisors point
- * at the portal; messages to their clients must not, because a client has no
- * account there and being sent to a login screen by their travel agent is a
- * small betrayal of who the message is from.
+ * `footer` replaces the portal line at the bottom.
+ *
+ * It exists because a message to a client is from a person, and the address at
+ * the foot of it has to be that person rather than the software they file
+ * their work in. That rule is about the signature and nothing else: a client
+ * can sign in to the portal now, so the button in the middle of a client's
+ * message may point there, and on a payment reminder it does.
  */
 /**
  * The frame every message goes in.
@@ -868,10 +871,17 @@ export async function sendPaymentReminder(env, {
   const html = layout(env, {
     heading: hard ? 'Payment due' : 'A gentle reminder',
     body: lines.map((p) => `<p style="margin:0 0 14px;">${escapeHtml(p).replace(/\n/g, '<br>')}</p>`).join(''),
-    // The rule at the top of this file, which this was the only client-facing
-    // message breaking: a client has no account in the portal, and a link to
-    // its login screen at the foot of a message from their travel agent is a
-    // small betrayal of who the message is from. Their advisor instead.
+    // Somewhere to go and look, rather than a number to take on trust. This
+    // message quotes one amount and one date out of a schedule the client has
+    // never seen in full, and the reply it invites costs the advisor an email
+    // to answer. The portal answers it without either of them doing anything.
+    //
+    // No trip link here on purpose: a reminder is raised against a payment row
+    // and several rows on several bookings can fall due the same week, so the
+    // page that shows all of them is the honest destination.
+    cta: { label: 'See your payment schedule', href: `${appUrl(env)}/portal` },
+    // The signature stays the advisor. See the note above layout(): the button
+    // is where the software may speak, the foot is where the person does.
     footer: [
       escapeHtml(advisorName || ''),
       agencyName ? escapeHtml(agencyName) : '',
