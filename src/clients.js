@@ -41,6 +41,11 @@ export async function handleListClients(request, env) {
   // with nothing.
   const { rows: shown, truncated } = db.capped(clients, url.searchParams.get('limit'), db.CLIENT_CAP);
 
+  // Counted over the book rather than over the page. Everything below used to
+  // be worked out from `shown`, which is capped, so the totals quietly became
+  // facts about the cap instead of about the agency.
+  const counted = await db.clientStats(env, scope, { query, pinnedOnly });
+
   // People who are in the CRM but have never been booked here.
   //
   // A client record only exists once somebody has made a reservation, so the
@@ -90,16 +95,17 @@ export async function handleListClients(request, env) {
     cap: db.CLIENT_CAP,
     fromCrm,
     stats: {
-      total: shown.length,
+      total: counted.total,
       // Counted apart, because "people you have booked" and "people the CRM
       // knows" are different numbers and adding them together would flatter
-      // the first.
+      // the first. This one is genuinely about what was fetched: the CRM
+      // mirror is read with its own small limit and is not the book.
       crmOnly: fromCrm.length,
-      pinned: shown.filter((c) => c.pinned_at).length,
+      pinned: counted.pinned,
       // Somebody who has travelled and has nothing ahead of them. The same
       // question the dashboard asks, answerable from this list too.
-      lapsed: shown.filter((c) => c.last_date && !c.next_date).length,
-      lifetimeCents: shown.reduce((n, c) => n + (c.lifetime_cents || 0), 0),
+      lapsed: counted.lapsed,
+      lifetimeCents: counted.lifetimeCents,
     },
     scope: db.scopeLabel(scope, user),
     advisors: await db.advisorOptions(env, user),

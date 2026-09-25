@@ -2080,6 +2080,60 @@ export async function resolveClient(env, userId, name, { ghlContactId } = {}) {
   return row ? row.id : null;
 }
 
+/**
+ * The figures beside the client list, counted over the whole book.
+ *
+ * Not derived from the rows the list returned. That list is capped, so every
+ * figure taken from it is really a fact about the page: "total" read 500 for
+ * an agency of any size above 500, and pinned, lapsed and lifetime all
+ * undercounted from the same point.
+ *
+ * The filters are the ones listClients uses, in the same order, because
+ * numbers that describe a different set of people than the rows underneath
+ * them are worse than numbers that stop at a cap.
+ *
+ * lapsed is "has travelled and has nothing ahead of them", worked out from the
+ * same two subqueries the list shows as last_date and next_date.
+ */
+export async function clientStats(env, scope, { query, pinnedOnly } = {}) {
+  const scoped = scopeWhere(scope, 'c.user_id');
+  const where = [scoped.sql];
+  const binds = [...scoped.binds];
+  if (pinnedOnly) where.push('c.pinned_at IS NOT NULL');
+  if (query) {
+    where.push('(c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ?)');
+    const like = `%${query}%`;
+    binds.push(like, like, like);
+  }
+
+  const row = await env.DB.prepare(
+    `SELECT COUNT(*) AS total,
+            COALESCE(SUM(CASE WHEN c.pinned_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS pinned,
+            COALESCE(SUM(
+              (SELECT COALESCE(SUM(b.gross_cents), 0) FROM bookings b
+                WHERE b.client_id = c.id AND b.status IN ('booked','travelled'))), 0)
+              AS lifetime_cents,
+            COALESCE(SUM(CASE
+              WHEN (SELECT MAX(COALESCE(b.return_date, b.depart_date)) FROM bookings b
+                     WHERE b.client_id = c.id AND b.status IN ('booked','travelled')) IS NOT NULL
+               AND (SELECT MIN(b.depart_date) FROM bookings b
+                     WHERE b.client_id = c.id AND b.status IN ('quoted','booked')
+                       AND b.depart_date >= date('now')) IS NULL
+              THEN 1 ELSE 0 END), 0) AS lapsed
+       FROM clients c
+      WHERE ${where.join(' AND ')}`
+  ).bind(...binds).first().catch(() => null);
+
+  return {
+    total: row?.total || 0,
+    pinned: row?.pinned || 0,
+    lapsed: row?.lapsed || 0,
+    lifetimeCents: row?.lifetime_cents || 0,
+  };
+}
+
+/**
+ */
 export async function listClients(env, scope, { query, pinnedOnly, limit } = {}) {
   const scoped = scopeWhere(scope, 'c.user_id');
   const where = [scoped.sql];
