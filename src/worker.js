@@ -28,7 +28,7 @@ import {
   handleLeadBoard, handleAddLead, handleUpdateLead, handleMoveLead, handleCloseLead,
   handleFollowedUp,
 } from './leads.js';
-import { handleProposals, handleMarkBooked } from './proposals.js'; import {
+import { handleProposals, handleMarkBooked, handleSetDeclined } from './proposals.js'; import {
   handleListBookings,
   handleGetBooking,
   handleBookingRecord,
@@ -57,6 +57,7 @@ import { handleProposals, handleMarkBooked } from './proposals.js'; import {
   handleTripUpload,
   handleTripReview,
   handleClientChoose,
+  handleClientDecline,
   serveTripDocument,
   renderTripManifest,
 } from './share.js';
@@ -713,6 +714,8 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/proposals' && method === 'GET') return handleProposals(request, env);
   const bookedMatch = path.match(/^\/api\/bookings\/([^/]+)\/booked$/);
   if (bookedMatch && method === 'POST') return handleMarkBooked(request, env, bookedMatch[1]);
+  const declinedMatch = path.match(/^\/api\/bookings\/([^/]+)\/declined$/);
+  if (declinedMatch && method === 'POST') return handleSetDeclined(request, env, declinedMatch[1]);
 
   // The marketing pipeline: people who have not booked yet.
   if (path === '/api/leads' && method === 'GET') return handleLeadBoard(request, env);
@@ -1221,6 +1224,13 @@ async function routePage(request, env, path) {
   const tripChoose = path.match(/^\/t\/([^/]+)\/choose$/);
   if (tripChoose && request.method === 'POST') {
     return handleClientChoose(request, env, decodeURIComponent(tripChoose[1]));
+  }
+
+  // The other answer. Beside choosing, because the two are one question and
+  // reading them apart is how one of them ends up behind a different fence.
+  const tripDecline = path.match(/^\/t\/([^/]+)\/decline$/);
+  if (tripDecline && request.method === 'POST') {
+    return handleClientDecline(request, env, decodeURIComponent(tripDecline[1]));
   }
   // Before the trip page match, which is one segment and would not catch it
   // anyway; here so the two live together and neither is read as the other.

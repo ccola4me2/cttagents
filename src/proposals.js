@@ -30,6 +30,9 @@ export const PROPOSAL_STATES = [
     hint: 'Written and never sent. This is the one that costs the most and is the easiest to fix.' },
   { id: 'chosen', name: 'They chose, not booked yet',
     hint: 'The client answered. Turning it into a booking is the last thing between you and the commission.' },
+  { id: 'declined', name: 'They said no',
+    hint: 'Answered, and the answer was no. Worth reading why: half of these are a date or a '
+      + 'budget rather than a no to you.' },
   { id: 'unopened', name: 'Sent, not opened',
     hint: 'Out and never looked at. Worth a second send before a chase: mail goes missing.' },
   { id: 'waiting', name: 'Opened, no answer',
@@ -37,6 +40,10 @@ export const PROPOSAL_STATES = [
 ];
 
 function stateOf(b) {
+  // Before every other answer. A client who chose and then thought better of
+  // it has declined, and a quote sitting in "they chose" on the strength of an
+  // option they have since said no to is the worst row on this page.
+  if (b.declined_at) return 'declined';
   if (b.chosen_count > 0) return 'chosen';
   if (!b.option_count) return 'empty';
   // Out either way: an emailed quote and a shared trip page are the same act
@@ -96,6 +103,55 @@ export async function handleMarkBooked(request, env, id) {
   return json({ ok: true, id, status: 'booked' });
 }
 
+/**
+ * Record a no, or take one back.
+ *
+ * The client can say no from their own page, and an advisor needs the same
+ * switch for the half of the noes that arrive by phone. Symmetrical with
+ * "Client chose this" on the same card and for the same reason: what the
+ * portal knows should not depend on which way the client happened to answer.
+ *
+ * Only a quote. A booked trip that falls over is a cancellation, which keeps
+ * the deposit, the penalty and the commission owed; this keeps none of those
+ * because there was never any money. Letting one button do both would put
+ * trips that cost somebody something in the same bucket as trips that never
+ * existed.
+ */
+export async function handleSetDeclined(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, id);
+  if (!owner) return notFound('Reservation not found.');
+
+  const body = await readJson(request);
+  const on = body.on !== false && body.on !== 'false';
+  const reason = clean(body.reason, 500);
+  const ts = now();
+
+  const res = on
+    ? await env.DB.prepare(
+      `UPDATE bookings SET declined_at = ?, declined_reason = ?, updated_at = ?
+        WHERE id = ? AND user_id = ? AND status = 'quoted'`
+    ).bind(ts, reason || null, ts, id, owner.id).run()
+    : await env.DB.prepare(
+      `UPDATE bookings SET declined_at = NULL, declined_reason = NULL, updated_at = ?
+        WHERE id = ? AND user_id = ?`
+    ).bind(ts, id, owner.id).run();
+
+  if (!res.meta || res.meta.changes === 0) {
+    return badRequest(on
+      ? 'Only a quote can be declined. Open it and see where it got to.'
+      : 'Nothing to undo.');
+  }
+
+  await db.logActivity(env, owner.id, 'quote.declined',
+    on ? 'Recorded that the client said no' : 'Took back a no', { booking: id });
+
+  return json({ ok: true, declined: on });
+}
+
 export async function handleProposals(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
@@ -125,6 +181,8 @@ export async function handleProposals(request, env) {
       shareCode: b.share_code || null,
       optionsOpen: Boolean(b.options_open),
       optionCount: b.option_count || 0,
+      declinedAt: b.declined_at || null,
+      declinedReason: b.declined_reason || '',
       chosenLabel: b.chosen_label || '',
       chosenAt: b.chosen_at || null,
       chosenBy: b.chosen_by || null,
@@ -157,6 +215,9 @@ export async function handleProposals(request, env) {
     // number an advisor is carrying whether or not they have added it up.
     openValue: items.reduce((n, i) => n + i.grossCents, 0),
     // The three the advisor can act on today without anybody replying.
+    // A no is not waiting on the advisor. There is nothing to do about it
+    // today, and counting it here would turn the one number on this page that
+    // means "get on with it" into a number that never goes down.
     yours: items.filter((i) => i.state === 'unsent' || i.state === 'chosen'
       || i.state === 'empty').length,
     scope: db.scopeLabel(scope, user),

@@ -797,6 +797,9 @@ function drawDetail() {
          d.statementStale ? ' <span class="badge badge-amber">changed since</span>' : ''}</dd>` : ''}
        ${b.quote_sent_at ? `<dt>Quote sent</dt><dd>${esc(timeAgo(b.quote_sent_at))}${
          b.quote_sent_count > 1 ? ` &middot; ${b.quote_sent_count} times` : ''}</dd>` : ''}
+       ${b.declined_at ? `<dt>They said no</dt><dd>${esc(timeAgo(b.declined_at))}${
+         b.declined_reason ? `<span class="muted" style="display:block;margin-top:.15rem;">${
+           esc(b.declined_reason)}</span>` : ''}</dd>` : ''}
        ${b.welcomed_at ? `<dt>Rang them after</dt><dd>${esc(timeAgo(b.welcomed_at))}</dd>` : ''}
        ${d.split && d.split.earns === false ? `<dt>Commission</dt>
          <dd>None. <span class="muted">This trip is marked no commission, so nobody is
@@ -1088,9 +1091,26 @@ function drawOptions() {
         font-weight:400;font-size:.82rem;margin-right:.6rem;">
         <input type="checkbox" id="opts-open" style="width:auto;"
           ${d.booking.options_open ? 'checked' : ''}> Client can choose</label>` : ''}
-      <button class="btn btn-ghost btn-sm" id="add-option">Add an option</button>` : '';
+      <button class="btn btn-ghost btn-sm" id="add-option">Add an option</button>
+      ${rows.length ? `<button class="btn btn-ghost btn-sm" id="declined-btn"
+        data-on="${d.booking.declined_at ? '0' : '1'}">${
+  d.booking.declined_at ? 'They did not say no' : 'They said no'}</button>` : ''}` : '';
   const add = document.getElementById('add-option');
   if (add) add.addEventListener('click', () => openOption(null));
+
+  // The other half of the client's answer, for the half of the noes that
+  // arrive by phone. The same switch the client has on their own page, so
+  // what the portal knows does not depend on how they happened to tell you.
+  const declinedBtn = document.getElementById('declined-btn');
+  if (declinedBtn) declinedBtn.addEventListener('click', async () => {
+    const on = declinedBtn.dataset.on === '1';
+    declinedBtn.disabled = true;
+    try {
+      await api(`/api/bookings/${encodeURIComponent(id)}/declined`,
+        { method: 'POST', body: { on } });
+      await load();
+    } catch (e) { declinedBtn.disabled = false; showError(err, e); }
+  });
 
   const opens = document.getElementById('opts-open');
   if (opens) opens.addEventListener('change', async () => {

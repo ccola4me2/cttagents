@@ -38,6 +38,11 @@ export const TRIGGERS = [
   // noticing. It is the one moment in the whole arc where the client has just
   // acted and is still paying attention.
   'option.chosen',
+  // And the client said no, which until now the portal had no way to hear at
+  // all. Worth a campaign more than the yes is: somebody who declined this
+  // year is a warm lead next year, and the advisor who says nothing after a no
+  // is the reason they book with somebody else.
+  'quote.declined',
 ];
 
 export const ACTIONS = [

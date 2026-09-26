@@ -54,6 +54,16 @@ const MINE = new Set(['unsent', 'chosen', 'empty']);
 // counts of the same thing read as three questions; this is the answer to the
 // only one being asked, which is whether it landed.
 function heard(p) {
+  if (p.state === 'declined') {
+    // The reason is the whole reason this row exists. "Too much" and "the
+    // dates moved" are different next moves, and only one of them is a lost
+    // client, so it is shown in full rather than behind the record.
+    return `<strong>They said no</strong>${p.declinedReason
+      ? `<div style="margin-top:.2rem;">${esc(p.declinedReason)}</div>`
+      : '<div class="muted">No reason given.</div>'}${
+      p.declinedAt ? `<div class="muted" style="font-size:.74rem;">${
+        esc(timeAgo(p.declinedAt))}</div>` : ''}`;
+  }
   if (p.state === 'chosen') {
     return `<strong>${esc(p.chosenLabel || 'One of them')}</strong>${
       p.chosenBy === 'client' ? ' &middot; they chose it' : ' &middot; recorded by you'}${

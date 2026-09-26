@@ -547,6 +547,40 @@ export function sendOptionChosenEmail(env, {
   });
 }
 
+/**
+ * The client said no.
+ *
+ * Sent because the alternative is finding out by looking, and nobody looks at
+ * a quote they are waiting on. It carries the reason if they left one, in
+ * their words and not summarised, because the whole value of this message is
+ * the difference between "too much" and "the dates moved": one of those is a
+ * lost client and the other is a re-quote.
+ *
+ * No call to arms and no advice. An advisor reading this knows what to do
+ * about their own client better than a portal does.
+ */
+export function sendQuoteDeclinedEmail(env, {
+  to, firstName, clientName, tripName, reason, href,
+}) {
+  if (!to) return Promise.resolve({ skipped: true });
+  return send(env, {
+    to,
+    subject: `${clientName} said no to ${tripName}`,
+    html: layout(env, {
+      heading: `${escapeHtml(clientName)} has said no`,
+      body: `<p style="margin:0 0 12px;">Hi ${escapeHtml(firstName || 'there')},</p>
+             <p style="margin:0 0 12px;">They have said none of the options work for
+             <strong>${escapeHtml(tripName)}</strong>.</p>
+             ${reason ? `<p style="margin:0 0 12px;padding:12px 14px;background:#f7fafb;
+               border-left:3px solid #c7d9e9;">${escapeHtml(reason)}</p>`
+    : '<p style="margin:0 0 12px;color:#5c7286;">They did not say why.</p>'}
+             <p style="margin:0 0 16px;">Nothing has changed on the reservation except that
+             it is no longer waiting on them. Any option they had picked has been cleared.</p>`,
+      cta: { label: 'Open the reservation', href },
+    }),
+  });
+}
+
 export function sendPasswordResetEmail(env, user, token) {
   const minutes = Number(env.RESET_TTL_MINUTES || 60);
   return send(env, {

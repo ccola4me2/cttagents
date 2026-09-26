@@ -4402,6 +4402,82 @@ async function main() {
       'and it leaves the proposals list, having been answered');
   }
 
+  // ------------------------------------------- and the client can say no --
+  // The half of a quote the portal could not hear. Worth testing end to end
+  // rather than at the column, because the value of it is what happens to the
+  // follow-up list: a no has to leave "opened, no answer" or the advisor is
+  // still chasing somebody who has already decided.
+  const noQuote = await call(advisor, 'POST', '/api/bookings', {
+    clientName: `Says No ${stamp}`, departDate: isoDay(240), status: 'quoted',
+    grossCents: 180000,
+  });
+  const noId = noQuote.data?.booking?.id;
+  if (noId) cleanup('the declined quote', () => dropBooking(noId));
+
+  const noShare = noId
+    ? await call(advisor, 'POST', `/api/bookings/${noId}/share`, {})
+    : { data: {} };
+  const noCode = noShare.data?.code || (noShare.data?.url || '').split('/t/')[1];
+
+  if (!noId || !noCode) {
+    skip('saying no to a quote', `setting it up answered ${noQuote.status}`);
+  } else {
+    const opt = await call(advisor, 'POST', `/api/bookings/${noId}/options`,
+      { label: 'The only option', amount: '1800.00' });
+
+    // Shut until the advisor opens it, the same as choosing.
+    const tooSoon = await call(null, 'POST', `/t/${noCode}/decline`, { reason: 'no' });
+    check(tooSoon.status === 400,
+      'a quote not taking answers cannot be declined either',
+      `status ${tooSoon.status}`);
+
+    await call(advisor, 'POST', `/api/bookings/${noId}/options-open`, { open: true });
+
+    const said = await call(null, 'POST', `/t/${noCode}/decline`,
+      { reason: 'The dates moved on us', company_website: '' });
+    check(said.status === 200, 'the client can say none of these work',
+      `status ${said.status}`);
+
+    const rec = await call(advisor, 'GET', `/api/bookings/${noId}/record`);
+    check(Boolean(rec.data?.booking?.declined_at), 'and it is on the reservation',
+      String(rec.data?.booking?.declined_at));
+    check(rec.data?.booking?.declined_reason === 'The dates moved on us',
+      'in their own words', rec.data?.booking?.declined_reason);
+    // Not a cancellation. A quote nobody took costs nobody anything, and a
+    // booked trip called off is a different fact with money attached.
+    check(rec.data?.booking?.status === 'quoted',
+      'and it is still a quote rather than a cancellation',
+      rec.data?.booking?.status);
+
+    const listed = (await call(advisor, 'GET', '/api/proposals')).data?.groups || [];
+    const inNo = listed.find((g) => g.id === 'declined');
+    check((inNo?.items || []).some((i) => i.id === noId),
+      'the proposals list moves it to "they said no"');
+    const waiting = listed.find((g) => g.id === 'waiting');
+    check(!(waiting?.items || []).some((i) => i.id === noId),
+      'and it is out of the follow-up list, which is the whole point');
+
+    // People change their minds, and the page must not argue with itself.
+    if (opt.data?.id) {
+      const later = await call(null, 'POST', `/t/${noCode}/choose`,
+        { optionId: opt.data.id, company_website: '' });
+      check(later.status === 200, 'they can still choose after saying no',
+        `status ${later.status}`);
+      const after = await call(advisor, 'GET', `/api/bookings/${noId}/record`);
+      check(!after.data?.booking?.declined_at, 'and choosing takes the no back');
+    }
+
+    // The advisor's own switch, for a no that arrives by phone.
+    const byHand = await call(advisor, 'POST', `/api/bookings/${noId}/declined`,
+      { on: true, reason: 'Rang to say no' });
+    check(byHand.status === 200, 'an advisor can record a no they were told',
+      `status ${byHand.status}`);
+    const undo = await call(advisor, 'POST', `/api/bookings/${noId}/declined`, { on: false });
+    const undone = await call(advisor, 'GET', `/api/bookings/${noId}/record`);
+    check(undo.status === 200 && !undone.data?.booking?.declined_at,
+      'and take it back again', `status ${undo.status}`);
+  }
+
   // -------------------------------- deleting a trip takes the rest with it --
   // Asked of the health endpoint rather than of a page, because there is no
   // page to ask. Every screen reads a reservation's rows through the

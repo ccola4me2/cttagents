@@ -573,7 +573,8 @@ const BOOKING_COLUMNS = `
   invoice_no, invoice_issued_at, invoice_notes, personal,
   created_at, updated_at, share_code, shared_at, statement_hash, lead_source,
   itinerary_shared, options_open,
-  viewed_first_at, viewed_last_at, view_count
+  viewed_first_at, viewed_last_at, view_count,
+  declined_at, declined_reason
 `;
 
 // The same columns qualified, for the queries that join users to name the

@@ -35,7 +35,9 @@ import { tenantFor } from './tenant.js';
 import * as db from './db.js';
 import { fireTrigger } from './automations.js';
 import { ITEM_KINDS } from './itinerary.js';
-import { sendTripMessageEmail, sendOptionChosenEmail } from './email.js';
+import {
+  sendTripMessageEmail, sendOptionChosenEmail, sendQuoteDeclinedEmail,
+} from './email.js';
 import { docsReady, safeName, MAX_BYTES } from './documents.js';
 import { submitReview, reviewFor, tripIsOver } from './reviews.js';
 
@@ -417,6 +419,24 @@ function optionsBlock(trip, advisor) {
     : ''}
   </div>`;
 
+  const declined = Boolean(trip.booking.declined_at);
+
+  // Offered only while the question is open and unanswered. Not beside the
+  // cards but under them, quieter than the buttons and after the reading: a
+  // page that puts "no thank you" level with the thing being offered is
+  // pushing for an answer it does not want.
+  const decliner = open && !taken && !declined ? `<div class="declinebox">
+    <button class="obtn ghost" type="button" id="decline-open">None of these work for me</button>
+    <form id="decline-form" hidden onsubmit="return false;">
+      <label for="decline-why">If you would like to say why, it helps. Entirely optional.</label>
+      <textarea id="decline-why" rows="3" maxlength="500"
+        placeholder="The dates moved, it is more than we wanted to spend, we have booked something else..."></textarea>
+      <div class="hp" aria-hidden="true"><label>Company website<input name="company_website"
+        tabindex="-1" autocomplete="off"></label></div>
+      <button class="obtn" type="button" id="decline-send">Send it</button>
+    </form>
+  </div>` : '';
+
   return `<section class="card pad" id="options">
     <h2>${open ? 'Choose your trip' : 'What was offered'}</h2>
     <p class="dim">${open
@@ -426,8 +446,12 @@ function optionsBlock(trip, advisor) {
     ${taken && taken.chosen_by === 'client'
     ? `<p class="ochose">You chose <strong>${esc(taken.label)}</strong>. ${esc(advisor)} will
         confirm it with you.</p>` : ''}
+    ${declined ? `<p class="ochose">You have let ${esc(advisor)} know that none of these
+      work. They will be in touch, and if something changes there is nothing to undo:
+      just say so.</p>` : ''}
     <div class="options">${list.map(card).join('')}</div>
     <div id="choose-said"></div>
+    ${decliner}
   </section>`;
 }
 
@@ -778,6 +802,7 @@ export async function renderTripPage(request, env, code) {
     </footer>
     ${home ? REVIEW_SCRIPT : ''}
     ${SAY_SCRIPT}
+    ${DECLINE_SCRIPT}
     ${UPLOAD_SCRIPT}
     ${CHOOSE_SCRIPT}
     ${PRINT_SCRIPT}`;
@@ -970,6 +995,94 @@ export async function handleTripUpload(request, env, code) {
   return json({ ok: true, id, filename, category }, 201);
 }
 
+/**
+ * None of these.
+ *
+ * The other half of a quote, and the half that was missing. A client could say
+ * yes to one option and nothing at all to the set of them, so the only way to
+ * say no was to reply to an email, and most people do not reply: they stop
+ * opening it. The proposal then sat in "Opened, no answer" for ever, which is
+ * the advisor's follow-up list, so the follow-up list slowly filled with
+ * people who had already decided.
+ *
+ * Behind the same switch as choosing. A quote the advisor has not opened for
+ * answers cannot be declined either, because a client saying no to something
+ * still being written is answering a question nobody asked yet.
+ *
+ * The reason is optional and free text. A dropdown would have to guess the
+ * choices, and "too much", "the dates moved" and "we booked with my sister's
+ * friend" are three completely different next moves for the advisor, only one
+ * of which is a lost client.
+ */
+export async function handleClientDecline(request, env, code) {
+  const trip = await loadTrip(env, clean(code, 40));
+  if (!trip) return notFound('This trip page is not available.');
+
+  if (!trip.booking.options_open) {
+    return badRequest('This quote is not taking answers. Get in touch and they will sort it.');
+  }
+
+  const body = await readJson(request);
+  // The same honeypot the note box and the choose button use.
+  if (clean(body.company_website, 200)) return json({ ok: true, message: 'Thanks.' });
+
+  const reason = cleanText(body.reason, 500);
+  const ip = request.headers.get('CF-Connecting-IP') || '';
+  const ipHash = ip ? (await sha256Hex(`decline:${code}:${ip}`)).slice(0, 32) : null;
+
+  const owner = trip.booking.user_id;
+  const ts = now();
+
+  // A no clears the yes, across the whole reservation rather than one group.
+  // Choosing is per part of the trip because a cabin and an insurance policy
+  // are separate questions; declining is not, because "none of these work"
+  // is about the proposal and there is nothing left standing under it.
+  await env.DB.prepare(
+    `UPDATE quote_options SET chosen = 0, chosen_at = NULL, chosen_by = NULL, updated_at = ?
+      WHERE booking_id = ? AND user_id = ?`
+  ).bind(ts, trip.booking.id, owner).run();
+
+  await env.DB.prepare(
+    `UPDATE bookings SET declined_at = ?, declined_reason = ?, updated_at = ?
+      WHERE id = ? AND user_id = ?`
+  ).bind(ts, reason || null, ts, trip.booking.id, owner).run();
+
+  // Into the conversation as well, so the no and everything else they have
+  // said sit in one place rather than two.
+  await env.DB.prepare(
+    `INSERT INTO trip_messages (id, booking_id, user_id, body, ip_hash, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(uid(), trip.booking.id, owner,
+         reason ? `Said none of the options work: ${reason}`
+           : 'Said none of the options work.', ipHash, ts).run();
+
+  // Keyed on the reservation, so somebody pressing it twice is one no.
+  await fireTrigger(env, tenantFor(env, trip.booking), 'quote.declined', {
+    bookingId: trip.booking.id,
+    contactId: trip.booking.ghl_contact_id || null,
+    name: trip.booking.client_name,
+    reason: reason || '',
+  }, { key: `quote.declined:${trip.booking.id}` });
+
+  try {
+    await sendQuoteDeclinedEmail(env, {
+      to: trip.booking.notify_email || trip.booking.advisor_email,
+      firstName: trip.booking.first_name,
+      clientName: trip.booking.client_name,
+      tripName: trip.booking.itinerary || trip.booking.product_name || 'their trip',
+      reason,
+      href: `${appUrl(env)}/app/reservation?id=${encodeURIComponent(trip.booking.id)}`,
+    });
+  } catch (e) {
+    console.error('quote declined mail', e);
+  }
+
+  return json({
+    ok: true,
+    message: 'Thank you for telling us. Your advisor will be in touch.',
+  });
+}
+
 export async function handleClientChoose(request, env, code) {
   const trip = await loadTrip(env, clean(code, 40));
   if (!trip) return notFound('This trip page is not available.');
@@ -1013,6 +1126,14 @@ export async function handleClientChoose(request, env, code) {
     `UPDATE quote_options SET chosen = 1, chosen_at = ?, chosen_by = 'client', updated_at = ?
       WHERE id = ? AND booking_id = ? AND user_id = ?`
   ).bind(ts, ts, option.id, trip.booking.id, owner).run();
+
+  // Picking one undoes a no. People change their minds, and a proposal filed
+  // under "they said no" while the client is looking at the option they have
+  // just chosen is the portal arguing with its own page.
+  await env.DB.prepare(
+    `UPDATE bookings SET declined_at = NULL, declined_reason = NULL, updated_at = ?
+      WHERE id = ? AND user_id = ? AND declined_at IS NOT NULL`
+  ).bind(ts, trip.booking.id, owner).run();
 
   // Written into the conversation as well, so the choice and everything else
   // they have said sit in one place rather than two.
@@ -1096,6 +1217,42 @@ const PRINT_SCRIPT = `<scr${''}ipt>
 document.getElementById('print-it').addEventListener('click', function () {
   window.print();
 });
+</scr${''}ipt>`;
+
+const DECLINE_SCRIPT = `<scr${''}ipt>
+(function () {
+  var open = document.getElementById('decline-open');
+  var form = document.getElementById('decline-form');
+  var send = document.getElementById('decline-send');
+  if (!open || !form || !send) return;
+  open.addEventListener('click', function () {
+    form.hidden = false;
+    open.hidden = true;
+    var why = document.getElementById('decline-why');
+    if (why) why.focus();
+  });
+  send.addEventListener('click', async function () {
+    var said = document.getElementById('choose-said');
+    var why = document.getElementById('decline-why');
+    send.disabled = true;
+    send.textContent = 'One moment...';
+    try {
+      var res = await fetch(location.pathname + '/decline', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reason: why ? why.value : '', company_website: '' }),
+      });
+      var data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'That did not go through.');
+      said.innerHTML = '<p class="ochose">' + data.message + '</p>';
+      setTimeout(function () { location.reload(); }, 1400);
+    } catch (ex) {
+      said.innerHTML = '<p class="oerr">' + ex.message + '</p>';
+      send.disabled = false;
+      send.textContent = 'Send it';
+    }
+  });
+})();
 </scr${''}ipt>`;
 
 const CHOOSE_SCRIPT = `<scr${''}ipt>
@@ -1338,7 +1495,7 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
     body{background:#fff;padding:0;font-size:11pt}
     .wrap{max-width:none}
     .printbar,.hp,form#say,#say,.obtn,#choose-said,.itin-map,
-    .portalnote{display:none !important}
+    .portalnote,.declinebox{display:none !important}
     .card{border:0;box-shadow:none;padding:0;margin:0 0 12pt;break-inside:avoid}
     .card.pad{padding:0}
     h1{font-size:20pt;margin:0 0 4pt}
@@ -1436,6 +1593,19 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
   .option>.oticks:last-child,.option>.oamount:last-child{margin-bottom:0}
   .obtn:hover{background:var(--navy);color:#fff}
   .obtn:disabled{opacity:.55;cursor:not-allowed}
+  /* Quieter than the buttons on the cards, and below them. A page that puts
+     "no thank you" level with the thing it is offering is pressing for an
+     answer it does not want. */
+  .declinebox{margin-top:1.4rem;padding-top:1.1rem;border-top:1px solid var(--line,#e4edf5);
+    text-align:center}
+  .declinebox .obtn.ghost{width:auto;border-color:var(--line,#c7d9e9);color:var(--dim);
+    font-weight:400;padding:.5rem 1.1rem}
+  .declinebox .obtn.ghost:hover{background:#fff;border-color:var(--navy);color:var(--navy)}
+  .declinebox form{max-width:32rem;margin:0 auto;text-align:left}
+  .declinebox label{display:block;font-size:.86rem;color:var(--dim);margin-bottom:.35rem}
+  .declinebox textarea{width:100%;padding:.6rem .7rem;font:inherit;border:1px solid #c7d9e9;
+    border-radius:8px}
+  .declinebox .obtn{width:auto;margin-top:.7rem;padding:.5rem 1.3rem}
   .oerr{margin:.7rem 0 0;padding:.6rem .8rem;background:#fdeeec;border-radius:8px;
     font-size:.9rem;color:var(--late)}
   .ochose{margin:0 0 .8rem;padding:.6rem .8rem;background:#eef6f1;border-radius:8px;
