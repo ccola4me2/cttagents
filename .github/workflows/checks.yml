@@ -7,9 +7,21 @@
 # commit, so a column list that has drifted from the schema fails here rather
 # than showing up as an empty field on a live screen weeks later.
 #
-# Deliberately separate from the deploy. Cloudflare Workers Builds ships main
-# on its own; this reports on the same commit and does not gate it, because a
-# failing check should not be able to leave the site down.
+# These gate the deploy, and the way they do it keeps the original objection
+# answered. The worry was that a failing check must never be able to leave the
+# site down, and it still cannot: Workers Builds no longer watches main, it
+# watches `live`, and `live` only moves to a commit that passed. A red run
+# leaves the last good commit serving, which is the opposite of down.
+#
+# It was the other way round for a long time and the cost showed up in one
+# day: four pushes went red and shipped anyway, and one of them put a
+# ReferenceError on a live client page, because nothing stood between a green
+# tick and production except somebody reading the tick.
+#
+# The escape hatch is a push straight to `live`, which deploys whatever it is
+# given and asks nothing. That is the release valve for the case the old
+# comment was really about, an urgent fix held up by a check that is itself
+# broken. It is one command and it is deliberately not the everyday path.
 
 name: Checks
 
@@ -205,3 +217,40 @@ jobs:
       - name: Worker log
         if: failure()
         run: cat /tmp/dev.log
+
+  # Move the deploy pointer, once everything above has passed.
+  #
+  # A branch rather than an API token: `live` is not a branch anybody works on,
+  # it is a pointer at the last commit that earned a deploy, so Workers Builds
+  # can keep doing exactly what it does today and simply watch a different
+  # name. Nothing here needs a Cloudflare credential, which is one fewer secret
+  # to hold and to rotate.
+  promote:
+    needs: checks
+    # A real push to main only. A pull request has not landed yet and a manual
+    # run of the checks is somebody asking a question, not shipping an answer.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Move live to this commit
+        run: |
+          git fetch origin main
+          head=$(git rev-parse origin/main)
+          if [ "$head" != "${{ github.sha }}" ]; then
+            echo "main has moved on to ${head}; leaving live where it is."
+            echo "The run for that commit promotes it if it passes."
+            exit 0
+          fi
+          # Forced because live is a pointer and never a place work happens:
+          # a hand deploy may have put something else there, and this is the
+          # tested commit. Guarded by the check above so a slow run cannot
+          # drag live backwards onto an older commit that finished later.
+          git push --force origin "${{ github.sha }}:refs/heads/live"
+          echo "live is now ${{ github.sha }}"
