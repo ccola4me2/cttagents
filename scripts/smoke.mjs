@@ -6441,6 +6441,20 @@ async function main() {
   // 2000 + 318.55 - 100. A discount is stored positive and subtracted, the
   // same way it is on the advisor's screen, so the two cannot drift apart.
   check(sm.tripCents === 221855, 'the total is the breakdown, discount subtracted', sm.tripCents);
+
+  // What the client is handed has to read like a quote from a travel agent.
+  //
+  // Pricing lines are stored one per traveller, so a cabin for two produced two
+  // identical rows and a real quote went out reading "Fare $1,721.40, Fare
+  // $1,721.40", four times over. And the client label list was a second copy of
+  // the kinds with seven of them missing, so a drinks package printed as
+  // "beverage" and a service fee would have printed as "admin_fee".
+  const labels = (sm.lines || []).map((l) => l.label);
+  const rawKeys = labels.filter((l) => /^[a-z][a-z_]*$/.test(l));
+  check(!rawKeys.length, 'no line on a client statement is a raw database key',
+    rawKeys.join(', '));
+  const dupes = labels.filter((l, i) => labels.indexOf(l) !== i);
+  check(!dupes.length, 'and no heading appears twice', dupes.join(', '));
   check(sm.paidCents === 50000 && sm.balanceCents === 171855,
     'and the balance is the trip less what has arrived',
     `${sm.paidCents} paid, ${sm.balanceCents} left`);
