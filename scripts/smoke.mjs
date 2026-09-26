@@ -4476,6 +4476,16 @@ async function main() {
     const undone = await call(advisor, 'GET', `/api/bookings/${noId}/record`);
     check(undo.status === 200 && !undone.data?.booking?.declined_at,
       'and take it back again', `status ${undo.status}`);
+
+    // Taken away here rather than left to the cleanup at the end of the run.
+    //
+    // The quote follow-up list on the dashboard is the twelve oldest unsent
+    // quotes, and this one is written early enough to be among them. Left
+    // standing it takes a place from the quote a later check is looking for,
+    // and that check fails somewhere else entirely with nothing to say why.
+    // A test that quietly changes what another test sees is worse than no
+    // test: the failure lands on innocent code.
+    await dropBooking(noId);
   }
 
   // -------------------------------- deleting a trip takes the rest with it --
