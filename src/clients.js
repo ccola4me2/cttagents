@@ -573,10 +573,14 @@ export async function handleDeleteClient(request, env, id) {
   ).bind(ts, id, owner.id).run().catch(() => {});
 
   // The submission belongs to the agency and keeps its answers; only the claim
-  // about who sent it goes. No user_id on it to name, the same as in the merge.
+  // about who sent it goes. There is no user_id on it, but there is an
+  // agency_id, and naming it is what stops this statement reaching past the
+  // caller: a client id is a uuid and will not collide in practice, but
+  // "the id is unguessable" is not a fence, and this is an UPDATE with no
+  // other bound on it.
   await env.DB.prepare(
-    'UPDATE form_submissions SET contact_id = NULL WHERE contact_id = ?'
-  ).bind(id).run().catch(() => {});
+    'UPDATE form_submissions SET contact_id = NULL WHERE contact_id = ? AND agency_id = ?'
+  ).bind(id, tenantFor(env, user)).run().catch(() => {});
 
   await env.DB.prepare('DELETE FROM clients WHERE id = ? AND user_id = ?')
     .bind(id, owner.id).run();
