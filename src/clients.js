@@ -480,6 +480,130 @@ export async function handleCreateClient(request, env) {
   }, 201);
 }
 
+/**
+ * Remove a client.
+ *
+ * There was no way to do this at all. Not in the interface, not in the API.
+ * A name typed with a finger on the wrong key, a test record, somebody who
+ * turned out to be two people and then turned out to be nobody: every one of
+ * them stayed on the books for ever, and the only way to take one off was to
+ * open the database by hand, which is not a thing an advisor can do or should
+ * have to ask for.
+ *
+ * Refused while there is money attached, and that is the whole safety of it.
+ * A reservation carries what the vendor paid, what the agency kept and what
+ * the advisor is owed, and none of that stops being true because somebody
+ * pressed a button on the client. A credit is money the client is owed. Both
+ * refusals say how many and what to do instead, because a refusal that only
+ * says no teaches people to look for a way round it.
+ *
+ * Everything else about a person goes with them: the tasks, the appointments,
+ * the review requests, the form invites, the rows saying which broadcasts they
+ * were sent. None of those mean anything without the person, and all of them
+ * are reachable by nothing once the client is gone.
+ *
+ * Pointers held by other records are cleared rather than followed. Another
+ * client who was referred by this one keeps their own record and loses the
+ * link, and a form submission keeps its answers and stops claiming to be from
+ * somebody who is not there. Deleting either would be deleting somebody
+ * else's row because of a decision made about this one.
+ *
+ * Their own advisor, not an administrator. Merging already lets any advisor
+ * destroy one of these rows, and it does more than this does: it moves a
+ * person's whole history onto another record first. A delete that refuses
+ * while any history exists is the smaller act of the two.
+ */
+export async function handleDeleteClient(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'clients', id);
+  if (!owner) return notFound('Client not found.');
+
+  const client = await env.DB.prepare(
+    'SELECT id, name, household_id FROM clients WHERE id = ? AND user_id = ?'
+  ).bind(id, owner.id).first();
+  if (!client) return notFound('Client not found.');
+
+  const trips = await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM bookings WHERE client_id = ? AND user_id = ?'
+  ).bind(id, owner.id).first();
+  if (trips && trips.n) {
+    return badRequest(`${client.name} has ${trips.n} reservation${trips.n === 1 ? '' : 's'} `
+      + 'on the books. Delete or move those first, or merge this record into the one you '
+      + 'are keeping, which moves the trips across rather than losing them.');
+  }
+
+  const credits = await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM client_credits WHERE client_id = ? AND user_id = ?'
+  ).bind(id, owner.id).first();
+  if (credits && credits.n) {
+    return badRequest(`${client.name} holds ${credits.n} credit${credits.n === 1 ? '' : 's'}, `
+      + 'which is money owed to them. Clear those first if they really are nobody.');
+  }
+
+  const ts = now();
+
+  // Written out rather than looped over a list with the table name
+  // interpolated, for the reason the merge does the same: a built table name
+  // is a statement no checker can read, and this is a delete.
+  const gone = [];
+  const drop = async (table, sql) => {
+    try {
+      const res = await env.DB.prepare(sql).bind(id, owner.id).run();
+      const n = res && res.meta ? res.meta.changes : 0;
+      if (n) gone.push({ table, rows: n });
+    } catch (e) {
+      // A table this deployment does not have is not a reason to leave a
+      // client half deleted.
+      console.error('delete client', table, e);
+    }
+  };
+  await drop('tasks', 'DELETE FROM tasks WHERE client_id = ? AND user_id = ?');
+  await drop('appointments', 'DELETE FROM appointments WHERE client_id = ? AND user_id = ?');
+  await drop('reviews', 'DELETE FROM reviews WHERE client_id = ? AND user_id = ?');
+  await drop('form_invites', 'DELETE FROM form_invites WHERE client_id = ? AND user_id = ?');
+  await drop('broadcast_recipients',
+    'DELETE FROM broadcast_recipients WHERE client_id = ? AND user_id = ?');
+
+  // Somebody else's record, pointed at this one.
+  await env.DB.prepare(
+    'UPDATE clients SET referred_by_client_id = NULL, updated_at = ? WHERE referred_by_client_id = ? AND user_id = ?'
+  ).bind(ts, id, owner.id).run().catch(() => {});
+
+  // The submission belongs to the agency and keeps its answers; only the claim
+  // about who sent it goes. No user_id on it to name, the same as in the merge.
+  await env.DB.prepare(
+    'UPDATE form_submissions SET contact_id = NULL WHERE contact_id = ?'
+  ).bind(id).run().catch(() => {});
+
+  await env.DB.prepare('DELETE FROM clients WHERE id = ? AND user_id = ?')
+    .bind(id, owner.id).run();
+
+  // One person is not a household. The same rule handleRemoveMember applies
+  // when somebody leaves one, because this is somebody leaving one.
+  let dissolved = false;
+  if (client.household_id) {
+    const left = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM clients WHERE household_id = ? AND user_id = ?'
+    ).bind(client.household_id, owner.id).first();
+    if ((left?.n || 0) < 2) {
+      await env.DB.prepare(
+        'UPDATE clients SET household_id = NULL WHERE household_id = ? AND user_id = ?'
+      ).bind(client.household_id, owner.id).run().catch(() => {});
+      await env.DB.prepare('DELETE FROM households WHERE id = ? AND user_id = ?')
+        .bind(client.household_id, owner.id).run().catch(() => {});
+      dissolved = true;
+    }
+  }
+
+  await db.logActivity(env, owner.id, 'client.delete',
+    db.byHand(`Removed ${client.name}`, user, owner), { client: id, gone });
+
+  return json({ ok: true, name: client.name, gone, dissolved });
+}
+
 export async function handleUpdateClient(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;

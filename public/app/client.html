@@ -811,6 +811,8 @@ function drawContact(d) {
     <div class="toolbar" style="margin:0;">
       <button class="btn btn-primary btn-sm" type="submit">Save</button>
       <button class="btn btn-ghost btn-sm" type="button" id="cancel-contact">Cancel</button>
+      <span style="flex-grow:1;"></span>
+      <button class="btn btn-danger btn-sm" type="button" id="client-delete">Remove</button>
     </div>
   </form>`;
 
@@ -832,6 +834,34 @@ function drawContact(d) {
   refName.addEventListener('input', () => {
     document.getElementById('creferredBy').value = '';
   });
+  // Behind the edit form rather than on the record itself, and at the far end
+  // of the row from Save. Somebody who has opened the form to correct a
+  // spelling is one misread button away from removing the person, so the two
+  // are not neighbours.
+  //
+  // The name is typed out rather than a yes/no, which is the difference
+  // between agreeing and deciding. The server refuses anyway while there are
+  // reservations or credits, so the worst this can destroy is a record with
+  // no money on it.
+  document.getElementById('client-delete').addEventListener('click', async () => {
+    const said = window.prompt(`This removes ${c.name} and everything about them: `
+      + 'their tasks, appointments, review requests and form invites. '
+      + 'Reservations and credits stop it, so nothing with money on it can go this way. '
+      + '\n\nType their name to confirm.');
+    if (said === null) return;
+    if (said.trim().toLowerCase() !== String(c.name).trim().toLowerCase()) {
+      showError(document.querySelector('#contact-form .notice'),
+        new Error('That is not their name, so nothing has been removed.'));
+      return;
+    }
+    try {
+      await api(`/api/clients/${encodeURIComponent(c.id)}`, { method: 'DELETE' });
+      window.location.href = '/app/clients';
+    } catch (e) {
+      showError(document.querySelector('#contact-form .notice'), e);
+    }
+  });
+
   onSubmit(document.getElementById('contact-form'), async (values) => {
     const body = { ...values, loyalty: loyaltyFromText(values.loyaltyText) };
     delete body.loyaltyText;

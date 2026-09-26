@@ -4402,6 +4402,53 @@ async function main() {
       'and it leaves the proposals list, having been answered');
   }
 
+  // ------------------------------------------------- removing a client --
+  // There was no way to do this at all until now, in the interface or the
+  // API, so a mistyped name stayed on the books for ever and the only way off
+  // was to open the database by hand. The refusals are the half worth testing:
+  // a delete that will not run while money is attached is the whole safety of
+  // it, and a refusal nobody checks is a refusal that quietly stops working.
+  const spare = await call(advisor, 'POST', '/api/clients',
+    { name: `Spare Record ${stamp}`, email: `spare.${stamp}@example.com` });
+  const spareId = spare.data?.client?.id;
+
+  if (!spareId) {
+    skip('removing a client', `creating one answered ${spare.status}`);
+  } else {
+    // With a trip on them, they stay. That trip carries what the vendor paid
+    // and what the advisor is owed, and none of it stops being true because
+    // somebody pressed a button on the client.
+    const theirTrip = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Spare Record ${stamp}`, departDate: isoDay(150), status: 'quoted',
+    });
+    const theirTripId = theirTrip.data?.booking?.id;
+
+    const refused = await call(advisor, 'DELETE', `/api/clients/${spareId}`);
+    check(refused.status === 400, 'a client with a reservation cannot be removed',
+      `status ${refused.status}`);
+    check(/reservation/i.test(refused.data?.error || ''),
+      'and the refusal says why, and what to do instead', refused.data?.error);
+
+    if (theirTripId) await dropBooking(theirTripId);
+
+    // Something of theirs that is not money, which should go with them.
+    await call(advisor, 'POST', '/api/tasks',
+      { title: `Ring Spare ${stamp}`, clientId: spareId });
+
+    const removed = await call(advisor, 'DELETE', `/api/clients/${spareId}`);
+    check(removed.status === 200, 'with nothing on them, they can be removed',
+      `status ${removed.status}`);
+
+    const lookFor = await call(advisor, 'GET', `/api/client?id=${spareId}`);
+    check(lookFor.status === 404, 'and the record is gone', `status ${lookFor.status}`);
+
+    // The task went with them. Left behind it would sit on the to-do list
+    // under a name nothing can resolve.
+    const tasksNow = await call(advisor, 'GET', '/api/tasks');
+    check(!(tasksNow.data?.tasks || []).some((t) => t.title === `Ring Spare ${stamp}`),
+      'and what was only about them went too');
+  }
+
   // ------------------------------------------- and the client can say no --
   // The half of a quote the portal could not hear. Worth testing end to end
   // rather than at the column, because the value of it is what happens to the

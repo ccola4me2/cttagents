@@ -293,6 +293,7 @@ import {
   handleClientRecord,
   handleListClients,
   handleUpdateClient,
+  handleDeleteClient,
   handleCreateClient,
 } from './clients.js';
 import {
@@ -1090,6 +1091,7 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/admin/catalog' && method === 'GET') return handleCatalogStatus(request, env);
   if (path === '/api/admin/catalog' && method === 'POST') return handleCatalogImport(request, env);
   if (clientMatch && method === 'PUT') return handleUpdateClient(request, env, clientMatch[1]);
+  if (clientMatch && method === 'DELETE') return handleDeleteClient(request, env, clientMatch[1]);
   if (path === '/api/commissions' && method === 'GET') return handleListCommissions(request, env);
   // Ordered before the bare statement match so the longer path wins: a regex
   // for /statements/:id also matches /statements/:id/candidates otherwise.
