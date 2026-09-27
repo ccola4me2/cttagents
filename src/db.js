@@ -574,7 +574,7 @@ const BOOKING_COLUMNS = `
   created_at, updated_at, share_code, shared_at, statement_hash, lead_source,
   itinerary_shared, options_open,
   viewed_first_at, viewed_last_at, view_count,
-  declined_at, declined_reason
+  declined_at, declined_reason, accepted_at
 `;
 
 // The same columns qualified, for the queries that join users to name the

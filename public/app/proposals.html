@@ -54,6 +54,10 @@ const MINE = new Set(['unsent', 'chosen', 'empty']);
 // counts of the same thing read as three questions; this is the answer to the
 // only one being asked, which is whether it landed.
 function heard(p) {
+  if (p.state === 'accepted') {
+    return `<strong>They said yes</strong>${p.acceptedAt
+      ? `<div class="muted" style="font-size:.74rem;">${esc(timeAgo(p.acceptedAt))}</div>` : ''}`;
+  }
   if (p.state === 'declined') {
     // The reason is the whole reason this row exists. "Too much" and "the
     // dates moved" are different next moves, and only one of them is a lost

@@ -16,6 +16,7 @@ import { json, badRequest, notFound, readJson, now, sha256Hex } from './util.js'
 import { requireUser } from './auth.js';
 import { layout, escapeHtml, sendHtml } from './email.js';
 import { listPricing, PRICE_KINDS } from './pricing.js';
+import { appUrl, shareCode } from './share.js';
 import { listOptions } from './options.js';
 import { listTravellers, listAmenities } from './travellers.js';
 import * as db from './db.js';
@@ -54,6 +55,10 @@ const sum = (rows) => rows.reduce((n, r) => n + (r.amountCents || 0), 0);
  * without a database or an inbox.
  */
 export function buildStatement({ booking, pricing, travellers, payments, amenities, options, client, user }) {
+  // The page this document is about, where the client can answer it. Null when
+  // the trip has never been shared, and then nothing is offered rather than a
+  // link to a page that would say "not available".
+  const shareCode = booking.share_code || null;
   // One row per thing, not one row per traveller.
   //
   // Pricing lines are stored per traveller, so a cabin for two people produces
@@ -175,6 +180,7 @@ export function buildStatement({ booking, pricing, travellers, payments, ameniti
   return {
     mode,
     standing,
+    shareCode,
     invoiceNo: mode === 'statement' ? (booking.invoice_no || null) : null,
     invoiceIssuedAt: mode === 'statement' ? (booking.invoice_issued_at || null) : null,
     notes: booking.invoice_notes || '',
@@ -314,13 +320,21 @@ export function renderStatement(env, s) {
   // What a quote ends on: the one thing the client has to do next, and by
   // when. A quote that stops at a total leaves them to work out what happens
   // now, and the commonest answer to that is nothing.
+  // How to answer, and it has to be somewhere they can act rather than a
+  // sentence inviting a reply. A quote that ends at a total leaves the client
+  // to work out what happens next, and the commonest answer to that is
+  // nothing. The button below goes to the trip page, where the same three
+  // answers live: pick an option, say yes, say no, or ask a question.
+  const answerHere = s.shareCode
+    ? ' You can answer on the page below, or reply to this and I will pick it up.'
+    : '';
   const hold = quote
     ? `<p style="margin:22px 0 0;">${s.options.length && !s.options.some((o) => o.chosen)
         ? 'Tell me which one and I will hold it. ' : ''}${s.depositCents
         ? `A deposit of <strong>${money(s.depositCents)}</strong> holds this${
             s.depositDue ? ` and is due by ${escapeHtml(day(s.depositDue))}` : ''}.`
         : 'Say the word and I will hold it.'
-      } Prices and space are not held until it is booked.</p>`
+      } Prices and space are not held until it is booked.${answerHere}</p>`
     : '';
 
   const body = [
@@ -415,7 +429,21 @@ export function renderStatement(env, s) {
     subject: s.mode === 'quote'
       ? `Your quote: ${heading}`
       : `Invoice${s.invoiceNo ? ` ${s.invoiceNo}` : ''}: ${heading}`,
-    html: layout(env, { heading, body, footer }),
+    // A quote gets a button to the page it is about, where the client can
+    // pick an option, say yes, say no or ask a question. Without it the email
+    // ends at a total and the only way to answer is to compose a reply, which
+    // is the step most people never take.
+    //
+    // A statement gets none: the trip is already booked, there is nothing to
+    // answer, and the page is reachable from the link they were already sent.
+    html: layout(env, {
+      heading,
+      body,
+      footer,
+      cta: s.mode === 'quote' && s.shareCode
+        ? { label: 'See it and answer', href: `${appUrl(env)}/t/${s.shareCode}` }
+        : null,
+    }),
   };
 }
 
@@ -540,6 +568,29 @@ export async function handleStatement(request, env, id) {
   }
 
   if (!statement.to) return badRequest('That client has no email address on file.');
+
+  // A quote gets its page when it is sent, if it has not got one already.
+  //
+  // The button in the email needs somewhere to go, and until now a quote could
+  // be sent to a client with no page behind it at all: the email ended at a
+  // total and the only way to answer was to compose a reply. Sending is the
+  // act that says the client may see this, which is the same rule the client's
+  // own page already follows, so it is also the moment the page should exist.
+  //
+  // Only a quote, and only on send. Previewing publishes nothing, and a booked
+  // trip already has whatever link it was given.
+  if (statement.mode === 'quote' && !booking.share_code) {
+    const code = shareCode();
+    const ts = now();
+    await env.DB.prepare(
+      `UPDATE bookings SET share_code = ?, shared_at = COALESCE(shared_at, ?), updated_at = ?
+        WHERE id = ? AND user_id = ?`
+    ).bind(code, ts, ts, id, owner.id).run();
+    booking.share_code = code;
+    booking.shared_at = booking.shared_at || ts;
+    statement = build();
+    rendered = renderStatement(env, statement);
+  }
 
   // Numbered here and nowhere earlier: after the preview has returned, after
   // the address has been checked, immediately before the send. Every step

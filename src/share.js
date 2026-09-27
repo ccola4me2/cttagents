@@ -37,6 +37,7 @@ import { fireTrigger } from './automations.js';
 import { ITEM_KINDS } from './itinerary.js';
 import {
   sendTripMessageEmail, sendOptionChosenEmail, sendQuoteDeclinedEmail,
+  sendQuoteAcceptedEmail,
 } from './email.js';
 import { docsReady, safeName, MAX_BYTES } from './documents.js';
 import { submitReview, reviewFor, tripIsOver } from './reviews.js';
@@ -356,6 +357,54 @@ function dayDate(depart, n) {
  * a price: it records the answer and tells the advisor, which is exactly what
  * the message box was doing, minus the transcription.
  */
+/**
+ * The answer block for a quote with one price and nothing to choose between.
+ *
+ * optionsBlock already carries the answer where options exist: the cards are
+ * the yes and the decline sits under them. This is the other shape, and it is
+ * the commoner one. A quote for a single cabin used to end at a total, and a
+ * page that shows a client a price and offers them no way to respond is a page
+ * that makes them go and find their email.
+ */
+function decideBlock(trip, advisor) {
+  const b = trip.booking;
+  if (!answerable(b) || trip.options.length) return '';
+
+  const accepted = Boolean(b.accepted_at);
+  const declined = Boolean(b.declined_at);
+
+  if (accepted) {
+    return `<section class="card pad" id="decide">
+      <p class="ochose" style="margin:0;">You said yes to this. ${esc(advisor)} will confirm it
+        with you, and nothing is booked or paid until they do.</p>
+    </section>`;
+  }
+  if (declined) {
+    return `<section class="card pad" id="decide">
+      <p class="ochose" style="margin:0;">You have let ${esc(advisor)} know this one is not for
+        you. If something changes there is nothing to undo: just say so.</p>
+    </section>`;
+  }
+
+  return `<section class="card pad" id="decide">
+    <h2>What would you like to do</h2>
+    <p class="dim">Nothing is booked and nothing is paid by answering. ${esc(advisor)} confirms
+      it with you either way.</p>
+    <div class="decide">
+      <button class="obtn yes" type="button" id="say-yes">Yes, let's book it</button>
+      <button class="obtn ghost" type="button" id="say-no">No, not this one</button>
+    </div>
+    <form id="decide-form" hidden onsubmit="return false;">
+      <label for="decide-why" id="decide-label">Anything you want to add? Optional.</label>
+      <textarea id="decide-why" rows="3" maxlength="500"></textarea>
+      <div class="hp" aria-hidden="true"><label>Company website<input name="company_website"
+        tabindex="-1" autocomplete="off"></label></div>
+      <button class="obtn" type="button" id="decide-send">Send it</button>
+    </form>
+    <div id="decide-said"></div>
+  </section>`;
+}
+
 function optionsBlock(trip, advisor) {
   const list = trip.options || [];
   if (!list.length) return '';
@@ -625,6 +674,7 @@ export async function renderTripPage(request, env, code) {
     </section>` : ''}
 
     ${choosing ? optionsBlock(trip, advisor) : ''}
+    ${decideBlock(trip, advisor)}
 
     ${trip.travellers.length ? `<section class="card pad">
       <h2>Who is travelling</h2>
@@ -803,6 +853,7 @@ export async function renderTripPage(request, env, code) {
     ${home ? REVIEW_SCRIPT : ''}
     ${SAY_SCRIPT}
     ${DECLINE_SCRIPT}
+    ${DECIDE_SCRIPT}
     ${UPLOAD_SCRIPT}
     ${CHOOSE_SCRIPT}
     ${PRINT_SCRIPT}`;
@@ -996,6 +1047,97 @@ export async function handleTripUpload(request, env, code) {
 }
 
 /**
+ * Whether a client may answer this quote at all.
+ *
+ * Sent, or shared as a link, and still a quote. Those two are the same act
+ * from the client's side: the advisor decided they may see the price. A quote
+ * nobody has sent is still being written, and answering one would be replying
+ * to a question that has not been asked.
+ *
+ * Separate from options_open, which governs only whether the options on a
+ * quote can be picked between. The two were one thing while declining was the
+ * only answer, and that left every single-price quote unanswerable: most
+ * quotes carry one price and no options, so most quotes could not be replied
+ * to at all except by email.
+ */
+function answerable(booking) {
+  return booking.status === 'quoted' && Boolean(booking.quote_sent_at || booking.shared_at);
+}
+
+/**
+ * Yes.
+ *
+ * Only where there is nothing to choose between. Where an advisor has offered
+ * options, picking one is the yes and says which one; a bare accept beside
+ * three cabins would be an answer nobody could act on, and the advisor would
+ * have to ring and ask what had just been agreed.
+ *
+ * Records the answer and nothing else. Booking is the advisor's act: the
+ * vendor has to be rung, the space has to still be there, and a reservation
+ * that moved itself to booked because somebody pressed a button on a web page
+ * would put money into production that nobody has taken.
+ */
+export async function handleClientAccept(request, env, code) {
+  const trip = await loadTrip(env, clean(code, 40));
+  if (!trip) return notFound('This trip page is not available.');
+
+  if (!answerable(trip.booking)) {
+    return badRequest('This quote is not taking answers. Get in touch and they will sort it.');
+  }
+  if (trip.options.length) {
+    return badRequest('Choose one of the options and that is your yes.');
+  }
+
+  const body = await readJson(request);
+  if (clean(body.company_website, 200)) return json({ ok: true, message: 'Thanks.' });
+
+  const note = cleanText(body.note, 500);
+  const ip = request.headers.get('CF-Connecting-IP') || '';
+  const ipHash = ip ? (await sha256Hex(`accept:${code}:${ip}`)).slice(0, 32) : null;
+
+  const owner = trip.booking.user_id;
+  const ts = now();
+
+  await env.DB.prepare(
+    `UPDATE bookings SET accepted_at = ?, declined_at = NULL, declined_reason = NULL,
+            updated_at = ?
+      WHERE id = ? AND user_id = ?`
+  ).bind(ts, ts, trip.booking.id, owner).run();
+
+  await env.DB.prepare(
+    `INSERT INTO trip_messages (id, booking_id, user_id, body, ip_hash, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(uid(), trip.booking.id, owner,
+         note ? `Said yes to the quote: ${note}` : 'Said yes to the quote.', ipHash, ts).run();
+
+  await fireTrigger(env, tenantFor(env, trip.booking), 'quote.accepted', {
+    bookingId: trip.booking.id,
+    contactId: trip.booking.ghl_contact_id || null,
+    name: trip.booking.client_name,
+    amount: trip.booking.gross_cents || 0,
+  }, { key: `quote.accepted:${trip.booking.id}` });
+
+  try {
+    await sendQuoteAcceptedEmail(env, {
+      to: trip.booking.notify_email || trip.booking.advisor_email,
+      firstName: trip.booking.first_name,
+      clientName: trip.booking.client_name,
+      tripName: trip.booking.itinerary || trip.booking.product_name || 'their trip',
+      amountCents: trip.booking.gross_cents || 0,
+      note,
+      href: `${appUrl(env)}/app/reservation?id=${encodeURIComponent(trip.booking.id)}`,
+    });
+  } catch (e) {
+    console.error('quote accepted mail', e);
+  }
+
+  return json({
+    ok: true,
+    message: 'Thank you. Your advisor will confirm it with you and nothing is booked yet.',
+  });
+}
+
+/**
  * None of these.
  *
  * The other half of a quote, and the half that was missing. A client could say
@@ -1018,7 +1160,9 @@ export async function handleClientDecline(request, env, code) {
   const trip = await loadTrip(env, clean(code, 40));
   if (!trip) return notFound('This trip page is not available.');
 
-  if (!trip.booking.options_open) {
+  // Not options_open: a quote with no options to open still deserves a no.
+  // See answerable() above for why those two were ever the same question.
+  if (!answerable(trip.booking)) {
     return badRequest('This quote is not taking answers. Get in touch and they will sort it.');
   }
 
@@ -1043,7 +1187,8 @@ export async function handleClientDecline(request, env, code) {
   ).bind(ts, trip.booking.id, owner).run();
 
   await env.DB.prepare(
-    `UPDATE bookings SET declined_at = ?, declined_reason = ?, updated_at = ?
+    `UPDATE bookings SET declined_at = ?, declined_reason = ?, accepted_at = NULL,
+            updated_at = ?
       WHERE id = ? AND user_id = ?`
   ).bind(ts, reason || null, ts, trip.booking.id, owner).run();
 
@@ -1241,6 +1386,57 @@ const DECLINE_SCRIPT = `<scr${''}ipt>
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ reason: why ? why.value : '', company_website: '' }),
+      });
+      var data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'That did not go through.');
+      said.innerHTML = '<p class="ochose">' + data.message + '</p>';
+      setTimeout(function () { location.reload(); }, 1400);
+    } catch (ex) {
+      said.innerHTML = '<p class="oerr">' + ex.message + '</p>';
+      send.disabled = false;
+      send.textContent = 'Send it';
+    }
+  });
+})();
+</scr${''}ipt>`;
+
+const DECIDE_SCRIPT = `<scr${''}ipt>
+(function () {
+  var yes = document.getElementById('say-yes');
+  var no = document.getElementById('say-no');
+  var form = document.getElementById('decide-form');
+  var send = document.getElementById('decide-send');
+  var label = document.getElementById('decide-label');
+  var said = document.getElementById('decide-said');
+  if (!yes || !no || !form || !send) return;
+  var answer = null;
+
+  function open(which) {
+    answer = which;
+    form.hidden = false;
+    yes.classList.toggle('on', which === 'yes');
+    no.classList.toggle('on', which === 'no');
+    label.textContent = which === 'yes'
+      ? 'Anything you want to add? Optional.'
+      : 'If you would like to say why, it helps. Entirely optional.';
+    var why = document.getElementById('decide-why');
+    if (why) why.focus();
+  }
+  yes.addEventListener('click', function () { open('yes'); });
+  no.addEventListener('click', function () { open('no'); });
+
+  send.addEventListener('click', async function () {
+    if (!answer) return;
+    var why = document.getElementById('decide-why');
+    send.disabled = true;
+    send.textContent = 'One moment...';
+    try {
+      var res = await fetch(location.pathname + (answer === 'yes' ? '/accept' : '/decline'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(answer === 'yes'
+          ? { note: why ? why.value : '', company_website: '' }
+          : { reason: why ? why.value : '', company_website: '' }),
       });
       var data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'That did not go through.');
@@ -1495,7 +1691,7 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
     body{background:#fff;padding:0;font-size:11pt}
     .wrap{max-width:none}
     .printbar,.hp,form#say,#say,.obtn,#choose-said,.itin-map,
-    .portalnote,.declinebox{display:none !important}
+    .portalnote,.declinebox,#decide{display:none !important}
     .card{border:0;box-shadow:none;padding:0;margin:0 0 12pt;break-inside:avoid}
     .card.pad{padding:0}
     h1{font-size:20pt;margin:0 0 4pt}
@@ -1598,6 +1794,17 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
      answer it does not want. */
   .declinebox{margin-top:1.4rem;padding-top:1.1rem;border-top:1px solid var(--line,#e4edf5);
     text-align:center}
+  /* Two answers, side by side and the same weight. A yes drawn as the loud
+     one and a no drawn as an afterthought is a page arguing with the person
+     reading it. */
+  .decide{display:flex;gap:.7rem;flex-wrap:wrap;margin:.2rem 0 0}
+  .decide .obtn{width:auto;flex:1 1 12rem;margin-top:0}
+  .decide .obtn.on{background:var(--navy);color:#fff}
+  #decide form{margin-top:1rem;max-width:32rem}
+  #decide label{display:block;font-size:.86rem;color:var(--dim);margin-bottom:.35rem}
+  #decide textarea{width:100%;padding:.6rem .7rem;font:inherit;border:1px solid #c7d9e9;
+    border-radius:8px}
+  #decide .obtn{width:auto;margin-top:.7rem;padding:.5rem 1.3rem}
   .declinebox .obtn.ghost{width:auto;border-color:var(--line,#c7d9e9);color:var(--dim);
     font-weight:400;padding:.5rem 1.1rem}
   .declinebox .obtn.ghost:hover{background:#fff;border-color:var(--navy);color:var(--navy)}

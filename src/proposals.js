@@ -28,6 +28,9 @@ export const PROPOSAL_STATES = [
     hint: 'Quoted, with no options on it. There is nothing for the client to answer.' },
   { id: 'unsent', name: 'Not sent',
     hint: 'Written and never sent. This is the one that costs the most and is the easiest to fix.' },
+  { id: 'accepted', name: 'They said yes, not booked yet',
+    hint: 'Accepted outright, with nothing to choose between. The space and the price are not '
+      + 'held until you book it, which is the whole of what is left to do.' },
   { id: 'chosen', name: 'They chose, not booked yet',
     hint: 'The client answered. Turning it into a booking is the last thing between you and the commission.' },
   { id: 'declined', name: 'They said no',
@@ -45,6 +48,9 @@ function stateOf(b) {
   // option they have since said no to is the worst row on this page.
   if (b.declined_at) return 'declined';
   if (b.chosen_count > 0) return 'chosen';
+  // After chosen, because picking an option is a yes that says which one, and
+  // that is the more useful row to land on.
+  if (b.accepted_at) return 'accepted';
   if (!b.option_count) return 'empty';
   // Out either way: an emailed quote and a shared trip page are the same act
   // from the client's side, and an advisor who only ever sends the link should
@@ -181,6 +187,7 @@ export async function handleProposals(request, env) {
       shareCode: b.share_code || null,
       optionsOpen: Boolean(b.options_open),
       optionCount: b.option_count || 0,
+      acceptedAt: b.accepted_at || null,
       declinedAt: b.declined_at || null,
       declinedReason: b.declined_reason || '',
       chosenLabel: b.chosen_label || '',
@@ -219,7 +226,7 @@ export async function handleProposals(request, env) {
     // today, and counting it here would turn the one number on this page that
     // means "get on with it" into a number that never goes down.
     yours: items.filter((i) => i.state === 'unsent' || i.state === 'chosen'
-      || i.state === 'empty').length,
+      || i.state === 'accepted' || i.state === 'empty').length,
     scope: db.scopeLabel(scope, user),
     advisors: await db.advisorOptions(env, user),
   });

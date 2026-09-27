@@ -43,6 +43,10 @@ export const TRIGGERS = [
   // year is a warm lead next year, and the advisor who says nothing after a no
   // is the reason they book with somebody else.
   'quote.declined',
+  // And the yes. Fired where the client accepted a quote that had nothing to
+  // choose between; where they picked an option, option.chosen already says so
+  // and says which one.
+  'quote.accepted',
 ];
 
 export const ACTIONS = [

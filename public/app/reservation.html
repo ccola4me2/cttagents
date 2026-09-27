@@ -797,6 +797,9 @@ function drawDetail() {
          d.statementStale ? ' <span class="badge badge-amber">changed since</span>' : ''}</dd>` : ''}
        ${b.quote_sent_at ? `<dt>Quote sent</dt><dd>${esc(timeAgo(b.quote_sent_at))}${
          b.quote_sent_count > 1 ? ` &middot; ${b.quote_sent_count} times` : ''}</dd>` : ''}
+       ${b.accepted_at ? `<dt>They said yes</dt><dd>${esc(timeAgo(b.accepted_at))}
+         <span class="muted" style="display:block;margin-top:.15rem;">Nothing is booked until
+           you book it.</span></dd>` : ''}
        ${b.declined_at ? `<dt>They said no</dt><dd>${esc(timeAgo(b.declined_at))}${
          b.declined_reason ? `<span class="muted" style="display:block;margin-top:.15rem;">${
            esc(b.declined_reason)}</span>` : ''}</dd>` : ''}

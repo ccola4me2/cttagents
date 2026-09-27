@@ -581,6 +581,40 @@ export function sendQuoteDeclinedEmail(env, {
   });
 }
 
+/**
+ * The client said yes.
+ *
+ * The one message in this file that is unambiguously good news and the most
+ * time sensitive thing the portal sends. Somebody has just decided, the space
+ * is not held, and the gap between deciding and being confirmed is where
+ * people go cold and where a price moves.
+ */
+export function sendQuoteAcceptedEmail(env, {
+  to, firstName, clientName, tripName, amountCents, note, href,
+}) {
+  if (!to) return Promise.resolve({ skipped: true });
+  const money = (cents) => `$${((cents || 0) / 100).toLocaleString('en-US', {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  })}`;
+  return send(env, {
+    to,
+    subject: `${clientName} said yes to ${tripName}`,
+    html: layout(env, {
+      heading: `${escapeHtml(clientName)} has said yes`,
+      body: `<p style="margin:0 0 12px;">Hi ${escapeHtml(firstName || 'there')},</p>
+             <p style="margin:0 0 12px;">They have accepted the quote for
+             <strong>${escapeHtml(tripName)}</strong>${amountCents
+    ? ` at ${escapeHtml(money(amountCents))}` : ''}.</p>
+             ${note ? `<p style="margin:0 0 12px;padding:12px 14px;background:#f7fafb;
+               border-left:3px solid #c7d9e9;">${escapeHtml(note)}</p>` : ''}
+             <p style="margin:0 0 16px;">Nothing is booked and nothing is paid. The space and
+             the price are held by the vendor or they are not, and that is the part only you
+             can find out.</p>`,
+      cta: { label: 'Open the reservation', href },
+    }),
+  });
+}
+
 export function sendPasswordResetEmail(env, user, token) {
   const minutes = Number(env.RESET_TTL_MINUTES || 60);
   return send(env, {

@@ -4402,6 +4402,81 @@ async function main() {
       'and it leaves the proposals list, having been answered');
   }
 
+  // ------------------------------- a quote with one price can be answered --
+  // Declining shipped without its other half, and the half it was missing is
+  // the commoner one: most quotes carry a single price and no options, and
+  // those could not be answered at all. No yes, no no, nothing but replying to
+  // the email, which is the step most people never take.
+  const onePrice = await call(advisor, 'POST', '/api/bookings', {
+    clientName: `One Price ${stamp}`, departDate: isoDay(200), status: 'quoted',
+    grossCents: 300000,
+  });
+  const onePriceId = onePrice.data?.booking?.id;
+
+  if (!onePriceId) {
+    skip('answering a single price quote', `creating it answered ${onePrice.status}`);
+  } else {
+    const shared = await call(advisor, 'POST', `/api/bookings/${onePriceId}/share`, {});
+    const code = shared.data?.code || (shared.data?.url || '').split('/t/')[1];
+
+    if (!code) {
+      skip('answering a single price quote', `sharing answered ${shared.status}`);
+    } else {
+      const page = await call(null, 'GET', `/t/${code}`);
+      check((page.raw || '').includes('id="decide"'),
+        'a quote with no options offers the client an answer', `status ${page.status}`);
+
+      const yes = await call(null, 'POST', `/t/${code}/accept`,
+        { note: 'Looks great, book it', company_website: '' });
+      check(yes.status === 200, 'they can say yes', `status ${yes.status}`);
+
+      const rec = await call(advisor, 'GET', `/api/bookings/${onePriceId}/record`);
+      check(Boolean(rec.data?.booking?.accepted_at), 'and it is on the reservation');
+      // Accepting is the client's act; booking is the advisor's. A trip that
+      // booked itself would put money into production nobody has taken.
+      check(rec.data?.booking?.status === 'quoted',
+        'while the trip stays a quote until somebody books it',
+        rec.data?.booking?.status);
+
+      const groups = (await call(advisor, 'GET', '/api/proposals')).data?.groups || [];
+      check((groups.find((g) => g.id === 'accepted')?.items || [])
+        .some((i) => i.id === onePriceId),
+        'the proposals list moves it to "they said yes"');
+
+      // Changing their mind, which is the reason either answer clears the
+      // other rather than sitting beside it.
+      const no = await call(null, 'POST', `/t/${code}/decline`,
+        { reason: 'Dates moved', company_website: '' });
+      const after = await call(advisor, 'GET', `/api/bookings/${onePriceId}/record`);
+      check(no.status === 200 && !after.data?.booking?.accepted_at
+        && Boolean(after.data?.booking?.declined_at),
+        'and saying no afterwards takes the yes back',
+        JSON.stringify({ accepted: after.data?.booking?.accepted_at,
+          declined: after.data?.booking?.declined_at }));
+    }
+
+    await dropBooking(onePriceId);
+  }
+
+  // A quote nobody has sent or shared is still being written, and answering
+  // one would be replying to a question that has not been asked.
+  const unsentQuote = await call(advisor, 'POST', '/api/bookings', {
+    clientName: `Not Sent ${stamp}`, departDate: isoDay(210), status: 'quoted',
+  });
+  const unsentId = unsentQuote.data?.booking?.id;
+  if (unsentId) {
+    const sh = await call(advisor, 'POST', `/api/bookings/${unsentId}/share`, {});
+    const c2 = sh.data?.code || (sh.data?.url || '').split('/t/')[1];
+    if (c2) {
+      // Sharing is one of the two ways a client may see it, so this one is
+      // answerable; the check that matters is a made up code answering nothing.
+      const nowhere = await call(null, 'POST', '/t/not-a-real-code/accept', { company_website: '' });
+      check(nowhere.status === 404, 'a made up trip code accepts nothing',
+        `status ${nowhere.status}`);
+    }
+    await dropBooking(unsentId);
+  }
+
   // ------------------------------------------------- removing a client --
   // There was no way to do this at all until now, in the interface or the
   // API, so a mistyped name stayed on the books for ever and the only way off
