@@ -674,7 +674,6 @@ export async function renderTripPage(request, env, code) {
     </section>` : ''}
 
     ${choosing ? optionsBlock(trip, advisor) : ''}
-    ${decideBlock(trip, advisor)}
 
     ${trip.travellers.length ? `<section class="card pad">
       <h2>Who is travelling</h2>
@@ -727,8 +726,18 @@ export async function renderTripPage(request, env, code) {
         <div><p class="tlabel">Price</p><p class="tvalue">${esc(money(total))}</p></div>
       </div>
       <p class="dim small">Nothing is booked and nothing is owed yet. Prices and space are not
-        held until it is. Say the word to ${esc(advisor)} and they will take it from there.</p>
+        held until it is.${answerable(b) && !trip.options.length ? ''
+    : ` Say the word to ${esc(advisor)} and they will take it from there.`}</p>
     </section>` : ''}
+
+    <!-- After the price, never before it.
+         The answer block sat above the costs on the first cut, so the page
+         asked somebody to decide and then showed them what they were deciding
+         about. Nobody answers a question they have not finished reading.
+         Where there are options to choose between it stays high up, because
+         there each card carries its own price and the options are the
+         pricing. -->
+    ${decideBlock(trip, advisor)}
 
     <section class="card pad">
       <h2>Your documents</h2>
