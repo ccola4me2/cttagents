@@ -4547,11 +4547,22 @@ async function main() {
     const opt = await call(advisor, 'POST', `/api/bookings/${noId}/options`,
       { label: 'The only option', amount: '1800.00' });
 
-    // Shut until the advisor opens it, the same as choosing.
-    const tooSoon = await call(null, 'POST', `/t/${noCode}/decline`, { reason: 'no' });
-    check(tooSoon.status === 400,
-      'a quote not taking answers cannot be declined either',
-      `status ${tooSoon.status}`);
+    // Declining is not gated on options_open, and this check used to say it
+    // was. That switch governs picking between options; whether a quote takes
+    // an answer at all is a different question, and tying them together left
+    // every single-price quote unanswerable. A shared quote may be declined,
+    // because sharing is the advisor saying the client may see it.
+    const beforeOpening = await call(null, 'POST', `/t/${noCode}/decline`,
+      { reason: 'Too early to say', company_website: '' });
+    check(beforeOpening.status === 200,
+      'a shared quote can be declined without the options being opened',
+      `status ${beforeOpening.status}`);
+
+    // A trip nobody shared has no address to answer at, which is the real
+    // protection: there is no page, so there is nothing to post to.
+    const nowhere = await call(null, 'POST', '/t/not-a-real-code/decline', { reason: 'x' });
+    check(nowhere.status === 404, 'and a made up code answers nothing',
+      `status ${nowhere.status}`);
 
     await call(advisor, 'POST', `/api/bookings/${noId}/options-open`, { open: true });
 
