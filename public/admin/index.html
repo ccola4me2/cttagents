@@ -587,7 +587,20 @@ actas.addEventListener('change', async () => {
 
 filter.addEventListener('change', load);
 await load();
-loadMail();
+// Probed on load rather than waiting to be asked.
+//
+// This card used to render from the Worker's own settings alone and only
+// called Resend when somebody pressed the button, on the grounds that the
+// call costs something. What it cost instead: for as long as the sending
+// domain was unverified, the card read "key configured: yes", named the
+// address, and looked entirely well, while not one email had left the
+// portal. Quotes, payment reminders, review requests and the client sign-in
+// links all failed the same way, and the one screen built to show that was
+// showing green.
+//
+// A page whose job is to say whether the portal is still working has to do
+// the asking. The button stays, for checking again after a DNS change.
+loadMail(true);
 loadSchema();
 
 // ------------------------------------------------------ advisor details --

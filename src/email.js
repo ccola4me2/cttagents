@@ -609,13 +609,24 @@ export function sendPasswordResetEmail(env, user, token) {
 export async function checkResend(env) {
   if (!env.RESEND_API_KEY) return { configured: false };
 
+  // Timed out, because this now runs on every load of the admin page rather
+  // than only when somebody asks for it. A fetch with no deadline that hangs
+  // leaves the card on "Loading..." for ever, which is a worse lie than the
+  // one this check was added to stop: it reads as a page still thinking,
+  // rather than as a check that could not be made.
   let res;
   try {
     res = await fetch('https://api.resend.com/domains', {
       headers: { Authorization: `Bearer ${env.RESEND_API_KEY}` },
+      signal: AbortSignal.timeout(6000),
     });
   } catch (e) {
-    return { configured: true, reachable: false, error: String(e) };
+    const timedOut = e && (e.name === 'TimeoutError' || e.name === 'AbortError');
+    return {
+      configured: true,
+      reachable: false,
+      error: timedOut ? 'Resend did not answer within six seconds.' : String(e),
+    };
   }
 
   if (res.status === 401 || res.status === 403) {
