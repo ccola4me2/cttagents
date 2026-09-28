@@ -41,12 +41,30 @@ function appUrl(env) {
  * name and their colour rather than CTT's.
  */
 export function layout(env, { heading, body, cta, footer, brand }) {
-  const url = appUrl(env);
   const b = brand || DEFAULT_BRAND;
   const head = readableOnWhite(b.color) ? b.color : BRAND_NAVY;
   // The wordmark is letter-spaced, which reads as a logo on a short name and
   // as a ransom note on a long one.
   const spacing = String(b.name).length > 18 ? '.06em' : '.22em';
+  // The agency, and the agency's own website if one is recorded.
+  //
+  // This used to put the portal's address here, so a quote signed by the
+  // agency ended with a link to the software it was written in. A client has
+  // no reason to visit that and no account on it, and the name of the tool an
+  // advisor uses is not a thing to advertise at the foot of their work. Where
+  // no website is recorded the name stands on its own, which is the right
+  // answer rather than a degraded one.
+  //
+  // The portal's own address is still where every message that is about the
+  // portal sends somebody: those carry a cta button. It is only the signature
+  // at the foot that stops naming it.
+  const siteHref = String(b.website || '').trim();
+  const siteShown = siteHref.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const site = siteHref
+    ? `${escapeHtml(b.name)} &middot; <a href="${escapeHtml(siteHref)}" style="color:${head};">${
+      escapeHtml(siteShown)}</a>`
+    : escapeHtml(b.name);
+
   const button = cta
     ? `<tr><td style="padding:8px 0 24px;">
          <a href="${escapeHtml(cta.href)}"
@@ -81,8 +99,7 @@ export function layout(env, { heading, body, cta, footer, brand }) {
         </table>
       </td></tr>
       <tr><td style="border-top:1px solid #e2ebf4;padding:18px 32px;font-size:12px;color:#5c7286;">
-        ${footer || `${escapeHtml(b.name)} &middot; <a href="${url}" style="color:${head};">${
-          escapeHtml(url.replace(/^https?:\/\//, ''))}</a>`}
+        ${footer || site}
       </td></tr>
     </table>
   </td></tr>
