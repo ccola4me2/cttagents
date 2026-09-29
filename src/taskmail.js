@@ -12,6 +12,13 @@
 // stamps are cleared when a task's date moves: a task pushed to next week
 // should start chasing again then, and a reminder that fires once in a task's
 // life is the failure people mind most.
+//
+// The message carries a stamp of its own as well, on the advisor rather than
+// on a task. Three of the things in it are deliberately unstamped, because a
+// lead still to ring, a meeting today and somebody asking for you in chat
+// should all keep appearing until they are dealt with; without a stamp on the
+// message itself, any one of them meant the whole thing went again on every
+// tick from the hour until midnight.
 
 import { now } from './util.js';
 import { sendTaskDigestEmail } from './email.js';
@@ -150,7 +157,8 @@ export async function remindTasks(env, { at = now(), force = false } = {}) {
 
   for (const [userId, tasks] of byUser) {
     const owner = await env.DB.prepare(
-      'SELECT email, first_name, notify_email, task_digest FROM users WHERE id = ?'
+      `SELECT email, first_name, notify_email, task_digest, task_digest_sent_at
+         FROM users WHERE id = ?`
     ).bind(userId).first();
 
     // Its own block in the message. A mention is not a task that fell due, and
@@ -176,6 +184,24 @@ export async function remindTasks(env, { at = now(), force = false } = {}) {
 
     const to = owner?.notify_email || owner?.email;
     if (!to) continue;
+
+    // One a day, and this is the line that makes it true.
+    //
+    // It used to be true by accident. Every line in the message came from a
+    // task, every task was stamped as it went out, and so the next tick found
+    // nothing to say. Leads, appointments and mentions carry no stamp on
+    // purpose, and from the first of them onwards the tick always found
+    // something: an advisor with a meeting in the diary got this email every
+    // five minutes from the hour until midnight. Nothing was wrong with any of
+    // those three. What was wrong is that the message had no stamp of its own.
+    if (!force && owner.task_digest_sent_at
+        && isoDay(owner.task_digest_sent_at) === today) continue;
+
+    // Stamped before the send rather than after, the same as the call list: an
+    // address that bounces must fail once this morning, not every five minutes
+    // until midnight.
+    await env.DB.prepare('UPDATE users SET task_digest_sent_at = ? WHERE id = ?')
+      .bind(at, userId).run();
 
     try {
       await sendTaskDigestEmail(env, {

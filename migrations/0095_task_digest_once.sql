@@ -1,0 +1,19 @@
+-- One morning email, and something that says it has already gone.
+--
+-- The digest was one a day by accident rather than by rule. Every line in it
+-- came from a task, every task was stamped as it went out, so the second cron
+-- tick of the morning found nothing left to say and sent nothing. Nothing
+-- anywhere said "this advisor has had today's message".
+--
+-- Then three things were added that carry no stamp on purpose, because each
+-- should keep appearing until it is dealt with rather than being mentioned
+-- once: a lead's follow-up date, today's appointments, and being asked for by
+-- name in chat. Each is right on its own and each removed the accident the
+-- once-a-day property was resting on. From that point an advisor with a
+-- meeting in the diary got the same email every five minutes from the hour
+-- until midnight, because the tick always found something unstamped to say.
+--
+-- So: the stamp the call list has had since 0048, for the same reason and read
+-- the same way. Nullable, because nobody has had one yet and a default would
+-- claim they had today's already.
+ALTER TABLE users ADD COLUMN task_digest_sent_at INTEGER;

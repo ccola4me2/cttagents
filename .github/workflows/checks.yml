@@ -179,6 +179,14 @@ jobs:
       - name: Every column a handler reads is real
         run: npm run check:reads
 
+      # The digest runs on the cron tick, not on a request, so smoke.mjs can
+      # never reach it. It was once a day only because every line in it came
+      # from a task that got stamped; three unstamped sources were added over
+      # time and each one turned it into an email every five minutes from the
+      # hour until midnight. Nothing noticed, because nothing ran it.
+      - name: The morning digest goes once a day
+        run: npm run check:digest
+
       - name: Build the database from the migrations
         run: npx wrangler d1 migrations apply cttagents --local
 
