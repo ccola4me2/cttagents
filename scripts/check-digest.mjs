@@ -23,8 +23,8 @@ let checks = 0;
 const ok = (label) => { checks += 1; console.log(`  ok    ${label}`); };
 const bad = (label, detail) => {
   checks += 1; failures += 1;
-  console.log(`  FAIL  ${label}${detail ? ` — ${detail}` : ''}`);
-  if (process.env.GITHUB_ACTIONS) console.log(`::error::digest: ${label} — ${detail}`);
+  console.log(`  FAIL  ${label}${detail ? `: ${detail}` : ''}`);
+  if (process.env.GITHUB_ACTIONS) console.log(`::error::digest: ${label}: ${detail}`);
 };
 const is = (label, got, want) => (got === want ? ok(label) : bad(label, `got ${got}, wanted ${want}`));
 
