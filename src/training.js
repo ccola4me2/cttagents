@@ -84,7 +84,7 @@ export const LESSONS = [
     why: 'The client gets a page of their own with the costs on it and a yes or no. Their answer comes back to you by email. Nothing is booked and nothing is paid by their pressing yes.',
     manual: 'clientpages',
     page: '/app/reservations',
-    doing: 'Send the quote, then open the client link yourself and read it as they will.',
+    doing: 'Send the quote, then open the client link yourself and read it as they will. If they write a note on the page it arrives by email and on the reservation; answer from the reservation page and the reply appears under their note and is emailed to them.',
   },
   {
     key: 'first-schedule',
