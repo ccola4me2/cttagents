@@ -19,7 +19,7 @@ const TRIP_COLUMNS = 'id, user_id, client_id, name, intro, tips, share_code, sha
 
 // Named, and short on purpose: what the picker and the trip screen need to say
 // which reservation is which.
-const ROW_COLUMNS = `id, client_name, status, supplier, product_type, product_name, destination,
+const PART_FIELDS = `id, client_name, status, supplier, product_type, product_name, destination,
   confirmation_number, depart_date, return_date, gross_cents, share_code, itinerary_shared`;
 
 const OK_STATUS = ['booked', 'travelled'];
@@ -155,7 +155,7 @@ export async function handleGetTrip(request, env, id) {
   if (!trip) return notFound('Trip not found.');
 
   const { results: parts } = await env.DB.prepare(
-    `SELECT ${ROW_COLUMNS} FROM bookings WHERE trip_id = ? AND user_id = ?
+    `SELECT ${PART_FIELDS} FROM bookings WHERE trip_id = ? AND user_id = ?
       ORDER BY COALESCE(depart_date, '9999-12-31') ASC, created_at ASC`
   ).bind(id, trip.user_id).all();
 
@@ -163,7 +163,7 @@ export async function handleGetTrip(request, env, id) {
   // in a trip yet.
   const first = (parts || [])[0];
   const { results: more } = await env.DB.prepare(
-    `SELECT ${ROW_COLUMNS} FROM bookings
+    `SELECT ${PART_FIELDS} FROM bookings
       WHERE user_id = ? AND trip_id IS NULL AND status IN ('booked','travelled')
         AND (client_id = ? OR client_name = ?)
       ORDER BY COALESCE(depart_date, '9999-12-31') ASC LIMIT 100`
