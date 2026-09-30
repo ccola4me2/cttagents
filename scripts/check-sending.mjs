@@ -47,6 +47,12 @@ const SENDERS = new Map([
   // to say only where somebody pressed send on that quote.
   ['hub.js', "POST /api/clients/:id/hub, which an advisor presses to give one client a page; "
     + "its write names status IN ('booked','travelled') so it can never mint a code for a quote"],
+  // The same act once more, for a trip made of several reservations: an advisor
+  // presses Share on the trip. The reservations it opens are picked by status IN
+  // ('booked','travelled'), and a quote cannot be put in a trip in the first
+  // place, so there is no quote for it to reach.
+  ['trips.js', "POST /api/trips/:id/share, which an advisor presses to give one trip a page; "
+    + "it only opens reservations whose status IN ('booked','travelled'), and a quote cannot be in a trip"],
 ]);
 
 const files = readdirSync(SRC).filter((f) => f.endsWith('.js'));
