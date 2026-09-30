@@ -33,11 +33,12 @@
           <section class="card" id="quote-card" hidden>
             <div class="card-head"><h2>Start from the vendor's proposal</h2></div>
             <div class="card-pad">
-              <p class="field-hint" style="margin-top:0;">Upload a
-                <strong>Margaritaville at Sea Group Proposal</strong> and the details below are
-                filled in for you to check. It reads that one form only; anything else leaves the
-                fields empty and you carry on as usual. Nothing is saved until you press the
-                button at the bottom.</p>
+              <p class="field-hint" style="margin-top:0;">Upload the cruise line's group
+                proposal (a PDF) and the details below are filled in for you to check.
+                <strong>Margaritaville at Sea</strong> proposals are read in full, rate grid
+                included. For any other cruise line only the details the document clearly labels
+                are filled in, and it says which. Nothing is saved until you press the button at
+                the bottom.</p>
               <input id="quote-file" type="file" accept="application/pdf,.pdf"
                 style="font-size:.9rem;">
               <p class="notice notice-ok" id="quote-ok" hidden style="margin:.8rem 0 0;"></p>
@@ -56,7 +57,7 @@
                 <div id="vendor-pick-field"></div>
                 <div class="field-row">
                   <div class="field"><label for="vendor">Vendor</label>
-                    <input id="vendor" name="vendor" placeholder="Margaritaville at Sea"></div>
+                    <input id="vendor" name="vendor" placeholder="Cruise line or supplier"></div>
                   <div class="field"><label for="groupCode">Group number</label>
                     <input id="groupCode" name="groupCode" placeholder="4668">
                     <p class="field-hint">The vendor's reference for the block. It is also the
@@ -235,18 +236,88 @@ function drawRates(rates) {
   if (!host) return;
   if (!rates || !rates.length) { host.innerHTML = ''; return; }
   const cash = (c) => money(c);
+  const get = (r, snake, camel) => r[snake] ?? r[camel] ?? 0;
+  // The two extra columns are for the third and fourth guest in a cabin. Shown
+  // only when some row has one, because on a proposal of doubles they would be
+  // two columns of nothing.
+  const extras = rates.some((r) => get(r, 'extra_adult_cents', 'extraAdultCents')
+    || get(r, 'extra_child_cents', 'extraChildCents'));
   host.innerHTML = `<p class="label" style="margin:1.2rem 0 .5rem;">Rates the vendor quoted</p>
     <table class="table" style="margin-bottom:1rem;">
-      <thead><tr><th>Room type</th><th>Cabins</th><th>Guests</th>
-        <th>Per guest</th><th>Tax</th><th>Total</th></tr></thead>
+      <thead><tr><th>Room type</th><th>Cabins</th><th>Guests</th><th>Per guest</th>${
+        extras ? '<th>Extra adult</th><th>Extra child</th>' : ''}<th>Tax</th><th>Total</th></tr></thead>
       <tbody>${rates.map((r) => `<tr>
         <td>${esc(r.room_type || r.roomType || '')}${
           (r.occupancy) ? ` <span class="muted">${esc(r.occupancy)}</span>` : ''}</td>
         <td>${r.cabins || 0}</td><td>${r.guests || 0}</td>
-        <td>${cash(r.per_guest_cents ?? r.perGuestCents ?? 0)}</td>
-        <td>${cash(r.taxes_cents ?? r.taxesCents ?? 0)}</td>
-        <td>${cash(r.total_cents ?? r.totalCents ?? 0)}</td></tr>`).join('')}</tbody>
+        <td>${cash(get(r, 'per_guest_cents', 'perGuestCents'))}</td>${
+          extras ? `<td>${cash(get(r, 'extra_adult_cents', 'extraAdultCents'))}</td>
+            <td>${cash(get(r, 'extra_child_cents', 'extraChildCents'))}</td>` : ''}
+        <td>${cash(get(r, 'taxes_cents', 'taxesCents'))}</td>
+        <td>${cash(get(r, 'total_cents', 'totalCents'))}${
+          r.reconciles === false
+            ? '<br><span class="muted" style="color:#b3382a;">does not add up</span>' : ''}</td></tr>`).join('')}</tbody>
     </table>`;
+}
+
+/**
+ * What the last proposal put in the form, so the next one can take it out.
+ *
+ * Reading a second proposal into the same form used to leave whatever the first
+ * had filled and the new one had not, and append its notes a second time, so a
+ * group could be saved half of one proposal and half of another. A field is
+ * cleared only if it still holds exactly what the last read put there: anything
+ * the advisor has typed or corrected since is theirs and is left alone.
+ */
+let lastRead = { set: {}, notes: '' };
+
+function forgetLastRead() {
+  for (const [n, v] of Object.entries(lastRead.set)) {
+    const el = form.elements[n];
+    if (el && String(el.value) === String(v)) el.value = n === 'cabinsHeld' ? '0' : '';
+  }
+  const notes = form.elements.notes;
+  if (lastRead.notes && notes.value.includes(lastRead.notes)) {
+    notes.value = notes.value.replace(lastRead.notes, '').replace(/\n{3,}/g, '\n\n').trim();
+  }
+  lastRead = { set: {}, notes: '' };
+}
+
+/** What happened, in words that fit the cause. */
+function quoteSaid(d) {
+  if (!d.read) {
+    if (d.why === 'picture') {
+      return 'That PDF is only a picture of a page, such as a scan or a photo, so there is no text '
+        + 'in it to read. Type the details below as usual.';
+    }
+    if (d.why === 'empty') {
+      return 'There is no readable text in that file. It may be protected or damaged. '
+        + 'Type the details below as usual.';
+    }
+    return 'That does not look like a group proposal we can read, so nothing was filled in. '
+      + 'Type the details below as usual.';
+  }
+  const parts = [];
+  parts.push(d.format && d.format.exact
+    ? `Read as a ${d.format.name}. ${d.found.length} details filled in.`
+    : `This layout is new to us, so only details with a clear label were filled in (${d.found.length}). `
+      + 'Check every one against the document.');
+  if (d.missing && d.missing.length) parts.push(`Not in the document: ${d.missing.join(', ')}.`);
+  if (d.noGroupNumber) {
+    parts.push('The group number is left empty on purpose: this proposal does not carry one '
+      + 'until the vendor opens the group.');
+  }
+  const off = (d.rates || []).filter((r) => r.reconciles === false).length;
+  if (off) {
+    parts.push(`${off} rate line${off === 1 ? '' : 's'} did not add up to ${off === 1 ? 'its' : 'their'} `
+      + 'own total, so check the rates against the proposal.');
+  }
+  if (d.conflicts > 0) {
+    parts.push('Some letters in this file may have been read wrongly, so check every date and '
+      + 'number against the document.');
+  }
+  parts.push('Check them, then open the group.');
+  return parts.join(' ');
 }
 
 const quoteFile = document.getElementById('quote-file');
@@ -268,14 +339,16 @@ if (quoteFile) quoteFile.addEventListener('change', async () => {
     if (!d.read) {
       ok.hidden = true;
       bad.hidden = false;
-      bad.textContent = 'That does not look like a ' + d.vendor
-        + ' group proposal, so nothing was filled in. Type the details below as usual.';
+      bad.textContent = quoteSaid(d);
       return;
     }
+    forgetLastRead();
     const set = (n, v) => {
       if (v === '' || v === 0 || v === undefined || v === null) return;
       const el = form.elements[n];
-      if (el) el.value = v;
+      if (!el) return;
+      el.value = v;
+      lastRead.set[n] = String(v);
     };
     for (const [k, v] of Object.entries(d.fields)) set(k, v);
     pendingRates = d.rates || null;
@@ -283,10 +356,9 @@ if (quoteFile) quoteFile.addEventListener('change', async () => {
     if (d.notes) {
       const el = form.elements.notes;
       el.value = el.value ? (el.value + '\n\n' + d.notes) : d.notes;
+      lastRead.notes = d.notes;
     }
-    ok.textContent = 'Read ' + d.found.length + ' details from the proposal. '
-      + 'Check them, then open the group. The group number is left empty on purpose: '
-      + 'the proposal does not carry one until the vendor opens the group.';
+    ok.textContent = quoteSaid(d);
   } catch (e) {
     ok.hidden = true;
     bad.hidden = false;

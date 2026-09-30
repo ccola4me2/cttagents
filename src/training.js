@@ -129,7 +129,7 @@ export const LESSONS = [
     why: 'A vendor is holding cabins for you and there is a date they take them back. This tracks how many are sold and how long you have.',
     manual: 'reservations',
     page: '/app/groups',
-    doing: 'Open Group space and read one. If you run no groups yet, know it exists for when you do.',
+    doing: 'Open a group, or start one by uploading the cruise line\u2019s proposal PDF and checking what it filled in. If you run no groups yet, know it exists for when you do.',
   },
   {
     key: 'payments-due',

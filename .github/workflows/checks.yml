@@ -194,6 +194,14 @@ jobs:
       - name: Getting started points at things that exist
         run: npm run check:training
 
+      # A reader for a cruise line's proposal is a pile of patterns written from
+      # one document, and it breaks when another is added beside it: a new line's
+      # reader that claims a Margaritaville proposal, or a fix for one layout
+      # that moves a label in another. Nothing shows until somebody uploads a
+      # real proposal and a date comes out wrong.
+      - name: Group proposals are still read the way they were
+        run: npm run check:groupquote
+
       - name: Build the database from the migrations
         run: npx wrangler d1 migrations apply cttagents --local
 

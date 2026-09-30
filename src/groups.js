@@ -12,8 +12,8 @@
 import { json, badRequest, notFound, clean, cleanText, cleanDate, oneOf, uid, now, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
-import { pdfText } from './pdftext.js';
-import { parseGroupQuote } from './groupquote.js';
+import { pdfRead } from './pdftext.js';
+import { parseGroupQuote, FIELD_WORDS } from './groupquote.js';
 
 const STATUSES = ['open', 'closed', 'cancelled'];
 
@@ -105,11 +105,14 @@ async function saveRates(env, groupId, userId, rates) {
     if (!roomType) continue;
     await env.DB.prepare(
       `INSERT INTO group_rates (id, group_id, user_id, room_type, occupancy, cabins, guests,
-         per_guest_cents, taxes_cents, total_cents, sort_order, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         per_guest_cents, extra_adult_cents, extra_child_cents, taxes_cents, total_cents,
+         sort_order, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(uid(), groupId, userId, roomType, clean(r.occupancy, 40),
            Math.max(0, Number(r.cabins) || 0), Math.max(0, Number(r.guests) || 0),
-           Math.max(0, Number(r.perGuestCents) || 0), Math.max(0, Number(r.taxesCents) || 0),
+           Math.max(0, Number(r.perGuestCents) || 0),
+           Math.max(0, Number(r.extraAdultCents) || 0), Math.max(0, Number(r.extraChildCents) || 0),
+           Math.max(0, Number(r.taxesCents) || 0),
            Math.max(0, Number(r.totalCents) || 0), i, ts, ts).run();
     i += 1;
   }
@@ -118,8 +121,8 @@ async function saveRates(env, groupId, userId, rates) {
 /** The grid as the page draws it, in the order the proposal listed it. */
 async function ratesFor(env, groupId, userId) {
   const { results } = await env.DB.prepare(
-    `SELECT id, room_type, occupancy, cabins, guests, per_guest_cents, taxes_cents,
-            total_cents, sort_order
+    `SELECT id, room_type, occupancy, cabins, guests, per_guest_cents, extra_adult_cents,
+            extra_child_cents, taxes_cents, total_cents, sort_order
        FROM group_rates WHERE group_id = ? AND user_id = ? ORDER BY sort_order ASC`
   ).bind(groupId, userId).all().catch(() => ({ results: [] }));
   return results || [];
@@ -449,23 +452,40 @@ export async function handleParseQuote(request, env) {
     return badRequest('That file is larger than 8MB, which is bigger than any proposal.');
   }
 
-  const text = await pdfText(buf);
-  const out = parseGroupQuote(text);
+  const file = await pdfRead(buf);
+  const out = parseGroupQuote(file.text);
+
+  // Why it could not be read, in terms the screen can act on. An empty result
+  // has three different causes and they want three different sentences: a file
+  // that is only pictures (a scan, or a brochure exported from a design tool),
+  // a file whose letters may be wrong, and a file with words in it that are not
+  // a group proposal. Saying "this does not look like a proposal" to somebody
+  // holding a scan of one is unkind and unhelpful.
+  const why = out.read ? null
+    : file.text.trim().length < 40 ? (file.images > 0 ? 'picture' : 'empty')
+      : 'unrecognised';
+
   return json({
     read: out.read,
-    // How far it got. A file that does not read is either one this cannot
-    // inflate, which reads as no words at all, or one whose words are not a
-    // proposal. Those are different problems and the difference should not
-    // need a deploy to find out.
-    chars: text.length,
+    why,
+    // What the file held, so a file that does not read can be diagnosed from the
+    // answer rather than from another deploy.
+    chars: file.text.length,
+    images: file.images,
+    // Non-zero means two fonts disagree about a character, so a letter or a
+    // digit may be wrong. Reported, because a date with one wrong digit looks
+    // exactly like a right one.
+    conflicts: file.conflicts,
+    format: out.format,
     fields: out.fields,
-    // The grid, which the page draws and then sends back with the group. The
-    // parser has produced these all along; this is the line that was missing.
+    // The grid, which the page draws and then sends back with the group.
     rates: out.rates || [],
     notes: out.notes,
     found: out.found,
-    // Said plainly so the screen can say it plainly: this reads one vendor's
-    // form and claims nothing about any other.
-    vendor: 'Margaritaville at Sea',
+    // What this layout did not say, so the screen can list it rather than leave
+    // the advisor to notice which boxes are empty.
+    missing: (out.missing || []).map((k) => FIELD_WORDS[k] || k),
+    // Some layouts never carry a group number; the screen explains that one.
+    noGroupNumber: Boolean(out.noGroupNumber),
   });
 }
