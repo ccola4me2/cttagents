@@ -25,6 +25,7 @@
 import { json, badRequest, notFound, forbidden, clean, cleanText, oneOf, uid, now, readJson }
   from './util.js';
 import { requireUser, borrowedSeat } from './auth.js';
+import { pushReady, pushTo, devicesFor } from './push.js';
 import * as db from './db.js';
 
 export const KINDS = ['channel', 'dm', 'record'];
@@ -464,7 +465,55 @@ export async function handlePostMessage(request, env) {
   ).bind(ts, Date.now(), channelId, user.id).run();
 
   const row = await env.DB.prepare(`${MSG_SELECT} WHERE m.id = ?`).bind(id).first();
+  await knockChat(env, channelId, user.id);
   return json({ ok: true, message: shapeMessage(row, user.id) }, 201);
+}
+
+/**
+ * Knock on the phones and browsers of the people in a room, now.
+ *
+ * The on-screen card only exists while the portal is open and in front. Everybody
+ * else was left to the sweep that runs every five minutes, which knocks a device
+ * at most once an hour because that is the right rule for a task coming due and
+ * the wrong one for a conversation. A message somebody wrote to you is worth
+ * hearing about when it is written.
+ *
+ * The push carries nothing. The service worker asks the portal what is waiting
+ * and shows the words itself, so nothing said in here passes through a push
+ * service. A device knocked in the last twenty seconds is left alone, because
+ * five messages in a row are one interruption and the notification replaces
+ * itself anyway.
+ *
+ * Never allowed to fail a message. A push that could not be sent is a worse
+ * notification; a message that was not sent is a lost conversation. It is also
+ * held to a couple of seconds, so a slow push service cannot slow the sender.
+ */
+async function knockChat(env, channelId, authorId) {
+  if (!pushReady(env)) return;
+  try {
+    const at = now();
+    const { results } = await env.DB.prepare(
+      `SELECT DISTINCT u.id FROM channel_members mem
+         JOIN users u ON u.id = mem.user_id
+         JOIN push_subscriptions s ON s.user_id = u.id AND s.failed_at IS NULL
+        WHERE mem.channel_id = ? AND mem.user_id != ? AND mem.muted = 0
+          AND u.push_alerts = 1 AND u.alerts_feed = 1 AND u.status = 'active'
+          AND (s.last_sent_at IS NULL OR s.last_sent_at < ?)
+        LIMIT 50`
+    ).bind(channelId, authorId, at - 20).all();
+
+    const knocks = [];
+    for (const row of results || []) {
+      for (const device of await devicesFor(env, row.id)) {
+        if (device.last_sent_at && device.last_sent_at >= at - 20) continue;
+        knocks.push(pushTo(env, device).catch(() => null));
+      }
+    }
+    if (!knocks.length) return;
+    await Promise.race([Promise.allSettled(knocks), new Promise((done) => setTimeout(done, 2500))]);
+  } catch (e) {
+    console.error('chat knock', e);
+  }
 }
 
 export async function handleEditMessage(request, env, id) {
