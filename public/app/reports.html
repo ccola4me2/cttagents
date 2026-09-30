@@ -101,11 +101,14 @@ function monthLabel(ym) {
     const [y, m, dd] = s.split('-').map(Number);
     const d = new Date(y, m - 1, dd);
     return Number.isNaN(d.getTime()) ? s
-      : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      // The year, because this report sets a year against the same days last
+      // year and a week labelled "Oct 22" belongs to either of them.
+      : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   }
   const [y, m] = s.split('-');
   const d = new Date(Number(y), Number(m) - 1, 1);
-  return Number.isNaN(d.getTime()) ? ym : d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+  return Number.isNaN(d.getTime()) ? ym
+    : d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
 
 /** What the report is actually showing, said in words above the chart. */

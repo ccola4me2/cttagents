@@ -758,7 +758,9 @@ async function drawMonth(host, reopen) {
     const label = iso === data.today
       ? 'Today'
       : when.toLocaleDateString(undefined, {
-        weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+        // The year as well. The calendar walks into next year quite happily,
+        // and "Monday, 3 March" is two different Mondays by then.
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 
     const head = `<div class="cal-day-head">
       <strong>${esc(label)}</strong>
