@@ -13,7 +13,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LESSONS } from '../src/training.js';
+import { LESSONS, SECTIONS } from '../src/training.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = join(ROOT, 'public');
@@ -57,10 +57,31 @@ for (const l of LESSONS) {
   }
 }
 
-// The page numbers the lessons, so the order in the file is the order somebody
-// is taught in. Worth one assertion that it has not been shuffled by accident.
-if (LESSONS[0].key === 'start') ok('the course still starts at the beginning');
-else bad('order', `first lesson is ${LESSONS[0].key}, expected start`);
+// Every lesson belongs to a section the page can draw, and every section has
+// at least one lesson. A lesson whose section does not exist is invisible:
+// the page groups by section, so it would simply never be rendered and
+// nothing would say so.
+const sectionKeys = new Set(SECTIONS.map((s) => s.key));
+for (const l of LESSONS) {
+  if (!sectionKeys.has(l.section)) {
+    bad(`lesson ${l.key}`, `section "${l.section}" is not one of the declared sections`);
+  }
+}
+for (const s of SECTIONS) {
+  const n = LESSONS.filter((l) => l.section === s.key).length;
+  if (n) ok(`${s.key}: ${n} lesson${n === 1 ? '' : 's'}`);
+  else bad(`section ${s.key}`, 'has no lessons, so it would draw as an empty heading');
+}
+
+// The first section is the one somebody opens on their first morning, and the
+// page relies on file order rather than a sort.
+if (SECTIONS[0].key === 'first') ok('the course still opens with the first week');
+else bad('order', `first section is ${SECTIONS[0].key}, expected first`);
+
+// The training links to the cheat sheet and the cheat sheet links back. Both
+// are ordinary pages that somebody could move.
+if (existsSync(join(PUBLIC, 'app/cheatsheet.html'))) ok('the cheat sheet exists');
+else bad('cheat sheet', 'app/cheatsheet.html is missing but the training links to it');
 
 console.log(`\n${checks - failures} of ${checks} checks passed`);
 if (failures) { console.log(`${failures} failed`); process.exit(1); }

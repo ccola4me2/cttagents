@@ -446,6 +446,7 @@ const PAGE_FILES = {
   '/app/segments': '/app/segments.html',
   '/app/manual': '/app/manual.html',
   '/app/training': '/app/training.html',
+  '/app/cheatsheet': '/app/cheatsheet.html',
   '/app/broadcasts': '/app/broadcasts.html',
   '/app/broadcast': '/app/broadcast.html',
   '/app/complete': '/app/complete.html',

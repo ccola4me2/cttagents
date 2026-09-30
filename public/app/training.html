@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Getting started | CTT Agent Portal</title>
+<title>Training | CTT Agent Portal</title>
 <meta name="robots" content="noindex, nofollow">
 <link rel="icon" href="/logo-mark.png" type="image/png">
 <link rel="stylesheet" href="/css/app.css">
@@ -13,12 +13,14 @@
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main">
     <header class="topbar">
-      <div><h1>Getting started</h1><p class="sub">Your first week, in the order it happens. Nothing here is marked and nothing is timed.</p></div>
+      <div><h1>Training</h1><p class="sub">Every screen in the portal, grouped the way the menu is. Your first week first, then the rest as you need it.</p></div>
+      <a class="btn btn-ghost btn-sm" href="/app/cheatsheet">Cheat sheet</a>
     </header>
     <div class="content">
       <div id="err"></div>
       <section id="summary"></section>
-      <section id="lessons"></section>
+      <section id="contents"></section>
+      <section id="body"></section>
     </div>
   </div>
 </div>
@@ -28,23 +30,28 @@ import { api, mountShell, esc, showError } from '/js/app.js';
 await mountShell();
 
 const summary = document.getElementById('summary');
-const lessons = document.getElementById('lessons');
+const contents = document.getElementById('contents');
+const body = document.getElementById('body');
+
+const bar = (done, total, colour) => {
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  return `<div style="height:8px;border-radius:4px;background:#e6eef6;overflow:hidden;">
+    <div style="height:100%;width:${pct}%;background:${colour};"></div></div>`;
+};
 
 /**
  * One lesson.
  *
- * The next unfinished one is called out, because the useful question on
- * opening this page is "where was I" and nine identical cards do not answer
- * it. Finished ones stay fully readable rather than collapsing: somebody
- * coming back to check the ninety day rule is exactly who this is for.
+ * The next unfinished one is called out, because the question on opening this
+ * page is "where was I" and thirty-five identical cards do not answer it.
+ * Finished ones stay fully readable rather than collapsing: somebody coming
+ * back to remind themselves what Group space is for is exactly who this is for.
  */
 function card(l, n, isNext) {
-  return `<section class="card" style="margin-bottom:1rem;${
-    isNext ? 'border-color:#1b3a5f;' : ''}">
+  return `<section class="card" style="margin-bottom:1rem;${isNext ? 'border-color:#1b3a5f;' : ''}">
     <div class="card-head">
-      <h2>${n}. ${esc(l.title)}</h2>
-      ${l.done
-        ? '<span class="muted" style="font-size:.8rem;">Done</span>'
+      <h2 style="font-size:1rem;">${n}. ${esc(l.title)}</h2>
+      ${l.done ? '<span class="muted" style="font-size:.8rem;">Done</span>'
         : (isNext ? '<span class="muted" style="font-size:.8rem;">Start here</span>' : '')}
     </div>
     <div class="card-pad">
@@ -62,24 +69,40 @@ function card(l, n, isNext) {
 }
 
 function render(d) {
-  const pct = d.total ? Math.round((d.finished / d.total) * 100) : 0;
   summary.innerHTML = `<div class="card card-pad" style="margin-bottom:1rem;">
     <p style="margin:0 0 .6rem;font-weight:600;">${d.finished} of ${d.total} done</p>
-    <div style="height:10px;border-radius:5px;background:#e6eef6;overflow:hidden;">
-      <div style="height:100%;width:${pct}%;background:#1b3a5f;"></div>
-    </div>
+    ${bar(d.finished, d.total, '#1b3a5f')}
     <p class="field-hint" style="margin:.7rem 0 0;">${
       d.finished === d.total
-        ? 'That is the lot. The manual stays where it is when you need to look something up.'
-        : 'Work through them in order. You can stop anywhere and this remembers.'}</p>
+        ? 'That is the lot. The manual and the cheat sheet stay where they are when you need to look something up.'
+        : 'Nobody is expected to do these in one sitting. Your first week is the part that matters on day one.'}</p>
   </div>`;
 
-  lessons.innerHTML = d.lessons
-    .map((l, i) => card(l, i + 1, l.key === d.next))
-    .join('');
+  contents.innerHTML = `<div class="card" style="margin-bottom:1.5rem;">
+    <div class="card-head"><h2>What is in here</h2></div>
+    <div class="card-pad">
+      ${d.sections.map((s) => `<p style="margin:0 0 .9rem;">
+        <a href="#s-${esc(s.key)}"><strong>${esc(s.title)}</strong></a>
+        <span class="muted" style="font-size:.85rem;">&nbsp;${s.finished} of ${s.total}</span><br>
+        <span class="field-hint">${esc(s.blurb)}</span></p>`).join('')}
+    </div>
+  </div>`;
+
+  let n = 0;
+  body.innerHTML = d.sections.map((s) => {
+    const mine = d.lessons.filter((l) => l.section === s.key);
+    return `<div id="s-${esc(s.key)}" style="margin-bottom:2rem;">
+      <div style="margin-bottom:.9rem;">
+        <h2 style="margin:0 0 .3rem;">${esc(s.title)}</h2>
+        <p class="field-hint" style="margin:0 0 .6rem;">${esc(s.blurb)}</p>
+        ${bar(s.finished, s.total, s.finished === s.total ? '#2f7d4f' : '#1b3a5f')}
+      </div>
+      ${mine.map((l) => card(l, ++n, l.key === d.next)).join('')}
+    </div>`;
+  }).join('');
 }
 
-lessons.addEventListener('click', async (e) => {
+body.addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-lesson]');
   if (!btn) return;
   btn.disabled = true;

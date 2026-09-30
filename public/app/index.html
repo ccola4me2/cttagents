@@ -1212,8 +1212,8 @@ try {
     const box = document.getElementById('training-nudge');
     box.innerHTML = `<div class="notice notice-info" style="margin-bottom:1rem;">
       ${t.finished === 0
-        ? 'New here? <strong>Getting started</strong> walks you through your first week in nine short steps.'
-        : `You are <strong>${t.finished} of ${t.total}</strong> through Getting started.`}
+        ? 'New here? <strong>Training</strong> walks you through every screen in the portal, starting with your first week.'
+        : `You are <strong>${t.finished} of ${t.total}</strong> through the training.`}
       <a href="/app/training">${t.finished === 0 ? 'Take a look' : 'Pick up where you left off'}</a></div>`;
   }
 } catch (e) { /* The dashboard is the point; this is a footnote on it. */ }

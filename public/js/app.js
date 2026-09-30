@@ -255,7 +255,8 @@ const NAV = [
     hub: 'Setup', icon: I.gear, items: [
       { href: '/app/settings', label: 'Settings' },
       { href: '/app/membership', label: 'Membership' },
-      { href: '/app/training', label: 'Getting started' },
+      { href: '/app/training', label: 'Training' },
+      { href: '/app/cheatsheet', label: 'Cheat sheet' },
       { href: '/app/manual', label: 'How this works' },
     ],
   },
