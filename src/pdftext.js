@@ -37,10 +37,10 @@ function latin1(bytes) {
 async function inflate(bytes) {
   for (const format of ['deflate', 'deflate-raw']) {
     try {
-      const stream = new ReadableStream({
-        start(c) { c.enqueue(bytes); c.close(); },
-      }).pipeThrough(new DecompressionStream(format));
-      const out = await new Response(stream).arrayBuffer();
+      // Response rather than a hand built ReadableStream: it gives the same
+      // stream in one expression, and the bytes are already in memory.
+      const piped = new Response(bytes).body.pipeThrough(new DecompressionStream(format));
+      const out = await new Response(piped).arrayBuffer();
       if (out.byteLength) return new Uint8Array(out);
     } catch { /* the other wrapping, or not compressed at all */ }
   }
