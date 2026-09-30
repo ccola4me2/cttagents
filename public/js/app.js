@@ -167,6 +167,70 @@ export function daysUntil(iso) {
   return Math.ceil((d - Date.now()) / 86400000);
 }
 
+/**
+ * A date that moves on when it is finished.
+ *
+ * A browser date field advances by itself from the month to the day, because
+ * nothing past 12 can follow a month. It cannot do that for the year: a year
+ * may run to six digits, so four typed are not known to be the end, and the
+ * field sits there waiting until somebody presses Tab. Forty odd date fields in
+ * this portal, and every one of them cost that keypress.
+ *
+ * So the year is treated as finished when typing it brings it to four digits,
+ * and focus moves to whatever comes next. One listener on the document rather
+ * than one per field, because half the pages draw their fields after they load.
+ *
+ * Deliberately narrow, because a field that takes focus away from somebody who
+ * did not ask is worse than one that needs a Tab:
+ *
+ *   - Only when a digit was just typed. Choosing a day from the calendar popup
+ *     also fires an input event and must not jump.
+ *   - Only when the year went from short to four digits. Correcting the month on
+ *     a date that is already complete changes the value but not the year, and
+ *     would otherwise throw the cursor into the next field mid edit.
+ */
+(function installDateAdvance() {
+  if (typeof document === 'undefined' || window.__dateAdvance) return;
+  window.__dateAdvance = true;
+
+  const FOCUSABLE = 'input:not([type="hidden"]):not([disabled]):not([readonly]),'
+    + ' select:not([disabled]), textarea:not([disabled]), button:not([disabled]),'
+    + ' a[href], [tabindex]:not([tabindex="-1"])';
+  const yearOf = (v) => (/^\d{4,}-\d{2}-\d{2}$/.test(v || '') ? Number(v.split('-')[0]) : 0);
+  const lastYear = new WeakMap();
+  let typedAt = 0;
+
+  const isDate = (el) => el && el.tagName === 'INPUT' && el.type === 'date';
+  const showing = (el) => el.getClientRects().length > 0;
+
+  function after(el) {
+    const all = [...document.querySelectorAll(FOCUSABLE)].filter(showing);
+    const at = all.indexOf(el);
+    return at >= 0 ? all[at + 1] || null : null;
+  }
+
+  document.addEventListener('focusin', (e) => {
+    if (isDate(e.target)) lastYear.set(e.target, yearOf(e.target.value));
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (isDate(e.target) && /^\d$/.test(e.key)) typedAt = Date.now();
+  }, true);
+
+  document.addEventListener('input', (e) => {
+    const el = e.target;
+    if (!isDate(el)) return;
+    const was = lastYear.get(el) || 0;
+    const now = yearOf(el.value);
+    lastYear.set(el, now);
+    if (Date.now() - typedAt > 400) return;
+    if (was < 1000 && now >= 1000 && now <= 9999) {
+      const next = after(el);
+      if (next) next.focus();
+    }
+  });
+})();
+
 // --------------------------------------------------------------- shell ---
 const I = {
   home: 'M3 10.5 12 3l9 7.5M5.5 9.5V20h13V9.5',
