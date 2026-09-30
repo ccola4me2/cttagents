@@ -62,6 +62,13 @@ import { handleProposals, handleMarkBooked, handleSetDeclined } from './proposal
   serveTripDocument,
   renderTripManifest,
 } from './share.js';
+
+// The course a new advisor works through, and how far everybody has got.
+import {
+  handleTraining,
+  handleTrainingDone,
+  handleTrainingBoard,
+} from './training.js';
 import { handleShareClient, renderHubPage } from './hub.js';
 import { handleDuplicates, handleMergeClients } from './merge.js';
 import { renderPortal, handlePortalSignIn } from './portal.js';
@@ -1122,6 +1129,9 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/documents' && method === 'GET') return handleDocumentWatch(request, env);
 
   // ---- admin ------------------------------------------------------------
+  if (path === '/api/training' && method === 'GET') return handleTraining(request, env);
+  if (path === '/api/training' && method === 'POST') return handleTrainingDone(request, env);
+  if (path === '/api/admin/training' && method === 'GET') return handleTrainingBoard(request, env);
   if (path === '/api/admin/health' && method === 'GET') return handleHealth(request, env);
   if (path === '/api/admin/catalog-mirror' && method === 'GET') return handleMirrorStatus(request, env);
   if (path === '/api/admin/catalog-mirror' && method === 'POST') return handleMirrorCatalog(request, env);

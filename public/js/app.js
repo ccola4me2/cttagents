@@ -255,6 +255,7 @@ const NAV = [
     hub: 'Setup', icon: I.gear, items: [
       { href: '/app/settings', label: 'Settings' },
       { href: '/app/membership', label: 'Membership' },
+      { href: '/app/training', label: 'Getting started' },
       { href: '/app/manual', label: 'How this works' },
     ],
   },
@@ -263,6 +264,7 @@ const NAV = [
 const ADMIN_NAV = [
   { href: '/admin/', label: 'Advisors', icon: I.people },
   { href: '/admin/agencies', label: 'Agency', icon: I.handshake },
+  { href: '/admin/training', label: 'Training', icon: I.book },
   { href: '/admin/manual', label: 'Running the agency', icon: I.book },
   { href: '/app/', label: 'Back to portal', icon: I.back },
 ];

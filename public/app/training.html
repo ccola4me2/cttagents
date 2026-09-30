@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Getting started | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Getting started</h1><p class="sub">Your first week, in the order it happens. Nothing here is marked and nothing is timed.</p></div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <section id="summary"></section>
+      <section id="lessons"></section>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api, mountShell, esc, showError } from '/js/app.js';
+await mountShell();
+
+const summary = document.getElementById('summary');
+const lessons = document.getElementById('lessons');
+
+/**
+ * One lesson.
+ *
+ * The next unfinished one is called out, because the useful question on
+ * opening this page is "where was I" and nine identical cards do not answer
+ * it. Finished ones stay fully readable rather than collapsing: somebody
+ * coming back to check the ninety day rule is exactly who this is for.
+ */
+function card(l, n, isNext) {
+  return `<section class="card" style="margin-bottom:1rem;${
+    isNext ? 'border-color:#1b3a5f;' : ''}">
+    <div class="card-head">
+      <h2>${n}. ${esc(l.title)}</h2>
+      ${l.done
+        ? '<span class="muted" style="font-size:.8rem;">Done</span>'
+        : (isNext ? '<span class="muted" style="font-size:.8rem;">Start here</span>' : '')}
+    </div>
+    <div class="card-pad">
+      <p style="margin-top:0;">${esc(l.why)}</p>
+      <p class="field-hint" style="margin-bottom:1rem;"><strong>Do this:</strong> ${esc(l.doing)}</p>
+      <p style="margin-bottom:1rem;">
+        <a href="/app/manual#${esc(l.manual)}">Read it in the manual</a>
+        &nbsp;&middot;&nbsp;
+        <a href="${esc(l.page)}">Open the page</a>
+      </p>
+      <button class="btn ${l.done ? '' : 'btn-primary'}" data-lesson="${esc(l.key)}"
+        data-done="${l.done ? '1' : ''}">${l.done ? 'Mark as not done' : 'Mark this done'}</button>
+    </div>
+  </section>`;
+}
+
+function render(d) {
+  const pct = d.total ? Math.round((d.finished / d.total) * 100) : 0;
+  summary.innerHTML = `<div class="card card-pad" style="margin-bottom:1rem;">
+    <p style="margin:0 0 .6rem;font-weight:600;">${d.finished} of ${d.total} done</p>
+    <div style="height:10px;border-radius:5px;background:#e6eef6;overflow:hidden;">
+      <div style="height:100%;width:${pct}%;background:#1b3a5f;"></div>
+    </div>
+    <p class="field-hint" style="margin:.7rem 0 0;">${
+      d.finished === d.total
+        ? 'That is the lot. The manual stays where it is when you need to look something up.'
+        : 'Work through them in order. You can stop anywhere and this remembers.'}</p>
+  </div>`;
+
+  lessons.innerHTML = d.lessons
+    .map((l, i) => card(l, i + 1, l.key === d.next))
+    .join('');
+}
+
+lessons.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-lesson]');
+  if (!btn) return;
+  btn.disabled = true;
+  try {
+    await api('/api/training', {
+      method: 'POST',
+      body: { lesson: btn.dataset.lesson, done: !btn.dataset.done },
+    });
+    render(await api('/api/training'));
+  } catch (err) {
+    btn.disabled = false;
+    showError(document.getElementById('err'), err);
+  }
+});
+
+async function load() {
+  try { render(await api('/api/training')); }
+  catch (err) { showError(document.getElementById('err'), err); }
+}
+
+await load();
+</script>
+</body></html>

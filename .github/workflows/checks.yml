@@ -187,6 +187,13 @@ jobs:
       - name: The morning digest goes once a day
         run: npm run check:digest
 
+      # The course links into the manual and into pages by name. Both live in
+      # other files, so a renamed section or a moved page would be found by a
+      # brand new advisor on their first morning, which is the worst possible
+      # person to find it.
+      - name: Getting started points at things that exist
+        run: npm run check:training
+
       - name: Build the database from the migrations
         run: npx wrangler d1 migrations apply cttagents --local
 

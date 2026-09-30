@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Training | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Training</h1>
+        <p class="sub">How far each advisor has got through Getting started. Newest first, because the people who joined last are the ones this is for.</p></div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <section class="card" id="panel"><p class="spinner">Loading...</p></section>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api, mountShell, esc, showError } from '/js/app.js';
+await mountShell({ admin: true });
+
+const panel = document.getElementById('panel');
+
+const when = (ts) => (ts
+  ? new Date(ts * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+  : '');
+
+/**
+ * Deliberately a count and a date, not a list of which lessons.
+ *
+ * The useful question is whether somebody is moving, and "3 of 9, nothing
+ * since the 14th" answers it. Which particular lesson they stopped on is
+ * between them and the course, and putting it on a screen their boss reads
+ * changes what the ticks mean.
+ */
+function row(a, total) {
+  const pct = total ? Math.round((a.finished / total) * 100) : 0;
+  const started = a.finished > 0;
+  return `<tr>
+    <td>${esc(a.name)}<br><span class="muted" style="font-size:.8rem;">${esc(a.email)}</span></td>
+    <td>${esc(a.status || '')}</td>
+    <td style="min-width:9rem;">
+      <div style="height:8px;border-radius:4px;background:#e6eef6;overflow:hidden;">
+        <div style="height:100%;width:${pct}%;background:${
+          a.finished === total ? '#2f7d4f' : '#1b3a5f'};"></div>
+      </div>
+      <span class="muted" style="font-size:.8rem;">${a.finished} of ${total}</span>
+    </td>
+    <td>${started
+      ? esc(when(a.lastAt))
+      : '<span class="muted">Not started</span>'}</td>
+  </tr>`;
+}
+
+function render(d) {
+  if (!d.advisors.length) {
+    panel.innerHTML = '<div class="card-pad"><p class="muted">No advisors yet.</p></div>';
+    return;
+  }
+  const notStarted = d.advisors.filter((a) => !a.finished).length;
+  panel.innerHTML = `
+    <div class="card-pad">
+      <p style="margin-top:0;">${d.advisors.length} advisor${d.advisors.length === 1 ? '' : 's'}${
+        notStarted ? `, ${notStarted} yet to start` : ', everybody has made a start'}.</p>
+    </div>
+    <table class="table">
+      <thead><tr><th>Advisor</th><th>Status</th><th>Progress</th><th>Last worked on</th></tr></thead>
+      <tbody>${d.advisors.map((a) => row(a, d.total)).join('')}</tbody>
+    </table>`;
+}
+
+try { render(await api('/api/admin/training')); }
+catch (err) { showError(document.getElementById('err'), err); }
+</script>
+</body></html>

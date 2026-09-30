@@ -22,6 +22,7 @@
     </header>
     <div class="content">
       <div id="err"></div>
+      <section id="training-nudge"></section>
       <section id="stats" class="stat-grid"></section>
       <section id="stat-note"></section>
       <section id="notice"></section>
@@ -1194,5 +1195,27 @@ try {
   build();
 }
 catch (err) { showError(document.getElementById('notice'), err); }
+
+/**
+ * The course, for somebody who has not finished it.
+ *
+ * On its own page it waits to be found, and the person who most needs it is
+ * the one who does not yet know the portal has pages. So it says so here,
+ * quietly, and stops saying it the moment they are through.
+ *
+ * Its own try/catch and its own await: a dashboard that failed to draw because
+ * the training endpoint was slow would be a worse thing than no nudge.
+ */
+try {
+  const t = await api('/api/training');
+  if (t.finished < t.total) {
+    const box = document.getElementById('training-nudge');
+    box.innerHTML = `<div class="notice notice-info" style="margin-bottom:1rem;">
+      ${t.finished === 0
+        ? 'New here? <strong>Getting started</strong> walks you through your first week in nine short steps.'
+        : `You are <strong>${t.finished} of ${t.total}</strong> through Getting started.`}
+      <a href="/app/training">${t.finished === 0 ? 'Take a look' : 'Pick up where you left off'}</a></div>`;
+  }
+} catch (e) { /* The dashboard is the point; this is a footnote on it. */ }
 </script>
 </body></html>
