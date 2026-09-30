@@ -280,7 +280,9 @@ is('a name printed surname first', lastFirst('LANDERS-TAYLOR,ROBERT'), 'Robert L
   // Chrome writes every glyph as its own move with no vertical change.
   is('a line drawn one glyph at a time is one line, not one letter per line',
     said('BT /F4 18 Tf 1 0 0 -1 0 19 Tm <0026> Tj 10 0 Td <0044> Tj 9 0 Td <004C> Tj 5 0 Td <004F> Tj ET'), 'Sail');
-  is('a move down is a new line', said('BT /F1 12 Tf 1 0 0 1 0 0 Tm <0026> Tj 0 -14 Td <0044> Tj ET'), 'S a');
+  is('a line ended with T* is a new line, as a word processor writes them',
+  decodeContent('BT (first) Tj T*\n(second) Tj T*\n(third) Tj ET', new Map()), 'first\nsecond\nthird\n');
+is('a move down is a new line', said('BT /F1 12 Tf 1 0 0 1 0 0 Tm <0026> Tj 0 -14 Td <0044> Tj ET'), 'S a');
   is('a big sideways jump is a column gap', said('BT /F1 12 Tf <0026> Tj 200 0 Td <0044> Tj ET'), 'S a');
   is('a large backward kern in a TJ array is a space and a small one is not',
     [said('BT [(Sail) -250 (Date)] TJ ET'), said('BT [(Sa) -20 (il)] TJ ET')], ['Sail Date', 'Sail']);

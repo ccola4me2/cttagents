@@ -2470,11 +2470,17 @@ function drawItinerary() {
       font-weight:400;font-size:.82rem;margin-right:.6rem;">
       <input type="checkbox" id="itin-share" style="width:auto;"
         ${itin.shared ? 'checked' : ''}> Client sees it</label>` : ''}
+    ${itin.editable === false ? '' : '<button class="btn btn-ghost btn-sm" id="itin-conf" type="button">Read a confirmation</button><input type="file" id="conf-file" accept="application/pdf,.pdf" hidden>'}
     <button class="btn btn-ghost btn-sm" id="itin-lib">From library</button>
     <button class="btn btn-secondary btn-sm" id="itin-add">Add an item</button>`;
 
   document.getElementById('itin-add').addEventListener('click', () => openItem(null));
   document.getElementById('itin-lib').addEventListener('click', openLibrary);
+  const confBtn = document.getElementById('itin-conf');
+  if (confBtn) {
+    confBtn.addEventListener('click', () => document.getElementById('conf-file').click());
+    document.getElementById('conf-file').addEventListener('change', onConfFile);
+  }
   const share = document.getElementById('itin-share');
   if (share) share.addEventListener('change', async () => {
     share.disabled = true;
@@ -2623,6 +2629,118 @@ onSubmit(itinForm, async (values) => {
   await api(path, { method: editingItem ? 'PUT' : 'POST', body: values });
   itinDlg.close();
   await loadItinerary();
+});
+
+
+// ------------------------------------------- reading a confirmation -------
+//
+// A flight e-ticket, a hotel booking, a tour voucher: the facts the itinerary needs
+// are already in a PDF somebody was sent. The server reads it and proposes lines;
+// nothing is saved until they are ticked here and added, because a time in front of
+// a client is one somebody has to have looked at.
+const confDlg = document.getElementById('conf-dlg');
+let confRead = null;
+
+const CONF_WHY = {
+  picture: 'That file is a picture of a page, with no text in it to read. A scan has to be typed in.',
+  empty: 'There was nothing in that file to read.',
+  password: 'That file is locked with a password.',
+  protected: 'That file is locked in a way this cannot open.',
+  unrecognised: 'That does not read as a flight, hotel, train, tour or transfer confirmation, so nothing was filled in. Type the lines in, or try the confirmation itself rather than a cover email.',
+};
+const CONF_FIELD = {
+  confirmationNumber: 'Confirmation number', supplier: 'Vendor', productName: 'Name of the trip',
+  departDate: 'Departing', returnDate: 'Returning', productType: 'Type of booking',
+};
+
+// The file input is redrawn with the rest of the itinerary's buttons, so this is
+// attached each time it is drawn and reads the input it was handed.
+async function onConfFile(ev) {
+  const input = ev.target;
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  err.innerHTML = `<div class="notice notice-ok">Reading ${esc(file.name)}...</div>`;
+  try {
+    const res = await fetch(`/api/bookings/${encodeURIComponent(id)}/confirmation`, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/pdf' }, body: file,
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'That file could not be read.');
+    if (!d.read) {
+      err.innerHTML = `<div class="notice notice-error">${esc(CONF_WHY[d.why] || CONF_WHY.unrecognised)}${
+        d.fields && d.fields.confirmationNumber
+          ? ` It did find the reference ${esc(d.fields.confirmationNumber)}.` : ''}</div>`;
+      return;
+    }
+    err.innerHTML = '';
+    confRead = d;
+    drawConfirmation();
+    confDlg.showModal();
+  } catch (e) { showError(err, e); }
+}
+
+function drawConfirmation() {
+  const d = confRead;
+  document.getElementById('conf-title').textContent = `Read as a ${d.kindLabel} confirmation`;
+  document.getElementById('conf-err').hidden = true;
+  document.getElementById('conf-warn').innerHTML = (d.warnings || []).map((w) =>
+    `<div class="notice notice-warn">${esc(w)}</div>`).join('');
+
+  const fields = Object.entries(d.fields || {});
+  document.getElementById('conf-fields').innerHTML = fields.length
+    ? `<p class="label" style="margin:0 0 .4rem;">Fill in on the reservation</p>${fields.map(([k, v]) =>
+      `<label style="display:flex;gap:.5rem;align-items:center;font-weight:400;margin:.2rem 0;">
+        <input type="checkbox" data-conf-field="${esc(k)}" style="width:auto;" checked>
+        ${esc(CONF_FIELD[k] || k)}: <strong>${esc(/Date$/.test(k) ? dateFmt(v) : v)}</strong></label>`).join('')}
+      <p class="field-hint">Only what the reservation does not already say.</p>` : '';
+
+  document.getElementById('conf-items').innerHTML = d.items.map((i, n) => {
+    const on = !i.exists && i.dayNumber !== null;
+    return `<label style="display:flex;gap:.6rem;align-items:flex-start;font-weight:400;padding:.4rem 0;
+        border-bottom:1px solid var(--navy-50);">
+      <input type="checkbox" data-conf-item="${n}" style="width:auto;margin-top:.3rem;"${on ? ' checked' : ''}>
+      <span><strong>${esc(i.title)}</strong>
+        <span class="muted" style="display:block;font-size:.85rem;">${
+          esc(dateFmt(i.date))}${i.startTime ? ` &middot; ${esc(sayTime(i.startTime))}${i.endTime ? ` to ${esc(sayTime(i.endTime))}` : ''}` : ''}${
+          i.dayNumber !== null ? ` &middot; day ${i.dayNumber}` : ' &middot; no day'}${
+          i.location ? ` &middot; ${esc(i.location)}` : ''}${i.detail ? ` &middot; ${esc(i.detail)}` : ''}${
+          i.exists ? ' &middot; already on the itinerary' : ''}</span></span></label>`;
+  }).join('');
+  document.getElementById('conf-add').hidden = d.editable === false;
+}
+
+document.getElementById('conf-close').addEventListener('click', () => confDlg.close());
+
+document.getElementById('conf-add').addEventListener('click', async (ev) => {
+  const d = confRead;
+  const box = document.getElementById('conf-err');
+  box.hidden = true;
+  ev.target.disabled = true;
+  try {
+    const set = {};
+    confDlg.querySelectorAll('[data-conf-field]:checked').forEach((c) => { set[c.dataset.confField] = d.fields[c.dataset.confField]; });
+    if (Object.keys(set).length) {
+      await api(`/api/bookings/${encodeURIComponent(id)}/quick`, { method: 'POST', body: set });
+    }
+    let added = 0;
+    for (const c of confDlg.querySelectorAll('[data-conf-item]:checked')) {
+      const i = d.items[Number(c.dataset.confItem)];
+      await api(`/api/bookings/${encodeURIComponent(id)}/itinerary`, { method: 'POST', body: {
+        title: i.title, dayNumber: i.dayNumber, startTime: i.startTime, endTime: i.endTime, kind: i.kind,
+        location: i.location, detail: i.detail, confirmation: i.confirmation } });
+      added += 1;
+    }
+    confDlg.close();
+    await load();
+    await loadItinerary();
+    err.innerHTML = `<div class="notice notice-ok">Added ${added} line${added === 1 ? '' : 's'} to the itinerary.${
+      d.shared ? '' : ' The client cannot see it yet: tick <strong>Client sees it</strong> on the itinerary when it is ready.'}</div>`;
+  } catch (e) {
+    box.textContent = e.message || 'That did not save.';
+    box.hidden = false;
+  } finally { ev.target.disabled = false; }
 });
 
 // ------------------------------------------------------- the library --------
@@ -3229,6 +3347,19 @@ else await load();
       <button class="btn btn-primary" type="submit">Save item</button>
     </div>
   </form>
+</dialog>
+<dialog id="conf-dlg">
+  <div class="card-head"><h2 id="conf-title">A confirmation</h2>
+    <button class="btn btn-ghost btn-sm" type="button" id="conf-close">Close</button></div>
+  <div class="card-pad">
+    <div class="notice notice-error" id="conf-err" hidden></div>
+    <div id="conf-warn"></div>
+    <div id="conf-fields"></div>
+    <p class="label" style="margin:1rem 0 .4rem;">Lines for the itinerary</p>
+    <div id="conf-items"></div>
+    <p class="field-hint">Check each one against the confirmation. A time here goes in front of your client.</p>
+    <p style="margin:1rem 0 0;"><button class="btn btn-primary" type="button" id="conf-add">Add to the itinerary</button></p>
+  </div>
 </dialog>
 <dialog id="lib-dlg">
   <div class="card-head"><h2>Your library</h2>

@@ -161,7 +161,9 @@ export function decodeContent(text, cmap) {
     + '|\\(((?:\\\\.|[^\\\\()])*)\\)'
     + '|(-?\\d*\\.?\\d+)\\s+(-?\\d*\\.?\\d+)\\s+T[dD]\\b'
     + '|\\/[^\\s\\/\\[\\]<>()]+\\s+(-?\\d*\\.?\\d+)\\s+Tf\\b'
-    + '|\\b(T\\*|Tm|ET)\\b', 'g');
+    // T* has no word character after it, so a trailing \\b never matched and every
+    // line a producer ended with T* ran into the next one.
+    + '|(\\bT\\*|\\bTm\\b|\\bET\\b)', 'g');
   let size = 10;
   let m;
   while ((m = re.exec(text))) {

@@ -207,6 +207,12 @@ jobs:
       - name: A trip page puts its reservations in order
         run: npm run check:trips
 
+      # A confirmation becomes itinerary lines. The ways it goes wrong are quiet: a
+      # flight listed three times, an arrival taken for the departure, a day and
+      # month with no year put in the wrong one.
+      - name: A confirmation is read into lines that are not wrong
+        run: npm run check:confirmation
+
       - name: Build the database from the migrations
         run: npx wrangler d1 migrations apply cttagents --local
 

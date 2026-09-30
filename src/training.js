@@ -114,6 +114,15 @@ export const LESSONS = [
     doing: 'Tick two or three reservations that are one holiday on the list and press Put together as one trip. Write a welcome and a Good to know note, then use See what they see before you share the link. Quotes cannot go in a trip, and a reservation is in one trip at a time.',
   },
   {
+    key: 'confirmations',
+    section: 'reservation',
+    title: 'The itinerary, from a confirmation',
+    why: 'The flight time, the hotel check in and where the tour meets are already in a PDF you were sent. Reading it proposes the itinerary lines instead of you retyping them, and you check every one before it goes in front of a client.',
+    manual: 'reservations',
+    page: '/app/reservations',
+    doing: 'Open a reservation, press Read a confirmation on its itinerary and upload a hotel or flight PDF. Untick anything wrong, add the rest, then tick Client sees it when you are happy. A time with no am or pm is read as 24 hour and flagged, so check those first.',
+  },
+  {
     key: 'gaps',
     section: 'reservation',
     title: 'Fill in the gaps',

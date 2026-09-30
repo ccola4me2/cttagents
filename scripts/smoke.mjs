@@ -8780,6 +8780,86 @@ async function main() {
   check((await call(advisor, 'GET', `/api/bookings/${air}/record`)).status === 200, 'and leaves the reservations as they were');
   }
 
+  // ------------------------------- a confirmation becomes itinerary lines ----
+  // Read only: the answer is a proposal, and what is added is added through the
+  // ordinary itinerary endpoints after somebody has looked. What is worth pinning is
+  // that nothing is saved by reading, that the days come out relative to the
+  // departure, that a second upload knows what is already there, and that a file
+  // with nothing to read says so instead of inventing lines.
+  {
+  step('Reading a confirmation into the itinerary');
+
+  const pdfOf = (lines) => {
+    const content = `BT /F1 11 Tf 14 TL 50 750 Td\n${lines.map((l) => `(${l}) Tj T*`).join('\n')}\nET`;
+    return '%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n'
+      + '3 0 obj\n<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n'
+      + `4 0 obj\n<< /Length ${content.length} >>\nstream\n${content}\nendstream\nendobj\n`
+      + '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF';
+  };
+  const post = async (jar, path, text) => {
+    const res = await fetch(`${BASE}${path}`, {
+      method: 'POST', redirect: 'manual',
+      headers: { 'content-type': 'application/pdf', ...(jar && jar.header() ? { cookie: jar.header() } : {}) },
+      body: text,
+    });
+    const raw = await res.text();
+    let data = null;
+    try { data = raw ? JSON.parse(raw) : null; } catch { /* not JSON */ }
+    return { status: res.status, data };
+  };
+  const say = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US',
+    { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+
+  const inDay = isoDay(80);
+  const outDay = isoDay(84);
+  const made = await call(advisor, 'POST', '/api/bookings', {
+    clientName: `Confirmation Client ${stamp}`, supplier: 'Booking.com', status: 'booked', productType: 'hotel',
+    productName: 'Sample Seaside Resort', departDate: inDay, returnDate: outDay, gross: '900',
+  });
+  const bid = made.data?.booking?.id;
+  if (bid) cleanup('a confirmation reservation', () => dropBooking(bid));
+
+  const hotel = pdfOf(['Booking confirmation', 'Hotel: SAMPLE SEASIDE RESORT', 'Address: 12 Harbour Road, Nassau, Bahamas',
+    `Check-in: ${say(inDay)} from 4:00 PM`, `Check-out: ${say(outDay)} 11:00 AM`,
+    'Room type: Ocean view 2 adults, 4 nights', 'Confirmation number: H88231']);
+
+  const anon = await post(null, `/api/bookings/${bid}/confirmation`, hotel);
+  check(anon.status === 401, 'reading a confirmation needs a sign in', `status ${anon.status}`);
+  const nowhere = await post(advisor, '/api/bookings/not-a-real-reservation/confirmation', hotel);
+  check(nowhere.status === 404, 'a reservation that is not there is not found', `status ${nowhere.status}`);
+
+  const junk = await post(advisor, `/api/bookings/${bid}/confirmation`, 'this is not a pdf');
+  check(junk.status === 200 && junk.data?.read === false && junk.data?.why,
+    'a file with nothing to read says so, and why', JSON.stringify(junk.data?.why));
+
+  const got = await post(advisor, `/api/bookings/${bid}/confirmation`, hotel);
+  check(got.status === 200 && got.data?.read === true && got.data?.kind === 'hotel',
+    'a hotel confirmation is read as one', `${got.status} ${got.data?.kind} ${got.data?.why}`);
+  const items = got.data?.items || [];
+  check(items.length === 2 && items[0].dayNumber === 1 && items[1].dayNumber === 5,
+    'with a check in on day one and the check out on day five, counted from the departure',
+    JSON.stringify(items.map((i) => [i.title, i.dayNumber])));
+  check(items[0]?.startTime === '16:00' && items[1]?.startTime === '11:00', 'at the hours it printed',
+    JSON.stringify(items.map((i) => i.startTime)));
+  check(got.data?.fields?.confirmationNumber === 'H88231' && !got.data?.fields?.departDate,
+    'it offers the confirmation number, and not the dates the reservation already has',
+    JSON.stringify(got.data?.fields));
+
+  const before = await call(advisor, 'GET', `/api/bookings/${bid}/itinerary`);
+  check((before.data?.items || []).length === 0, 'and reading it saved nothing');
+
+  // What the page does when somebody presses Add.
+  for (const i of items) {
+    await call(advisor, 'POST', `/api/bookings/${bid}/itinerary`, {
+      title: i.title, dayNumber: i.dayNumber, startTime: i.startTime, endTime: i.endTime, kind: i.kind,
+      location: i.location, detail: i.detail, confirmation: i.confirmation });
+  }
+  const again = await post(advisor, `/api/bookings/${bid}/confirmation`, hotel);
+  check((again.data?.items || []).length === 2 && again.data.items.every((i) => i.exists),
+    'a second upload of the same thing knows what is already on the itinerary',
+    JSON.stringify((again.data?.items || []).map((i) => i.exists)));
+  }
+
   // ------------------------------------------------- paying the advisors ----
   // The last step of the money. Everything before this says what an advisor
   // has earned out of what the vendor sent; this is the agency writing the

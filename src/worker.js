@@ -269,6 +269,7 @@ import {
   handleSuggestHouseholds,
 } from './households.js';
 import {
+  handleReadItineraryConfirmation,
   handleListItinerary,
   handleSaveItem,
   handleDeleteItem,
@@ -690,6 +691,7 @@ async function routeApi(request, env, path, method) {
   const specialMatch = path.match(/^\/api\/specials\/([^/]+)$/);
   const myTplMatch = path.match(/^\/api\/form-templates\/([^/]+)$/);
   const itinMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary$/);
+  const itinConfMatch = path.match(/^\/api\/bookings\/([^/]+)\/confirmation$/);
   const itinItemMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary\/([^/]+)$/);
   const itinShareMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary-shared$/);
   const itinUseMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary\/from-library$/);
@@ -1039,6 +1041,7 @@ async function routeApi(request, env, path, method) {
   if (itinShareMatch && method === 'POST') {
     return handleShareItinerary(request, env, itinShareMatch[1]);
   }
+  if (itinConfMatch && method === 'POST') return handleReadItineraryConfirmation(request, env, itinConfMatch[1]);
   if (itinMatch && method === 'GET') return handleListItinerary(request, env, itinMatch[1]);
   if (itinMatch && method === 'POST') return handleSaveItem(request, env, itinMatch[1], null);
   if (itinItemMatch && method === 'PUT') {

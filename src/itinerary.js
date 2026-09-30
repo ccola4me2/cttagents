@@ -16,6 +16,8 @@ import {
 } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
+import { pdfRead } from './pdftext.js';
+import { readConfirmationLines } from './confirmation.js';
 
 // What a line on an itinerary is. Order is the order they are offered.
 export const ITEM_KINDS = [
@@ -300,4 +302,99 @@ export async function handleShareItinerary(request, env, bookingId) {
   if (!res.meta || res.meta.changes === 0) return notFound('Reservation not found.');
 
   return json({ ok: true, shared: on });
+}
+
+/**
+ * Read a confirmation PDF and propose what it adds to this trip.
+ *
+ * Read only. Nothing is saved here: the answer is lines for the advisor to look at
+ * and tick, and the page adds the ones they keep through the ordinary itinerary
+ * endpoints. A proposal that saved itself would put a wrong flight time in front of
+ * a client on the strength of a document nobody had checked it against.
+ *
+ * Anybody who can open the reservation can ask; only somebody who may edit it gets
+ * the button that adds.
+ */
+export async function handleReadItineraryConfirmation(request, env, bookingId) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const scope = db.scopeFor(env, user, request);
+  const booking = await db.getBookingInScope(env, bookingId, scope);
+  if (!booking) return notFound('Reservation not found.');
+
+  const buf = await request.arrayBuffer().catch(() => null);
+  if (!buf || !buf.byteLength) return badRequest('No file arrived.');
+  // A confirmation is a page or two. Anything past this is not one, and a Worker
+  // that inflates it finds out the expensive way.
+  if (buf.byteLength > 8 * 1024 * 1024) return badRequest('That file is larger than 8MB, which is bigger than any confirmation.');
+
+  const file = await pdfRead(buf);
+  const out = readConfirmationLines(file.text, { depart: booking.depart_date, ret: booking.return_date });
+
+  const locked = file.encryption === 'password' || file.encryption === 'unsupported';
+  const why = out.read ? null
+    : locked ? (file.encryption === 'password' ? 'password' : 'protected')
+      : file.text.trim().length < 40 ? (file.images > 0 ? 'picture' : 'empty')
+        : 'unrecognised';
+
+  // Which day of the trip each line falls on. Days are numbers counted from the
+  // departure, so a sailing that moves takes its itinerary with it; a date before
+  // the departure is day 0 or less and has no number, and is said so rather than
+  // filed on day one.
+  const base = booking.depart_date || out.fields.departDate || '';
+  const dayOf = (iso) => {
+    if (!base || !iso) return null;
+    const n = Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${base}T00:00:00Z`)) / 86400000) + 1;
+    return n >= 1 && n <= 399 ? n : null;
+  };
+
+  const existing = await listItems(env, bookingId, scope);
+  const warnings = [...out.warnings];
+  const items = out.items.map((i) => {
+    const dayNumber = dayOf(i.date);
+    if (dayNumber === null) {
+      warnings.push(`"${i.title}" is on ${i.date}, which is before the trip starts or far after it, so it has no day.`);
+    }
+    return {
+      ...i,
+      dayNumber,
+      // Already on the itinerary from an earlier upload of the same thing.
+      exists: existing.some((e) => e.day_number === dayNumber && (e.start_time || '') === (i.startTime || '')
+        && String(e.title || '').toLowerCase() === i.title.toLowerCase()),
+    };
+  });
+
+  // Only what the reservation does not already say. A confirmation agreeing with
+  // the reservation is not news, and one that disagrees is a warning and never an
+  // overwrite.
+  const have = {
+    confirmationNumber: booking.confirmation_number, supplier: booking.supplier,
+    productName: booking.product_name, departDate: booking.depart_date,
+    returnDate: booking.return_date, productType: booking.product_type,
+  };
+  const fields = {};
+  for (const [k, v] of Object.entries(out.fields)) {
+    if (!have[k] || (k === 'productType' && have[k] === 'other')) fields[k] = v;
+    else if (k === 'confirmationNumber' && String(have[k]).trim().toUpperCase() !== String(v).toUpperCase()) {
+      warnings.push(`This confirmation says ${v}, and the reservation has ${have[k]}. Check that it is the right one.`);
+    }
+  }
+
+  return json({
+    read: out.read,
+    why,
+    kind: out.kind,
+    kindLabel: out.kindLabel,
+    chars: file.text.length,
+    images: file.images,
+    conflicts: file.conflicts,
+    encryption: file.encryption,
+    fields,
+    items,
+    warnings,
+    missing: out.missing,
+    shared: Boolean(booking.itinerary_shared),
+    editable: db.mayWrite(user, booking),
+  });
 }
