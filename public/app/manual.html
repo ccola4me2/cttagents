@@ -30,6 +30,37 @@
   /* Below the breakpoint .split stacks, which would put a table of contents
      underneath the thing it is a table of contents for. */
   @media (max-width: 1000px) { .toc { display: none; } }
+  /* One section at a time.
+     .paged is added by the script, so with no script every section is visible
+     and the page behaves exactly as it did before. Failing back to a long page
+     is right; failing back to a blank one is not. */
+  .paged .doc { display: none; }
+  .paged .doc.on { display: block; }
+  .doc-step { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--ink-400, #8ba0b3); margin: 0 0 .2rem; }
+  .doc h2 { margin-top: 0 !important; }
+  .toc a.on { color: var(--navy-800); font-weight: 600; }
+  .toc a { border-left: 2px solid transparent; padding-left: .55rem; }
+  .toc a.on { border-left-color: var(--navy-800); }
+  .doc-nav { display: flex; gap: .6rem; justify-content: space-between;
+    margin-top: 2.2rem; padding-top: 1.1rem; border-top: 1px solid var(--navy-100, #d9e4ee); }
+  .doc-nav a { font-size: .88rem; text-decoration: none; max-width: 48%; }
+  .doc-nav a.next { margin-left: auto; text-align: right; }
+  .doc-nav span { display: block; font-size: .72rem; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--ink-400, #8ba0b3); }
+  /* The jump menu is the only navigation on a phone, where the contents card
+     is hidden. Without it one section at a time would be a dead end. */
+  .doc-jump { display: none; margin: 0 0 1.4rem; }
+  .doc-jump label { display: block; font-size: .78rem; color: var(--ink-500);
+    margin-bottom: .25rem; }
+  .doc-jump select { width: 100%; padding: .55rem; font-size: .95rem;
+    border: 1px solid var(--navy-100, #c7d9e9); border-radius: 8px; background: #fff; }
+  @media (max-width: 1000px) { .doc-jump { display: block; } }
+  @media print {
+    .sidebar, .topbar, .toc, .noprint { display: none !important; }
+    .paged .doc { display: block !important; }
+    .doc { break-inside: auto; page-break-after: always; }
+  }
 </style>
 </head>
 <body>
@@ -43,8 +74,13 @@
     <div class="content">
       <div class="split">
         <div class="manual">
+<div class="doc-jump noprint"><label for="jump">Jump to</label>
+  <select id="jump"></select></div>
 
-<h2 id="what">What this is</h2>
+<section class="doc" id="what" data-title="What this is">
+<p class="doc-step">Section 1 of 11</p>
+<h2>What this is</h2>
+
 <p class="lede">A place to keep every reservation you have sold, chase the money on
   time, and know what you are owed. It is the book of business that usually lives in a
   spreadsheet, an inbox and somebody's memory.</p>
@@ -52,8 +88,12 @@
   cruise line, the tour operator or the resort, the same as they always did. The portal
   records what is owed and when, reminds you and them before the date, and tells you what
   the vendor still owes you afterwards. Nothing here touches a card.</p>
+</section>
 
-<h2 id="boards">Two boards, and which one somebody goes on</h2>
+<section class="doc" id="boards" data-title="Two boards, and which one somebody goes on">
+<p class="doc-step">Section 2 of 11</p>
+<h2>Two boards, and which one somebody goes on</h2>
+
 <p>There are two boards and they are not a choice between them. They are the same road, and
   people move from the first to the second without anybody dragging anything.</p>
 <ul>
@@ -82,8 +122,12 @@
 <div class="aside"><p>If you skip the lead board and go straight to a reservation, nothing
   breaks. You lose the record of the conversation before the trip existed, and the reports
   that say where clients come from have one less thing to go on.</p></div>
+</section>
 
-<h2 id="reservations">Taking a reservation</h2>
+<section class="doc" id="reservations" data-title="Taking a reservation">
+<p class="doc-step">Section 3 of 11</p>
+<h2>Taking a reservation</h2>
+
 <p>Everything starts on <a href="/app/reservations">Reservations</a>. A reservation is one
   trip for one client with one vendor. A family of four on one booking is one reservation
   with four travellers on it, not four reservations.</p>
@@ -160,8 +204,12 @@
   out, one week out, the day before, and once if the date passes unpaid. They go out over
   your name, and a reply comes back to you. They are off until you turn them on, because
   nobody should inherit email to their clients by default.</p>
+</section>
 
-<h2 id="commission">Commission, and who keeps what</h2>
+<section class="doc" id="commission" data-title="Commission, and who keeps what">
+<p class="doc-step">Section 4 of 11</p>
+<h2>Commission, and who keeps what</h2>
+
 <p>Commission is what the vendor pays. You can type it, or record a percentage and let the
   portal work it out from the trip cost.</p>
 
@@ -219,8 +267,12 @@
   booking they quietly underpaid. Marking a reservation received in a batch records the
   outstanding amount for you, so the label and the money cannot disagree. A vendor statement
   can be filed and reconciled against what the portal expected.</p>
+</section>
 
-<h2 id="clients">Clients and prospects</h2>
+<section class="doc" id="clients" data-title="Clients and prospects">
+<p class="doc-step">Section 5 of 11</p>
+<h2>Clients and prospects</h2>
+
 <p>A <strong>client</strong> is somebody who has booked. A <strong>prospect</strong> is
   somebody carried over from the old CRM who has not. Both live on
   <a href="/app/clients">Clients</a>, with a filter at the top that defaults to clients.</p>
@@ -252,8 +304,12 @@
 <p><a href="/app/import-clients">Import clients</a> takes a spreadsheet or a CSV, including
   a Cruise Planners client export as it comes. It shows you what it will do before it does
   it. <a href="/app/import">Import reservations</a> does the same for a back-office export.</p>
+</section>
 
-<h2 id="clientpages">What the client can see</h2>
+<section class="doc" id="clientpages" data-title="What the client can see">
+<p class="doc-step">Section 6 of 11</p>
+<h2>What the client can see</h2>
+
 <p class="lede">Two pages you can send them, and a third way in they can use on their own.
   The two pages are public web addresses with no password, switched on by you and off by you.
   None of the three carries a word about commission.</p>
@@ -318,8 +374,12 @@
   on the record, your notes, and any other client. Treat the links themselves the same way: the
   address is the whole of the permission, so a client link forwarded on reaches everything you
   hold for that person.</p>
+</section>
 
-<h2 id="daily">The day's work</h2>
+<section class="doc" id="daily" data-title="The day's work">
+<p class="doc-step">Section 7 of 11</p>
+<h2>The day's work</h2>
+
 <ul>
   <li><a href="/app/tasks">To do</a>: tasks, due dates and reminders, including ones that
     repeat and templates for the set of things every new booking needs.</li>
@@ -334,8 +394,12 @@
   <li>Notes a client leaves on their own trip page arrive by email, and the reply goes
     straight back to them.</li>
 </ul>
+</section>
 
-<h2 id="chat">Talking to each other</h2>
+<section class="doc" id="chat" data-title="Talking to each other">
+<p class="doc-step">Section 8 of 11</p>
+<h2>Talking to each other</h2>
+
 <p class="lede"><a href="/app/chat">Chat</a> is for the people who work here. There is no
   way for a client to reach it, see it, or be added to it, and that is the point rather
   than an oversight.</p>
@@ -387,8 +451,12 @@
   to <strong>Closed</strong> at the bottom of the list where it can be opened again. A
   direct message is not a room and cannot be closed; a discussion belongs to the record it
   is on.</p>
+</section>
 
-<h2 id="selling">Finding the next booking</h2>
+<section class="doc" id="selling" data-title="Finding the next booking">
+<p class="doc-step">Section 9 of 11</p>
+<h2>Finding the next booking</h2>
+
 
 <h3>Sales opportunities</h3>
 <p><a href="/app/pipeline">Sales opportunities</a> is every live reservation by stage, so
@@ -446,8 +514,12 @@
     note, a tag, or handing the contact to a campaign you have already built in CTT
     Tools.</li>
 </ul>
+</section>
 
-<h2 id="money">Knowing where you stand</h2>
+<section class="doc" id="money" data-title="Knowing where you stand">
+<p class="doc-step">Section 10 of 11</p>
+<h2>Knowing where you stand</h2>
+
 <ul>
   <li><a href="/app/payments">Payments Due</a>: every deadline across every reservation,
     with what is late at the top.</li>
@@ -457,8 +529,12 @@
     course for it.</li>
   <li><a href="/app/membership">Membership</a>: what you pay the agency.</li>
 </ul>
+</section>
 
-<h2 id="stuck">Things that catch people out</h2>
+<section class="doc" id="stuck" data-title="Things that catch people out">
+<p class="doc-step">Section 11 of 11</p>
+<h2>Things that catch people out</h2>
+
 
 <h3>"It says past due and I have paid it"</h3>
 <p>Check which of the two lines you posted against. The reminder sits ten days in front of
@@ -495,24 +571,15 @@
 <p class="muted" style="margin-top:2.5rem;font-size:.85rem;">Something here wrong, or
   missing? Tell your agency owner and it gets fixed in the portal rather than in a
   document nobody reads.</p>
+</section>
+
+<nav class="doc-nav noprint" id="doc-nav"></nav>
 
         </div>
         <div>
           <section class="card toc">
-            <div class="card-head"><h2>On this page</h2></div>
-            <div class="card-pad">
-              <a href="#what">What this is</a>
-              <a href="#boards">Two boards, and which one somebody goes on</a>
-              <a href="#reservations">Taking a reservation</a>
-              <a href="#commission">Commission, and who keeps what</a>
-              <a href="#clients">Clients and prospects</a>
-              <a href="#clientpages">What the client can see</a>
-              <a href="#daily">The day's work</a>
-              <a href="#chat">Talking to each other</a>
-              <a href="#selling">Finding the next booking</a>
-              <a href="#money">Knowing where you stand</a>
-              <a href="#stuck">Things that catch people out</a>
-            </div>
+            <div class="card-head"><h2>Contents</h2></div>
+            <div class="card-pad" id="toc-links"></div>
           </section>
         </div>
       </div>
@@ -523,6 +590,60 @@
 <script type="module">
 import { mountShell } from '/js/app.js';
 const user = await mountShell();
-if (user && user.role === 'admin') document.getElementById('owner-note').hidden = false;
+const ownerNote = document.getElementById('owner-note');
+if (ownerNote && user && user.role === 'admin') ownerNote.hidden = false;
+
+/**
+ * A manual read one section at a time.
+ *
+ * It was eleven sections and thirty-six subsections on a single scroll, which
+ * is a reference document arranged as a wall. Nothing is removed here: the
+ * same words, shown one section at a time, with the contents always beside
+ * them so you can see where you are and what else there is.
+ *
+ * Routed on the hash rather than on clicks, so every link already sent into
+ * this page keeps working. /app/manual#commission still lands on commission,
+ * which matters because the training links into these anchors by name and
+ * check-training asserts they exist.
+ */
+const manual = document.querySelector('.manual');
+const docs = [...manual.querySelectorAll('.doc')];
+const tocBox = document.getElementById('toc-links');
+const jump = document.getElementById('jump');
+const nav = document.getElementById('doc-nav');
+
+manual.classList.add('paged');
+
+for (const [n, d] of docs.entries()) {
+  const a = document.createElement('a');
+  a.href = `#${d.id}`;
+  a.textContent = `${n + 1}. ${d.dataset.title}`;
+  tocBox.appendChild(a);
+  const o = document.createElement('option');
+  o.value = d.id;
+  o.textContent = `${n + 1}. ${d.dataset.title}`;
+  jump.appendChild(o);
+}
+
+function show(id) {
+  const i = Math.max(0, docs.findIndex((d) => d.id === id));
+  docs.forEach((d, n) => d.classList.toggle('on', n === i));
+  [...tocBox.children].forEach((a, n) => a.classList.toggle('on', n === i));
+  jump.value = docs[i].id;
+
+  const link = (d, dir, label) => `<a class="${dir}" href="#${d.id}">
+    <span>${label}</span>${d.dataset.title}</a>`;
+  nav.innerHTML = (i > 0 ? link(docs[i - 1], 'prev', 'Previous') : '')
+    + (i < docs.length - 1 ? link(docs[i + 1], 'next', 'Next') : '');
+
+  // Only when the reader moved, never on first paint: scrolling somebody to
+  // the top of a page they just opened is a jump they did not ask for.
+  if (window.__manualReady) manual.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  window.__manualReady = true;
+}
+
+jump.addEventListener('change', () => { location.hash = jump.value; });
+window.addEventListener('hashchange', () => show(location.hash.slice(1)));
+show(location.hash.slice(1) || docs[0].id);
 </script>
 </body></html>
