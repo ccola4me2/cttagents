@@ -384,7 +384,7 @@ function readTour(t, dates, times, ref, reference, warnings, fields, kind) {
   if (!day) return [];
   const tlabel = t.search(/\b(start(?:ing)? time|time|meeting time|pick-?up time|departure time)\b\s*:?/i);
   const at = tlabel >= 0 ? times.find((x) => x.at >= tlabel && x.at <= tlabel + 60) : times.find((x) => x.at >= day.at && x.at <= day.at + 80);
-  const meet = labelled(t, 'meeting point|meet at|meet(?:ing)? location|pick-?up(?:\\s+(?:point|location))?(?!\\s*(?:date|time))', { max: 140 });
+  const meet = labelled(t, 'meeting point|meet at|meet(?:ing)? location|pick-?up[ ]?(?:point|location)?(?!\\s*(?:date|time))', { max: 140 });
   if (at && !at.ampm) warnings.push(`The start time has no am or pm, so it was read as a 24 hour time (${at.hhmm}). Check it.`);
   fields.productName = title;
   return [{
