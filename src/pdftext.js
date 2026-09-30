@@ -127,7 +127,12 @@ export async function pdfText(buffer) {
       const from = m.index + m[0].length;
       const to = raw.indexOf('endstream', from);
       if (to < 0) continue;
-      streams.push({ at: m.index, from, to });
+      // Trailing end of line before the keyword. zlib in a script tolerates a
+      // few spare bytes after the deflate stream; DecompressionStream does not
+      // always, and a stream that fails to inflate is a page of nothing.
+      let end = to;
+      while (end > from && (raw[end - 1] === '\n' || raw[end - 1] === '\r')) end -= 1;
+      streams.push({ at: m.index, from, to: end });
     }
 
     // Which streams are ToUnicode maps: the object number in the reference,
@@ -145,7 +150,7 @@ export async function pdfText(buffer) {
     const cmap = new Map();
     const bodies = [];
     for (const s of streams) {
-      const data = await inflate(bytes.subarray(s.from, s.to));
+      const data = await inflate(bytes.slice(s.from, s.to));
       if (!data) continue;
       const text = latin1(data);
       if (cmapAt.has(s.at)) parseCMap(text, cmap);

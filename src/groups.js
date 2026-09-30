@@ -385,6 +385,11 @@ export async function handleParseQuote(request, env) {
   const out = parseGroupQuote(text);
   return json({
     read: out.read,
+    // How far it got. A file that does not read is either one this cannot
+    // inflate, which reads as no words at all, or one whose words are not a
+    // proposal. Those are different problems and the difference should not
+    // need a deploy to find out.
+    chars: text.length,
     fields: out.fields,
     notes: out.notes,
     found: out.found,
