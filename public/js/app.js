@@ -521,8 +521,13 @@ function mountChatCount(sidebar) {
 
   // Not while you are looking at the conversation. The chat page draws the
   // message itself, and a card announcing what is already on the screen is
-  // noise with a dismiss button.
+  // noise with a dismiss button. But only that conversation: a message in a
+  // different room is exactly what the card is for, and the chat page is where
+  // people sit all day, so muting it there muted it for the people who most
+  // needed it. The page keeps the open room in its address (?c=), which is read
+  // each time rather than once because it changes as rooms are opened.
   const onChat = location.pathname.startsWith('/app/chat');
+  const roomOpen = () => (onChat ? new URLSearchParams(location.search).get('c') || '' : '');
 
   function announce(m) {
     document.querySelectorAll('.chat-toast').forEach((old) => old.remove());
@@ -557,7 +562,8 @@ function mountChatCount(sidebar) {
       // The first answer sets the line, and announces nothing: everything
       // unread at that moment is a backlog, however new it looks.
       if (!since) { since = now || Math.floor(Date.now() / 1000); return; }
-      if (onChat || !latest || latest.id === shown || latest.at <= since) return;
+      if (!latest || latest.id === shown || latest.at <= since) return;
+      if (onChat && latest.channelId === roomOpen()) return;
 
       shown = latest.id;
       try { localStorage.setItem(SEEN, shown); } catch { /* a private window */ }
