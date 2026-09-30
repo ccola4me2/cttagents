@@ -414,7 +414,10 @@ export async function handleChannelMessages(request, env) {
     // Only when the room is opened, not on every poll. Who works here does not
     // change between one five second tick and the next, and this is a second
     // query against the users table every time it is sent.
-    ...(after ? {} : { people: await peopleIn(env, user) }),
+    // Without yourself, the same as the room list. You cannot mention
+    // yourself (findMentions drops the author), so offering your own name
+    // in the picker would be offering the one choice that does nothing.
+    ...(after ? {} : { people: (await peopleIn(env, user)).filter((p) => p.id !== user.id) }),
     now: now(),
   });
 }

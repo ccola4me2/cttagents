@@ -33,16 +33,48 @@ function stamp(seconds) {
  * that can no longer close a tag or an attribute. A message is somebody else's
  * typing, and the whole point of the room is that people paste things into it.
  */
-export function render(body) {
+export function render(body, people = []) {
   let html = esc(String(body || ''));
   html = html.replace(/\bhttps?:\/\/[^\s<>"']+/g, (raw) => {
     const url = raw.replace(/[.,;:!?)\]]+$/, '');
     const tail = raw.slice(url.length);
     return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>${tail}`;
   });
-  html = html.replace(/(^|\s)(@here\b|@[\p{L}][\p{L}'-]*)/gu,
-    (m, lead, name) => `${lead}<span class="mention">${name}</span>`);
+  // Only names that actually reached somebody.
+  //
+  // This used to style every @word, so "@Sammantha" with the typo looked
+  // exactly like "@Samantha" that worked, and there was no way to tell a
+  // mention that notified somebody from one that quietly notified nobody.
+  // The rule here is the server's rule in findMentions: a whole name, or a
+  // first name that belongs to exactly one person.
+  html = html.replace(/(^|\s)@(here\b|[\p{L}][\p{L}'-]*(?:\s+[\p{L}][\p{L}'-]*)?)/gu,
+    (raw, lead, name) => {
+      if (/^here$/i.test(name)) return `${lead}<span class="mention">@here</span>`;
+      const hit = resolve(name, people);
+      if (!hit) return raw;
+      // A two word match styles both words; a first name match styles only the
+      // word that matched, so the surname of somebody else is left alone.
+      const shown = hit.whole ? name : name.split(/\s+/)[0];
+      const tail = name.slice(shown.length);
+      return `${lead}<span class="mention">@${shown}</span>${tail}`;
+    });
   return html.replace(/\n/g, '<br>');
+}
+
+/**
+ * Does this name reach somebody, by the server's rule.
+ *
+ * `whole` says whether both words were used, so the highlighter knows how much
+ * of what was typed actually did the work.
+ */
+export function resolve(name, people) {
+  const words = String(name || '').trim().toLowerCase();
+  if (!words) return null;
+  const full = people.filter((p) => (p.name || '').toLowerCase() === words);
+  if (full.length === 1) return { person: full[0], whole: true };
+  const firstWord = words.split(/\s+/)[0];
+  const first = people.filter((p) => (p.first || '').toLowerCase() === firstWord);
+  return first.length === 1 ? { person: first[0], whole: false } : null;
 }
 
 /**
@@ -70,6 +102,7 @@ export function mountThread(host, source, { onRead } = {}) {
       <div class="chat-compose" id="chat-compose" hidden>
         <textarea id="chat-body" rows="2" maxlength="4000"
           placeholder="Write something. Use @ and a name to ask somebody."></textarea>
+        <div class="chat-at" id="chat-at" hidden role="listbox"></div>
         <div class="chat-compose-foot">
           <span class="muted chat-hint">Enter sends. Shift and Enter for a new line.</span>
           <button class="btn btn-primary btn-sm" type="button" id="chat-send">Send</button>
@@ -83,6 +116,7 @@ export function mountThread(host, source, { onRead } = {}) {
   const refusalBox = host.querySelector('#chat-refusal');
   const field = host.querySelector('#chat-body');
   const send = host.querySelector('#chat-send');
+  const atBox = host.querySelector('#chat-at');
 
   function draw() {
     const rows = [...seen.values()].sort((a, b) => a.createdAt - b.createdAt);
@@ -108,7 +142,7 @@ export function mountThread(host, source, { onRead } = {}) {
            </span>` : '';
       const text = m.deleted
         ? '<span class="muted chat-gone">Message removed</span>'
-        : `${render(m.body)}${m.editedAt ? ' <span class="muted chat-edited">edited</span>' : ''}`;
+        : `${render(m.body, people)}${m.editedAt ? ' <span class="muted chat-edited">edited</span>' : ''}`;
       return `<div class="chat-line${run ? ' chat-run' : ''}${m.mentionsMe ? ' chat-at-me' : ''}"
         data-id="${esc(m.id)}">${head}<div class="chat-body">${text}${tools}</div></div>`;
     }).join('');
@@ -203,9 +237,85 @@ export function mountThread(host, source, { onRead } = {}) {
     } catch (e) { alert(e.message || 'Could not change that.'); }
   }
 
+  /**
+   * Picking a name, rather than hoping you spelled it right.
+   *
+   * The placeholder has promised "use @ and a name" since this shipped, and
+   * typing @ did nothing at all: no list, no hint, and no way to find out
+   * whether it had worked short of asking the person. The names are already
+   * here, sent with every poll, so this is a list over a list.
+   *
+   * Matched on first name, surname or the whole name, because people reach for
+   * all three, and the server only understands two of them. Picking always
+   * inserts the whole name, which is the form that is never ambiguous.
+   */
+  let atFrom = -1;
+  let atRows = [];
+  let atPick = 0;
+
+  const closeAt = () => { atFrom = -1; atRows = []; atBox.hidden = true; };
+
+  function drawAt() {
+    if (!atRows.length) { closeAt(); return; }
+    atPick = Math.max(0, Math.min(atPick, atRows.length - 1));
+    atBox.innerHTML = atRows.map((p, i) => `<button type="button" role="option"
+      aria-selected="${i === atPick}" class="chat-at-row${i === atPick ? ' on' : ''}"
+      data-pick="${i}">${esc(p.name)}</button>`).join('');
+    atBox.hidden = false;
+  }
+
+  function lookAt() {
+    const caret = field.selectionStart;
+    const before = field.value.slice(0, caret);
+    // Only an @ that starts a word, and only while still on the same word.
+    const m = before.match(/(^|\s)@([\p{L}][\p{L}'-]*)?$/u);
+    if (!m) { closeAt(); return; }
+    atFrom = caret - (m[2] || '').length - 1;
+    const q = (m[2] || '').toLowerCase();
+    atRows = people.filter((p) => {
+      if (!q) return true;
+      const name = (p.name || '').toLowerCase();
+      return name.startsWith(q) || (p.first || '').toLowerCase().startsWith(q)
+        || name.split(/\s+/).some((w) => w.startsWith(q));
+    }).slice(0, 6);
+    atPick = 0;
+    drawAt();
+  }
+
+  function choose(i) {
+    const p = atRows[i];
+    if (!p) return;
+    const caret = field.selectionStart;
+    field.value = `${field.value.slice(0, atFrom)}@${p.name} ${field.value.slice(caret)}`;
+    const at = atFrom + p.name.length + 2;
+    field.focus();
+    field.setSelectionRange(at, at);
+    closeAt();
+  }
+
+  atBox.addEventListener('mousedown', (e) => {
+    // mousedown rather than click: the field must not lose focus first.
+    const b = e.target.closest('[data-pick]');
+    if (!b) return;
+    e.preventDefault();
+    choose(Number(b.dataset.pick));
+  });
+
+  field.addEventListener('input', lookAt);
+  field.addEventListener('blur', () => setTimeout(closeAt, 120));
+
   send.addEventListener('click', post);
   field.addEventListener('keydown', (e) => {
     lastTouch = Date.now();
+    // While the list is open the arrows and Enter belong to it. Sending a
+    // half typed name because Enter did its usual job is the bug this whole
+    // list exists to prevent.
+    if (!atBox.hidden && atRows.length) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); atPick += 1; drawAt(); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); atPick -= 1; drawAt(); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); choose(atPick); return; }
+      if (e.key === 'Escape') { e.preventDefault(); closeAt(); return; }
+    }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); post(); }
   });
   host.addEventListener('pointerdown', () => { lastTouch = Date.now(); });

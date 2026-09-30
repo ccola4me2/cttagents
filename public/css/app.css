@@ -1543,6 +1543,17 @@ th.num .th-sort { justify-content: flex-end; }
 .linkish:hover { color: var(--navy-600); }
 
 .chat-compose textarea { width: 100%; resize: vertical; font: inherit; font-size: .9rem; }
+/* The @ list sits over the conversation rather than pushing it, so the words
+   you are replying to do not jump as you type a name. */
+.chat-compose { position: relative; }
+.chat-at { position: absolute; left: 0; right: 0; bottom: 100%; z-index: 30;
+  margin-bottom: .3rem; background: #fff; border: 1px solid var(--navy-100, #c7d9e9);
+  border-radius: 8px; box-shadow: 0 6px 20px rgba(18, 33, 46, .13); overflow: hidden;
+  max-height: 13rem; overflow-y: auto; }
+.chat-at-row { display: block; width: 100%; text-align: left; border: 0; background: none;
+  padding: .5rem .7rem; font: inherit; font-size: .88rem; color: var(--ink-600); cursor: pointer; }
+.chat-at-row:hover, .chat-at-row.on { background: var(--navy-50, #eef4fa);
+  color: var(--navy-800); }
 .chat-compose-foot { display: flex; align-items: center; justify-content: space-between;
   gap: 1rem; margin-top: .4rem; flex-wrap: wrap; }
 .chat-hint { font-size: .74rem; }
