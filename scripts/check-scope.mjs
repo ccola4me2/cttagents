@@ -78,6 +78,11 @@ const OWNED = new Set([
   // the decision it is downstream of.
   'messages',
   'itinerary_items', 'itinerary_library',
+  // Which lessons of Getting started an advisor has finished. Theirs, and read
+  // on their own page by user_id. The owner board reads across the agency, but
+  // it counts rows per advisor with t.user_id = u.id rather than reaching the
+  // table on its own, so the predicate is still there in the statement.
+  'training_progress',
 ]);
 
 // Shared by a whole agency, so agency_id is the predicate that matters rather
