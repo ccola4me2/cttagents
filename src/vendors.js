@@ -104,8 +104,24 @@ export async function handleListVendors(request, env) {
 
   // The agency's, not the reader's. An associate used to open this on an empty
   // screen while the rates and the desk contacts sat on the owner's copy.
+  // Two scopes, and they are different on purpose.
+  //
+  // The directory is the agency's: the rate, the desk contact and how to book a
+  // supplier are an asset everybody needs, and held per advisor it left a new
+  // joiner staring at an empty page. That is agencyScope and it decides which
+  // vendors are listed.
+  //
+  // What was sold through a vendor is not the agency's to show everybody. Those
+  // are reservations, and a reservation has a client, a price and a commission
+  // that belong to the advisor who took it. The trip count, the gross and the
+  // commission beside each vendor used to be summed across the whole agency, so
+  // any advisor opening this page read what every other advisor had earned. An
+  // owner sees everything and may narrow to one advisor; an advisor sees their
+  // own and nobody else's, which is scopeFor's rule on every other screen.
   const scope = db.agencyScope(user);
   const scoped = db.scopeWhere(scope, 'v.user_id');
+  const viewing = db.scopeFor(env, user, request);
+  const mine = db.scopeWhere(viewing, 'b.user_id');
 
   // Narrowing the directory rather than paging it. The page filters what it
   // was given, which is right until the book outgrows the cap: past that the
@@ -117,18 +133,24 @@ export async function handleListVendors(request, env) {
   // in the query it can see; building the WHERE out of an array hid it, and a
   // check that cannot see the predicate is right to complain.
   const narrow = q ? ' AND v.name LIKE ?' : '';
-  const binds = q ? [...scoped.binds, `%${q}%`] : [...scoped.binds];
+  // In the order the placeholders appear: the four subqueries come first, each
+  // carrying the viewer's fence, then the directory's, then the search.
+  const binds = [
+    ...mine.binds, ...mine.binds, ...mine.binds, ...mine.binds,
+    ...scoped.binds,
+    ...(q ? [`%${q}%`] : []),
+  ];
 
   const { results } = await env.DB.prepare(
     `SELECT ${COLUMNS},
-            (SELECT COUNT(*) FROM bookings b WHERE b.vendor_id = v.id
+            (SELECT COUNT(*) FROM bookings b WHERE b.vendor_id = v.id AND ${mine.sql}
               AND b.status IN ('booked','travelled')) AS trips,
             (SELECT COALESCE(SUM(b.gross_cents), 0) FROM bookings b WHERE b.vendor_id = v.id
-              AND b.status IN ('booked','travelled')) AS gross_cents,
+              AND ${mine.sql} AND b.status IN ('booked','travelled')) AS gross_cents,
             (SELECT COALESCE(SUM(${EARNED_SQL('b.commission_cents', 'b.commission_status')}), 0)
-               FROM bookings b WHERE b.vendor_id = v.id
+               FROM bookings b WHERE b.vendor_id = v.id AND ${mine.sql}
               AND b.status IN ('booked','travelled')) AS commission_cents,
-            (SELECT COUNT(*) FROM bookings b WHERE b.vendor_id = v.id
+            (SELECT COUNT(*) FROM bookings b WHERE b.vendor_id = v.id AND ${mine.sql}
               AND b.status IN ('quoted','booked') AND b.final_payment_due IS NULL) AS undated
        FROM vendors v
       WHERE ${scoped.sql}${narrow}
@@ -162,7 +184,8 @@ export async function handleListVendors(request, env) {
       // supplier entered by two people is the case worth catching.
       possibleDuplicates: findDuplicates(vendors),
     },
-    scope: db.scopeLabel(scope, user),
+    // The viewing scope, not the directory's: this is what the picker narrows.
+    scope: db.scopeLabel(viewing, user),
     advisors: await db.advisorOptions(env, user),
   });
 }
@@ -619,11 +642,15 @@ export async function handleGetVendor(request, env, id) {
 
   // The reservations are the reason the record is worth opening: what has
   // actually been sold through this supplier, and what is still to come.
-  // Everything the agency has sold through this supplier, not only the trips
-  // of whoever happened to type the record in. On a shared directory those are
-  // rarely the same person, and "what have we done with Carnival" is the
-  // question the page is open to answer.
-  const bookingScope = db.scopeWhere(scope, 'b.user_id');
+  //
+  // Whose, is the part that was wrong. This used to be everything the agency
+  // had sold through the supplier, on the reasoning that "what have we done
+  // with Carnival" is the question the page is open to answer. But each of
+  // those rows carries a client's name, a price and a commission, and they
+  // belong to the advisor who took them. An advisor opening a vendor read every
+  // colleague's book. An owner still sees all of it, and may narrow to one
+  // advisor; an advisor sees their own and nobody else's.
+  const bookingScope = db.scopeWhere(db.scopeFor(env, user, request), 'b.user_id');
   const { results: bookings } = await env.DB.prepare(
     `SELECT b.id, b.client_name, b.product_name, b.depart_date, b.return_date,
             b.status, b.gross_cents, b.commission_cents, b.confirmation_number

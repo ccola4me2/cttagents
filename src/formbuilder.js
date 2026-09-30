@@ -12,7 +12,7 @@ import {
   json, badRequest, notFound, forbidden, uid, now, clean, cleanText, cleanDate, oneOf,
   isValidEmail, normalizeEmail, readJson,
 } from './util.js';
-import { requireUser } from './auth.js';
+import { requireUser, isAdmin } from './auth.js';
 import { sendFormInviteEmail } from './email.js';
 import { tenantFor } from './tenant.js';
 import * as db from './db.js';
@@ -1085,6 +1085,12 @@ export async function handleFormsReport(request, env) {
   // named in the statement either way so scripts/check-scope.mjs can read the
   // fence rather than having to trust it.
   const only = scope.all ? '' : (scope.userId || '');
+  // A submission nobody has picked up belongs to no advisor. Owners see those
+  // and hand them out; an advisor sees their own leads and nothing else, which
+  // is the rule here. (It used to show the unclaimed to everybody, on the
+  // reasoning that hiding them is how a lead goes cold. The owner sees them, so
+  // they do not go cold, and "advisors see only their own" has no exception.)
+  const unclaimed = isAdmin(user) && !user.acting_as ? 1 : 0;
   // Seconds. now() is seconds in this codebase and mixing the two has been the
   // most repeated bug in it.
   const since = now() - days * 86400;
@@ -1100,10 +1106,10 @@ export async function handleFormsReport(request, env) {
         -- client behind it was never picked up, and hiding those from the
         -- people who could pick them up is how a lead goes cold in a list
         -- only the owner can see.
-        AND (? = '' OR c.user_id = ? OR s.contact_id IS NULL)
+        AND (? = '' OR c.user_id = ? OR (s.contact_id IS NULL AND ? = 1))
       ORDER BY s.created_at DESC
       LIMIT 500`
-  ).bind(agencyId, since, only, only).all();
+  ).bind(agencyId, since, only, only, unclaimed).all();
 
   const submissions = (rows || []).map((r) => {
     let data = {};
@@ -1141,8 +1147,8 @@ export async function handleFormsReport(request, env) {
   const allTime = await env.DB.prepare(
     `SELECT COUNT(*) AS n FROM form_submissions s
        LEFT JOIN clients c ON c.id = s.contact_id
-      WHERE s.agency_id = ? AND (? = '' OR c.user_id = ? OR s.contact_id IS NULL)`
-  ).bind(agencyId, only, only).first().catch(() => null);
+      WHERE s.agency_id = ? AND (? = '' OR c.user_id = ? OR (s.contact_id IS NULL AND ? = 1))`
+  ).bind(agencyId, only, only, unclaimed).first().catch(() => null);
 
   return json({
     days,

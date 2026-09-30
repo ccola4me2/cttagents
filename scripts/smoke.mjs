@@ -868,6 +868,88 @@ async function main() {
     'and search does not leak the owner\'s records to the associate',
     JSON.stringify(findMine.data?.groups));
 
+  // --------------------------------------- a vendor two advisors share --
+  step('What was sold through a shared vendor is each advisor\'s own');
+
+  // A reservation links to its vendor by name, across the agency, so two
+  // advisors selling through one supplier share a single vendor record. The
+  // record is the directory: rates, desk contact, how to book. That is meant to
+  // be shared, and it is checked below that it still is.
+  //
+  // What was sold through it is not shared. The vendor page used to list every
+  // advisor's reservations with the client's name, the price and the
+  // commission, and the list summed trips, gross and commission across the whole
+  // agency. An associate opening a vendor read the agency's book. It was found
+  // by an advisor training a colleague, not by anything here, because every
+  // other check on this page compared an advisor against their own records and
+  // none compared two advisors through a record they both touch.
+  const sharedLine = `Shared Line ${stamp}`;
+  const ownerShared = await call(admin, 'POST', '/api/bookings', {
+    clientName: `Owner Vendor Client ${stamp}`, supplier: sharedLine,
+    departDate: isoDay(220), gross: '8000', commission: '800', status: 'booked',
+  });
+  const ownerSharedId = ownerShared.data?.booking?.id;
+  if (ownerSharedId) {
+    cleanup('the owner reservation on the shared vendor',
+      () => call(admin, 'DELETE', `/api/bookings/${ownerSharedId}`));
+  }
+  const theirShared = await call(advisor, 'POST', '/api/bookings', {
+    clientName: `Associate Vendor Client ${stamp}`, supplier: sharedLine,
+    departDate: isoDay(230), gross: '3000', commission: '300', status: 'booked',
+  });
+  const theirSharedId = theirShared.data?.booking?.id;
+  if (theirSharedId) {
+    cleanup('the associate reservation on the shared vendor', () => dropBooking(theirSharedId));
+  }
+  check(ownerShared.status === 201 && theirShared.status === 201,
+    'two advisors each sell through the same vendor');
+
+  const vendorQuery = `/api/vendors?q=${encodeURIComponent(sharedLine)}`;
+  const vendorAsOwner = await call(admin, 'GET', vendorQuery);
+  const vendorRowOwner = (vendorAsOwner.data?.vendors || []).find((v) => v.name === sharedLine);
+  check(vendorRowOwner?.trips === 2 && vendorRowOwner?.gross_cents === 1100000,
+    'the owner\'s vendor list adds up the whole agency',
+    JSON.stringify({ trips: vendorRowOwner?.trips, gross: vendorRowOwner?.gross_cents }));
+
+  const vendorAsAdvisor = await call(advisor, 'GET', vendorQuery);
+  const vendorRowAdvisor = (vendorAsAdvisor.data?.vendors || []).find((v) => v.name === sharedLine);
+  check(Boolean(vendorRowAdvisor),
+    'the associate still finds the vendor, because the directory is shared');
+  check(vendorRowAdvisor?.trips === 1 && vendorRowAdvisor?.gross_cents === 300000,
+    'but the trips and the gross beside it are only their own',
+    JSON.stringify({ trips: vendorRowAdvisor?.trips, gross: vendorRowAdvisor?.gross_cents }));
+  check(vendorRowAdvisor?.commission_cents === 30000,
+    'and so is the commission, which is the figure that must never cross',
+    `${vendorRowAdvisor?.commission_cents}`);
+
+  // Guessing an owner's id is the attack, exactly as it is on the commission
+  // screen, and nothing typed into the address bar moves the line.
+  const vendorForged = await call(advisor, 'GET',
+    `${vendorQuery}&advisor=${encodeURIComponent(adminId)}&advisor=all`);
+  const vendorRowForged = (vendorForged.data?.vendors || []).find((v) => v.name === sharedLine);
+  check(vendorRowForged?.trips === 1 && vendorRowForged?.gross_cents === 300000,
+    'and ?advisor= does not widen it',
+    JSON.stringify({ trips: vendorRowForged?.trips, gross: vendorRowForged?.gross_cents }));
+  check(vendorForged.data?.scope?.canPick === false,
+    'nor is the associate offered the agency view', JSON.stringify(vendorForged.data?.scope));
+
+  if (vendorRowAdvisor) {
+    const detailAdvisor = await call(advisor, 'GET', `/api/vendors/${vendorRowAdvisor.id}`);
+    const detailNames = (detailAdvisor.data?.bookings || []).map((b) => b.client_name);
+    check(detailNames.length === 1 && detailNames[0] === `Associate Vendor Client ${stamp}`,
+      'the vendor page lists only their own reservations', JSON.stringify(detailNames));
+    check(!JSON.stringify(detailAdvisor.data || {}).includes(`Owner Vendor Client ${stamp}`),
+      'and the owner\'s client is not named anywhere in the answer');
+    check(detailAdvisor.data?.totals?.grossCents === 300000
+      && detailAdvisor.data?.totals?.commissionCents === 30000,
+    'with totals that are theirs', JSON.stringify(detailAdvisor.data?.totals));
+
+    const detailOwner = await call(admin, 'GET', `/api/vendors/${vendorRowAdvisor.id}`);
+    check((detailOwner.data?.bookings || []).length === 2,
+      'while the owner\'s vendor page still shows both advisors\' reservations',
+      `${(detailOwner.data?.bookings || []).length} reservation(s)`);
+  }
+
   // --------------------------------------------- form, submission, lead --
   step('A hosted form takes a submission');
   const formRes = await call(advisor, 'POST', '/api/myforms', {

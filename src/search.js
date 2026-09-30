@@ -9,7 +9,7 @@
 
 import { json } from './util.js';
 import { tenantFor } from './tenant.js';
-import { requireUser } from './auth.js';
+import { requireUser, isAdmin } from './auth.js';
 import * as db from './db.js';
 
 const PER_GROUP = 6;
@@ -36,13 +36,25 @@ export async function handleSearch(request, env) {
   const bookingScope = db.scopeWhere(scope, 'b.user_id');
   const paymentScope = db.scopeWhere(scope, 'p.user_id');
 
+  // Owners only, and while not sitting in somebody's seat.
+  //
+  // crm_contacts is the mirror of the old CRM: nothing has written to it since
+  // that was dropped, and its rows belong to no advisor, only to the agency.
+  // Searched by agency alone it handed every advisor every contact's name,
+  // email and phone, including people who were never theirs. The advisor's own
+  // clients are found by the group below, which is fenced to their
+  // reservations; this one is left for whoever runs the agency.
+  const readsMirror = isAdmin(user) && !user.acting_as;
+
   const [clients, reservations, payments] = await Promise.all([
-    env.DB.prepare(
-      `SELECT id, name, email, phone FROM crm_contacts
-        WHERE agency_id = ?
-          AND (name LIKE ? ESCAPE '\\' OR email LIKE ? ESCAPE '\\' OR phone LIKE ? ESCAPE '\\')
-        ORDER BY LENGTH(COALESCE(name, '')) ASC LIMIT ?`
-    ).bind(agencyId, term, term, term, PER_GROUP).all().catch(() => ({ results: [] })),
+    readsMirror
+      ? env.DB.prepare(
+        `SELECT id, name, email, phone FROM crm_contacts
+          WHERE agency_id = ?
+            AND (name LIKE ? ESCAPE '\\' OR email LIKE ? ESCAPE '\\' OR phone LIKE ? ESCAPE '\\')
+          ORDER BY LENGTH(COALESCE(name, '')) ASC LIMIT ?`
+      ).bind(agencyId, term, term, term, PER_GROUP).all().catch(() => ({ results: [] }))
+      : Promise.resolve({ results: [] }),
 
     env.DB.prepare(
       `SELECT b.id, b.client_name, b.supplier, b.product_name, b.destination,
