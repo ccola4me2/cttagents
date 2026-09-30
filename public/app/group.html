@@ -30,6 +30,21 @@
 
       <div class="split" style="margin-top:1.5rem;">
         <div>
+          <section class="card" id="quote-card" hidden>
+            <div class="card-head"><h2>Start from the vendor's proposal</h2></div>
+            <div class="card-pad">
+              <p class="field-hint" style="margin-top:0;">Upload a
+                <strong>Margaritaville at Sea Group Proposal</strong> and the details below are
+                filled in for you to check. It reads that one form only; anything else leaves the
+                fields empty and you carry on as usual. Nothing is saved until you press the
+                button at the bottom.</p>
+              <input id="quote-file" type="file" accept="application/pdf,.pdf"
+                style="font-size:.9rem;">
+              <p class="notice notice-ok" id="quote-ok" hidden style="margin:.8rem 0 0;"></p>
+              <p class="notice notice-error" id="quote-bad" hidden style="margin:.8rem 0 0;"></p>
+            </div>
+          </section>
+
           <section class="card">
             <div class="card-head"><h2>Group details</h2></div>
             <form id="group-form">
@@ -162,7 +177,65 @@ const short = (iso) => (iso ? dateFmt(iso).replace(/,? \d{4}$/, '') : '');
 if (!groupId) {
   regForm.closest('.card').hidden = true;
   document.getElementById('save').textContent = 'Open the group';
+  // Only when opening a group. Re-reading a proposal over a group that already
+  // exists would quietly overwrite dates somebody may have corrected by hand.
+  document.getElementById('quote-card').hidden = false;
 }
+
+/**
+ * A vendor's proposal, read into the form.
+ *
+ * Fills and stops. Nothing is saved, the advisor reads what arrived and
+ * presses the same button they would have pressed anyway, because a date that
+ * decides when the cabins go should pass in front of a person once.
+ *
+ * The group number is deliberately left alone. The proposal does not carry
+ * one: it has a proposal id and a sailing id, and the group number only
+ * exists once the vendor opens the group, which is usually after this is
+ * signed.
+ */
+const quoteFile = document.getElementById('quote-file');
+if (quoteFile) quoteFile.addEventListener('change', async () => {
+  const file = quoteFile.files && quoteFile.files[0];
+  const ok = document.getElementById('quote-ok');
+  const bad = document.getElementById('quote-bad');
+  ok.hidden = true; bad.hidden = true;
+  if (!file) return;
+  ok.hidden = false;
+  ok.textContent = 'Reading ' + file.name + '...';
+  try {
+    const res = await fetch('/api/groups/quote', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/pdf' }, body: file,
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'That file could not be read.');
+    if (!d.read) {
+      ok.hidden = true;
+      bad.hidden = false;
+      bad.textContent = 'That does not look like a ' + d.vendor
+        + ' group proposal, so nothing was filled in. Type the details below as usual.';
+      return;
+    }
+    const set = (n, v) => {
+      if (v === '' || v === 0 || v === undefined || v === null) return;
+      const el = form.elements[n];
+      if (el) el.value = v;
+    };
+    for (const [k, v] of Object.entries(d.fields)) set(k, v);
+    if (d.notes) {
+      const el = form.elements.notes;
+      el.value = el.value ? (el.value + '\n\n' + d.notes) : d.notes;
+    }
+    ok.textContent = 'Read ' + d.found.length + ' details from the proposal. '
+      + 'Check them, then open the group. The group number is left empty on purpose: '
+      + 'the proposal does not carry one until the vendor opens the group.';
+  } catch (e) {
+    ok.hidden = true;
+    bad.hidden = false;
+    bad.textContent = e.message || 'That file could not be read.';
+  }
+});
 
 function fill(g) {
   const set = (n, v) => { const el = form.elements[n] || regForm.elements[n];

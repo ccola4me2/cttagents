@@ -12,6 +12,8 @@
 import { json, badRequest, notFound, clean, cleanText, cleanDate, oneOf, uid, now, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
+import { pdfText } from './pdftext.js';
+import { parseGroupQuote } from './groupquote.js';
 
 const STATUSES = ['open', 'closed', 'cancelled'];
 
@@ -352,4 +354,42 @@ export async function handleDeleteGroup(request, env, id) {
     .bind(id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Group not found.');
   return json({ ok: true });
+}
+
+/**
+ * POST /api/groups/quote
+ *
+ * A vendor's proposal in, the fields of a group out. Reads nothing into the
+ * database and creates nothing: the answer fills a form the advisor checks,
+ * because a date that decides when cabins stop being held should be read by a
+ * person once before it is saved.
+ *
+ * A file it cannot read is not an error. `read: false` with empty fields means
+ * the advisor fills the form in the way they always have, which is the same
+ * work as today rather than a new way to fail.
+ */
+export async function handleParseQuote(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  if (!user) return badRequest('Sign in first.');
+
+  const buf = await request.arrayBuffer().catch(() => null);
+  if (!buf || !buf.byteLength) return badRequest('No file arrived.');
+  // A group proposal is a few hundred kilobytes. Anything past this is not one,
+  // and a Worker that inflates it finds out the expensive way.
+  if (buf.byteLength > 8 * 1024 * 1024) {
+    return badRequest('That file is larger than 8MB, which is bigger than any proposal.');
+  }
+
+  const text = await pdfText(buf);
+  const out = parseGroupQuote(text);
+  return json({
+    read: out.read,
+    fields: out.fields,
+    notes: out.notes,
+    found: out.found,
+    // Said plainly so the screen can say it plainly: this reads one vendor's
+    // form and claims nothing about any other.
+    vendor: 'Margaritaville at Sea',
+  });
 }

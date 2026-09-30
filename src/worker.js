@@ -221,6 +221,7 @@ import {
   handleGetGroup,
   handleBookRegistration,
   handleCreateGroup,
+  handleParseQuote,
   handleUpdateGroup,
   handleDeleteGroup,
 } from './groups.js';
@@ -980,6 +981,7 @@ async function routeApi(request, env, path, method) {
 
   // Group space: cabins held by a vendor before anybody has booked them.
   if (path === '/api/groups' && method === 'GET') return handleListGroups(request, env);
+  if (path === '/api/groups/quote' && method === 'POST') return handleParseQuote(request, env);
   if (path === '/api/groups' && method === 'POST') return handleCreateGroup(request, env);
   if (groupBookMatch && method === 'POST') return handleBookRegistration(request, env, groupBookMatch[1]);
   if (groupMatch && method === 'GET') return handleGetGroup(request, env, groupMatch[1]);
