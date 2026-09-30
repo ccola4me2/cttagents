@@ -906,15 +906,46 @@ export async function handlePublicSubmit(request, env, slug) {
   // and is the same rule the group pages follow.
   // The advisor who sent it, where it was sent. Telling whoever built the form
   // that somebody else's client has answered is how a lead sits unread.
+  // A readable summary, built from the form's own field labels rather than a
+  // raw dump of its keys. Headings and the honeypot are skipped, the name and
+  // contact fields already shown up top are not repeated, a traveller block
+  // becomes a list of names rather than "[object Object]", and the free-text
+  // note gets its own box.
+  const isNameField = (f) =>
+    ['full_name', 'first_name', 'last_name', 'name'].includes(f.key)
+    || /your name|full name/i.test(f.label);
+  const isNoteField = (f) =>
+    f.type === 'textarea'
+    && /note|message|comment|anything|tell us/i.test(`${f.key} ${f.label}`);
+  const details = [];
+  let leadNote = null;
+  for (const f of form.fields) {
+    if (f.type === 'heading' || f.key === 'company_website') continue;
+    if (f.type === 'email' || f.type === 'tel' || isNameField(f)) continue;
+    const v = data[f.key];
+    if (v == null || v === '') continue;
+    if (f.type === 'travellers') {
+      const who = (Array.isArray(v) ? v : [])
+        .map((p) => [p.name, p.dob].filter(Boolean).join(', '))
+        .filter(Boolean);
+      if (who.length) details.push({ label: f.label, value: who.join('; ') });
+      continue;
+    }
+    if (isNoteField(f) && leadNote == null) {
+      leadNote = String(v);
+      continue;
+    }
+    details.push({ label: f.label, value: String(v) });
+  }
+
   await notifyOwner(env, owner, {
     to: form.notifyEmail || null,
     what: form.name,
     href: `${appUrl(env)}/app/forms`,
     name: name || 'Someone',
     email, phone,
-    notes: Object.entries(data)
-      .filter(([, v]) => v !== '' && v != null)
-      .map(([k, v]) => `${k}: ${v}`).join('\n') || null,
+    details,
+    notes: leadNote,
   });
 
   return json({

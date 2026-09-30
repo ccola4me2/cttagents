@@ -275,28 +275,49 @@ export function sendAdminNewSignupEmail(env, user) {
  * trip through the portal to copy an address.
  */
 export function sendSignupNoticeEmail(env, { to, advisorFirstName, what, href,
-                                             name, email, phone, partySize, notes }) {
+                                             name, email, phone, partySize,
+                                             notes, details }) {
   if (!to) return Promise.resolve({ skipped: true });
+  // Email and mobile first, then how many, then whatever else the form asked,
+  // each on its own labelled row from the caller. A blank value drops out, so
+  // the table only ever shows what the person actually answered.
   const rows = [
     ['Email', email],
     ['Mobile', phone],
     ['How many', partySize ? String(partySize) : ''],
-  ].filter(([, v]) => v);
+    ...(Array.isArray(details) ? details.map((d) => [d.label, d.value]) : []),
+  ].filter(([, v]) => v != null && String(v).trim() !== '');
+
+  const table = rows.length
+    ? `<table role="presentation" cellpadding="0" cellspacing="0"
+              style="margin:0 0 18px;font-size:15px;line-height:1.5;border-collapse:collapse;">
+         ${rows.map(([k, v]) => `<tr>
+           <td style="padding:5px 20px 5px 0;color:#5c7286;white-space:nowrap;vertical-align:top;">${
+             escapeHtml(String(k))}</td>
+           <td style="padding:5px 0;color:#2f4459;vertical-align:top;">${escapeHtml(String(v))}</td>
+         </tr>`).join('')}
+       </table>`
+    : '';
+
+  const noteBox = notes
+    ? `<p style="margin:0 0 6px;color:#5c7286;font-size:13px;">Notes</p>
+       <p style="margin:0 0 18px;padding:12px 14px;background:#f6f9fc;border-radius:8px;
+                 white-space:pre-wrap;color:#2f4459;">${escapeHtml(notes)}</p>`
+    : '';
 
   return send(env, {
     to,
     replyTo: email || undefined,
-    subject: `${name} put their name down: ${what}`,
+    subject: `New enquiry from ${name}: ${what}`,
     html: layout(env, {
-      heading: `${escapeHtml(name)} is interested`,
-      body: `<p style="margin:0 0 12px;">Hi ${escapeHtml(advisorFirstName || 'there')},</p>
-             <p style="margin:0 0 12px;"><strong>${escapeHtml(name)}</strong> signed up on
+      heading: `${name} is interested`,
+      body: `<p style="margin:0 0 14px;">Hi ${escapeHtml(advisorFirstName || 'there')},</p>
+             <p style="margin:0 0 18px;"><strong>${escapeHtml(name)}</strong> got in touch about
              <strong>${escapeHtml(what)}</strong>.</p>
-             ${rows.length ? `<p style="margin:0 0 12px;">${rows
-               .map(([k, v]) => `${escapeHtml(k)}: ${escapeHtml(v)}`).join('<br>')}</p>` : ''}
-             ${notes ? `<p style="margin:0 0 12px;padding:12px 14px;background:#f6f9fc;
-               border-radius:8px;">${escapeHtml(notes)}</p>` : ''}
-             <p style="margin:0;">Reply to this email to answer them directly.</p>`,
+             ${table}
+             ${noteBox}
+             <p style="margin:0;color:#5c7286;font-size:13px;">Reply to this email to answer
+             ${escapeHtml(name)} directly.</p>`,
       cta: href ? { label: 'Open it in the portal', href } : undefined,
     }),
   });
