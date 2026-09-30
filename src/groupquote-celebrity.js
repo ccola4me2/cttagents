@@ -5,14 +5,14 @@
 // laid out as a column of dates, then a column of ports, then a column of times,
 // and the deposit, final payment and cancellation terms.
 //
-// What this reader deliberately leaves alone is the stateroom rate table. Its
-// columns (two fare columns, two commission columns, guarantees and allocations)
-// are drawn as separate runs of numbers, and on the page there is no total
-// anywhere to check a guess at which number belongs to which heading against.
-// The fares are listed in the notes as printed instead, for a person to read,
-// because a rate saved in the grid as if it were verified is worse than a rate
-// that was left in front of somebody. When a second Celebrity quote shows how
-// the columns line up, this is where the grid gets filled in.
+// A category on this quote is the room type: the codes under "Category" (A2, C4,
+// I1) are what the grid calls a room type, and they go in it as printed. The
+// quote draws its stateroom table as separate runs of numbers, so nothing is
+// matched by position alone. The cabins in each category are counted from the
+// allocated room numbers and must agree with the "Allocated" column and with the
+// cabin total, and the fares must come out as one for each category in each of
+// the two fare columns. When any of that fails the grid is left empty and the
+// fares go in the notes as printed, for a person to read.
 
 import {
   DATE_SOURCE, parseDate, money, toCents, dollars, titleCase, lastFirst, nightsBetween,
@@ -97,12 +97,50 @@ function parse(t) {
   const digits = block ? block[1].replace(/\D/g, '').length : 0;
   const cabins = digits > 0 && digits % 4 === 0 ? digits / 4 : 0;
 
-  // The fares, as printed, two triples one after the other.
-  const cats = t.match(/Guest 3 & 4\s+((?:[A-Z]\d\s+)+)(?:Double\s+)+/);
+  // The categories, and the fares as printed: two runs, guests 1 and 2 then 3 and 4.
+  const cats = t.match(/Guest 3 & 4\s+((?:[A-Z]\d\s+)+)((?:Double\s+|Single\s+|Triple\s+|Quad\s+)+)/);
   const codes = cats ? cats[1].trim().split(/\s+/) : [];
+  const occupancies = cats ? cats[2].trim().split(/\s+/) : [];
   const price = codes.length
     ? t.match(new RegExp(`GROUPX(?:\\s+GROUPX)*\\s+((?:\\d+\\.\\d{2}\\s+){${codes.length * 2}})`)) : null;
   const fares = price ? price[1].trim().split(/\s+/).map(money) : [];
+
+  // Cabins in each category. Rooms in one category are separated by commas, and
+  // the next category begins where a room number has no comma before it. That
+  // count must match the Allocated column, which prints the same numbers
+  // a second way, ahead of a total.
+  const roomTokens = block ? block[1].split(/\s+/).filter(Boolean) : [];
+  const perCat = [];
+  roomTokens.forEach((tok, i) => {
+    if (tok === ',') return;
+    if (i > 0 && roomTokens[i - 1] === ',') perCat[perCat.length - 1] += 1;
+    else perCat.push(1);
+  });
+  const allocated = codes.length
+    ? t.match(new RegExp(`((?:\\d+\\s+){${codes.length + 1}})GROUPX`)) : null;
+  const printed = allocated ? allocated[1].trim().split(/\s+/).map(Number) : [];
+  const rateOk = codes.length > 0 && fares.length === codes.length * 2
+    && occupancies.length === codes.length && perCat.length === codes.length
+    && perCat.reduce((a, n) => a + n, 0) === cabins
+    && printed.length === codes.length + 1 && printed[codes.length] === cabins
+    && codes.every((_, i) => printed[i] === perCat[i]);
+  const PEOPLE = { Single: 1, Double: 2, Triple: 3, Quad: 4 };
+  const rates = rateOk ? codes.map((c, i) => {
+    const guests = perCat[i] * (PEOPLE[occupancies[i]] || 0);
+    const perGuest = toCents(fares[i]);
+    const more = toCents(fares[codes.length + i]);
+    return {
+      roomType: c,
+      occupancy: occupancies[i],
+      cabins: perCat[i],
+      guests,
+      perGuestCents: perGuest,
+      extraAdultCents: more !== perGuest ? more : 0,
+      taxesCents: 0,
+      totalCents: perGuest * guests,
+      sortOrder: i,
+    };
+  }) : [];
 
   const lines = [];
   if (issued) lines.push(`Issued ${issued}.`);
@@ -118,7 +156,7 @@ function parse(t) {
       lines.push(`  ${pcts[i][1]}% per guest from ${parseDate(dates[i])} (${ranges[i][1]} to ${ranges[i][2]} days before sailing)`);
     }
   }
-  if (codes.length && fares.length === codes.length * 2) {
+  if (!rateOk && codes.length && fares.length === codes.length * 2) {
     lines.push('', 'Fare per guest, as printed (check against the quote):');
     codes.forEach((c, i) => {
       const a = fares[i];
@@ -126,6 +164,7 @@ function parse(t) {
       lines.push(`  Category ${c}: ${dollars(toCents(a))} for the 1st and 2nd guest, ${dollars(toCents(b))} for the 3rd and 4th`);
     });
   }
+  if (rateOk) lines.push('', 'The quote prints no taxes and fees, so the rates are the fare only.');
   const berths = t.match(/Earned Ratio:\s*(\d+) for (\d+)/);
   const comp = t.match(/N\/A\s+(\d+)\s+-[\d.]+/);
   if (berths) {
@@ -152,7 +191,7 @@ function parse(t) {
       passengers: 0,
       proposalExpires: '',
     },
-    rates: [],
+    rates,
     notes: lines.join('\n'),
     payments: [],
     warnings: [],

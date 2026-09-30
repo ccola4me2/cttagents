@@ -225,12 +225,17 @@ is('a two digit year is refused rather than guessed', parseDate('10/22/27'), '')
   is('the first deposit date is the option date, as the quote itself says', r.fields.optionDate, '2026-10-29');
   is('sixteen cabins, counted from the allocated rooms', r.fields.cabinsHeld, 16);
   is('guests are not stated, so they are not guessed', [r.fields.passengers, r.missing.includes('passengers')], [0, true]);
-  is('the rate grid is left empty: its columns cannot be checked against a total',
-    r.rates.length, 0);
+  is('a category is the room type: one grid row for each, counted from the allocated rooms',
+    r.rates.map((x) => [x.roomType, x.occupancy, x.cabins, x.guests, x.perGuestCents, x.totalCents]),
+    [['A2', 'Double', 1, 2, 87900, 175800], ['C4', 'Double', 10, 20, 68300, 1366000],
+     ['I1', 'Double', 5, 10, 56100, 561000]]);
+  is('the rows add up to the cabins held', r.rates.reduce((n, x) => n + x.cabins, 0), r.fields.cabinsHeld);
+  is('the fares are not repeated in the notes once they are in the grid', /Category A2/.test(r.notes), false);
+  const odd = parseGroupQuote(CELEBRITY.replace('1 10 5 16 GROUPX', '2 9 5 16 GROUPX'));
+  is('a category count that disagrees with the allocated column leaves the grid empty, fares in the notes',
+    [odd.rates.length, /Category A2: \$879\.00[^]*Category C4: \$683\.00[^]*Category I1: \$561\.00/.test(odd.notes)], [0, true]);
   is('cancellation charges come with their dates, which agree with the day counts',
     /50% per guest from 2027-01-04 \(74 to 61[^]*75% per guest from 2027-01-18[^]*100% per guest from 2027-02-17/.test(r.notes), true);
-  is('the fares are listed as printed, for a person to check',
-    /Category A2: \$879\.00[^]*Category C4: \$683\.00[^]*Category I1: \$561\.00/.test(r.notes), true);
   is('deposit and final payment', /Deposit: \$3,200\.00 due 2026-10-29[^]*Final payment due 2027-01-03/.test(r.notes), true);
 }
 
