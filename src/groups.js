@@ -459,6 +459,9 @@ export async function handleParseQuote(request, env) {
     // need a deploy to find out.
     chars: text.length,
     fields: out.fields,
+    // The grid, which the page draws and then sends back with the group. The
+    // parser has produced these all along; this is the line that was missing.
+    rates: out.rates || [],
     notes: out.notes,
     found: out.found,
     // Said plainly so the screen can say it plainly: this reads one vendor's
