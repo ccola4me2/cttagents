@@ -445,6 +445,7 @@ const PAGE_FILES = {
   '/app/import-clients': '/app/import-clients.html',
   '/app/segments': '/app/segments.html',
   '/app/manual': '/app/manual.html',
+  '/app/training': '/app/training.html',
   '/app/broadcasts': '/app/broadcasts.html',
   '/app/broadcast': '/app/broadcast.html',
   '/app/complete': '/app/complete.html',
@@ -457,6 +458,7 @@ const PAGE_FILES = {
   '/app/reports': '/app/reports.html',
   '/app/settings': '/app/settings.html',
   '/admin/manual': '/admin/manual.html',
+  '/admin/training': '/admin/training.html',
   '/admin': '/admin/index.html',
   '/admin/': '/admin/index.html',
 };
