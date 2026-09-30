@@ -117,7 +117,12 @@ function rooms() {
   }
 
   const dms = state.conversations.filter((c) => c.kind === 'dm');
-  const records = state.conversations.filter((c) => c.kind === 'record');
+  // A thread on a record that nobody has said anything in is not a conversation,
+  // just a record that was opened. Listed only once it has a message, or while it
+  // is the one on screen, so opening one to start a discussion does not make it
+  // vanish from under the cursor.
+  const records = state.conversations.filter((c) => c.kind === 'record'
+    && (c.lastMessageAt || c.unread || c.id === open));
   const line = (c) => `<button type="button" class="chat-room${c.id === open ? ' on' : ''}"
       data-room="${esc(c.id)}"><span>${esc(c.name || 'Room')}</span>${pill(c.unread)}</button>`;
 
