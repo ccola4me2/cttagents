@@ -193,7 +193,9 @@ const deleteBtn = document.getElementById('delete');
 let group = null;
 let canEdit = true;
 
-const short = (iso) => (iso ? dateFmt(iso).replace(/,? \d{4}$/, '') : '');
+// The year stays: see the note in groups.html. Both dates on this page are
+// the two that sit furthest out, the sailing and the day the cabins go.
+const short = (iso) => (iso ? dateFmt(iso) : '');
 
 // A new group has no sign-up page to configure yet: the page hangs off a
 // group number the group does not have until it is saved once.

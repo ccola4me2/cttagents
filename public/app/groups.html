@@ -43,7 +43,9 @@ const panel = document.getElementById('panel');
 const statusFilter = document.getElementById('status-filter');
 let clashes = new Set();
 
-const short = (iso) => (iso ? dateFmt(iso).replace(/,? \d{4}$/, '') : '-');
+// The year stays. A group sails a year or two out, so "Oct 22" on a block
+// held for 2027 is a date somebody reads as this October.
+const short = (iso) => (iso ? dateFmt(iso) : '-');
 
 function render(d) {
   const showAdvisor = Boolean(d.scope && d.scope.all);
