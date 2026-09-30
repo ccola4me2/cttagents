@@ -1075,6 +1075,16 @@ export async function handleFormsReport(request, env) {
   const agencyId = tenantFor(env, user);
   const url = new URL(request.url);
   const days = Math.min(Math.max(Number(url.searchParams.get('days')) || 90, 1), 730);
+
+  // Whose leads. Forms are the agency's and everybody shares them, but a
+  // submission becomes somebody's client and from then on it is theirs, so the
+  // numbers about leads are answerable per advisor even though the forms are
+  // not. The picker only appears for an owner, which is scopeFor's own rule.
+  const scope = db.scopeFor(env, user, request);
+  // Empty means everybody. Bound rather than interpolated, and c.user_id is
+  // named in the statement either way so scripts/check-scope.mjs can read the
+  // fence rather than having to trust it.
+  const only = scope.all ? '' : (scope.userId || '');
   // Seconds. now() is seconds in this codebase and mixing the two has been the
   // most repeated bug in it.
   const since = now() - days * 86400;
@@ -1084,10 +1094,16 @@ export async function handleFormsReport(request, env) {
             s.source, s.data_json, f.name AS form_name, f.slug
        FROM form_submissions s
        JOIN forms f ON f.id = s.form_id
+       LEFT JOIN clients c ON c.id = s.contact_id
       WHERE s.agency_id = ? AND s.created_at >= ?
+        -- Theirs, plus everything that became nobody's. A submission with no
+        -- client behind it was never picked up, and hiding those from the
+        -- people who could pick them up is how a lead goes cold in a list
+        -- only the owner can see.
+        AND (? = '' OR c.user_id = ? OR s.contact_id IS NULL)
       ORDER BY s.created_at DESC
       LIMIT 500`
-  ).bind(agencyId, since).all();
+  ).bind(agencyId, since, only, only).all();
 
   const submissions = (rows || []).map((r) => {
     let data = {};
@@ -1119,8 +1135,19 @@ export async function handleFormsReport(request, env) {
   // client id: see the note in publicform.js about names that did not move.
   const reachedCrm = submissions.filter((s) => s.contactId).length;
 
+  // Every submission ever, at the same scope as the rest. Counted rather than
+  // summed off the forms, whose totals are the whole agency's and would sit
+  // beside three narrowed numbers saying something different.
+  const allTime = await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM form_submissions s
+       LEFT JOIN clients c ON c.id = s.contact_id
+      WHERE s.agency_id = ? AND (? = '' OR c.user_id = ? OR s.contact_id IS NULL)`
+  ).bind(agencyId, only, only).first().catch(() => null);
+
   return json({
     days,
+    scope: db.scopeLabel(scope, user),
+    advisors: await db.advisorOptions(env, user),
     submissions,
     forms: forms || [],
     byMonth: Object.entries(byMonth).sort(([a], [b]) => a.localeCompare(b))
@@ -1131,7 +1158,7 @@ export async function handleFormsReport(request, env) {
       activeForms: (forms || []).filter((f) => f.active).length,
       reachedCrm,
       strandedHere: submissions.length - reachedCrm,
-      allTime: (forms || []).reduce((n, f) => n + (f.total || 0), 0),
+      allTime: allTime?.n ?? (forms || []).reduce((n, f) => n + (f.total || 0), 0),
     },
   });
 }

@@ -16,6 +16,7 @@
       <div><h1>Lead forms</h1><p class="sub">Your own forms, hosted on your domain. Every
         submission lands on your lead board with the form it came from on it.</p></div>
       <div class="toolbar" style="margin:0;padding:0;">
+        <span id="scope"></span>
         <select id="report-days" aria-label="Period" style="width:auto;">
           <option value="30">Last 30 days</option>
           <option value="90" selected>Last 90 days</option>
@@ -69,7 +70,8 @@
 </dialog>
 
 <script type="module">
-import { api, mountShell, esc, timeAgo, showError } from '/js/app.js';
+import { api, mountShell, esc, timeAgo, showError,
+  mountScopePicker, advisorParam } from '/js/app.js';
 await mountShell();
 
 const panel = document.getElementById('panel');
@@ -178,7 +180,12 @@ function drawReport(r) {
         ? `${t.strandedHere} came in without a name to file them under`
         : 'Every one of them'}</p></div>
     <div class="stat"><p class="label">Live forms</p><p class="value">${t.activeForms}</p>
-      <p class="meta">Of ${t.forms} built</p></div>
+      <p class="meta">Of ${t.forms} built${
+        // The forms belong to the agency and everybody shares them, so this one
+        // number cannot narrow with the others. Said here rather than left to
+        // be noticed, because a tile that ignores the picker beside three that
+        // obey it reads as a bug.
+        r.scope && r.scope.canPick && !r.scope.all ? ', the agency\u2019s' : ''}</p></div>
     <div class="stat"><p class="label">All time</p><p class="value">${t.allTime}</p>
       <p class="meta">Every submission ever</p></div>`;
 
@@ -238,10 +245,13 @@ async function load() {
   try {
     const [list, report] = await Promise.all([
       api('/api/myforms'),
-      api(`/api/myforms/report?days=${daysSel.value}`),
+      api(`/api/myforms/report?days=${daysSel.value}&${advisorParam()}`),
     ]);
     render(list.forms);
     drawReport(report);
+    // Only ever drawn for an owner: mountScopePicker draws nothing unless the
+    // answer says the reader may pick.
+    mountScopePicker(document.getElementById('scope'), report, load);
   }
   catch (err) { showError(document.getElementById('err'), err); panel.innerHTML = ''; }
 }
