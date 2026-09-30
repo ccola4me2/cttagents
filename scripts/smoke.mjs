@@ -8646,6 +8646,140 @@ async function main() {
     `status ${notYours.status}`);
   }
 
+  // ------------------------------------- several reservations, one trip ----
+  // Samantha's Spain holiday is nine reservations. The advisor says which belong
+  // together and the client gets one link. What is worth pinning is the fence (a
+  // trip is the advisor's and nobody else's), the rule that only booked trips go
+  // in, and that the page a client opens carries the itinerary and nothing the
+  // agency earns.
+  {
+  step('Several reservations become one trip');
+
+  const who = `Trip Client ${stamp}`;
+  const mk = async (o) => {
+    const r = await call(advisor, 'POST', '/api/bookings', { clientName: who, status: 'booked', ...o });
+    const id = r.data?.booking?.id;
+    if (id) cleanup('a trip reservation', () => dropBooking(id));
+    return id;
+  };
+  const air = await mk({ supplier: 'Iberia', productName: 'Flights to Madrid', productType: 'air',
+    departDate: isoDay(60), returnDate: isoDay(70), gross: '1200', commission: '111' });
+  const hotel = await mk({ supplier: 'Hotel Group', productName: 'Hotel Madrid', productType: 'hotel',
+    departDate: isoDay(61), returnDate: isoDay(64), gross: '600', commission: '67' });
+  const tour = await mk({ supplier: 'Tours', productName: 'Toledo day trip', productType: 'tour',
+    departDate: isoDay(62), returnDate: isoDay(62), gross: '150', commission: '13' });
+  const quoted = await mk({ status: 'quoted', supplier: 'Tours', productName: 'Quoted sunset sail',
+    productType: 'tour', departDate: isoDay(63), returnDate: isoDay(63), gross: '90' });
+
+  const lone = await call(advisor, 'POST', '/api/trips', { bookingIds: [air] });
+  check(lone.status === 400, 'one reservation is not a trip', `status ${lone.status}`);
+  const withQuote = await call(advisor, 'POST', '/api/trips', { bookingIds: [air, quoted] });
+  check(withQuote.status === 400 && /booked or travelled/.test(withQuote.data?.error || ''),
+    'a quote cannot go in a trip, and it says why', `${withQuote.status} ${withQuote.data?.error}`);
+
+  const made = await call(advisor, 'POST', '/api/trips', { bookingIds: [air, hotel], name: `Spain ${stamp}` });
+  const tripId = made.data?.id;
+  check(made.status === 201 && tripId, 'an advisor puts two reservations together as one trip', `status ${made.status}`);
+  if (tripId) cleanup('the trip', () => call(advisor, 'DELETE', `/api/trips/${tripId}`));
+
+  const again = await call(advisor, 'POST', '/api/trips', { bookingIds: [air, tour] });
+  check(again.status === 400 && /already in/.test(again.data?.error || ''),
+    'a reservation is in one trip at a time', `${again.status} ${again.data?.error}`);
+
+  const got = await call(advisor, 'GET', `/api/trips/${tripId}`);
+  check((got.data?.bookings || []).length === 2 && got.data?.trip?.name === `Spain ${stamp}`,
+    'the trip reads back with both reservations', JSON.stringify((got.data?.bookings || []).length));
+  check((got.data?.candidates || []).some((c) => c.id === tour) && !(got.data?.candidates || []).some((c) => c.id === quoted),
+    'the same client\'s other booked reservations are offered, a quote is not');
+  const rec = await call(advisor, 'GET', `/api/bookings/${air}/record`);
+  check(rec.data?.booking?.trip_id === tripId, 'a reservation knows which trip it is part of');
+  const list = await call(advisor, 'GET', '/api/trips');
+  check((list.data?.trips || []).some((t) => t.id === tripId && t.parts === 2), 'the trip is in the advisor\'s list');
+
+  // The fence. A colleague in the same agency is not the advisor.
+  const mateEmail = `trip-mate-${stamp}@test.dev`;
+  const mateUser = await makeAdvisor(admin, mateEmail, 'mate-test-12345', { firstName: 'Trip', lastName: 'Mate' });
+  await call(admin, 'PUT', `/api/admin/advisors/${mateUser.id}/agency`,
+    { agencyId: 'agency-house', platformOwner: false, role: 'advisor' });
+  cleanup('the trip colleague', () => call(admin, 'PUT',
+    `/api/admin/advisors/${mateUser.id}/status`, { status: 'suspended' }));
+  const mate = jar();
+  await call(mate, 'POST', '/api/auth/login', { email: mateEmail, password: 'mate-test-12345' });
+  const peek = await call(mate, 'GET', `/api/trips/${tripId}`);
+  check(peek.status === 404, 'a colleague cannot open another advisor\'s trip', `status ${peek.status}`);
+  check(!((await call(mate, 'GET', '/api/trips')).data?.trips || []).some((t) => t.id === tripId),
+    'nor see it in their list');
+  const edit = await call(mate, 'PUT', `/api/trips/${tripId}`, { name: 'Mine now' });
+  const mateShare = await call(mate, 'POST', `/api/trips/${tripId}/share`, {});
+  const mateDrop = await call(mate, 'DELETE', `/api/trips/${tripId}`);
+  check(edit.status === 404 && mateShare.status === 404 && mateDrop.status === 404,
+    'nor change, share or take it apart', `${edit.status} ${mateShare.status} ${mateDrop.status}`);
+  const steal = await call(mate, 'POST', '/api/trips', { bookingIds: [tour, quoted] });
+  check(steal.status === 404 || steal.status === 400, 'nor build a trip out of reservations that are not theirs', `status ${steal.status}`);
+
+  // Saved, and left alone when not sent.
+  const words = await call(advisor, 'PUT', `/api/trips/${tripId}`,
+    { intro: 'Welcome to Spain', tips: 'Carry some euros', add: [tour] });
+  check(words.status === 200, 'the welcome, the tips and another reservation save together', `status ${words.status}`);
+  const kept = await call(advisor, 'PUT', `/api/trips/${tripId}`, { intro: 'Welcome to Spain, all of you' });
+  const after = await call(advisor, 'GET', `/api/trips/${tripId}`);
+  check(after.data?.trip?.tips === 'Carry some euros' && after.data?.trip?.name === `Spain ${stamp}`
+    && (after.data?.bookings || []).length === 3 && kept.status === 200,
+    'a field left out of a save is left alone');
+
+  // The page the client opens.
+  check((await call(null, 'GET', '/i/not-a-real-code')).status === 404, 'a page nobody shared is not there');
+  const before = await call(null, 'GET', `/api/trips/${tripId}`);
+  check(before.status === 401, 'and the trip itself needs a sign in');
+  const shared = await call(advisor, 'POST', `/api/trips/${tripId}/share`, {});
+  const url = shared.data?.url || '';
+  const code = url.split('/i/')[1];
+  check(shared.status === 200 && code, 'the advisor shares the trip', `status ${shared.status}`);
+  check(shared.data?.shared_reservations === 3, 'and each reservation in it gets its own page, so every line opens',
+    String(shared.data?.shared_reservations));
+  const quoteAfter = await call(advisor, 'GET', `/api/bookings/${quoted}/record`);
+  check(!quoteAfter.data?.booking?.share_code, 'a quote is never shared along the way');
+
+  const page = await call(null, 'GET', `/i/${code}`);
+  const html = page.raw || '';
+  check(page.status === 200, 'anyone with the link can open it', `status ${page.status}`);
+  check(html.includes(`Spain ${stamp}`) && html.includes('Welcome to Spain, all of you') && html.includes('Carry some euros'),
+    'the name, the welcome and the tips are on it');
+  check(html.includes('Flights to Madrid') && html.includes('Hotel Madrid') && html.includes('Toledo day trip'),
+    'every reservation is on it');
+  check(html.includes('Check in') && html.includes('Check out') && html.includes('Outbound flight'),
+    'laid out day by day, with the hotel checking in and out');
+  check(!html.includes('Quoted sunset sail'), 'and the quote is not on it');
+  check(html.includes('$1,950.00'), 'the costs are added up across the reservations', html.includes('Trip total') ? '' : 'no costs');
+  const leaked = ['111.00', '67.00', '13.00', 'commission_cents', 'commission_status', 'advisor_split',
+    'agreed_split', 'lead_source'].filter((w) => html.includes(w));
+  check(!leaked.length && !/commission/i.test(html) && !/mark ?up/i.test(html),
+    'and it says nothing about what the agency earns', leaked.join(', '));
+  check(html.includes('href="/t/'), 'each reservation opens its own page');
+
+  // Taking one out, and the page follows.
+  const removed = await call(advisor, 'PUT', `/api/trips/${tripId}`, { remove: [hotel] });
+  const page2 = await call(null, 'GET', `/i/${code}`);
+  check(removed.status === 200 && !(page2.raw || '').includes('Hotel Madrid') && (page2.raw || '').includes('Toledo day trip'),
+    'taking a reservation out takes it off the page');
+  const freed = await call(advisor, 'GET', `/api/bookings/${hotel}/record`);
+  check(!freed.data?.booking?.trip_id, 'and the reservation is free to go in another');
+
+  // A cancelled reservation drops off a trip by itself.
+  await call(advisor, 'POST', `/api/bookings/${tour}/quick`, { status: 'cancelled' });
+  const page3 = await call(null, 'GET', `/i/${code}`);
+  check(!(page3.raw || '').includes('Toledo day trip'), 'a cancelled reservation drops off the page by itself');
+
+  // Off, and apart.
+  const off = await call(advisor, 'POST', `/api/trips/${tripId}/share`, { on: false });
+  const gone = await call(null, 'GET', `/i/${code}`);
+  check(off.status === 200 && gone.status === 404, 'turning it off stops the link working', `status ${gone.status}`);
+  const apart = await call(advisor, 'DELETE', `/api/trips/${tripId}`);
+  const freed2 = await call(advisor, 'GET', `/api/bookings/${air}/record`);
+  check(apart.status === 200 && !freed2.data?.booking?.trip_id, 'taking the trip apart frees what was in it');
+  check((await call(advisor, 'GET', `/api/bookings/${air}/record`)).status === 200, 'and leaves the reservations as they were');
+  }
+
   // ------------------------------------------------- paying the advisors ----
   // The last step of the money. Everything before this says what an advisor
   // has earned out of what the vendor sent; this is the agency writing the

@@ -31,6 +31,16 @@
           <option value="cancelled">Cancelled</option>
         </select>
       </div>
+      <div id="trips-strip"></div>
+      <div id="pick-bar" hidden>
+        <div class="notice notice-ok" style="display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;">
+          <strong id="pick-count"></strong>
+          <input id="pick-name" maxlength="120" placeholder="Trip name (optional)" style="min-width:220px;">
+          <button class="btn btn-primary btn-sm" id="pick-go" type="button">Put together as one trip</button>
+          <button class="btn btn-ghost btn-sm" id="pick-clear" type="button">Clear</button>
+          <span class="notice-error" id="pick-err" hidden></span>
+        </div>
+      </div>
       <section class="card" id="panel"><p class="spinner">Loading reservations...</p></section>
     </div>
   </div>
@@ -47,6 +57,9 @@ const statsEl = document.getElementById('stats');
 const search = document.getElementById('search');
 const statusFilter = document.getElementById('status-filter');
 let cache = [];
+// Reservations ticked to become one trip, and the trips that already exist.
+const picked = new Set();
+let tripNames = new Map();
 
 const STATUS_TONE = { booked: 'badge-green', quoted: 'badge-amber', travelled: 'badge-navy', cancelled: 'badge-red' };
 
@@ -59,6 +72,7 @@ function render(bookings, stats, scope, d = {}) {
   // your own name in every row of your own list is noise.
   const showAdvisor = Boolean(scope && scope.all);
   cache = bookings;
+  queueMicrotask(drawPickBar);
   statsEl.innerHTML = `
     <div class="stat"><p class="label">Reservations</p><p class="value">${stats.total}</p>
       <p class="meta">${stats.booked} booked, ${stats.quoted} quoted</p></div>
@@ -75,7 +89,7 @@ function render(bookings, stats, scope, d = {}) {
   panel.innerHTML = `
     ${d.truncated ? `<div class="notice notice-warn">Showing the first ${d.cap} only.
       Search to narrow it down; filtering what is on screen will not reach the rest.</div>` : ''}<div class="table-wrap"><table>
-    <thead><tr><th>Client</th>${showAdvisor ? '<th>Advisor</th>' : ''}<th>Vendor</th><th>Conf #</th>
+    <thead><tr><th style="width:1.5rem;"></th><th>Client</th>${showAdvisor ? '<th>Advisor</th>' : ''}<th>Vendor</th><th>Conf #</th>
       <th>Trip</th><th>Departing</th><th>Final payment</th>
       <th class="num">Gross</th><th class="num">Commission</th><th></th></tr></thead>
     <tbody>${bookings.map((b) => {
@@ -97,9 +111,16 @@ function render(bookings, stats, scope, d = {}) {
       const left = daysUntil(b.final_payment_due);
       const tone = settled ? 'badge-green'
         : left === null ? '' : left < 0 ? 'badge-red' : left <= 14 ? 'badge-red' : left <= 30 ? 'badge-amber' : 'badge-navy';
+      // Only booked and travelled reservations can go in a trip, and only one
+      // that is not in one already: a holiday is one holiday.
+      const pickable = (b.status === 'booked' || b.status === 'travelled') && !b.trip_id;
+      const inTrip = b.trip_id && tripNames.has(b.trip_id);
       return `<tr>
+        <td>${pickable ? `<input type="checkbox" data-pick="${esc(b.id)}" aria-label="Pick for a trip"${
+          picked.has(b.id) ? ' checked' : ''}>` : ''}</td>
         <td><a class="name" href="/app/reservation?id=${esc(b.id)}">${esc(b.client_name)}</a>
-          <div><span class="badge ${STATUS_TONE[b.status] || 'badge-navy'}">${esc(b.status)}</span></div></td>
+          <div><span class="badge ${STATUS_TONE[b.status] || 'badge-navy'}">${esc(b.status)}</span>${
+            inTrip ? ` <a class="badge badge-navy" href="/app/trip?id=${esc(b.trip_id)}">${esc(tripNames.get(b.trip_id))}</a>` : ''}</div></td>
         ${showAdvisor ? `<td class="muted">${esc(b.advisor_name || '-')}</td>` : ''}
         <td>${b.supplier ? esc(b.supplier) : '<span class="muted">-</span>'}</td>
         <td>${b.confirmation_number ? esc(b.confirmation_number) : '<span class="muted">-</span>'}</td>
@@ -139,6 +160,13 @@ async function load() {
     if (statusFilter.value) params.set('status', statusFilter.value);
     if (advisorParam()) params.set('advisor', new URLSearchParams(location.search).get('advisor'));
     const data = await api(`/api/bookings${params.toString() ? '?' + params : ''}`);
+    // Trips are a convenience on this page. If they cannot be read the list is
+    // still worth showing, so a failure here is not allowed to blank it.
+    try {
+      const t = await api('/api/trips');
+      tripNames = new Map((t.trips || []).map((x) => [x.id, x.name]));
+      drawTrips(t.trips || []);
+    } catch { tripNames = new Map(); drawTrips([]); }
     mountScopePicker(document.getElementById('scope'), data, load);
     render(data.bookings, data.stats, data.scope, data);
   } catch (err) {
@@ -147,6 +175,52 @@ async function load() {
 }
 
 // Adding a reservation is a page now, so the button is a link in the markup.
+
+/** The trips already made, so there is a way back into one. */
+function drawTrips(trips) {
+  document.getElementById('trips-strip').innerHTML = trips.length
+    ? `<p class="muted" style="margin:.2rem 0 .8rem;">Trips: ${trips.map((t) => `<a class="badge badge-navy" href="/app/trip?id=${
+      esc(t.id)}">${esc(t.name)} (${t.parts})</a>`).join(' ')}</p>`
+    : '';
+}
+
+function drawPickBar() {
+  // A reservation filtered out of view is not still ticked: what is counted is
+  // what is on screen, so pressing the button does what it says.
+  for (const id of [...picked]) if (!cache.some((b) => b.id === id)) picked.delete(id);
+  document.getElementById('pick-bar').hidden = picked.size === 0;
+  document.getElementById('pick-count').textContent = picked.size === 1
+    ? '1 reservation ticked. Tick at least one more.' : `${picked.size} reservations ticked`;
+  document.getElementById('pick-go').disabled = picked.size < 2;
+}
+
+panel.addEventListener('change', (e) => {
+  const box = e.target.closest('[data-pick]');
+  if (!box) return;
+  if (box.checked) picked.add(box.dataset.pick); else picked.delete(box.dataset.pick);
+  drawPickBar();
+});
+
+document.getElementById('pick-clear').addEventListener('click', () => {
+  picked.clear();
+  panel.querySelectorAll('[data-pick]').forEach((b) => { b.checked = false; });
+  drawPickBar();
+});
+
+document.getElementById('pick-go').addEventListener('click', async (e) => {
+  const err = document.getElementById('pick-err');
+  err.hidden = true;
+  e.target.disabled = true;
+  try {
+    const made = await api('/api/trips', { method: 'POST', body: {
+      bookingIds: [...picked], name: document.getElementById('pick-name').value } });
+    location.href = `/app/trip?id=${encodeURIComponent(made.id)}`;
+  } catch (ex) {
+    err.textContent = ex.message || 'That did not work.';
+    err.hidden = false;
+    e.target.disabled = false;
+  }
+});
 
 let timer;
 search.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(load, 350); });

@@ -574,7 +574,7 @@ const BOOKING_COLUMNS = `
   created_at, updated_at, share_code, shared_at, statement_hash, lead_source,
   itinerary_shared, options_open,
   viewed_first_at, viewed_last_at, view_count,
-  declined_at, declined_reason, accepted_at
+  declined_at, declined_reason, accepted_at, trip_id
 `;
 
 // The same columns qualified, for the queries that join users to name the
@@ -686,7 +686,7 @@ const WRITABLE = new Set([
   // A reservation and everything hanging off one.
   'bookings', 'booking_payments', 'booking_pricing', 'quote_options',
   'penalty_tiers', 'documents', 'components', 'travellers', 'amenities',
-  'itinerary_items', 'trip_messages',
+  'itinerary_items', 'trip_messages', 'trips',
   // The book behind it: the people, the households they sit in, the groups
   // they travel with, and the money owed either way.
   'clients', 'households', 'travel_groups', 'group_registrations',

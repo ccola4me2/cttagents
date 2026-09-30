@@ -202,6 +202,11 @@ jobs:
       - name: Group proposals are still read the way they were
         run: npm run check:groupquote
 
+      # Several reservations on one page. The ways it goes wrong are quiet: a check
+      # out after the next check in, a missing day, a name arriving as markup.
+      - name: A trip page puts its reservations in order
+        run: npm run check:trips
+
       - name: Build the database from the migrations
         run: npx wrangler d1 migrations apply cttagents --local
 

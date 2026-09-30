@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trip | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <a class="back-link" href="/app/reservations">&larr; Reservations</a>
+        <h1 id="title">Trip</h1>
+        <p class="sub" id="sub"></p>
+      </div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+
+      <section class="card" id="link-card" hidden>
+        <div class="card-head"><h2>What your client sees</h2></div>
+        <div class="card-pad" id="link-body"></div>
+      </section>
+
+      <div class="split" style="margin-top:1.5rem;">
+        <div>
+          <section class="card">
+            <div class="card-head"><h2>The trip</h2></div>
+            <form id="trip-form">
+              <div class="card-pad">
+                <div class="notice notice-error" hidden></div>
+                <div class="field"><label for="name">Trip name</label>
+                  <input id="name" name="name" maxlength="120" required placeholder="Spain, November 2026"></div>
+                <div class="field"><label for="intro">A welcome, at the top of the page</label>
+                  <textarea id="intro" name="intro" rows="4" maxlength="4000"
+                    placeholder="A few lines to set the scene. Optional."></textarea></div>
+                <div class="field"><label for="tips">Good to know</label>
+                  <textarea id="tips" name="tips" rows="7" maxlength="6000"
+                    placeholder="Tips, what to pack, who to call on the ground. Shown at the bottom of the page."></textarea>
+                  <p class="field-hint">Shown to your client exactly as you type it.</p></div>
+              </div>
+              <div class="card-foot"><button class="btn btn-primary" type="submit">Save</button>
+                <span class="muted" id="saved" style="margin-left:.8rem;"></span></div>
+            </form>
+          </section>
+        </div>
+
+        <div>
+          <section class="card">
+            <div class="card-head"><h2>Reservations in this trip</h2></div>
+            <div class="card-pad" id="parts"></div>
+          </section>
+          <section class="card" id="more-card" hidden style="margin-top:1.5rem;">
+            <div class="card-head"><h2>Add another reservation</h2></div>
+            <div class="card-pad" id="more"></div>
+          </section>
+          <section class="card" style="margin-top:1.5rem;">
+            <div class="card-head"><h2>How the page is built</h2></div>
+            <div class="card-pad">
+              <p class="field-hint" style="margin-top:0;">The day by day comes from the dates on each
+                reservation: a hotel shows on the day it starts and the day it ends, a flight on each
+                way. For more, such as flight times, a dinner or a tour, add lines to a reservation's
+                itinerary and mark it ready to share; they appear on the right day.</p>
+              <p class="field-hint">Payments, documents and messages stay on each reservation's own page,
+                which your client opens from this one.</p>
+            </div>
+          </section>
+          <p style="margin-top:1.5rem;"><button class="btn btn-ghost btn-sm" id="apart" type="button">Take this trip apart</button></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api, mountShell, esc, dateFmt, showError, onSubmit } from '/js/app.js';
+await mountShell();
+
+const id = new URLSearchParams(location.search).get('id');
+const errBox = document.getElementById('err');
+const form = document.getElementById('trip-form');
+let data = null;
+let filled = false;
+
+const TYPE = { cruise: 'Cruise', hotel: 'Hotel', resort: 'Resort', package: 'Package', tour: 'Tour',
+  air: 'Flights', rail: 'Rail', car: 'Car', transfer: 'Transfer', excursion: 'Excursion',
+  attraction: 'Attraction', event_ticket: 'Tickets', insurance: 'Insurance', parking: 'Parking',
+  visa_passport: 'Visa', other: 'Booking' };
+
+const when = (b) => (b.depart_date
+  ? `${dateFmt(b.depart_date)}${b.return_date && b.return_date !== b.depart_date ? ` to ${dateFmt(b.return_date)}` : ''}`
+  : 'no date yet');
+
+const line = (b, action) => `<li style="display:flex;gap:.8rem;align-items:center;justify-content:space-between;
+    padding:.55rem 0;border-bottom:1px solid var(--line, #e2ebf4);">
+  <span><a class="name" href="/app/reservation?id=${esc(b.id)}">${esc(b.product_name || b.supplier || TYPE[b.product_type] || 'Booking')}</a>
+    <span class="muted" style="display:block;font-size:.85rem;">${esc(TYPE[b.product_type] || '')}${
+      b.supplier ? ` &middot; ${esc(b.supplier)}` : ''} &middot; ${esc(when(b))}${
+      b.confirmation_number ? ` &middot; ${esc(b.confirmation_number)}` : ''}</span></span>
+  ${action}</li>`;
+
+function draw() {
+  const { trip, bookings, candidates } = data;
+  document.getElementById('title').textContent = trip.name;
+  document.getElementById('sub').textContent = `${bookings.length} reservation${bookings.length === 1 ? '' : 's'} on one page`;
+  document.title = `${trip.name} | CTT Agent Portal`;
+  // The form is filled once. Adding or removing a reservation reloads the page's
+  // data, and must not overwrite a welcome somebody is halfway through typing.
+  if (!filled) {
+    form.elements.name.value = trip.name;
+    form.elements.intro.value = trip.intro;
+    form.elements.tips.value = trip.tips;
+    filled = true;
+  }
+
+  const link = document.getElementById('link-body');
+  document.getElementById('link-card').hidden = false;
+  link.innerHTML = trip.shared
+    ? `<p style="margin-top:0;">One link with the whole itinerary, in date order. Anyone with it can read it, so
+        send it to the people travelling.</p>
+       <p><input id="url" value="${esc(trip.url)}" readonly style="width:100%;"></p>
+       <p><button class="btn btn-primary btn-sm" id="copy" type="button">Copy link</button>
+          <a class="btn btn-ghost btn-sm" href="${esc(trip.url)}?preview=1" target="_blank" rel="noopener">See what they see</a>
+          <button class="btn btn-ghost btn-sm" id="off" type="button">Turn the link off</button></p>`
+    : `<p style="margin-top:0;">Not shared yet. Turning it on gives your client one link to the whole itinerary.</p>
+       <p class="field-hint">It also turns on the page for each booked reservation in the trip, because
+         each line on the trip page opens that reservation's own page. Quotes are never shared this way.</p>
+       <p><button class="btn btn-primary btn-sm" id="on" type="button">Share this trip</button></p>`;
+
+  document.getElementById('parts').innerHTML = bookings.length
+    ? `<ul style="list-style:none;margin:0;padding:0;">${bookings.map((b) => line(b,
+        `<button class="btn btn-ghost btn-sm" data-remove="${esc(b.id)}" type="button">Remove</button>`)).join('')}</ul>`
+    : '<p class="muted">Nothing is in this trip.</p>';
+
+  const more = document.getElementById('more-card');
+  more.hidden = !candidates.length;
+  document.getElementById('more').innerHTML = candidates.length
+    ? `<ul style="list-style:none;margin:0;padding:0;">${candidates.map((b) => line(b,
+        `<button class="btn btn-ghost btn-sm" data-add="${esc(b.id)}" type="button">Add</button>`)).join('')}</ul>`
+    : '';
+}
+
+async function load() {
+  try {
+    data = await api(`/api/trips/${encodeURIComponent(id)}`);
+    draw();
+  } catch (err) { showError(errBox, err); }
+}
+
+async function change(body) {
+  try {
+    await api(`/api/trips/${encodeURIComponent(id)}`, { method: 'PUT', body });
+    await load();
+  } catch (err) { alert(err.message || 'That did not save.'); }
+}
+
+document.addEventListener('click', async (e) => {
+  const t = e.target.closest('button');
+  if (!t) return;
+  if (t.dataset.remove) return change({ remove: [t.dataset.remove] });
+  if (t.dataset.add) return change({ add: [t.dataset.add] });
+  if (t.id === 'copy') {
+    const url = document.getElementById('url').value;
+    try { await navigator.clipboard.writeText(url); t.textContent = 'Copied'; }
+    catch { document.getElementById('url').select(); }
+  }
+  if (t.id === 'on' || t.id === 'off') {
+    try {
+      await api(`/api/trips/${encodeURIComponent(id)}/share`, { method: 'POST', body: { on: t.id === 'on' } });
+      await load();
+    } catch (err) { alert(err.message || 'That did not work.'); }
+  }
+  if (t.id === 'apart') {
+    if (!confirm('Take this trip apart? The link stops working. The reservations themselves are not changed.')) return;
+    try {
+      await api(`/api/trips/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      location.href = '/app/reservations';
+    } catch (err) { alert(err.message || 'That did not work.'); }
+  }
+});
+
+onSubmit(form, async (f) => {
+  await api(`/api/trips/${encodeURIComponent(id)}`, { method: 'PUT', body: { name: f.name, intro: f.intro, tips: f.tips } });
+  const saved = document.getElementById('saved');
+  saved.textContent = 'Saved';
+  setTimeout(() => { saved.textContent = ''; }, 2500);
+  await load();
+});
+
+if (!id) showError(errBox, new Error('No trip was asked for.'));
+else await load();
+</script>
+</body>
+</html>

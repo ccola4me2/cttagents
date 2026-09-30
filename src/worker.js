@@ -71,6 +71,11 @@ import {
   handleTrainingBoard,
 } from './training.js';
 import { handleShareClient, renderHubPage } from './hub.js';
+import {
+  handleListTrips, handleCreateTrip, handleGetTrip, handleUpdateTrip,
+  handleShareTripPlan, handleDeleteTrip,
+} from './trips.js';
+import { renderPlanPage } from './tripplan.js';
 import { handleDuplicates, handleMergeClients } from './merge.js';
 import { renderPortal, handlePortalSignIn } from './portal.js';
 import { handleClientLinkRedeem, handleClientSignOut } from './clientauth.js';
@@ -455,6 +460,7 @@ const PAGE_FILES = {
   '/app/vendors': '/app/vendors.html',
   '/app/vendor': '/app/vendor.html',
   '/app/group': '/app/group.html',
+  '/app/trip': '/app/trip.html',
   '/app/cruise-search': '/app/cruise-search.html',
   '/app/form': '/app/form.html',
   '/app/bookings': '/app/reservations.html',
@@ -631,6 +637,8 @@ async function routeApi(request, env, path, method) {
   const welcomedMatch = path.match(/^\/api\/bookings\/([^/]+)\/welcomed$/);
   const shareMatch = path.match(/^\/api\/bookings\/([^/]+)\/share$/);
   const clientHubMatch = path.match(/^\/api\/clients\/([^/]+)\/hub$/);
+  const tripPlanMatch = path.match(/^\/api\/trips\/([^/]+)$/);
+  const tripPlanShareMatch = path.match(/^\/api\/trips\/([^/]+)\/share$/);
   const segMatch = path.match(/^\/api\/segments\/([^/]+)$/);
   const castMatch = path.match(/^\/api\/broadcasts\/([^/]+)$/);
   const castActMatch = path.match(/^\/api\/broadcasts\/([^/]+)\/(test|send|cancel)$/);
@@ -926,6 +934,13 @@ async function routeApi(request, env, path, method) {
   // Sharing a trip with the person it is for.
   if (shareMatch && method === 'POST') return handleShareTrip(request, env, shareMatch[1]);
   if (clientHubMatch && method === 'POST') return handleShareClient(request, env, clientHubMatch[1]);
+  // Several reservations, one trip, and the one link a client is sent for it.
+  if (path === '/api/trips' && method === 'GET') return handleListTrips(request, env);
+  if (path === '/api/trips' && method === 'POST') return handleCreateTrip(request, env);
+  if (tripPlanShareMatch && method === 'POST') return handleShareTripPlan(request, env, tripPlanShareMatch[1]);
+  if (tripPlanMatch && method === 'GET') return handleGetTrip(request, env, tripPlanMatch[1]);
+  if (tripPlanMatch && method === 'PUT') return handleUpdateTrip(request, env, tripPlanMatch[1]);
+  if (tripPlanMatch && method === 'DELETE') return handleDeleteTrip(request, env, tripPlanMatch[1]);
   // Before the single-segment match, which would read "rules" as an id.
   if (path === '/api/segments/rules' && method === 'GET') return handleSegmentRules(request, env);
   if (path === '/api/segments/preview' && method === 'POST') {
@@ -1289,6 +1304,10 @@ async function routePage(request, env, path) {
   // a single trip's page. The code is the credential.
   const hubPage = path.match(/^\/c\/([^/]+)\/?$/);
   if (hubPage) return renderHubPage(request, env, decodeURIComponent(hubPage[1]));
+
+  // One trip made of several reservations, on the same terms: the code is the credential.
+  const planPage = path.match(/^\/i\/([^/]+)\/?$/);
+  if (planPage) return renderPlanPage(request, env, decodeURIComponent(planPage[1]));
 
   // A group's own page, on the same terms: public, because it is how names
   // arrive for a trip nobody has been told about yet.

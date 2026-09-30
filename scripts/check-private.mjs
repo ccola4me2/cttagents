@@ -37,6 +37,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CLIENT_FACING = [
   'share.js',      // the trip page at /t/<code>
   'hub.js',        // the client's own page at /c/<code>
+  'tripplan.js',   // one trip made of several reservations, at /i/<code>
   'publicform.js', // the public form and the group sign-up page
   'statement.js',  // the invoice and the quote a client is sent
   'reviews.js',    // the "how was it" form on the trip page

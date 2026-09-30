@@ -1857,6 +1857,17 @@ function render() {
     b.advisor_name ? `Booked by ${esc(b.advisor_name)}` : '',
   ].filter(Boolean).join(' &middot; ');
 
+  // Which trip this is part of, where it is part of one. Named after the list
+  // arrives, and left off if it cannot be read: a link is not worth an error.
+  if (b.trip_id) {
+    api('/api/trips').then((t) => {
+      const mine = (t.trips || []).find((x) => x.id === b.trip_id);
+      if (!mine) return;
+      document.getElementById('sub').insertAdjacentHTML('beforeend',
+        ` &middot; <a href="/app/trip?id=${esc(mine.id)}">Part of the trip ${esc(mine.name)}</a>`);
+    }).catch(() => {});
+  }
+
   // A quote and a booked trip get different documents, so the button says
   // which one it will send. Nothing goes out about a cancelled trip.
   // Offered once they are home and once, because the point is remembering

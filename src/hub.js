@@ -158,7 +158,13 @@ export async function loadBookFor(env, clients) {
   const ownerHoles = owners.map(() => '?').join(', ');
   const { results: bookings } = await env.DB.prepare(
     `SELECT id, share_code, status, supplier, product_name, destination, itinerary,
-            depart_date, return_date, confirmation_number, gross_cents, travellers
+            depart_date, return_date, confirmation_number, gross_cents, travellers, trip_id,
+            -- A trip the advisor put together, named and with its own page where
+            -- it has been shared. Matched on the owner as well as the id.
+            (SELECT t.name FROM trips t WHERE t.id = bookings.trip_id
+                AND t.user_id = bookings.user_id) AS trip_name,
+            (SELECT t.share_code FROM trips t WHERE t.id = bookings.trip_id
+                AND t.user_id = bookings.user_id) AS trip_code
        FROM bookings
       WHERE (${pairs}) AND user_id IN (${ownerHoles}) AND status != 'cancelled'
         -- A quote is on this page only once the advisor has sent it. The
@@ -205,7 +211,23 @@ function group(bookings) {
   for (const b of bookings) {
     const from = at(b.depart_date);
     const to = at(b.return_date) || from;
-    const near = from === null ? null : trips.find((t) => t.from !== null
+    // A trip somebody put together is the answer and not a guess: its
+    // reservations stay together whatever their dates, and nothing is guessed
+    // into it.
+    if (b.trip_id && b.trip_name) {
+      const made = trips.find((t) => t.tripId === b.trip_id);
+      if (made) {
+        made.rows.push(b);
+        if (from !== null) {
+          made.from = made.from === null ? from : Math.min(made.from, from);
+          made.to = made.to === null ? to : Math.max(made.to, to);
+        }
+      } else {
+        trips.push({ from, to, rows: [b], tripId: b.trip_id, name: b.trip_name, code: b.trip_code || null });
+      }
+      continue;
+    }
+    const near = from === null ? null : trips.find((t) => !t.tripId && t.from !== null
       && from <= t.to + 2 * DAY && to >= t.from - 2 * DAY);
     if (near) {
       near.from = Math.min(near.from, from);
@@ -268,7 +290,7 @@ export function bookBody({ client, bookings, paid, portal = false }) {
     const total = sum(t.rows, (b) => b.gross_cents || 0);
     const next = t.rows.map((b) => (paid.get(b.id) || {}).next_due).filter(Boolean).sort()[0];
     return `<section class="card pad">
-      <h2>${esc(tripName(t.rows))}</h2>
+      <h2>${esc(t.name || tripName(t.rows))}</h2>
       <p class="lede">${esc(t.from ? sayDate(new Date(t.from).toISOString().slice(0, 10)) : 'Dates to come')}${
         t.to && t.to !== t.from ? ` to ${esc(sayDate(new Date(t.to).toISOString().slice(0, 10)))}` : ''
       } &middot; ${t.rows.length} booking${t.rows.length === 1 ? '' : 's'}</p>
@@ -279,6 +301,7 @@ export function bookBody({ client, bookings, paid, portal = false }) {
           <p class="tvalue${owed > 0 ? ' owing' : ''}">${esc(money(owed))}</p></div>
       </div>
       ${owed > 0 && next ? `<p class="dim small">Next payment due ${esc(sayDate(next))}.</p>` : ''}
+      ${t.code ? `<p><a href="/i/${esc(t.code)}">Open the whole itinerary</a></p>` : ''}
       <ul class="plain trips">${t.rows.map(row).join('')}</ul>
     </section>`;
   };
@@ -301,7 +324,7 @@ export function bookBody({ client, bookings, paid, portal = false }) {
     ${past.length ? `<section class="card pad">
       <h2>Where you have been</h2>
       <ul class="plain trips">${past.map((t) => `<li class="trip-row"><span>
-        <span class="t">${esc(tripName(t.rows))}</span>
+        <span class="t">${esc(t.name || tripName(t.rows))}</span>
         <span class="m">${esc(t.from ? sayDate(new Date(t.from).toISOString().slice(0, 10)) : '')}
           &middot; ${t.rows.length} booking${t.rows.length === 1 ? '' : 's'}</span></span></li>`).join('')}</ul>
     </section>` : ''}
