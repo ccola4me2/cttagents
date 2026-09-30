@@ -288,7 +288,7 @@ const BROWSER_GLOBALS = new Set([
   'CompressionStream', 'Response', 'Request', 'Headers', 'DOMParser',
   'AbortController', 'Event', 'CustomEvent', 'MutationObserver',
   'IntersectionObserver', 'localStorage', 'sessionStorage', 'crypto',
-  'DataView', 'Uint8Array', 'ArrayBuffer', 'Image', 'atob', 'btoa',
+  'DataView', 'Uint8Array', 'Uint32Array', 'ArrayBuffer', 'Image', 'atob', 'btoa',
   'getComputedStyle', 'matchMedia', 'print', 'scrollTo', 'open', 'close',
 ]);
 

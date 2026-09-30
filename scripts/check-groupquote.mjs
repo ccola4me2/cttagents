@@ -26,7 +26,9 @@
  */
 import { parseGroupQuote, tidy, FORMATS } from '../src/groupquote.js';
 import { cabinRows } from '../src/groupquote-mvas.js';
-import { parseDate } from '../src/groupquote-util.js';
+import { parseDate, titleCase, lastFirst } from '../src/groupquote-util.js';
+import { md5, rc4, openEncryption } from '../src/pdfcrypt.js';
+import { decodeContent, isPlainText } from '../src/pdftext.js';
 
 let failures = 0;
 let checks = 0;
@@ -58,6 +60,17 @@ const NCL_LIKE = 'Norwegian Cruise Line Group Agreement Group Name: Sample Golf 
 const BROCHURE = 'HOT Deals of the Week 09/21/26 Featured Supplier of the Week: Royal Caribbean International '
   + 'Signature Exclusive - Receive a Specialty Dining Experience for Two on select sailings: '
   + 'Booking Window: September 1 - 31 2026 Terms and conditions apply to all offers shown.';
+
+// Real contracts, with the people in them replaced. Norwegian's prints every value
+// before its label, and Celebrity's was locked against copying; both are here as the
+// text the PDF reader produced once it had opened them.
+const NCL_FS = "FS GROUP AGREEMENT Norwegian Cruise Line www.ncl.com 800-327-7030 Booking Date: September 16, 2026 September 29, 2026Issue Date: Page 1 of 2 AGENCY ==> 100001 SAMPLE AGENCY, LLC 1 MAIN ST Anytown, FL 33000 US Norwegian Escape Sample Wedding PAT MANAGER 5550100100 FS GROUP ==> A1234567 USD Ship: Sail Date: FS Group Name: Sales Manager: Currency: July 2, 2027 All cabin rates are per person based on double occupancy; single, triple and quad cabins are on a request basis. All air add-ons, package rates and add-on rates are per person. Government taxes and fees are subject to change. Please review the Group Terms and Conditions for additional information. FS Group Cabin Space Total Fare per Guest Pricing Category Fare per Guest Comm % GTFPE*Number of Cabins Berthing Category Cabin Type Balcony BC BC 20 738.65 10.0 220.00 958.65 Inside IB IB 10 526.15 10.0 220.00 746.15 Club Balcony MB MB 5 798.15 10.0 220.00 1,018.15 *NCF = Non-Commissionable Fare; GTFPE = Government Taxes, Fees & Port Expenses; includes GET Tax & Hawaii State and County Tax Payment Schedule 1,750.00FIRST DEPOSIT due on 11/15/2026 61,700.50FINAL PAYMENT due on 05/03/2027 Please note that amount stated for Final Payment can vary and depend on actual bookings at time of group finalization. Amenity Value GAP050 Cabin assignments with names require full deposit within 7 days. Cabin assignments without names require immediate deposit. Child traveling as 2nd guest in cabin pays adult fare. 3 to 8 guest prices are subject to change upon availability. Confirmation Remarks TC Ratio: 1:16 FS GROUP AGREEMENT Norwegian Cruise Line www.ncl.com 800-327-7030 Booking Date: September 16, 2026 September 29, 2026Issue Date: Page 2 of 2 AGENCY ==> 100001 SAMPLE AGENCY, LLC 1 MAIN ST Anytown, FL 33000 US Norwegian Escape Sample Wedding PAT MANAGER 5550100100 FS GROUP ==> A1234567 USD Ship: Sail Date: FS Group Name: Sales Manager: Currency: July 2, 2027 *********************************************** I m p o r t a n t R e m i n d e r *********************************************** As visa and documentation requirements vary by country and are subject to change, all guests are urged to contact their travel professional, local immigration office, or the embassy or consulate for each country they will visit on their cruise to verify current entry requirements. It is the guest's responsibility to obtain required visas and other documentation prior to sailing, including vaccinations for infectious diseases. Additional information for booked guests is available on www.ncl.com . Online Check-In: We highly recommend guests to complete their online check-in form at www.ncl.com at least 21 days and no less than 3 days prior to the vacation start date. Guests who complete the online check-in will still need to check-in with our port agents to complete the boarding process. Guests who do not complete their online check-in will be required to complete the entire check-in process at the pier, at least 2 hours prior to the departure time noted on their cruise documents. TSA Requirements: TSA requirements mandate that for all guests who have purchased air, NCL must provide TSA with Full Names (as it appears on your passport) that includes middle name if applicable, Date of Birth and Gender. Without this information you can be denied boarding the aircraft. Domestic Airline Travel ID Requirements for U.S. Citizens: Beginning May 7, 2025, every air traveler 18 years of age and older will need a REAL ID-compliant driver's license, state-issued enhanced driver's license, or another acceptable form of ID to fly within the United States. REAL IDs are marked by a star on the top of the card. Between now and the effective date of the new regulations, we encourage all travelers to check their IDs and obtain a REAL ID if they don't already have one. To obtain a REAL ID requires documentation beyond what is required for most standard drivers' licenses. Prepare to collect and present several documents to DMV officials that prove residency and identification. Guests should take this into consideration when planning travels for their cruise. To find out if your state is in compliance, please click here . To learn more about REAL ID, please click here . For more information, including other acceptable forms of identification, please click here . **************************************** F i n a l B o a r d i n g T i m e P o l i c y **************************************** Please be advised that on Embarkation Day, all guests must be onboard the ship no less than two hours from the ship's scheduled departure time. Please go to www.ncl.com for additional information. Cruise Itinerary Depart Time Arrive Time Date Port of Call ORLANDO-BEACHES-PORT CANAVERAL 07/02/2027 4:00 pm AT SEA 07/03/2027 COZUMEL 07/04/2027 8:00 am 4:00 pm AT SEA 07/05/2027 GREAT STIRRUP CAY 07/06/2027 7:00 am 5:00 pm ORLANDO-BEACHES-PORT CANAVERAL 07/07/2027 7:00 am";
+const CELEBRITY = "Group Quote Introduction Group ID: 1234567 Group Name: SAMPLE BIRTHDAY BASH CELEBRITY REFLECTION Sail Date: 19 MAR 2027 Welcome to Celebrity Cruises! Thank you for choosing to book your group with Celebrity Cruises , we truly appreciate your business. Your boo ... Group Quote Summary Attn: Jane Advisor Group ID: 1234567 Issue Date: 30 SEP 2026 SAMPLE AGENCY LLC Group Name: SAMPLE BIRTHDAY BASH Partner Advocate: 1 MAIN ST Ship: CELEBRITY REFLECTION Extension: ANYTOWN, FL, 33000 Sailing Date: 19 MAR 2027 Email Address: UNITED STATES Itinerary: 3 NIGHT KEY WEST & BAHAMAS CRUISE Rep: SAMPLE,PAT Cruise Itinerary Date Port Location Arrive Depart 19 MAR 20 MAR 21 MAR 22 MAR FORT LAUDERDALE, FLORIDA KEY WEST, FLORIDA GRAND BAHAMA ISL, BAHAMAS FORT LAUDERDALE, FLORIDA 8:00 AM 8:00 AM 7:00 AM 4:00 PM 5:00 PM 5:00 PM Please note itineraries may change as conditions warrant. Group Policy No-Deposit Payment Schedule ( Currency: USD) Due Date(s) Deposit Required Cumulative Deposit Due 29 OCT 2026 3200.00 3200.00 North American bookings will require a 200% deposit of standard deposit amount for deluxe suite categories. This amount is not reflected in the total deposit requirement listed above. Please adjust the amount due accordingly based upon the suite category allotment in the group. Final payment due: 03 JAN 2027 \u00b7 Celebrity Cruises may contact you at anytime to review your group inventory. During this review, unsold space (stateroom inventory without names and full deposit) may be recalled. \u00b7 Celebrity Cruises reserves the right to contact you at anytime to review group inventory held on specific sail dates that are at risk of being oversold. During this review, all unsold space (stateroom inventory without names and full deposit) will be recalled. \u00b7 Full Names and deposits are due as option dates are reached. Space without names and deposit cross-referenced on or before the due date may be released. \u00b7 \u00b7 \u00b7 \u00b7 \u00b7 Celebrity Cruises reserves the right to impose a fuel supplement on all guests if the price of West Texas Intermediate fuel exceeds $65.00 per barrel. The fuel supplement for 1st and 2nd guests would be no more than $10 per guest per day, to a maximum of $140 per cruise; and for additional guests would be no more than $5 per person per day, to a maximum of $70 per cruise. Cancellation Schedule Days Prior to Sailing Cancellation Schedule Date 74 to 61 60 to 31 50% per Guest 75% per Guest 04 JAN 2027 18 JAN 2027 Sailing operated by Celebrity Cruises Inc. 1050 Caribbean Way, Miami, Florida 33132 2 of 7 Wednesday, September 30, 2026 Group Quote Summary Attn: Jane Advisor Group ID: 1234567 Issue Date: 30 SEP 2026 SAMPLE AGENCY LLC Group Name: SAMPLE BIRTHDAY BASH Partner Advocate: 1 MAIN ST Ship: CELEBRITY REFLECTION Extension: ANYTOWN, FL, 33000 Sailing Date: 19 MAR 2027 Email Address: UNITED STATES Itinerary: 3 NIGHT KEY WEST & BAHAMAS CRUISE Rep: SAMPLE,PAT 30 to 0 100% per Guest 17 FEB 2027 Sailing operated by Celebrity Cruises Inc. 1050 Caribbean Way, Miami, Florida 33132 3 of 7 Wednesday, September 30, 2026 Group Quote Other Charges Detail Group ID: 1234567 Group Name: SAMPLE BIRTHDAY BASH CELEBRITY REFLECTION Sail Date: 19 MAR 2027 Group Level Activities Title Description Quantity Unit Charge Commission Rate Total Guest Level Activities Guest Name Res ID Title Description Quantity Unit Charge Commission Rate Total Sailing operated by Celebrity Cruises Inc. 1050 Caribbean Way, Miami, Florida 33132 4 of 7 Wednesday, September 30, 2026 Group Quote Inventory Group ID: 1234567 Group Name: SAMPLE BIRTHDAY BASH CELEBRITY REFLECTION Sail Date: 19 MAR 2027 Stateroom Inventory Category Occupancy Guarantees Allocated Price Commissionable Fare per Guest Commission Rate Non-Commissionable Cruise Fare Per Guest Named Unnamed Named Unnamed Guest 1 & 2 Guest 3 & 4 A2 C4 I1 Double Double Double 0 0 0 0 0 0 0 0 0 0 0 0 1 10 5 16 GROUPX GROUPX GROUPX 879.00 683.00 561.00 879.00 683.00 561.00 0.00 0.00 0.00 0.00 0.00 0.00 10% 10% 10% 90.00 90.00 90.00 Dining Confirmed Waitlist CEL SLCT 6:00 PM * 6:00 PM A2 10 20 2 0 0 0 Complimentary Berths (Tour conductor credits) Earned Ratio: 1 for 16 Limits: Cruise = 999 Category Price Promo Type # of Comp. Berths Fare per Berth Total Comp. Value N/A 2 -657.12 -1314.24 Allocated Staterooms Category Staterooms A2(Double) C4(Double) I1(Double) 1550 9107 , 9109 , 9122 , 9123 , 9126 , 9131 , 9135 , 9136 , 9364 , 9370 1592 , 1594 , 1600 , 1604 , 1608 Air Inventory: Gateways Gateway Confirmed Waitlist Air and C/O Inventory: Air Add-On Fares and Taxes & Fees Price Program Gateway 1st/2nd (P/P) 3rd/4th (P/P) Taxes & Fees (P/P) Other Air Fees (P/P) GROUPX C/O 166.22 Sailing operated by Celebrity Cruises Inc. 1050 Caribbean Way, Miami, Florida 33132 5 of 7 Wednesday, September 30, 2026 Group Quote Inventory Group ID: 1234567 Group Name: SAMPLE BIRTHDAY BASH CELEBRITY REFLECTION Sail Date: 19 MAR 2027 The Department of Homeland Security requires all Domestic US Airlines to collect the following information for each passenger; Passengers Full Nam";
+// A locked file built by an independent implementation, so the reader has to derive
+// the same keys to open it.
+const LOCKED = "%PDF-1.4\n1 0 obj\n<< /Filter /Standard /V 1 /R 2 /P -44 /O <0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20> /U <b8c6558d49b61aa73becc772ceebba1a71a52c842214bb9db38f8aaca3ca3430> >>\nendobj\ntrailer\n<< /Encrypt 1 0 R /ID [<6465666768696a6b6c6d6e6f70717273> <6465666768696a6b6c6d6e6f70717273>] >>\n";
+const LOCKED_CIPHER = [148, 116, 43, 67, 231, 128, 197, 19, 247, 192, 3, 233, 110, 233, 136, 182, 5, 80, 216, 254, 64, 224, 99, 65, 104, 49, 66, 150, 115, 19];
+const LOCKED_PLAIN = "BT /F1 12 Tf (Sail Date) Tj ET";
 
 console.log('\nThe group proposal readers');
 
@@ -160,6 +173,118 @@ is('a two digit year is refused rather than guessed', parseDate('10/22/27'), '')
   is('a weekday before the date does not stop it being read',
     [r.fields.departDate, r.fields.returnDate], ['2027-10-22', '2027-10-29']);
   is('and the ship', r.fields.productName, 'Norwegian Breakaway');
+}
+
+// -------------------------------------------- Norwegian, a real contract ---
+{
+  const r = parseGroupQuote(NCL_FS);
+  is('a Norwegian FS group agreement is read by its own reader',
+    [r.read, r.format && r.format.id, r.format && r.format.exact], [true, 'ncl-fs', true]);
+  is('values drawn before their labels are still found',
+    [r.fields.name, r.fields.productName, r.fields.groupCode],
+    ['Sample Wedding', 'Norwegian Escape', 'A1234567']);
+  is('this layout carries a group number, so it is filled in and is not called missing',
+    [r.fields.groupCode !== '', r.noGroupNumber, r.missing.includes('groupCode')], [true, false, false]);
+  is('the dates, from the header and the last port of call',
+    [r.fields.departDate, r.fields.returnDate], ['2027-07-02', '2027-07-07']);
+  is('the itinerary is worked out from the ports, without the days at sea',
+    [r.fields.destination, r.fields.departurePort],
+    ['5-Night Cozumel & Great Stirrup Cay', 'Orlando-Beaches-Port Canaveral']);
+  is('the cruise line\'s sales manager', r.fields.vendorContact, 'Pat Manager');
+  is('three categories, in cents, per guest and for the row',
+    r.rates.map((x) => [x.roomType, x.cabins, x.guests, x.perGuestCents, x.taxesCents, x.totalCents]),
+    [['Balcony (BC)', 20, 40, 73865, 22000, 3834600],
+      ['Inside (IB)', 10, 20, 52615, 22000, 1492300],
+      ['Club Balcony (MB)', 5, 10, 79815, 22000, 1018150]]);
+  is('and each adds up to its printed total', r.rates.every((x) => x.reconciles), true);
+  is('35 cabins, and 70 guests because the payments confirm two to a cabin',
+    [r.fields.cabinsHeld, r.fields.passengers, r.warnings], [35, 70, []]);
+  is('the payment schedule is in the notes, amount before label and all',
+    /First Deposit: \$1,750\.00 due 2026-11-15[^]*Final Payment: \$61,700\.50 due 2027-05-03/.test(r.notes), true);
+  // The same contract with its final payment changed must no longer claim 70 guests.
+  const off = parseGroupQuote(NCL_FS.replace('61,700.50FINAL', '51,700.50FINAL'));
+  is('payments that do not match the rates are flagged, and the guest count is withheld',
+    [off.warnings.length, off.fields.passengers], [1, 0]);
+  is('no option date is invented where the contract has none',
+    [r.fields.optionDate, r.missing.includes('optionDate')], ['', true]);
+}
+
+// -------------------------------------------- Celebrity, a real contract ---
+{
+  const r = parseGroupQuote(CELEBRITY);
+  is('a Celebrity group quote is read by its own reader',
+    [r.read, r.format && r.format.id, r.format && r.format.exact], [true, 'celebrity-group-quote', true]);
+  is('the group name is the summary\'s, not the letter\'s with the ship stuck on the end',
+    [r.fields.name, r.fields.groupCode], ['SAMPLE BIRTHDAY BASH', '1234567']);
+  is('ship and itinerary are title-cased; the rep\'s name is put the right way round',
+    [r.fields.productName, r.fields.destination, r.fields.vendorContact],
+    ['Celebrity Reflection', '3 Night Key West & Bahamas Cruise', 'Pat Sample']);
+  is('the return date comes from a column of dates with no year',
+    [r.fields.departDate, r.fields.returnDate], ['2027-03-19', '2027-03-22']);
+  is('the port is the first of the ports of call', r.fields.departurePort, 'Fort Lauderdale, Florida');
+  is('the first deposit date is the option date, as the quote itself says', r.fields.optionDate, '2026-10-29');
+  is('sixteen cabins, counted from the allocated rooms', r.fields.cabinsHeld, 16);
+  is('guests are not stated, so they are not guessed', [r.fields.passengers, r.missing.includes('passengers')], [0, true]);
+  is('the rate grid is left empty: its columns cannot be checked against a total',
+    r.rates.length, 0);
+  is('cancellation charges come with their dates, which agree with the day counts',
+    /50% per guest from 2027-01-04 \(74 to 61[^]*75% per guest from 2027-01-18[^]*100% per guest from 2027-02-17/.test(r.notes), true);
+  is('the fares are listed as printed, for a person to check',
+    /Category A2: \$879\.00[^]*Category C4: \$683\.00[^]*Category I1: \$561\.00/.test(r.notes), true);
+  is('deposit and final payment', /Deposit: \$3,200\.00 due 2026-10-29[^]*Final payment due 2027-01-03/.test(r.notes), true);
+}
+
+// The two must never be mistaken for one another, or for the fallback.
+is('each layout claims only its own contract',
+  [[MVAS_4589, NCL_FS, CELEBRITY].map((x) => FORMATS.filter((f) => f.matches(tidy(x))).map((f) => f.id))],
+  [[['mvas'], ['ncl-fs'], ['celebrity-group-quote']]]);
+
+// -------------------------------------------------------- text helpers ---
+is('a shouted place is title-cased', titleCase('GRAND BAHAMA ISL'), 'Grand Bahama Isl');
+is('small words stay small, and hyphens start a new word',
+  [titleCase('ICON OF THE SEAS'), titleCase('ORLANDO-BEACHES-PORT CANAVERAL')],
+  ['Icon of the Seas', 'Orlando-Beaches-Port Canaveral']);
+is('text somebody wrote is left exactly as it was', titleCase('Norwegian Escape'), 'Norwegian Escape');
+is('a name printed surname first', lastFirst('LANDERS-TAYLOR,ROBERT'), 'Robert Landers-Taylor');
+
+// ------------------------------------------------ a file that is locked ---
+{
+  const hex = (u) => [...u].map((b) => b.toString(16).padStart(2, '0')).join('');
+  const enc = (t) => Uint8Array.from(t, (c) => c.charCodeAt(0));
+  is('MD5 and RC4 give the published answers',
+    [hex(md5(enc('abc'))), hex(rc4(Uint8Array.from([1, 2, 3, 4, 5]), new Uint8Array(4)))],
+    ['900150983cd24fb0d6963f7d28e17f72', 'b2396305']);
+
+  const lock = openEncryption(LOCKED);
+  is('a file locked without a password is opened with the empty one', lock.kind, 'rc4');
+  is('and its streams are unscrambled with a key of their own',
+    lock.decrypt && String.fromCharCode(...lock.decrypt(Uint8Array.from(LOCKED_CIPHER), 7, 0)), LOCKED_PLAIN);
+  is('the same bytes as another object come out as nonsense, so the keys really are per object',
+    lock.decrypt && String.fromCharCode(...lock.decrypt(Uint8Array.from(LOCKED_CIPHER), 8, 0)) === LOCKED_PLAIN, false);
+  is('a file whose password check fails is reported as needing one, not read as blanks',
+    openEncryption(LOCKED.replace(/\/U <(..)/, (m, a) => `/U <${a === 'ff' ? '00' : 'ff'}`)).kind, 'password');
+  is('a newer kind of lock is reported as unsupported, not half decoded',
+    openEncryption(LOCKED.replace('/V 1 /R 2', '/V 4 /R 4 /CF << /StdCF << /CFM /AESV2 >> >>')).kind, 'unsupported');
+  is('an ordinary file is not treated as locked', openEncryption('%PDF-1.4 1 0 obj << >> endobj').kind, 'none');
+}
+
+// ----------------------------------------------- how the text is drawn ---
+{
+  const map = new Map([[0x26, 'S'], [0x44, 'a'], [0x4c, 'i'], [0x4f, 'l'], [0x03, ' ']]);
+  const said = (stream) => decodeContent(stream, map).replace(/\s+/g, ' ').trim();
+  // Chrome writes every glyph as its own move with no vertical change.
+  is('a line drawn one glyph at a time is one line, not one letter per line',
+    said('BT /F4 18 Tf 1 0 0 -1 0 19 Tm <0026> Tj 10 0 Td <0044> Tj 9 0 Td <004C> Tj 5 0 Td <004F> Tj ET'), 'Sail');
+  is('a move down is a new line', said('BT /F1 12 Tf 1 0 0 1 0 0 Tm <0026> Tj 0 -14 Td <0044> Tj ET'), 'S a');
+  is('a big sideways jump is a column gap', said('BT /F1 12 Tf <0026> Tj 200 0 Td <0044> Tj ET'), 'S a');
+  is('a large backward kern in a TJ array is a space and a small one is not',
+    [said('BT [(Sail) -250 (Date)] TJ ET'), said('BT [(Sa) -20 (il)] TJ ET')], ['Sail Date', 'Sail']);
+  is('a language tag is not text', said('/Span <</Lang (en-US)>> BDC BT (Ship) Tj ET EMC'), 'Ship');
+  is('octal escapes in a string are read', said('BT (A\\050B\\051) Tj ET'), 'A(B)');
+  is('uncompressed page content is recognised, binary data is not',
+    [isPlainText(Uint8Array.from('q 612 0 0 792 0 0 cm BT /F0 12 Tf (Hello there) Tj ET', (c) => c.charCodeAt(0))),
+      isPlainText(Uint8Array.from({ length: 400 }, (_, i) => (i * 37 + 11) % 256))],
+    [true, false]);
 }
 
 // ----------------------------------------------------- and the refusals ---

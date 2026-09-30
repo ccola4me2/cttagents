@@ -191,7 +191,7 @@ export const mvas = {
   id: 'mvas',
   name: 'Margaritaville at Sea group proposal',
   // This form never carries a group number, so its absence is not a gap.
-  noGroupNumber: true,
+  never: ['groupCode'],
   matches,
   parse,
 };

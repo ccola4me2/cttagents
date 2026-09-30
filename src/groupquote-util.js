@@ -89,3 +89,48 @@ export function parseDate(raw) {
 
   return '';
 }
+
+// ---------------------------------------------------------- printed text ---
+
+const SMALL_WORDS = new Set(['of', 'the', 'and', 'to', 'at', 'in', 'on', 'for', 'de', 'la', 'del']);
+
+/**
+ * SHOUTED TEXT, as a person would write it.
+ *
+ * A contract prints every ship, port and itinerary in capitals, and a form full
+ * of them reads as an argument. Ships and places are title-cased so they match
+ * the names used everywhere else in the portal (a report grouping by ship would
+ * otherwise count "Celebrity Reflection" and "CELEBRITY REFLECTION" as two).
+ *
+ * Only ever applied to text that is entirely capitals. A value that already has
+ * lower case in it was written by somebody, and is left as they wrote it.
+ */
+export function titleCase(text) {
+  const s = String(text || '').trim();
+  if (!s || s !== s.toUpperCase() || !/[A-Z]/.test(s)) return s;
+  return s.toLowerCase().replace(/[a-z][a-z'’]*/g, (w, at) => {
+    if (at > 0 && SMALL_WORDS.has(w)) return w;
+    return w[0].toUpperCase() + w.slice(1);
+  }).replace(/(^|[-(/])([a-z])/g, (all, pre, c) => pre + c.toUpperCase());
+}
+
+/** "LANDERS-TAYLOR,ROBERT" as "Robert Landers-Taylor". */
+export function lastFirst(text) {
+  const s = String(text || '').trim();
+  const m = s.match(/^([^,]+),\s*(.+)$/);
+  return m ? `${titleCase(m[2])} ${titleCase(m[1])}`.replace(/\s+/g, ' ').trim() : titleCase(s);
+}
+
+/** Whole nights between two ISO dates, or 0 when either is missing. */
+export function nightsBetween(from, to) {
+  if (!from || !to) return 0;
+  const n = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000);
+  return n > 0 && n < 400 ? n : 0;
+}
+
+/** "A", "A & B" or "A, B & C". */
+export function sayList(items) {
+  const a = items.filter(Boolean);
+  if (a.length < 2) return a.join('');
+  return `${a.slice(0, -1).join(', ')} & ${a[a.length - 1]}`;
+}

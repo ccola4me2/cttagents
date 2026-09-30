@@ -162,6 +162,6 @@ function parse(t) {
 export const generic = {
   id: 'generic',
   name: 'a layout we have not seen before',
-  noGroupNumber: false,
+  never: [],
   parse,
 };

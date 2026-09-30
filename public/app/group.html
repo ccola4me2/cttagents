@@ -290,6 +290,16 @@ function quoteSaid(d) {
       return 'That PDF is only a picture of a page, such as a scan or a photo, so there is no text '
         + 'in it to read. Type the details below as usual.';
     }
+    if (d.why === 'password') {
+      return 'That PDF needs a password to open, so there is nothing we can read. Open it, enter '
+        + 'the password, choose Print, then Save as PDF, and upload that copy. Or type the '
+        + 'details below as usual.';
+    }
+    if (d.why === 'protected') {
+      return 'That PDF is locked in a way this portal cannot open. Open it in your PDF viewer, '
+        + 'choose Print, then Save as PDF, and upload that copy, which is not locked. Or type '
+        + 'the details below as usual.';
+    }
     if (d.why === 'empty') {
       return 'There is no readable text in that file. It may be protected or damaged. '
         + 'Type the details below as usual.';
@@ -307,6 +317,7 @@ function quoteSaid(d) {
     parts.push('The group number is left empty on purpose: this proposal does not carry one '
       + 'until the vendor opens the group.');
   }
+  for (const w of d.warnings || []) parts.push(w);
   const off = (d.rates || []).filter((r) => r.reconciles === false).length;
   if (off) {
     parts.push(`${off} rate line${off === 1 ? '' : 's'} did not add up to ${off === 1 ? 'its' : 'their'} `

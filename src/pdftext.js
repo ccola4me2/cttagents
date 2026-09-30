@@ -18,6 +18,30 @@
 // punctuation. The map back is the /ToUnicode stream, so that is what this
 // reads first.
 
+import { openEncryption } from './pdfcrypt.js';
+
+/**
+ * Is this stream uncompressed page content or a font map.
+ *
+ * Decided by what it is made of, not by whether it contains the letters BT.
+ * Image and font data is random bytes, and random bytes contain "BT" and "Tj"
+ * by chance often enough that a pattern alone admitted pages of garbage into
+ * the text. Real page content is almost entirely printable characters, and
+ * binary data is nothing like it.
+ */
+export function isPlainText(bytes) {
+  const n = Math.min(bytes.length, 4000);
+  if (n < 20) return false;
+  let printable = 0;
+  for (let i = 0; i < n; i += 1) {
+    const b = bytes[i];
+    if ((b >= 32 && b <= 126) || b === 10 || b === 13 || b === 9) printable += 1;
+  }
+  if (printable / n < 0.95) return false;
+  const head = latin1(bytes.subarray(0, n));
+  return /\bBT\b/.test(head) || /begincmap/.test(head);
+}
+
 /** Bytes as a string of code points 0 to 255, so patterns can be run over it. */
 function latin1(bytes) {
   let s = '';
@@ -189,11 +213,39 @@ export function decodeContent(text, cmap) {
  * an error page.
  */
 export async function pdfRead(buffer, { inflate: inflater = inflate } = {}) {
-  const info = { text: '', streams: 0, cmaps: 0, content: 0, images: 0, conflicts: 0 };
+  const info = {
+    text: '', streams: 0, cmaps: 0, content: 0, images: 0, conflicts: 0,
+    // none, rc4 (was locked and has been opened), password (locked, and the
+    // empty password does not open it) or unsupported (locked in a newer way).
+    encryption: 'none',
+  };
   try {
     const bytes = new Uint8Array(buffer);
     const raw = latin1(bytes);
     info.images = (raw.match(/\/Subtype\s*\/Image/g) || []).length;
+
+    const lock = openEncryption(raw);
+    info.encryption = lock.kind;
+    // Nothing past here can read a locked file it cannot open, and pretending to
+    // would return blank pages with no reason given.
+    if (lock.kind === 'password' || lock.kind === 'unsupported') return info;
+
+    // Where each object begins, so a stream can be traced to the object it
+    // belongs to. An encrypted file has a key for every object.
+    const heads = [];
+    const headRe = /(?:^|[^0-9])(\d+)\s+(\d+)\s+obj\b/g;
+    let h;
+    while ((h = headRe.exec(raw))) heads.push({ at: h.index, num: Number(h[1]), gen: Number(h[2]) });
+    const objectAt = (pos) => {
+      let lo = 0;
+      let hi = heads.length - 1;
+      let best = null;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (heads[mid].at < pos) { best = heads[mid]; lo = mid + 1; } else hi = mid - 1;
+      }
+      return best;
+    };
 
     const streams = [];
     const re = /stream\r?\n/g;
@@ -202,12 +254,14 @@ export async function pdfRead(buffer, { inflate: inflater = inflate } = {}) {
       const from = m.index + m[0].length;
       const to = raw.indexOf('endstream', from);
       if (to < 0) continue;
-      // Trailing end of line before the keyword. zlib in a script tolerates a
-      // few spare bytes after the deflate stream; DecompressionStream does not
-      // always, and a stream that fails to inflate is a page of nothing.
+      // The end of line before the keyword belongs to the file, not to the
+      // stream: exactly one, and only one. Trimming every trailing newline was
+      // harmless on a compressed stream and wrong on an encrypted one, where the
+      // last byte of the data can be any value at all, including a newline.
       let end = to;
-      while (end > from && (raw[end - 1] === '\n' || raw[end - 1] === '\r')) end -= 1;
-      streams.push({ from, to: end });
+      if (raw[end - 2] === '\r' && raw[end - 1] === '\n') end -= 2;
+      else if (raw[end - 1] === '\n' || raw[end - 1] === '\r') end -= 1;
+      streams.push({ at: m.index, from, to: end });
     }
     info.streams = streams.length;
 
@@ -219,7 +273,15 @@ export async function pdfRead(buffer, { inflate: inflater = inflate } = {}) {
     const cmap = new Map();
     const bodies = [];
     for (const s of streams) {
-      const data = await inflater(bytes.slice(s.from, s.to));
+      let body = bytes.slice(s.from, s.to);
+      if (lock.kind === 'rc4') {
+        const owner = objectAt(s.at);
+        if (owner) body = lock.decrypt(body, owner.num, owner.gen);
+      }
+      // A stream with no compression at all is text already. Read as it stands
+      // when it plainly is, rather than dropped for having failed to inflate.
+      let data = await inflater(body);
+      if (!data && isPlainText(body)) data = body;
       if (!data) continue;
       const text = latin1(data);
       if (/begincmap/.test(text)) {

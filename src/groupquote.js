@@ -19,13 +19,15 @@
 
 import { tidy } from './groupquote-util.js';
 import { mvas } from './groupquote-mvas.js';
+import { ncl } from './groupquote-ncl.js';
+import { celebrity } from './groupquote-celebrity.js';
 import { generic } from './groupquote-generic.js';
 
 export { tidy };
 
 // Tried in order. A layout is recognised by its letterhead and its form title,
 // never by a single word.
-export const FORMATS = [mvas];
+export const FORMATS = [mvas, ncl, celebrity];
 
 // What a group can hold, in the order they are asked for, and the words the
 // screen uses when one was not in the document.
@@ -75,12 +77,16 @@ export function parseGroupQuote(text) {
     rates: out.rates || [],
     notes: out.notes || '',
     payments: out.payments || [],
+    // Things worth a second look that are not missing fields: a total that does not
+    // agree with the rows under it, say.
+    warnings: out.warnings || [],
     found: Object.keys(FIELD_WORDS).filter(filled),
-    // A format that never carries a group number has not left it out.
+    // What this layout has no place for has not been left out, and listing it
+    // would teach people to skip the list.
     missing: Object.keys(FIELD_WORDS)
-      .filter((k) => !filled(k) && !(k === 'groupCode' && format.noGroupNumber)),
-    // The same reader says so when the layout gave it no group number by design,
-    // so the screen can explain instead of listing it as a gap.
-    noGroupNumber: Boolean(format.noGroupNumber),
+      .filter((k) => !filled(k) && !(format.never || []).includes(k)),
+    // A layout that never carries a group number says so, so the screen can
+    // explain that one instead of leaving the box empty without a word.
+    noGroupNumber: (format.never || []).includes('groupCode'),
   };
 }

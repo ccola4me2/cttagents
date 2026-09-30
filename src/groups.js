@@ -461,9 +461,11 @@ export async function handleParseQuote(request, env) {
   // a file whose letters may be wrong, and a file with words in it that are not
   // a group proposal. Saying "this does not look like a proposal" to somebody
   // holding a scan of one is unkind and unhelpful.
+  const locked = file.encryption === 'password' || file.encryption === 'unsupported';
   const why = out.read ? null
-    : file.text.trim().length < 40 ? (file.images > 0 ? 'picture' : 'empty')
-      : 'unrecognised';
+    : locked ? (file.encryption === 'password' ? 'password' : 'protected')
+      : file.text.trim().length < 40 ? (file.images > 0 ? 'picture' : 'empty')
+        : 'unrecognised';
 
   return json({
     read: out.read,
@@ -476,6 +478,9 @@ export async function handleParseQuote(request, env) {
     // digit may be wrong. Reported, because a date with one wrong digit looks
     // exactly like a right one.
     conflicts: file.conflicts,
+    // Whether the file was locked: none, rc4 (it was, and has been opened),
+    // password (needs one), or unsupported (locked in a way this cannot open).
+    encryption: file.encryption,
     format: out.format,
     fields: out.fields,
     // The grid, which the page draws and then sends back with the group.
@@ -485,6 +490,8 @@ export async function handleParseQuote(request, env) {
     // What this layout did not say, so the screen can list it rather than leave
     // the advisor to notice which boxes are empty.
     missing: (out.missing || []).map((k) => FIELD_WORDS[k] || k),
+    // Things worth a second look that are not missing fields.
+    warnings: out.warnings || [],
     // Some layouts never carry a group number; the screen explains that one.
     noGroupNumber: Boolean(out.noGroupNumber),
   });
