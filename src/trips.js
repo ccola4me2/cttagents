@@ -18,9 +18,23 @@ import { shareCode, appUrl } from './share.js';
 const TRIP_COLUMNS = 'id, user_id, client_id, name, intro, tips, share_code, shared_at, created_at, updated_at';
 
 // Named, and short on purpose: what the picker and the trip screen need to say
-// which reservation is which.
-const PART_FIELDS = `id, client_name, status, supplier, product_type, product_name, destination,
-  confirmation_number, depart_date, return_date, gross_cents, share_code, itinerary_shared`;
+// which reservation is which. Joined from an array rather than written as a string
+// because it is a chosen few of the reservation's columns, not the list of them.
+const PART_FIELDS = [
+  'id',
+  'client_name',
+  'status',
+  'supplier',
+  'product_type',
+  'product_name',
+  'destination',
+  'confirmation_number',
+  'depart_date',
+  'return_date',
+  'gross_cents',
+  'share_code',
+  'itinerary_shared',
+].join(', ');
 
 const OK_STATUS = ['booked', 'travelled'];
 
