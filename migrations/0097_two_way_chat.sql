@@ -1,0 +1,28 @@
+-- The advisor can answer, and the client can see the answer.
+--
+-- trip_messages has been one way since it was built. A client writes a note
+-- from their trip page, it is saved, the advisor is emailed, and that is the
+-- end of what this portal knows about the conversation. The reply happens in
+-- somebody's inbox or on the phone, where the next person to pick up the trip
+-- cannot see it and neither can the client a week later.
+--
+-- The client side was worse than one way: the page never showed them anything
+-- at all. They wrote into a box and it vanished. There was no thread, not even
+-- of their own words, so "did that send?" had no answer on the page.
+--
+-- One column, the same shape and for the same reason as documents.from_client
+-- in 0090: without it, a message the advisor wrote and a message the client
+-- wrote are the same row, and the difference is the whole of what a
+-- conversation is.
+--
+-- NOT NULL with a default, so every row already there reads as what it is:
+-- something the client sent in.
+--
+-- Worth writing down where this is now visible. The thread shows on the shared
+-- trip link as well as in the signed-in client portal, which was a decision
+-- rather than an oversight: most clients use the link they were sent and never
+-- sign in, and a reply nobody reads is not a reply. The cost is that the link
+-- is the key, so whoever holds it reads the exchange. The composer says so in
+-- as many words, because an advisor who thinks this is private chat will
+-- eventually type something they would not put on a web page.
+ALTER TABLE trip_messages ADD COLUMN from_advisor INTEGER NOT NULL DEFAULT 0;

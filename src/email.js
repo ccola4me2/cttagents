@@ -445,6 +445,34 @@ export function sendCallListEmail(env, { to, firstName, lists = [] }) {
  * note lands in a table nobody opens, "tell me and I will sort it" is a
  * promise the system quietly breaks.
  */
+/**
+ * The advisor answering, to the client.
+ *
+ * The other direction of sendTripMessageEmail below. Reply-to is the advisor's
+ * own address, so a client who hits reply reaches a person rather than a
+ * noreply box, which is the whole reason they wrote in the first place.
+ *
+ * The link goes to their trip page, where the conversation is, rather than
+ * repeating the whole exchange in an inbox.
+ */
+export function sendTripReplyEmail(env, { to, replyTo, clientName, advisorName, tripName, body, href }) {
+  if (!to) return Promise.resolve({ skipped: true });
+  return send(env, {
+    to,
+    replyTo,
+    subject: `${advisorName} replied about ${tripName}`,
+    html: layout(env, {
+      heading: `A reply about ${escapeHtml(tripName)}`,
+      body: `<p style="margin:0 0 12px;">Hi ${escapeHtml((clientName || '').split(' ')[0] || 'there')},</p>
+             <p style="margin:0 0 12px;"><strong>${escapeHtml(advisorName)}</strong> wrote:</p>
+             <p style="margin:0 0 16px;padding:14px 16px;background:#f6f9fc;border-radius:8px;
+               white-space:pre-wrap;">${escapeHtml(body)}</p>
+             <p style="margin:0;">You can answer on your trip page, or just reply to this email.</p>`,
+      cta: { label: 'Open your trip page', href },
+    }),
+  });
+}
+
 export function sendTripMessageEmail(env, { to, firstName, clientName, tripName, body, href }) {
   if (!to) return Promise.resolve({ skipped: true });
   return send(env, {

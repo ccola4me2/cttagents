@@ -30,14 +30,14 @@ import { json, badRequest, notFound, clean, cleanText, oneOf, uid, now, sha256He
   escapeHtml as esc } from './util.js';
 import { brandForUser, DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand.js';
 import { currentClient } from './clientauth.js';
-import { requireUser } from './auth.js';
+import { requireUser, borrowedSeat } from './auth.js';
 import { tenantFor } from './tenant.js';
 import * as db from './db.js';
 import { fireTrigger } from './automations.js';
 import { ITEM_KINDS } from './itinerary.js';
 import {
   sendTripMessageEmail, sendOptionChosenEmail, sendQuoteDeclinedEmail,
-  sendQuoteAcceptedEmail,
+  sendQuoteAcceptedEmail, sendTripReplyEmail,
 } from './email.js';
 import { docsReady, safeName, MAX_BYTES } from './documents.js';
 import { submitReview, reviewFor, tripIsOver } from './reviews.js';
@@ -146,6 +146,72 @@ export async function handleTripMessages(request, env, id) {
   return json({ messages: results || [] });
 }
 
+/**
+ * POST /api/bookings/:id/messages
+ *
+ * The advisor answering. The other half of the note box a client has been
+ * writing into since this shipped, which until now went nowhere they could
+ * see: the reply happened in an inbox, where the next person to pick the trip
+ * up could not find it and neither could the client a week later.
+ *
+ * Saved first and emailed second, the same order and for the same reason as
+ * the client's side: a reply that is saved but not announced is one they find
+ * on the page; one that is announced but not saved is gone.
+ *
+ * Refused while acting as somebody, exactly as chat is. A message is signed by
+ * whoever typed it, and this one goes to a client under an advisor's name.
+ */
+export async function handleReplyTripMessage(request, env, bookingId) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  if (borrowedSeat(user)) {
+    return badRequest('Stop working as an advisor before replying. A reply is signed by whoever typed it.');
+  }
+
+  const owner = await db.writerForBooking(env, user, bookingId);
+  if (!owner) return notFound('Reservation not found.');
+
+  const body = await readJson(request);
+  const text = cleanText(body.body, 2000);
+  if (!text) return badRequest('Write something first.');
+
+  const booking = await db.getBooking(env, bookingId, owner.id);
+  if (!booking) return notFound('Reservation not found.');
+
+  await env.DB.prepare(
+    `INSERT INTO trip_messages (id, booking_id, user_id, body, ip_hash, created_at, from_advisor)
+     VALUES (?, ?, ?, ?, NULL, ?, 1)`
+  ).bind(uid(), bookingId, owner.id, text, now()).run();
+
+  // Only where there is somewhere to send it and a page to point at. A client
+  // with no address on file still gets the reply on their trip page.
+  const client = booking.client_id
+    ? await db.getClient(env, db.selfScope(owner), { id: booking.client_id })
+    : null;
+  const advisorName = [owner.first_name, owner.last_name].filter(Boolean).join(' ')
+    || owner.email;
+  if (client && client.email && booking.share_code) {
+    try {
+      await sendTripReplyEmail(env, {
+        to: client.email,
+        replyTo: owner.notify_email || owner.email,
+        clientName: booking.client_name,
+        advisorName,
+        tripName: booking.itinerary || booking.product_name || 'your trip',
+        body: text,
+        href: `${appUrl(env)}/t/${booking.share_code}`,
+      });
+    } catch (e) {
+      console.error('trip reply mail', e);
+    }
+  }
+
+  await db.logActivity(env, owner.id, 'trip.reply',
+    `Replied to ${booking.client_name} on their trip page`, { id: bookingId });
+
+  return json({ ok: true, emailed: Boolean(client && client.email && booking.share_code) });
+}
+
 export async function handleReadTripMessage(request, env, msgId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
@@ -192,7 +258,8 @@ async function loadTrip(env, code) {
   // query on a public page that says whose rows it wants can be read once and
   // believed, and one that does not has to be traced back to the lookup above.
   const owner = booking.user_id;
-  const [travellers, components, options, payments, documents, itinerary] = await Promise.all([
+  const [travellers, components, options, payments, documents, itinerary, messages,
+  ] = await Promise.all([
     // Names only. The row carries passport numbers and dates of birth, and a
     // page that selects * is a page one careless template change away from
     // publishing them.
@@ -228,6 +295,12 @@ async function loadTrip(env, code) {
                                   start_time IS NULL ASC, start_time ASC, sort_order ASC`)
         .bind(booking.id, owner).all()
       : Promise.resolve({ results: [] }),
+    // The conversation, both sides of it. Body and direction only: ip_hash is
+    // ours for rate limiting and read_at is the advisor's, and neither is
+    // anything the client asked about.
+    env.DB.prepare(`SELECT id, body, from_advisor, created_at FROM trip_messages
+                     WHERE booking_id = ? AND user_id = ? ORDER BY created_at ASC LIMIT 100`)
+      .bind(booking.id, owner).all(),
   ]);
 
   return {
@@ -238,6 +311,7 @@ async function loadTrip(env, code) {
     payments: payments.results || [],
     documents: documents.results || [],
     itinerary: itinerary.results || [],
+    messages: messages.results || [],
   };
 }
 
@@ -550,6 +624,31 @@ export async function renderTripManifest(request, env, code) {
   });
 }
 
+/**
+ * The conversation, both sides of it.
+ *
+ * Shown to the client on their own trip page, which is the whole point: a note
+ * they sent used to vanish the moment they pressed the button, so "did that
+ * send" had no answer anywhere on the page.
+ *
+ * Dated to the day rather than the minute. A timestamp invites somebody to
+ * work out how long they waited for an answer, which is a different
+ * conversation from the one this is for.
+ */
+function threadBlock(messages, advisorName, clientName) {
+  if (!messages.length) return '';
+  const rows = messages.map((m) => {
+    const mine = Number(m.from_advisor) === 1;
+    const who = mine ? advisorName : (clientName || 'You');
+    return `<li class="msg ${mine ? 'msg-them' : 'msg-you'}">
+      <p class="msg-who">${esc(who)}<span class="dim"> &middot; ${
+        esc(shortDate(new Date(m.created_at * 1000).toISOString().slice(0, 10)))}</span></p>
+      <p class="msg-body">${esc(m.body).replace(/\n/g, '<br>')}</p>
+    </li>`;
+  }).join('');
+  return `<ul class="thread">${rows}</ul>`;
+}
+
 export async function renderTripPage(request, env, code) {
   const trip = await loadTrip(env, clean(code, 40));
   if (!trip) {
@@ -827,8 +926,10 @@ export async function renderTripPage(request, env, code) {
         ${b.advisor_phone ? `<span class="dim"> · </span><a href="tel:${esc(b.advisor_phone)}">${
           esc(b.advisor_phone)}</a>` : ''}
       </p>
+      ${threadBlock(trip.messages, advisor, b.client_name)}
       <form id="say" novalidate>
-        <label for="body">Or leave a note and they will come back to you</label>
+        <label for="body">${trip.messages.length
+          ? 'Write back' : 'Or leave a note and they will come back to you'}</label>
         <textarea id="body" name="body" rows="4" maxlength="2000"
           placeholder="Anything you want to ask or change."></textarea>
         <div class="hp" aria-hidden="true"><label>Company website<input name="company_website" tabindex="-1"
@@ -836,6 +937,8 @@ export async function renderTripPage(request, env, code) {
         <button type="submit">Send it</button>
         <p class="err" id="err" hidden></p>
       </form>
+      <p class="dim small" style="margin:.7rem 0 0;">Anyone with this link can read what is
+        written here, so keep anything private for email or the phone.</p>
     </section>
 
     ${back ? '' : `<p class="portalnote dim small">Everything in one place:
@@ -1848,6 +1951,15 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
   .pill.late{background:#fdeeec;color:var(--late)}
   .docs a{color:var(--navy);font-weight:600}
   .contact{margin:.2rem 0 1.2rem}
+  /* The conversation. Theirs to the left and plain, yours to the right and
+     tinted, which is the shape every messaging app has taught people to read
+     without being told. */
+  .thread{list-style:none;margin:0 0 1.1rem;padding:0}
+  .msg{margin:0 0 .7rem;padding:.6rem .8rem;border-radius:10px;max-width:88%}
+  .msg-you{background:#f2f6fa;border:1px solid #e2eaf2}
+  .msg-them{background:var(--tint,#eef4fa);border:1px solid #d9e4ee;margin-left:auto}
+  .msg-who{margin:0 0 .25rem;font-size:.78rem;font-weight:600}
+  .msg-body{margin:0;font-size:.92rem;line-height:1.5;white-space:pre-wrap}
   .contact a{color:var(--teal);font-weight:600;text-decoration:none}
   label{display:block;font-size:.85rem;font-weight:600;color:var(--navy);margin-bottom:.35rem}
   textarea{width:100%;padding:.6rem .7rem;border:1px solid #c2d6e8;border-radius:8px;

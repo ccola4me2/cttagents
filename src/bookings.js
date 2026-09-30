@@ -604,10 +604,10 @@ async function statementStale(env, booking, parts) {
   }
 }
 
-/** Notes the client left on their trip page, newest first. */
+/** The conversation on the trip page, both sides of it, newest first. */
 async function tripMessages(env, bookingId, userId) {
   const { results } = await env.DB.prepare(
-    `SELECT id, body, read_at, created_at FROM trip_messages
+    `SELECT id, body, read_at, created_at, from_advisor FROM trip_messages
       WHERE booking_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 50`
   ).bind(bookingId, userId).all().catch(() => ({ results: [] }));
   return results || [];

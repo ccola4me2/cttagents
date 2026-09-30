@@ -549,12 +549,48 @@ function drawShare() {
           : 'No documents shared yet.'}
         Prices are shown as a total and a schedule; your commission and the breakdown are not
         on it.</p>
-      ${notes ? `<div style="margin-top:1rem;">
-        <p class="label" style="margin:0 0 .4rem;">What they have said</p>
-        <ul class="rows" style="border:1px solid var(--navy-100);border-radius:9px;">
+      <div style="margin-top:1rem;">
+        <p class="label" style="margin:0 0 .4rem;">${notes ? 'The conversation' : 'Write to them'}</p>
+        ${notes ? `<ul class="rows" style="border:1px solid var(--navy-100);border-radius:9px;">
           ${d.messages.map((m) => `<li><div class="t" style="white-space:pre-wrap;">${esc(m.body)}</div>
-            <div class="m">${esc(timeAgo(m.created_at))}</div></li>`).join('')}
-        </ul></div>` : ''}`;
+            <div class="m">${Number(m.from_advisor) === 1 ? 'You' : 'Them'} &middot; ${
+              esc(timeAgo(m.created_at))}</div></li>`).join('')}
+        </ul>` : ''}
+        <textarea id="reply-body" rows="3" maxlength="2000" style="width:100%;margin-top:.6rem;"
+          placeholder="Answer them here. It appears on their trip page and goes to them by email."></textarea>
+        <div style="display:flex;align-items:center;gap:.7rem;margin-top:.4rem;">
+          <button class="btn btn-primary btn-sm" type="button" id="reply-send">Send reply</button>
+          <span class="muted" style="font-size:.8rem;" id="reply-said"></span>
+        </div>
+        <p class="muted" style="font-size:.78rem;margin:.5rem 0 0;">Anyone holding the trip link
+          can read this, so keep anything private for email or the phone.</p>
+      </div>`;
+
+    const replyBtn = document.getElementById('reply-send');
+    if (replyBtn) replyBtn.addEventListener('click', async () => {
+      const box = document.getElementById('reply-body');
+      const said = document.getElementById('reply-said');
+      const text = box.value.trim();
+      if (!text) { box.focus(); return; }
+      replyBtn.disabled = true;
+      said.textContent = 'Sending...';
+      try {
+        const r = await api(`/api/bookings/${encodeURIComponent(id)}/messages`,
+          { method: 'POST', body: { body: text } });
+        box.value = '';
+        // Said plainly either way. An advisor who thinks a reply was emailed
+        // when the client has no address on file will wait for an answer that
+        // was only ever going to appear on a page nobody opened.
+        said.textContent = r.emailed
+          ? 'Sent, and emailed to them.'
+          : 'Added to their trip page. No email address on file, so nothing was sent.';
+        await load();
+      } catch (e) {
+        said.textContent = e.message || 'That did not send.';
+      } finally {
+        replyBtn.disabled = false;
+      }
+    });
 
     const copy = document.getElementById('share-copy');
     copy.addEventListener('click', async () => {
