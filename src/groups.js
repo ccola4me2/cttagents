@@ -26,6 +26,8 @@ const COLUMNS = `
   g.id, g.user_id, g.name, g.vendor, g.product_name, g.destination, g.group_code,
   g.depart_date, g.return_date, g.option_date, g.cabins_held, g.status, g.notes,
   g.group_type, g.registration_open, g.registration_blurb,
+  g.proposal_id, g.sailing_id, g.vendor_contact, g.departure_port,
+  g.passengers, g.proposal_expires,
   g.created_at, g.updated_at
 `;
 
@@ -68,8 +70,59 @@ function parse(body) {
       // fold the whole thing onto one line.
       registrationBlurb: cleanText(body.registrationBlurb, 1500),
       notes: cleanText(body.notes, 4000),
+      // What the vendor's proposal said. Text for the two references because
+      // they are printed on paperwork rather than added up, so a vendor who
+      // writes 04589 keeps the leading nought.
+      proposalId: clean(body.proposalId, 40),
+      sailingId: clean(body.sailingId, 40),
+      vendorContact: clean(body.vendorContact, 120),
+      departurePort: clean(body.departurePort, 120),
+      passengers: Math.max(0, Math.min(Number(body.passengers) || 0, 99999)),
+      proposalExpires: cleanDate(body.proposalExpires),
     },
   };
+}
+
+/**
+ * The rate grid, replaced wholesale.
+ *
+ * Rows rather than a merge, because a proposal is reissued as a whole and a
+ * grade that has gone from the new one has gone. Merging would leave last
+ * month's suite on the group with nothing saying it is stale.
+ *
+ * Every statement names user_id as well as group_id. The group id already
+ * implies the owner; saying so again is what makes the fence readable from the
+ * statement, which is what scripts/check-scope.mjs asks for.
+ */
+async function saveRates(env, groupId, userId, rates) {
+  if (!Array.isArray(rates)) return;
+  await env.DB.prepare('DELETE FROM group_rates WHERE group_id = ? AND user_id = ?')
+    .bind(groupId, userId).run();
+  const ts = now();
+  let i = 0;
+  for (const r of rates.slice(0, 40)) {
+    const roomType = clean(r.roomType, 160);
+    if (!roomType) continue;
+    await env.DB.prepare(
+      `INSERT INTO group_rates (id, group_id, user_id, room_type, occupancy, cabins, guests,
+         per_guest_cents, taxes_cents, total_cents, sort_order, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(uid(), groupId, userId, roomType, clean(r.occupancy, 40),
+           Math.max(0, Number(r.cabins) || 0), Math.max(0, Number(r.guests) || 0),
+           Math.max(0, Number(r.perGuestCents) || 0), Math.max(0, Number(r.taxesCents) || 0),
+           Math.max(0, Number(r.totalCents) || 0), i, ts, ts).run();
+    i += 1;
+  }
+}
+
+/** The grid as the page draws it, in the order the proposal listed it. */
+async function ratesFor(env, groupId, userId) {
+  const { results } = await env.DB.prepare(
+    `SELECT id, room_type, occupancy, cabins, guests, per_guest_cents, taxes_cents,
+            total_cents, sort_order
+       FROM group_rates WHERE group_id = ? AND user_id = ? ORDER BY sort_order ASC`
+  ).bind(groupId, userId).all().catch(() => ({ results: [] }));
+  return results || [];
 }
 
 export async function listGroups(env, scope, { status, limit = 200 } = {}) {
@@ -190,7 +243,7 @@ export async function handleGetGroup(request, env, id) {
     // Whether the link is safe to hand out, which is only true if this group
     // is the only one on the code.
     codeShared: (await clashingCodes(env, [group])).length > 0,
-  });
+    rates: await ratesFor(env, id, group.user_id) });
 }
 
 /**
@@ -287,7 +340,8 @@ export async function handleCreateGroup(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const { fields, error } = parse(await readJson(request));
+  const raw = await readJson(request);
+  const { fields, error } = parse(raw);
   if (error) return badRequest(error);
   if (await codeTaken(env, fields.groupCode)) {
     return badRequest(`The code ${fields.groupCode} is already in use. Pick another.`);
@@ -298,12 +352,17 @@ export async function handleCreateGroup(request, env) {
   await env.DB.prepare(
     `INSERT INTO travel_groups (id, user_id, name, vendor, product_name, destination,
        group_code, depart_date, return_date, option_date, cabins_held, status, notes,
-       group_type, registration_open, registration_blurb, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       group_type, registration_open, registration_blurb,
+       proposal_id, sailing_id, vendor_contact, departure_port, passengers, proposal_expires,
+       created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(id, user.id, fields.name, fields.vendor, fields.productName, fields.destination,
          fields.groupCode, fields.departDate, fields.returnDate, fields.optionDate,
          fields.cabinsHeld, fields.status, fields.notes,
-         fields.groupType, fields.registrationOpen, fields.registrationBlurb, ts, ts).run();
+         fields.groupType, fields.registrationOpen, fields.registrationBlurb,
+         fields.proposalId, fields.sailingId, fields.vendorContact, fields.departurePort,
+         fields.passengers, fields.proposalExpires, ts, ts).run();
+  await saveRates(env, id, user.id, raw.rates);
 
   await db.logActivity(env, user.id, 'group.create', `Opened group ${fields.name}`, { id });
   return json({ ok: true, group: await getGroup(env, id, user.id) }, 201);
@@ -317,7 +376,8 @@ export async function handleUpdateGroup(request, env, id) {
   const owner = await db.writerFor(env, user, 'travel_groups', id);
   if (!owner) return notFound('Group not found.');
 
-  const { fields, error } = parse(await readJson(request));
+  const raw = await readJson(request);
+  const { fields, error } = parse(raw);
   if (error) return badRequest(error);
   if (await codeTaken(env, fields.groupCode, id)) {
     return badRequest(`The code ${fields.groupCode} is already in use. Pick another.`);
@@ -327,15 +387,23 @@ export async function handleUpdateGroup(request, env, id) {
     `UPDATE travel_groups SET name = ?, vendor = ?, product_name = ?, destination = ?,
        group_code = ?, depart_date = ?, return_date = ?, option_date = ?,
        cabins_held = ?, status = ?, notes = ?, group_type = ?, registration_open = ?,
-       registration_blurb = ?, updated_at = ?
+       registration_blurb = ?, proposal_id = ?, sailing_id = ?, vendor_contact = ?,
+       departure_port = ?, passengers = ?, proposal_expires = ?, updated_at = ?
      WHERE id = ? AND user_id = ?`
   ).bind(fields.name, fields.vendor, fields.productName, fields.destination, fields.groupCode,
          fields.departDate, fields.returnDate, fields.optionDate, fields.cabinsHeld,
          fields.status, fields.notes, fields.groupType, fields.registrationOpen,
-         fields.registrationBlurb, now(), id, owner.id).run();
+         fields.registrationBlurb, fields.proposalId, fields.sailingId, fields.vendorContact,
+         fields.departurePort, fields.passengers, fields.proposalExpires,
+         now(), id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Group not found.');
+  // Only when the caller mentioned them. A save from the details form does not
+  // carry rates, and treating that silence as "no grades" would wipe the grid
+  // every time somebody corrected a date.
+  if (Array.isArray(raw.rates)) await saveRates(env, id, owner.id, raw.rates);
 
-  return json({ ok: true, group: await getGroup(env, id, owner.id) });
+  return json({ ok: true, group: await getGroup(env, id, owner.id),
+    rates: await ratesFor(env, id, owner.id) });
 }
 
 export async function handleDeleteGroup(request, env, id) {

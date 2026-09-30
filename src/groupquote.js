@@ -130,22 +130,19 @@ export function parseGroupQuote(text) {
   // the paperwork is due, not the day the space goes.
   const hold = payments.find((p) => /rate hold/i.test(p.what)) || payments[0] || null;
 
+  // Only what has nowhere better to go.
+  //
+  // Everything above used to be written here as prose, which is where facts go
+  // to stop being facts: nothing can search a paragraph, total it, or warn
+  // that a proposal expires on Tuesday, and an advisor correcting a rate ends
+  // up editing a sentence rather than a number. They are columns and rows now.
+  //
+  // The payment ladder stays, for now, because it is a list of dates and
+  // amounts that nothing else in a group reads yet. When something does, it
+  // wants rows too.
   const lines = [];
-  if (proposalId) lines.push(`Proposal ${proposalId}${sailingId ? `, sailing ${sailingId}` : ''}.`);
-  if (specialist) lines.push(`Vendor contact: ${specialist}.`);
-  if (port) lines.push(`Departs ${port}.`);
-  if (guests) lines.push(`${guests} passengers across ${cabins || '?'} staterooms.`);
-  if (expires) lines.push(`Proposal expires ${expires}.`);
-  if (cabinsList.length) {
-    lines.push('', 'Rates per guest, before amenities:');
-    for (const c of cabinsList) {
-      const nCab = `${c.cabins} cabin${c.cabins === 1 ? '' : 's'}`;
-      lines.push(`  ${c.roomType} (${c.occupancy}): ${nCab}, ${c.guests} guests, `
-        + `${dollars(Math.round(c.perGuest * 100))} per guest plus ${dollars(Math.round(c.taxes * 100))} tax`);
-    }
-  }
   if (payments.length) {
-    lines.push('', 'Payment terms:');
+    lines.push('Payment terms:');
     for (const p of payments) {
       lines.push(`  ${p.what}: ${dollars(Math.round(p.amount * 100))} due ${p.due}`);
     }
@@ -160,13 +157,34 @@ export function parseGroupQuote(text) {
     returnDate: back,
     optionDate: hold ? hold.due : '',
     cabinsHeld: cabins ? Number(cabins) : 0,
+    // References printed on paperwork rather than numbers anybody adds up, so
+    // text: a vendor who starts writing 04589 keeps the leading nought.
+    proposalId,
+    sailingId,
+    vendorContact: specialist,
+    departurePort: port,
+    passengers: guests ? Number(guests) : 0,
+    proposalExpires: expires,
     // Never guessed. See the note on this function.
     groupCode: '',
   };
+
+  // The grid, as rows, in the order the proposal lists them. Cents, like every
+  // other amount in this portal, so nothing is ever a float.
+  const rates = cabinsList.map((c, i) => ({
+    roomType: c.roomType,
+    occupancy: c.occupancy,
+    cabins: c.cabins,
+    guests: c.guests,
+    perGuestCents: Math.round(c.perGuest * 100),
+    taxesCents: Math.round(c.taxes * 100),
+    totalCents: Math.round(c.totalFare * 100),
+    sortOrder: i,
+  }));
 
   const found = Object.entries(fields)
     .filter(([k, v]) => k !== 'groupCode' && v !== '' && v !== 0)
     .map(([k]) => k);
 
-  return { read: true, fields, notes: lines.join('\n'), found, cabins: cabinsList, payments };
+  return { read: true, fields, rates, notes: lines.join('\n'), found, cabins: cabinsList, payments };
 }

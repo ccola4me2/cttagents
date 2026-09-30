@@ -100,6 +100,29 @@
                       <option value="cancelled">Cancelled</option>
                     </select></div>
                 </div>
+                <p class="label" style="margin:1.4rem 0 .5rem;">From the vendor's proposal</p>
+                <div class="grid2">
+                  <div class="field"><label for="proposalId">Proposal number</label>
+                    <input id="proposalId" name="proposalId" maxlength="40" placeholder="4589">
+                    <p class="field-hint">Their reference for the quote. Not the group number,
+                      which the vendor issues later.</p></div>
+                  <div class="field"><label for="sailingId">Sailing ID</label>
+                    <input id="sailingId" name="sailingId" maxlength="40" placeholder="22198"></div>
+                  <div class="field"><label for="vendorContact">Who to ring there</label>
+                    <input id="vendorContact" name="vendorContact" maxlength="120"
+                      placeholder="Their group specialist"></div>
+                  <div class="field"><label for="departurePort">Departure port</label>
+                    <input id="departurePort" name="departurePort" maxlength="120"
+                      placeholder="Galveston"></div>
+                  <div class="field"><label for="passengers">Passengers</label>
+                    <input id="passengers" name="passengers" type="number" min="0" max="99999"
+                      placeholder="0"></div>
+                  <div class="field"><label for="proposalExpires">Proposal expires</label>
+                    <input id="proposalExpires" name="proposalExpires" type="date">
+                    <p class="field-hint">The terms and pricing lapse on this date, which is
+                      usually well before the cabins do.</p></div>
+                </div>
+                <div id="rates-card"></div>
                 <div class="field"><label for="notes">Notes</label>
                   <textarea id="notes" name="notes" maxlength="4000"></textarea></div>
               </div>
@@ -194,6 +217,36 @@ if (!groupId) {
  * exists once the vendor opens the group, which is usually after this is
  * signed.
  */
+/** The rate rows a proposal was just read from, until the group is saved. */
+let pendingRates = null;
+
+/**
+ * The grid, read only.
+ *
+ * Shown rather than made editable: it is what the vendor quoted, and an
+ * advisor who needs it different needs a new proposal rather than a typo in
+ * this one. Correcting it here would make the portal disagree with the
+ * paperwork and give nobody a way to tell which was right.
+ */
+function drawRates(rates) {
+  const host = document.getElementById('rates-card');
+  if (!host) return;
+  if (!rates || !rates.length) { host.innerHTML = ''; return; }
+  const cash = (c) => money(c);
+  host.innerHTML = `<p class="label" style="margin:1.2rem 0 .5rem;">Rates the vendor quoted</p>
+    <table class="table" style="margin-bottom:1rem;">
+      <thead><tr><th>Room type</th><th>Cabins</th><th>Guests</th>
+        <th>Per guest</th><th>Tax</th><th>Total</th></tr></thead>
+      <tbody>${rates.map((r) => `<tr>
+        <td>${esc(r.room_type || r.roomType || '')}${
+          (r.occupancy) ? ` <span class="muted">${esc(r.occupancy)}</span>` : ''}</td>
+        <td>${r.cabins || 0}</td><td>${r.guests || 0}</td>
+        <td>${cash(r.per_guest_cents ?? r.perGuestCents ?? 0)}</td>
+        <td>${cash(r.taxes_cents ?? r.taxesCents ?? 0)}</td>
+        <td>${cash(r.total_cents ?? r.totalCents ?? 0)}</td></tr>`).join('')}</tbody>
+    </table>`;
+}
+
 const quoteFile = document.getElementById('quote-file');
 if (quoteFile) quoteFile.addEventListener('change', async () => {
   const file = quoteFile.files && quoteFile.files[0];
@@ -223,6 +276,8 @@ if (quoteFile) quoteFile.addEventListener('change', async () => {
       if (el) el.value = v;
     };
     for (const [k, v] of Object.entries(d.fields)) set(k, v);
+    pendingRates = d.rates || null;
+    drawRates(pendingRates);
     if (d.notes) {
       const el = form.elements.notes;
       el.value = el.value ? (el.value + '\n\n' + d.notes) : d.notes;
@@ -247,6 +302,9 @@ function fill(g) {
   set('status', g.status); set('notes', g.notes);
   set('groupType', g.group_type || 'cruise');
   set('registrationBlurb', g.registration_blurb);
+  set('proposalId', g.proposal_id); set('sailingId', g.sailing_id);
+  set('vendorContact', g.vendor_contact); set('departurePort', g.departure_port);
+  set('passengers', g.passengers || ''); set('proposalExpires', g.proposal_expires);
   regForm.elements.registrationOpen.checked = Boolean(g.registration_open);
 }
 
@@ -401,6 +459,11 @@ async function load() {
     group = d.group;
     canEdit = group.user_id === ME;
     fill(group);
+    // Whatever the proposal quoted, if a proposal was ever read. Cleared on
+    // load so a group saved without one does not inherit the last group's
+    // grid from a page that was not reloaded in between.
+    pendingRates = null;
+    drawRates(d.rates);
     renderHeader(group);
     renderLink(group, d.codeShared);
     renderSignups(d.registrations);
@@ -435,8 +498,17 @@ function allValues(values) {
     groupType: form.elements.groupType.value,
     status: form.elements.status.value,
     notes: form.elements.notes.value,
+    proposalId: form.elements.proposalId.value,
+    sailingId: form.elements.sailingId.value,
+    vendorContact: form.elements.vendorContact.value,
+    departurePort: form.elements.departurePort.value,
+    passengers: form.elements.passengers.value,
+    proposalExpires: form.elements.proposalExpires.value,
   } : {};
-  return { ...other, ...values };
+  // Only when a proposal was just read. A save that does not mention the grid
+  // must leave it alone, or correcting a date would wipe the rates.
+  const grid = pendingRates ? { rates: pendingRates } : {};
+  return { ...other, ...values, ...grid };
 }
 
 async function save(values) {

@@ -83,6 +83,11 @@ const OWNED = new Set([
   // it counts rows per advisor with t.user_id = u.id rather than reaching the
   // table on its own, so the predicate is still there in the statement.
   'training_progress',
+  // The rate grid off a vendor's group proposal. It hangs off a group, which
+  // is the advisor's, and every statement names user_id beside group_id: the
+  // group id already implies the owner, and saying so again is what makes the
+  // fence readable from the statement itself.
+  'group_rates',
 ]);
 
 // Shared by a whole agency, so agency_id is the predicate that matters rather
