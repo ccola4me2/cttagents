@@ -4099,10 +4099,20 @@ async function main() {
       'and a colleague booking that supplier links to the same record, not a new one',
       `${booked.data?.booking?.vendor_id} vs ${vendorId}`);
 
-    // The trips on the vendor page are the agency's, not the record author's.
+    // The vendor is the agency's. What was sold through it is not.
+    //
+    // This used to assert the opposite, that the supplier page "shows what the
+    // agency has sold, not only your own", and that was the leak written down
+    // as a requirement. Each of those rows carries a client's name, a price and
+    // a commission that belong to the advisor who took it, so an associate
+    // opening a vendor read every colleague's book. The directory stays shared,
+    // which the checks above still hold; the reservations under it do not.
     const withTrips = await call(advisor, 'GET', `/api/vendors/${vendorId}`);
-    check((withTrips.data?.bookings || []).some((b) => b.id === sharedBooking),
-      'the supplier page shows what the agency has sold, not only your own');
+    check(!(withTrips.data?.bookings || []).some((b) => b.id === sharedBooking),
+      'the supplier page does not show a colleague\'s reservation to an associate');
+    const ownerTrips = await call(admin, 'GET', `/api/vendors/${vendorId}`);
+    check((ownerTrips.data?.bookings || []).some((b) => b.id === sharedBooking),
+      'while the owner still sees what the whole agency has sold');
 
     // And the fence still holds. The rival agency from the section above must
     // see none of this.
