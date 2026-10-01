@@ -538,21 +538,81 @@ async function drawDupes() {
       style="text-align:left;flex:1 1 15rem;white-space:normal;">
       <span style="display:block;font-weight:650;">Keep ${esc(name)}</span>
       <span class="muted" style="display:block;font-size:.78rem;">${
-        esc([email, phone].filter(Boolean).join(' &middot; ') || 'nothing on file')}</span>
+        esc([email, phone].filter(Boolean).join(' \u00b7 ') || 'nothing on file')}</span>
       <span class="muted" style="display:block;font-size:.78rem;">${
         trips} reservation${trips === 1 ? '' : 's'}</span>
     </button>`;
 
   box.innerHTML = `<p class="field-hint" style="margin:0 0 .9rem;">Matched on a shared email
-    address, a shared phone number, or the same name. Pick the record to keep: everything on
-    the other one moves across, and anything the keeper has no answer for is filled in from
-    it. Nothing is lost.</p>
+    address, a shared phone number, or the same name. A shared number is often a family, so
+    there are three answers. <strong>Keep</strong> one if it is the same person typed twice:
+    everything on the other moves across, and nothing is lost. <strong>Same household</strong>
+    if they are family, such as a child on a parent's number or email: both stay as separate
+    clients, kept together. <strong>Different people</strong> if they are unrelated: both stay,
+    and the pair is not offered again.</p>
     <ul class="rows">${pairs.map((p, i) => `<li style="padding-left:0;padding-right:0;">
       <div class="muted" style="font-size:.78rem;margin-bottom:.4rem;">${esc(p.why)}</div>
       <div style="display:flex;gap:.6rem;flex-wrap:wrap;" data-pair="${i}">
         ${side(p.a_id, p.a_name, p.a_email, p.a_phone, p.a_trips, p.b_id)}
         ${side(p.b_id, p.b_name, p.b_email, p.b_phone, p.b_trips, p.a_id)}
+      </div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.5rem;" data-aside="${i}">
+        <button class="btn btn-ghost btn-sm" data-house="${i}" type="button">Same household</button>
+        <button class="btn btn-ghost btn-sm" data-different="${i}" type="button">Different people</button>
       </div></li>`).join('')}</ul>`;
+
+  // Family, not a typo: put both in one household and leave both as clients. The
+  // one who is already in a household brings the other into it, so a family of four
+  // being worked through two at a time ends as one household and not three.
+  box.querySelectorAll('[data-house]').forEach((b) => b.addEventListener('click', async () => {
+    const p = pairs[Number(b.dataset.house)];
+    const row = b.closest('li');
+    row.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+    try {
+      if (p.a_household && p.b_household) {
+        throw new Error('Each of them is already in a different household. Open Households to join those two.');
+      } else if (p.a_household) {
+        await api(`/api/households/${encodeURIComponent(p.a_household)}/members`,
+          { method: 'POST', body: { clientId: p.b_id } });
+      } else if (p.b_household) {
+        await api(`/api/households/${encodeURIComponent(p.b_household)}/members`,
+          { method: 'POST', body: { clientId: p.a_id } });
+      } else {
+        await api('/api/households', { method: 'POST', body: { clientIds: [p.a_id, p.b_id] } });
+      }
+      err.innerHTML = `<div class="notice notice-ok">${esc(p.a_name)} and ${esc(p.b_name)} are
+        now one household. Both are still clients.</div>`;
+      await load();
+      await drawDupes();
+    } catch (e) {
+      showError(err, e);
+      row.querySelectorAll('button').forEach((x) => { x.disabled = false; });
+    }
+  }));
+
+  // Two people, and the list should stop asking. Reversible from the notice.
+  box.querySelectorAll('[data-different]').forEach((b) => b.addEventListener('click', async () => {
+    const p = pairs[Number(b.dataset.different)];
+    const row = b.closest('li');
+    row.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+    try {
+      await api('/api/clients/not-duplicates', { method: 'POST', body: { a: p.a_id, b: p.b_id } });
+      err.innerHTML = `<div class="notice notice-ok">${esc(p.a_name)} and ${esc(p.b_name)} are
+        marked as different people and will not be offered again.
+        <button class="btn btn-ghost btn-sm" id="undo-different" type="button">Undo</button></div>`;
+      document.getElementById('undo-different').addEventListener('click', async () => {
+        try {
+          await api('/api/clients/not-duplicates', { method: 'DELETE', body: { a: p.a_id, b: p.b_id } });
+          err.innerHTML = '';
+          await drawDupes();
+        } catch (e) { showError(err, e); }
+      });
+      await drawDupes();
+    } catch (e) {
+      showError(err, e);
+      row.querySelectorAll('button').forEach((x) => { x.disabled = false; });
+    }
+  }));
 
   box.querySelectorAll('[data-keep]').forEach((b) => b.addEventListener('click', async () => {
     const row = b.closest('[data-pair]');

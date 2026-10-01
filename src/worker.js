@@ -76,7 +76,7 @@ import {
   handleShareTripPlan, handleDeleteTrip,
 } from './trips.js';
 import { renderPlanPage } from './tripplan.js';
-import { handleDuplicates, handleMergeClients } from './merge.js';
+import { handleDuplicates, handleMergeClients, handleNotDuplicate } from './merge.js';
 import { renderPortal, handlePortalSignIn } from './portal.js';
 import { handleClientLinkRedeem, handleClientSignOut } from './clientauth.js';
 import {
@@ -1091,6 +1091,9 @@ async function routeApi(request, env, path, method) {
   // a future /api/clients/:id matcher.
   if (path === '/api/clients/duplicates' && method === 'GET') return handleDuplicates(request, env);
   if (path === '/api/clients/merge' && method === 'POST') return handleMergeClients(request, env);
+  if (path === '/api/clients/not-duplicates' && (method === 'POST' || method === 'DELETE')) {
+    return handleNotDuplicate(request, env);
+  }
   if (path === '/api/clients' && method === 'GET') return handleListClients(request, env);
   if (path === '/api/clients' && method === 'POST') return handleCreateClient(request, env);
   if (path === '/api/import/preview' && method === 'POST') return handlePreviewImport(request, env);

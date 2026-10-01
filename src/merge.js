@@ -57,9 +57,9 @@ export async function duplicateCandidates(env, scope, { limit = 40 } = {}) {
   const scoped = db.scopeWhere(scope, 'a.user_id');
   const { results } = await env.DB.prepare(
     `SELECT a.id AS a_id, a.name AS a_name, a.email AS a_email, a.phone AS a_phone,
-            a.created_at AS a_created, a.user_id AS user_id,
+            a.created_at AS a_created, a.user_id AS user_id, a.household_id AS a_household,
             b.id AS b_id, b.name AS b_name, b.email AS b_email, b.phone AS b_phone,
-            b.created_at AS b_created,
+            b.created_at AS b_created, b.household_id AS b_household,
             (SELECT COUNT(*) FROM bookings k WHERE k.client_id = a.id) AS a_trips,
             (SELECT COUNT(*) FROM bookings k WHERE k.client_id = b.id) AS b_trips,
             CASE
@@ -78,6 +78,11 @@ export async function duplicateCandidates(env, scope, { limit = 40 } = {}) {
               AND ${DIGITS('a.phone')} = ${DIGITS('b.phone')})
           OR (LOWER(TRIM(a.name)) = LOWER(TRIM(b.name)))
         )
+        -- Already explained: two people in one household are family, not a typo.
+        AND NOT (a.household_id IS NOT NULL AND a.household_id = b.household_id)
+        -- Already looked at, and decided to be two people.
+        AND NOT EXISTS (SELECT 1 FROM client_not_duplicates n
+                         WHERE n.user_id = a.user_id AND n.a_id = a.id AND n.b_id = b.id)
       WHERE ${scoped.sql}
       ORDER BY a.name ASC
       LIMIT ?`
@@ -235,3 +240,43 @@ export async function handleMergeClients(request, env) {
     filled,
   });
 }
+
+/**
+ * "These two are different people": remember it, so they are not offered again.
+ *
+ * POST says it, DELETE takes it back. Both records must be the caller's (or an
+ * agency owner's for an advisor's), the same rule as merging, because what this
+ * writes is a decision about somebody's book.
+ */
+export async function handleNotDuplicate(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const body = await readJson(request);
+  const one = clean(body.a, 64);
+  const two = clean(body.b, 64);
+  if (!one || !two || one === two) return badRequest('Say which two records.');
+
+  const first = await db.writerFor(env, user, 'clients', one);
+  const second = await db.writerFor(env, user, 'clients', two);
+  if (!first || !second) return notFound('Client not found.');
+  if (first.id !== second.id) return badRequest('Those two belong to different advisors.');
+
+  // The order the list uses, so one row answers for the pair whichever way round
+  // it was reached.
+  const [a, b] = one < two ? [one, two] : [two, one];
+
+  if (request.method === 'DELETE') {
+    await env.DB.prepare(
+      'DELETE FROM client_not_duplicates WHERE user_id = ? AND a_id = ? AND b_id = ?'
+    ).bind(first.id, a, b).run();
+    return json({ ok: true, again: true });
+  }
+
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO client_not_duplicates (user_id, a_id, b_id, created_at)
+     VALUES (?, ?, ?, ?)`
+  ).bind(first.id, a, b, now()).run();
+  return json({ ok: true });
+}
+

@@ -6336,6 +6336,43 @@ async function main() {
       `status ${goneCheck.status}`);
   }
 
+  // ----------------------------------------- family is not a typo --------------
+  // A shared phone number is one person typed twice and also a husband and wife, or
+  // a child on a parent's number. The list used to offer the same pairs for ever,
+  // and the only answer it had was to merge, which loses a client. Two more answers
+  // now: two people in one household, and two people who are simply different.
+  {
+  const num = `557${stamp}`;
+  const mum = await call(advisor, 'POST', '/api/clients', { name: `Family Parent${stamp}`, phone: num });
+  const kid = await call(advisor, 'POST', '/api/clients', { name: `Family Child${stamp}`, phone: num });
+  const mumId = mum.data?.client?.id;
+  const kidId = kid.data?.client?.id;
+  const listed = async () => {
+    const d = await call(advisor, 'GET', '/api/clients/duplicates');
+    return (d.data?.pairs || []).some((p) => [p.a_id, p.b_id].includes(mumId) && [p.a_id, p.b_id].includes(kidId));
+  };
+  check(Boolean(mumId && kidId) && await listed(), 'two people on one number are offered as possibly the same');
+
+  const nobody = await call(advisor, 'POST', '/api/clients/not-duplicates', { a: mumId, b: 'not-a-client' });
+  check(nobody.status === 404, 'a record that is not theirs cannot be marked', `status ${nobody.status}`);
+
+  const different = await call(advisor, 'POST', '/api/clients/not-duplicates', { a: kidId, b: mumId });
+  check(different.status === 200 && !(await listed()),
+    'marking them as different people takes the pair off the list', `status ${different.status}`);
+  const stillTwo = await call(advisor, 'GET', `/api/client?id=${mumId}`);
+  check(stillTwo.status === 200, 'and both are still clients');
+
+  await call(advisor, 'DELETE', '/api/clients/not-duplicates', { a: mumId, b: kidId });
+  check(await listed(), 'taking that back puts the pair on the list again');
+
+  const house = await call(advisor, 'POST', '/api/households', { clientIds: [mumId, kidId] });
+  check(house.status === 201 && !(await listed()),
+    'putting them in one household also takes the pair off the list', `status ${house.status}`);
+  const a1 = await call(advisor, 'GET', `/api/client?id=${mumId}`);
+  const a2 = await call(advisor, 'GET', `/api/client?id=${kidId}`);
+  check(a1.status === 200 && a2.status === 200, 'with both of them still clients, kept together');
+  }
+
   // ------------------------------------------------------- the client portal --
   // Signed out, because that is who opens it. These three would have caught a
   // ReferenceError in the route that every offline check walked straight past.

@@ -50,6 +50,8 @@ const OWNED = new Set([
   // by scope and written only through db.writerFor; the public page finds it by
   // share code and every statement under it names the advisor anyway.
   'trips',
+  // Pairs of clients an advisor has decided are two people. Theirs alone.
+  'client_not_duplicates',
   // Written from the client's own trip page and read behind the fence, which
   // is trip_messages again: the share code decides the trip, and every
   // statement names the advisor it belongs to anyway.
