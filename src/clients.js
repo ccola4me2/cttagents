@@ -113,6 +113,26 @@ export async function handleListClients(request, env) {
 }
 
 /**
+ * One answer, as the words somebody reads.
+ *
+ * Most answers are a string. A traveller block is a list of people, each an object,
+ * and String() on that is "[object Object],[object Object]", which is what "Who is
+ * travelling" showed on a client's record. A person reads as their name and, where
+ * they gave them, the rest in brackets; several are separated by semicolons.
+ */
+function sayAnswer(v) {
+  if (Array.isArray(v)) return v.map(sayAnswer).filter(Boolean).join('; ');
+  if (v && typeof v === 'object') {
+    const { name, ...rest } = v;
+    const extra = Object.entries(rest).filter(([, x]) => x)
+      .map(([k, x]) => `${k === 'dob' ? 'born' : k} ${x}`).join(', ');
+    return [name, extra && `(${extra})`].filter(Boolean).join(' ')
+      || Object.values(v).filter(Boolean).join(', ');
+  }
+  return String(v);
+}
+
+/**
  * A submission's answers, in the order they were asked and under the labels
  * the person read.
  *
@@ -138,12 +158,12 @@ function labelled(fieldsJson, answers) {
     if (f.type === 'heading') continue;
     const value = answers[f.key];
     if (value === undefined || value === null || value === '') continue;
-    out.push({ label: f.label || f.key, value: String(value) });
+    out.push({ label: f.label || f.key, value: sayAnswer(value) });
   }
   // Anything the form no longer asks. Still theirs, still worth reading.
   for (const [key, value] of Object.entries(answers)) {
     if (used.has(key) || value === undefined || value === null || value === '') continue;
-    out.push({ label: key.replace(/_/g, ' '), value: String(value), orphan: true });
+    out.push({ label: key.replace(/_/g, ' '), value: sayAnswer(value), orphan: true });
   }
   return out;
 }

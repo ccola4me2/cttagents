@@ -74,6 +74,20 @@ import { api, mountShell, esc, timeAgo, showError,
   mountScopePicker, advisorParam } from '/js/app.js';
 await mountShell();
 
+// A traveller block is a list of people, and String() on one is [object Object].
+function sayAnswer(v) {
+  if (Array.isArray(v)) return v.map(sayAnswer).filter(Boolean).join('; ');
+  if (v && typeof v === 'object') {
+    const { name, ...rest } = v;
+    const extra = Object.entries(rest).filter(([, x]) => x)
+      .map(([k, x]) => `${k === 'dob' ? 'born' : k} ${x}`).join(', ');
+    return [name, extra && `(${extra})`].filter(Boolean).join(' ')
+      || Object.values(v).filter(Boolean).join(', ');
+  }
+  return String(v);
+}
+
+
 const panel = document.getElementById('panel');
 const subsEl = document.getElementById('subs');
 let cache = [];
@@ -201,7 +215,7 @@ function drawReport(r) {
           // says what they actually want.
           const said = Object.entries(s.data || {})
             .filter(([k]) => !/^(first_?name|last_?name|name|email|phone|mobile)$/i.test(k))
-            .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`)
+            .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${sayAnswer(v)}`)
             .filter((x) => x.length < 120)
             .slice(0, 3).join(' · ');
           return `<tr>
