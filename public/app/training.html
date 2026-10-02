@@ -13,7 +13,8 @@
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main">
     <header class="topbar">
-      <div><h1>Training</h1><p class="sub">Every screen in the portal, grouped the way the menu is. Your first week first, then the rest as you need it.</p></div>
+      <div><a class="back-link noprint" href="/app/" data-back>&larr; Back</a>
+        <h1>Training</h1><p class="sub">Every screen in the portal, grouped the way the menu is. Your first week first, then the rest as you need it.</p></div>
       <a class="btn btn-ghost btn-sm" href="/app/cheatsheet">Cheat sheet</a>
     </header>
     <div class="content">
@@ -124,5 +125,15 @@ async function load() {
 }
 
 await load();
+
+// Back to wherever they came from, which is not always the dashboard: this page is
+// opened from the menu, from a lesson, from a link in the manual. With no history to
+// go back to (a link opened in a new tab) the link is a plain one to the dashboard.
+document.querySelectorAll('[data-back]').forEach((a) => a.addEventListener('click', (e) => {
+  if (history.length > 1 && document.referrer.startsWith(location.origin)) {
+    e.preventDefault();
+    history.back();
+  }
+}));
 </script>
 </body></html>
