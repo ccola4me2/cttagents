@@ -105,6 +105,12 @@ export async function requestLink(env, email, origin) {
 
   await sendHtml(env, {
     to: email,
+    // Their way out, like every message a client reads. With one agency it is that
+    // agency's list; with several it covers all of them, because the address is the
+    // same person whoever they are travelling with.
+    unsubscribe: links.length === 1 && agencies[0]
+      ? { agencyId: agencies[0].agency_id, agencyName: agencies[0].agency_name }
+      : { agencyId: null },
     subject: 'Your link to see your trips',
     html: `<p style="margin:0 0 1rem;">Here is your way in. It works once and stops working
       after twenty minutes, so ask for another if this one has gone stale.</p>

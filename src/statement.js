@@ -612,6 +612,8 @@ export async function handleStatement(request, env, id) {
   try {
     await sendHtml(env, {
       to: statement.to, replyTo: owner.email, subject: rendered.subject, html: rendered.html,
+      // Every message to a client carries its way out, a quote and an invoice included.
+      unsubscribe: { agencyId: owner.agency_id, agencyName: owner.agency_name },
     });
   } catch (e) {
     // The number goes back. A send that failed is an invoice nobody has.

@@ -200,6 +200,8 @@ export async function handleReplyTripMessage(request, env, bookingId) {
         tripName: booking.itinerary || booking.product_name || 'your trip',
         body: text,
         href: `${appUrl(env)}/t/${booking.share_code}`,
+        agencyId: owner.agency_id || null,
+        agencyName: owner.agency_name || '',
       });
     } catch (e) {
       console.error('trip reply mail', e);

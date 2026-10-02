@@ -9,6 +9,7 @@
 // worth retrying from one that is not.
 
 import { PermanentError, escapeHtml } from './util.js';
+import { unsubscribeToken } from './unsubtoken.js';
 
 import { DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand.js';
 
@@ -21,6 +22,55 @@ export { escapeHtml };
 
 function appUrl(env) {
   return (env.APP_URL || 'https://cttagents.com').replace(/\/$/, '');
+}
+
+/**
+ * The way out, for any message a client reads.
+ *
+ * Every email to a client carries an unsubscribe link, whatever it is about: a
+ * quote, an invoice, a payment date, a form, a reply. The link is signed, so it
+ * needs no sign in and cannot be forged, and the same address goes in the
+ * List-Unsubscribe header, which is what the unsubscribe button in a mail app
+ * uses. The one-click header makes that button a single request to the same
+ * address, which is why the page behind it asks before it does anything on a GET.
+ *
+ * What it stops is automatic email: offers and news, and the reminders the
+ * portal sends on its own. Something an advisor sends by hand, such as a quote
+ * somebody asked for, still goes, and the page says so.
+ */
+export async function unsubscribeParts(env, { to, agencyId, agencyName }) {
+  const url = `${appUrl(env)}/u/${await unsubscribeToken(env, agencyId || null, to)}`;
+  const block = `<div style="max-width:560px;margin:0 auto;padding:0 16px 28px;text-align:center;
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+      font-size:12px;line-height:1.5;color:#6b7a8c;">${
+  agencyName ? `${escapeHtml(agencyName)}<br>` : ''}Do not want emails like this?
+    <a href="${escapeHtml(url)}" style="color:#6b7a8c;">Unsubscribe</a>.</div>`;
+  return {
+    url,
+    block,
+    headers: { 'List-Unsubscribe': `<${url}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
+  };
+}
+
+/**
+ * The way out of an email a colleague gets on a schedule.
+ *
+ * These are switched in Settings, so that is where the link goes. The portal's name
+ * stays, because a footer with nothing but a link reads as an advertisement.
+ */
+function settingsFooter(env, brand) {
+  return `${escapeHtml((brand || DEFAULT_BRAND).name)} &middot;
+    <a href="${escapeHtml(appUrl(env))}/app/settings" style="color:#5c7286;">Unsubscribe from this email</a>
+    or change which emails you get, in Settings.`;
+}
+
+/** The unsubscribe block at the foot of a message, unless it already has one. */
+export function withUnsubscribe(html, parts) {
+  if (!parts) return html;
+  if (/\/u\/[A-Za-z0-9._-]+/.test(html) && /unsubscribe/i.test(html)) return html;
+  return /<\/body>/i.test(html)
+    ? html.replace(/<\/body>/i, `${parts.block}</body>`)
+    : `${html}${parts.block}`;
 }
 
 /**
@@ -154,7 +204,7 @@ export function plainText(html) {
     .trim();
 }
 
-async function send(env, { to, subject, html, replyTo }) {
+async function send(env, { to, subject, html, replyTo, unsubscribe }) {
   const key = env.RESEND_API_KEY;
   if (!key) {
     console.log('email skipped, RESEND_API_KEY not set:', subject, '->', to);
@@ -162,6 +212,10 @@ async function send(env, { to, subject, html, replyTo }) {
   }
   const recipients = Array.isArray(to) ? to : String(to).split(',').map((s) => s.trim()).filter(Boolean);
   if (!recipients.length) return { skipped: true };
+
+  // A message to a client carries its way out. See unsubscribeParts.
+  const parts = unsubscribe ? await unsubscribeParts(env, { to: recipients[0], ...unsubscribe }) : null;
+  const finalHtml = withUnsubscribe(html, parts);
 
   try {
     const res = await fetch('https://api.resend.com/emails', {
@@ -173,9 +227,10 @@ async function send(env, { to, subject, html, replyTo }) {
         // So hitting reply answers the person who got in touch, rather than a
         // noreply box nobody reads.
         ...(replyTo ? { reply_to: [replyTo] } : {}),
+        ...(parts ? { headers: parts.headers } : {}),
         subject,
-        html,
-        text: plainText(html),
+        html: finalHtml,
+        text: plainText(finalHtml),
       }),
     });
     if (!res.ok) {
@@ -361,6 +416,7 @@ export function sendTaskDigestEmail(env, { to, firstName, due = [], late = [], c
         + block('Asking for you in chat', chat, BRAND_NAVY)
         + `<p style="margin:0;">Ticking anything off stops it appearing here tomorrow${
           chat.length ? ', and reading a conversation stops that one' : ''}.</p>`,
+      footer: settingsFooter(env),
       cta: { label: 'Open your list', href: `${appUrl(env)}/app/tasks` },
     }),
   });
@@ -433,6 +489,7 @@ export function sendCallListEmail(env, { to, firstName, lists = [] }) {
         + ` Nobody is chasing you for any of these, which is the only reason they need saying.</p>`
         + lists.map(block).join('')
         + `<p style="margin:0;">Ticking a name off on the page keeps it out of next Monday's.</p>`,
+      footer: settingsFooter(env),
       cta: { label: 'Open the list', href: `${appUrl(env)}/app/hotlists` },
     }),
   });
@@ -455,11 +512,14 @@ export function sendCallListEmail(env, { to, firstName, lists = [] }) {
  * The link goes to their trip page, where the conversation is, rather than
  * repeating the whole exchange in an inbox.
  */
-export function sendTripReplyEmail(env, { to, replyTo, clientName, advisorName, tripName, body, href }) {
+export function sendTripReplyEmail(env, {
+  to, replyTo, clientName, advisorName, tripName, body, href, agencyId, agencyName,
+}) {
   if (!to) return Promise.resolve({ skipped: true });
   return send(env, {
     to,
     replyTo,
+    unsubscribe: { agencyId, agencyName },
     subject: `${advisorName} replied about ${tripName}`,
     html: layout(env, {
       heading: `A reply about ${escapeHtml(tripName)}`,
@@ -509,13 +569,14 @@ export function sendTripMessageEmail(env, { to, firstName, clientName, tripName,
  * row and the screen shows it rather than a cron deciding on its own.
  */
 export function sendReviewRequest(env, {
-  to, replyTo, clientName, advisorName, agencyName, advisorPhone, tripName, href,
+  to, replyTo, clientName, advisorName, agencyName, advisorPhone, tripName, href, agencyId,
 }) {
   if (!to) return Promise.resolve({ skipped: true });
   const trip = tripName || 'your trip';
   return send(env, {
     to,
     replyTo,
+    unsubscribe: { agencyId, agencyName },
     subject: `How was ${trip}?`,
     html: layout(env, {
       heading: 'Welcome home',
@@ -552,13 +613,14 @@ export function sendReviewRequest(env, {
  * being sent.
  */
 export function sendFormInviteEmail(env, {
-  to, replyTo, clientName, advisorName, agencyName, advisorPhone, formName, note, href,
+  to, replyTo, clientName, advisorName, agencyName, advisorPhone, formName, note, href, agencyId,
 }) {
   if (!to) return Promise.resolve({ skipped: true });
   const who = clientName ? escapeHtml(clientName.split(' ')[0]) : 'there';
   return send(env, {
     to,
     replyTo,
+    unsubscribe: { agencyId, agencyName },
     subject: `${formName}${advisorName ? ` from ${advisorName}` : ''}`,
     html: layout(env, {
       heading: escapeHtml(formName),
@@ -869,7 +931,7 @@ export function linkify(escaped) {
 }
 
 export async function sendAutomationEmail(env, to, subject, body,
-  { footer, replyTo, fromName } = {}) {
+  { footer, replyTo, fromName, unsubscribeUrl } = {}) {
   // Neither of these improves by waiting five minutes and asking again.
   if (!env.RESEND_API_KEY) {
     throw new PermanentError('Email is not configured: the RESEND_API_KEY secret is not set on the Worker.');
@@ -879,8 +941,7 @@ export async function sendAutomationEmail(env, to, subject, body,
   const html = layout(env, {
     heading: subject,
     body: `<p style="margin:0;">${linkify(escapeHtml(body)).replace(/\n/g, '<br>')}</p>`,
-    // Present on a marketing send and absent on a transactional one. Offering
-    // to stop sending somebody their own payment reminders is not a kindness.
+    // The way out for the person it is sent to. Given on every send to a client.
     footer,
   });
 
@@ -895,6 +956,10 @@ export async function sendAutomationEmail(env, to, subject, body,
       // place to lose one: a reply to "are you sailing this winter" is the
       // entire reason the email was sent.
       ...(replyTo ? { reply_to: [replyTo] } : {}),
+      ...(unsubscribeUrl ? { headers: {
+        'List-Unsubscribe': `<${unsubscribeUrl}>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      } } : {}),
       subject,
       html,
       text: plainText(html),
@@ -933,11 +998,15 @@ export async function sendAutomationEmail(env, to, subject, body,
  * PermanentError as not. A missing API key and a rejected address will fail
  * exactly the same way on the tenth attempt as the first.
  */
-export async function sendHtml(env, { to, replyTo, subject, html }) {
+export async function sendHtml(env, { to, replyTo, subject, html, unsubscribe }) {
   if (!env.RESEND_API_KEY) {
     throw new PermanentError('Email is not configured: the RESEND_API_KEY secret is not set on the Worker.');
   }
   if (!to) throw new PermanentError('There is no address to send to.');
+
+  // A message to a client carries its way out. See unsubscribeParts.
+  const parts = unsubscribe ? await unsubscribeParts(env, { to, ...unsubscribe }) : null;
+  const finalHtml = withUnsubscribe(html, parts);
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -946,9 +1015,10 @@ export async function sendHtml(env, { to, replyTo, subject, html }) {
       from: env.MAIL_FROM || 'CTT Agent Portal <noreply@cttagents.com>',
       to: [to],
       ...(replyTo ? { reply_to: [replyTo] } : {}),
+      ...(parts ? { headers: parts.headers } : {}),
       subject,
-      html,
-      text: plainText(html),
+      html: finalHtml,
+      text: plainText(finalHtml),
     }),
   });
 
@@ -978,7 +1048,7 @@ const REMIND_WORD = {
 
 export async function sendPaymentReminder(env, {
   to, replyTo, clientName, advisorName, agencyName, advisorPhone,
-  amountCents, dueDate, hard, tripName, vendor, confirmation, kind,
+  amountCents, dueDate, hard, tripName, vendor, confirmation, kind, agencyId,
 }) {
   if (!env.RESEND_API_KEY) {
     throw new PermanentError('Email is not configured: the RESEND_API_KEY secret is not set on the Worker.');
@@ -1041,6 +1111,12 @@ export async function sendPaymentReminder(env, {
     ].filter(Boolean).join(' &middot; '),
   });
 
+  // Every message to a client carries its way out, this one included. What it stops
+  // is the automatic reminder: a person who unsubscribes still hears from their
+  // advisor, and the advisor can see on the client's record that they asked.
+  const parts = await unsubscribeParts(env, { to, agencyId, agencyName });
+  const finalHtml = withUnsubscribe(html, parts);
+
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
@@ -1048,9 +1124,10 @@ export async function sendPaymentReminder(env, {
       from: env.MAIL_FROM || 'CTT Agent Portal <noreply@cttagents.com>',
       to: [to],
       ...(replyTo ? { reply_to: [replyTo] } : {}),
+      ...(parts ? { headers: parts.headers } : {}),
       subject,
-      html,
-      text: plainText(html),
+      html: finalHtml,
+      text: plainText(finalHtml),
     }),
   });
 

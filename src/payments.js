@@ -249,6 +249,7 @@ export async function handlePaymentReminder(request, env, id) {
     clientName: (client && client.name) || booking.client_name,
     advisorName: [owner.first_name, owner.last_name].filter(Boolean).join(' ') || owner.email,
     agencyName: owner.agency_name || '',
+    agencyId: owner.agency_id || null,
     advisorPhone: owner.phone || '',
     amountCents: payment.amount_cents,
     dueDate: payment.due_date,

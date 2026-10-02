@@ -980,6 +980,7 @@ export async function handleSendForm(request, env, id) {
     clientName: name,
     advisorName: [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email,
     agencyName: user.agency_name || '',
+    agencyId: user.agency_id || null,
     advisorPhone: user.phone || '',
     formName: form.name,
     note,

@@ -351,6 +351,7 @@ export async function handleTestBroadcast(request, env, id) {
         agencyName: agency.name,
         unsubscribeUrl: `${appUrl(env)}/u/${await unsubscribeToken(env, agency.id, to)}`,
       }),
+      unsubscribeUrl: `${appUrl(env)}/u/${await unsubscribeToken(env, agency.id, to)}`,
     });
 
   return json({ ok: true, to });
@@ -524,6 +525,7 @@ export async function sendQueuedBroadcasts(env, { perPass = PER_PASS } = {}) {
             agencyName: agency?.name || null,
             unsubscribeUrl: `${appUrl(env)}/u/${await unsubscribeToken(env, live.agency_id, r.email)}`,
           }),
+          unsubscribeUrl: `${appUrl(env)}/u/${await unsubscribeToken(env, live.agency_id, r.email)}`,
         });
       await mark(env, r.id, 'sent', null, (r.attempts || 0) + 1);
       sent += 1;

@@ -22,6 +22,7 @@
 
 import { now } from './util.js';
 import { sendPaymentReminder } from './email.js';
+import { isSuppressed } from './suppression.js';
 
 // How far ahead each notice goes out. Descending, because the pass takes the
 // first one the payment has reached and the closest is the most urgent.
@@ -69,7 +70,7 @@ export async function remindDuePayments(env, { at = now(), limit = 200 } = {}) {
             b.client_name, b.product_name, b.supplier, b.confirmation_number, b.client_id,
             c.email AS client_email, c.name AS client_record_name,
             u.first_name, u.last_name, u.email AS advisor_email, u.notify_email,
-            u.agency_name, u.phone AS advisor_phone
+            u.agency_name, u.agency_id, u.phone AS advisor_phone
        FROM booking_payments p
        JOIN bookings b ON b.id = p.booking_id
        JOIN users u ON u.id = p.user_id
@@ -84,7 +85,7 @@ export async function remindDuePayments(env, { at = now(), limit = 200 } = {}) {
       LIMIT ?`
   ).bind(horizon, limit).all();
 
-  const out = { sent: 0, failed: 0, skipped: 0, noEmail: 0, considered: (results || []).length };
+  const out = { sent: 0, failed: 0, skipped: 0, noEmail: 0, optedOut: 0, considered: (results || []).length };
 
   for (const p of results || []) {
     const lead = leadFor(p.due_date, today, p.auto_lead_sent);
@@ -95,6 +96,12 @@ export async function remindDuePayments(env, { at = now(), limit = 200 } = {}) {
     if (p.reminded_at && isoDay(p.reminded_at) === today) { out.skipped += 1; continue; }
 
     if (!p.client_email) { out.noEmail += 1; continue; }
+
+    // Somebody who has unsubscribed is not sent the automatic reminder. Counted, so
+    // a pass that sent nothing because everybody asked to stop does not read as a
+    // pass that did nothing, and the advisor can see it on the client's record: the
+    // payment date is still real, and ringing them is now the way to chase it.
+    if (await isSuppressed(env, p.agency_id, p.client_email)) { out.optedOut += 1; continue; }
 
     const advisorName = [p.first_name, p.last_name].filter(Boolean).join(' ')
       || p.advisor_email;
@@ -107,6 +114,7 @@ export async function remindDuePayments(env, { at = now(), limit = 200 } = {}) {
         clientName: p.client_record_name || p.client_name,
         advisorName,
         agencyName: p.agency_name || '',
+        agencyId: p.agency_id || null,
         advisorPhone: p.advisor_phone || '',
         amountCents: p.amount_cents,
         dueDate: p.due_date,

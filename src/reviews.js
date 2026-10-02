@@ -204,6 +204,7 @@ export async function handleAskReview(request, env, bookingId) {
       clientName: (client && client.name) || booking.client_name,
       advisorName: [owner.first_name, owner.last_name].filter(Boolean).join(' ') || owner.email,
       agencyName: owner.agency_name || '',
+      agencyId: owner.agency_id || null,
       advisorPhone: owner.phone || '',
       tripName: booking.itinerary || booking.product_name || '',
       href: `${appUrl}/t/${encodeURIComponent(booking.share_code)}`,

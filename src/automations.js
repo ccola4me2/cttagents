@@ -245,24 +245,21 @@ async function runStep(env, run, step, context) {
       const to = context.email;
       if (!to) return { status: 'skipped', detail: 'no email address on the contact' };
 
-      let footer;
-      if (step.marketing) {
-        const agency = await agencyRecord(env, run.agency_id);
-        if (await isSuppressed(env, agency?.id || null, to)) {
-          // Skipped, not failed. The run carries on to whatever follows,
-          // because a person who opted out of the newsletter has not opted out
-          // of the task the next step creates for their advisor.
-          return { status: 'skipped', detail: `${to} has unsubscribed` };
-        }
-        footer = marketingFooter({
-          agencyName: agency?.name,
-          unsubscribeUrl: `${appUrl(env)}/u/${await unsubscribeToken(env, agency?.id || null, to)}`,
-        });
+      // Every email to a client carries its way out, marketing or not, and an
+      // automatic one goes to nobody who has used it.
+      const agency = await agencyRecord(env, run.agency_id);
+      if (await isSuppressed(env, agency?.id || null, to)) {
+        // Skipped, not failed. The run carries on to whatever follows,
+        // because a person who opted out of the newsletter has not opted out
+        // of the task the next step creates for their advisor.
+        return { status: 'skipped', detail: `${to} has unsubscribed` };
       }
+      const unsubscribeUrl = `${appUrl(env)}/u/${await unsubscribeToken(env, agency?.id || null, to)}`;
+      const footer = marketingFooter({ agencyName: agency?.name, unsubscribeUrl });
 
       await sendAutomationEmail(env, to, fill(step.subject, context), fill(step.body, context),
-        { footer });
-      return { status: 'ok', detail: `emailed ${to}${step.marketing ? ', with an opt out' : ''}` };
+        { footer, unsubscribeUrl });
+      return { status: 'ok', detail: `emailed ${to}, with an opt out` };
     }
     // The advisor's own to-do list, not a contact task in a CRM that is gone.
     // This is the one retired action with a real home to move to, and the home

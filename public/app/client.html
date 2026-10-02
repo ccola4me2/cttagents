@@ -649,10 +649,11 @@ function drawContact(d) {
     // first. A marketing send drops them on its own; this is for the advisor
     // who was going to type something personal.
     const optOut = d.unsubscribed ? `<div class="notice notice-warn" style="margin:0 0 1rem;">
-      <strong>${esc(c.name)} has asked not to receive marketing email.</strong>
+      <strong>${esc(c.name)} has unsubscribed from our emails.</strong>
       ${esc(d.unsubscribedAt ? `Recorded ${timeAgo(d.unsubscribedAt)}` : '')}${
         d.unsubscribedHow ? ` &middot; ${esc(d.unsubscribedHow)}` : ''}.
-      Anything about a trip they have booked still reaches them.
+      Automatic email is not sent to them, payment reminders included, so ring them about
+      payment dates. Something you send by hand, such as a quote or an invoice, still goes.
       <button class="btn btn-ghost btn-sm" id="restore-email"
         style="margin-top:.6rem;">Put them back on the list</button>
     </div>` : '';

@@ -18,14 +18,23 @@
 // present: whichever way that decision goes, it should be on purpose and not
 // drift back by accident.
 //
-// The third is the opposite, and it is the one that would be embarrassing: a
-// payment reminder must NOT offer to unsubscribe. Offering to stop sending
-// somebody their own payment dates is not a kindness, and a client who takes
-// it up then misses a deadline nobody told them about.
+// The third used to be the opposite. A payment reminder was asserted NOT to offer
+// an unsubscribe, on the reasoning that stopping somebody's own payment dates is
+// no kindness. That was changed on 2026-10-01 at Brent's direction: every email
+// to a client carries a way out, a payment reminder and a quote included. What
+// the link stops is the AUTOMATIC email, so a client who takes it up still hears
+// from their advisor and the advisor can see on the record that they asked. What
+// is asserted here now is that every sender a client's mail comes from has the
+// link, in the HTML, in the plain text, and in the List-Unsubscribe header.
 //
 //   node scripts/check-email.mjs
 
-import { layout, plainText, linkify, escapeHtml } from '../src/email.js';
+import {
+  layout, plainText, linkify, escapeHtml, withUnsubscribe, unsubscribeParts,
+  sendPaymentReminder, sendReviewRequest, sendFormInviteEmail, sendTripReplyEmail, sendHtml,
+  sendAutomationEmail, sendTaskDigestEmail, sendCallListEmail,
+} from '../src/email.js';
+import { readToken } from '../src/unsubtoken.js';
 import { marketingFooter } from '../src/suppression.js';
 import { annotate } from './lib/annotate.mjs';
 
@@ -95,10 +104,105 @@ const checks = [
   ['a quote in a pasted URL cannot break out of the attribute',
     !/href="[^"]*"[^>]*on\w+=/i.test(injection) && injection.includes('&quot;')],
 
-  ['a transactional email offers no way to unsubscribe',
-    !/unsubscribe/i.test(transactionalText)],
-  ['and carries no opt-out link', !/\/u\//.test(transactional)],
 ];
+
+// ---------------------------------------------------------------------------
+// Every sender a client's mail comes from
+// ---------------------------------------------------------------------------
+//
+// Called for real, with the network replaced by something that keeps what was
+// posted. Each message is judged as the client receives it: the HTML, the plain
+// text and the header a mail app's unsubscribe button reads.
+const sent = [];
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (url, init) => {
+  sent.push(JSON.parse(init.body));
+  return { ok: true, status: 200, text: async () => '' };
+};
+const live = { ...env, RESEND_API_KEY: 'test', UNSUBSCRIBE_SECRET: 'check-email', MAIL_FROM: 'Test <t@example.test>' };
+const to = 'client@example.com';
+
+try {
+  await sendPaymentReminder(live, { to, clientName: 'Ed', advisorName: 'Pat', agencyName: 'Test Travel', agencyId: 'ag1',
+    amountCents: 190000, dueDate: '2026-09-26', hard: true, kind: 'final', tripName: 'Alaska' });
+  await sendReviewRequest(live, { to, clientName: 'Ed', advisorName: 'Pat', agencyName: 'Test Travel', agencyId: 'ag1',
+    tripName: 'Alaska', href: 'https://example.test/t/x' });
+  await sendFormInviteEmail(live, { to, clientName: 'Ed', advisorName: 'Pat', agencyName: 'Test Travel', agencyId: 'ag1',
+    formName: 'Trip questions', href: 'https://example.test/f/x' });
+  await sendTripReplyEmail(live, { to, clientName: 'Ed', advisorName: 'Pat', tripName: 'Alaska', body: 'Hello',
+    href: 'https://example.test/t/x', agencyId: 'ag1', agencyName: 'Test Travel' });
+  await sendHtml(live, { to, subject: 'Your quote', html: '<html><body><p>A quote.</p></body></html>',
+    unsubscribe: { agencyId: 'ag1', agencyName: 'Test Travel' } });
+  await sendHtml(live, { to, subject: 'Your link', html: '<p>A fragment with no body tag.</p>',
+    unsubscribe: { agencyId: null } });
+  const url = `${env.APP_URL}/u/${(await unsubscribeParts(live, { to, agencyId: 'ag1' })).url.split('/u/')[1]}`;
+  await sendAutomationEmail(live, to, 'Hello', 'Body', {
+    // Both ways a portal may be asked: a footer and header built by the caller (a list
+    // send), or the way out asked for by agency (an automation).
+    footer: marketingFooter({ agencyName: 'Test Travel', unsubscribeUrl: url }), unsubscribeUrl: url,
+    unsubscribe: { agencyId: 'ag1', agencyName: 'Test Travel' },
+  });
+} finally {
+  globalThis.fetch = realFetch;
+}
+
+const names = ['a payment reminder', 'a review request', 'a form invite', 'a trip reply', 'a quote or invoice',
+  'a sign in link', 'an automatic or marketing email'];
+sent.forEach((m, i) => {
+  const html = m.html || '';
+  const link = (html.match(/https:\/\/example\.test\/u\/[A-Za-z0-9._-]+/) || [])[0] || '';
+  checks.push([`${names[i]} carries an unsubscribe link`, Boolean(link) && /unsubscribe/i.test(html)]);
+  checks.push([`and its plain text carries it too`, /\/u\//.test(m.text || '') && /unsubscribe/i.test(m.text || '')]);
+  checks.push([`and the List-Unsubscribe header names the same address`,
+    (m.headers || {})['List-Unsubscribe'] === `<${link}>`
+      && (m.headers || {})['List-Unsubscribe-Post'] === 'List-Unsubscribe=One-Click']);
+});
+checks.push(['every one of the seven was sent', sent.length === names.length]);
+checks.push(['a message that already carries a link does not get a second', (() => {
+  const once = withUnsubscribe('<body>x <a href="https://example.test/u/abc.def">Unsubscribe</a></body>',
+    { block: '<p>MORE</p>' });
+  return !once.includes('MORE');
+})()]);
+// The link is the person's own, for the agency it was sent under.
+const who = await readToken(live, (sent[0]?.html.match(/\/u\/([A-Za-z0-9._-]+)/) || [])[1]);
+checks.push(['the link is signed for that client and that agency', who && who.email === to && who.agencyId === 'ag1']);
+
+// The automatic payment reminder is not sent to somebody who has unsubscribed, and
+// the pass says it skipped them rather than that nothing was due.
+{
+  const { remindDuePayments } = await import('../src/payremind.js');
+  const soon = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const row = { id: 'p1', booking_id: 'b1', user_id: 'u1', amount_cents: 190000, due_date: soon, payment_class: 'hard',
+    kind: 'final', auto_lead_sent: null, reminded_at: null, client_name: 'Ed', product_name: 'Alaska',
+    supplier: 'Line', confirmation_number: 'X1', client_id: 'c1', client_email: to, client_record_name: 'Ed',
+    first_name: 'Pat', last_name: 'Advisor', advisor_email: 'pat@example.test', notify_email: null,
+    agency_name: 'Test Travel', agency_id: 'ag1', advisor_phone: '555' };
+  const posted = [];
+  globalThis.fetch = async (u, init) => { posted.push(init.body); return { ok: true, status: 200, text: async () => '' }; };
+  const fake = (optedOut) => ({ ...live, DB: { prepare: (sql) => ({ bind: () => ({
+    all: async () => ({ results: [row] }),
+    first: async () => (/email_suppression/.test(sql) && optedOut ? { yes: 1 } : null),
+    run: async () => ({ meta: { changes: 1 } }),
+  }) }) } });
+  try {
+    const skipped = await remindDuePayments(fake(true), {});
+    checks.push(['an automatic reminder skips somebody who has unsubscribed', skipped.optedOut === 1 && skipped.sent === 0 && posted.length === 0]);
+    const normal = await remindDuePayments(fake(false), {});
+    checks.push(['and still goes to everybody else, with the link', normal.sent === 1 && /\/u\//.test(posted[0] || '')]);
+  } finally { globalThis.fetch = realFetch; }
+}
+
+// The colleagues' recurring mail points at the switch that turns it off.
+const digestHtml = await (async () => {
+  globalThis.fetch = async (u, init) => { sent.push(JSON.parse(init.body)); return { ok: true, status: 200, text: async () => '' }; };
+  try {
+    await sendTaskDigestEmail(live, { to: 'pat@example.test', firstName: 'Pat', due: [{ title: 'Ring Ed' }], late: [] });
+    await sendCallListEmail(live, { to: 'pat@example.test', firstName: 'Pat', lists: [{ key: 'home', label: 'Home from a trip', rows: [{ name: 'Ed', days: 3 }], shown: [{ name: 'Ed', days: 3 }], truncated: false }] });
+  } finally { globalThis.fetch = realFetch; }
+  return sent.slice(-2).map((m) => m.html || '');
+})();
+checks.push(['the daily task email says how to turn it off', /\/app\/settings/.test(digestHtml[0] || '') && /unsubscribe/i.test(digestHtml[0] || '')]);
+checks.push(['and so does the weekly call list', /\/app\/settings/.test(digestHtml[1] || '') && /unsubscribe/i.test(digestHtml[1] || '')]);
 
 let failed = 0;
 for (const [label, ok] of checks) {

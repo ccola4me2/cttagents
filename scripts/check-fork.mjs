@@ -49,6 +49,8 @@ const THERE = 'trip-vara-website';
 //
 // Keyed "file:name", valued with the portal that should have it and the reason.
 const ALLOWED = new Map([
+  ['suppression.js:handleListSuppressions', ['cttagents', 'the opt-out list screen belongs to Lists and Emails, which trip-vara does not have. Both portals share the unsubscribe link and the restore button on a client record']],
+  ['suppression.js:handleAddSuppression', ['cttagents', 'the other half of the opt-out list screen']],
   ['admin.js:handleCreateAdvisor', ['cttagents', 'an owner creates advisors here; trip-vara advisors apply through a join link']],
   ['admin.js:handleReissueInvite', ['cttagents', 'same: there are no invites where people sign themselves up']],
   ['admin.js:handleStartActing', ['cttagents', 'working as an advisor is a cttagents feature']],
