@@ -250,6 +250,8 @@ const SAME = [
   ['commission', 'comm'],
   ['air', 'airfare', 'flights'],
   ['kids', 'children', 'child'],
+  ['3rd', 'third'],
+  ['2nd', 'second'],
 ];
 
 function alternatives(word) {
@@ -284,11 +286,19 @@ function haystack(s) {
   };
 }
 
+/**
+ * Does a word in the text begin with this? "sand" finds Sandals; "ncl" does not find
+ * "inclusives", which a plain substring search would, and which put Hilton under NCL.
+ */
+function starts(text, term) {
+  return ` ${text}`.includes(` ${term}`);
+}
+
 /** Null when it does not match; otherwise a score, so the best answer is first. */
 function scoreOf(s, parsed) {
   const h = haystack(s);
   const all = `${h.brand} ${h.code} ${h.offer} ${h.rest}`;
-  if (parsed.not.some((t) => all.includes(t))) return null;
+  if (parsed.not.some((t) => starts(all, t))) return null;
   let score = 0;
   for (const alts of parsed.must) {
     let best = 0;
@@ -296,9 +306,9 @@ function scoreOf(s, parsed) {
       if (h.code === a) best = Math.max(best, 12);
       else if (h.code.includes(a)) best = Math.max(best, 9);
       if (h.brand.startsWith(a)) best = Math.max(best, 10);
-      else if (h.brand.includes(a)) best = Math.max(best, 7);
-      if (h.offer.includes(a)) best = Math.max(best, 4);
-      if (h.rest.includes(a)) best = Math.max(best, 2);
+      else if (starts(h.brand, a)) best = Math.max(best, 7);
+      if (starts(h.offer, a)) best = Math.max(best, 4);
+      if (starts(h.rest, a)) best = Math.max(best, 2);
     }
     if (!best) return null;
     score += best;
@@ -310,7 +320,7 @@ function scoreOf(s, parsed) {
 function mark(text, words) {
   const s = String(text || '');
   if (!words.length) return esc(s);
-  const re = new RegExp(`(${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'ig');
+  const re = new RegExp(`\\b(${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'ig');
   return s.split(re).map((part, i) => (i % 2 ? `<mark>${esc(part)}</mark>` : esc(part))).join('');
 }
 
