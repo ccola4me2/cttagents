@@ -456,7 +456,6 @@ function offerHtml(s, words, showBrand) {
       <div class="row"><span class="badge ${dl.tone}">${esc(dl.text)}</span></div>
       <div class="row noprint">
         ${s.code ? `<button class="ss-code" type="button" data-copycode="${esc(s.code)}" title="Copy the code">${mark(s.code, words)}</button>` : ''}
-        <button class="btn btn-ghost btn-sm" type="button" data-copy="${esc(s.id)}">Copy</button>
         ${d.canEdit ? `<button class="btn btn-secondary btn-sm" type="button" data-edit="${esc(s.id)}">Edit</button>` : ''}
       </div>
     </div>
@@ -544,14 +543,6 @@ function drawAll() {
 // Doing things
 // ---------------------------------------------------------------------------
 
-function copyText(s) {
-  const lines = [`${s.brand}${s.program ? ` (${s.program})` : ''}: ${s.offer}`];
-  if (s.window_text || s.ends_on) lines.push(`Book by: ${s.window_text || dateFmt(s.ends_on)}`);
-  if (s.code) lines.push(`Code: ${s.code}`);
-  if (s.notes) lines.push(s.notes);
-  return lines.join('\n');
-}
-
 async function copied(btn, text, back) {
   try { await navigator.clipboard.writeText(text); } catch { return; }
   btn.textContent = 'Copied';
@@ -574,9 +565,6 @@ document.addEventListener('click', (e) => {
     $('clear').hidden = true;
   } else if (t.dataset.copycode) {
     copied(t, t.dataset.copycode, t.dataset.copycode);
-  } else if (t.dataset.copy) {
-    const s = d.specials.find((x) => x.id === t.dataset.copy);
-    if (s) copied(t, copyText(s), 'Copy');
   } else if (t.dataset.edit) {
     openEdit(d.specials.find((x) => x.id === t.dataset.edit));
   } else if (t.dataset.undo) {

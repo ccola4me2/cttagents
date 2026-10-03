@@ -318,7 +318,7 @@ export const LESSONS = [
     why: 'What every supplier is running this week, in one place you can search. Check it before you quote, so a client is never told about an offer that ended on Friday.',
     manual: 'selling',
     page: '/app/supplier-specials',
-    doing: 'Search for a supplier one of your clients sails with, then try a code or words like free air. Copy an offer to paste into a message.',
+    doing: 'Search for a supplier one of your clients sails with, then try a code or words like free air. Press a promotion code to copy it.',
   },
   {
     key: 'specials',
