@@ -153,6 +153,19 @@ for (const column of ['name', 'email', 'phone', 'website', 'portal_url', 'signup
     + 'an advisor negotiated or the addresses they corrected']);
 }
 
+// The weekly supplier specials have two writers. An upload matches a row that is
+// already there and refreshes what the supplier said this week; an owner's edit
+// corrects one row by hand. They are not two versions of one save.
+ALLOWED.push(['supplier_specials:list_id', 'UPDATE supplier_specials SET category = ?, brand = ?',
+  'which upload last carried the offer. A hand edit is not an upload, and writing it '
+  + 'here would make a corrected typo look like it arrived with the latest list']);
+for (const column of ['brand', 'match_key']) {
+  ALLOWED.push([`supplier_specials:${column}`, 'UPDATE supplier_specials SET category = ?, program = ?',
+    'the upload found this row by brand, programme and offer, or by brand and code, so '
+    + 'the name it is matched on is already what it is: rewriting it would only let a '
+    + 'differently spelled brand in next week\'s list rename this week\'s row']);
+}
+
 /** Constants that are whole SQL fragments, so a SET list built from one is seen. */
 function constants(sources) {
   const found = new Map();
