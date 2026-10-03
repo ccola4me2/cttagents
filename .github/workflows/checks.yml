@@ -213,6 +213,12 @@ jobs:
       - name: A confirmation is read into lines that are not wrong
         run: npm run check:confirmation
 
+      # The weekly supplier specials list. The ways it goes wrong are quiet: a
+      # deadline read from the travel dates, a code taken from the wrong offer, the
+      # recap table added on top of the offers it repeats.
+      - name: The weekly specials list is read the way it was written
+        run: npm run check:specialsdoc
+
       - name: Build the database from the migrations
         run: npx wrangler d1 migrations apply cttagents --local
 

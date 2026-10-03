@@ -3300,6 +3300,87 @@ async function main() {
     check(reachTraveller.status === 404, 'nor add somebody to one',
       `status ${reachTraveller.status}`);
 
+    // ---------------------------------------- what the suppliers are running --
+    step('Supplier specials: everyone in the agency reads them, the owner keeps them');
+    {
+      const offer = {
+        category: 'Cruise lines', brand: `Smoke Line ${stamp}`, offer: 'Free upgrade on select sailings',
+        windowText: 'Through Dec 31, 2099', endsOn: '2099-12-31', code: 'SMOKEUP1', notes: '',
+      };
+      const notOwner = await call(advisor, 'POST', '/api/supplier-specials', offer);
+      check(notOwner.status === 403, 'an advisor cannot add one', `status ${notOwner.status}`);
+      const notImport = await call(advisor, 'POST', '/api/supplier-specials/import', { rows: [offer] });
+      check(notImport.status === 403, 'nor upload a list', `status ${notImport.status}`);
+      const notRead = await call(advisor, 'POST', '/api/supplier-specials/read', {});
+      check(notRead.status === 403, 'nor read a document into one', `status ${notRead.status}`);
+
+      const made = await call(admin, 'POST', '/api/supplier-specials', offer);
+      check(made.status === 201 && made.data?.id, 'the owner adds one', `status ${made.status}`);
+      const madeId = made.data?.id;
+      if (madeId) cleanup('the supplier special', () => call(admin, 'DELETE', `/api/supplier-specials/${madeId}`));
+
+      const seen = await call(advisor, 'GET', '/api/supplier-specials');
+      const mine = (seen.data?.specials || []).find((s) => s.id === madeId);
+      check(Boolean(mine) && mine.code === 'SMOKEUP1' && mine.ends_on === '2099-12-31',
+        'an advisor in the agency can read it', `status ${seen.status}`);
+      check(seen.data?.canEdit === false, 'and is told they cannot change it', JSON.stringify(seen.data?.canEdit));
+      const ownerSees = await call(admin, 'GET', '/api/supplier-specials');
+      check(ownerSees.data?.canEdit === true, 'while the owner is told they can', JSON.stringify(ownerSees.data?.canEdit));
+
+      const forged = await call(advisor, 'PUT', `/api/supplier-specials/${madeId}`, { ...offer, offer: 'Changed' });
+      check(forged.status === 403, 'an advisor cannot edit it', `status ${forged.status}`);
+      const forgedDel = await call(advisor, 'DELETE', `/api/supplier-specials/${madeId}`);
+      check(forgedDel.status === 403, 'nor delete it', `status ${forgedDel.status}`);
+
+      const outside = await call(rival, 'GET', '/api/supplier-specials');
+      check(!(outside.data?.specials || []).some((s) => s.id === madeId),
+        'another agency does not see it', `status ${outside.status}`);
+      const outsideEdit = await call(rival, 'PUT', `/api/supplier-specials/${madeId}`, { ...offer, offer: 'Hijacked' });
+      check(outsideEdit.status === 404, 'and cannot change it, even as an owner', `status ${outsideEdit.status}`);
+      const outsideDel = await call(rival, 'DELETE', `/api/supplier-specials/${madeId}`);
+      check(outsideDel.status === 404, 'nor delete it', `status ${outsideDel.status}`);
+
+      const noEnd = await call(admin, 'POST', '/api/supplier-specials', { ...offer, startsOn: '2099-12-31', endsOn: '2099-01-01' });
+      check(noEnd.status === 400, 'an offer that ends before it starts is refused', `status ${noEnd.status}`);
+      const noOffer = await call(admin, 'POST', '/api/supplier-specials', { brand: 'Smoke', offer: '' });
+      check(noOffer.status === 400, 'so is one with no offer', `status ${noOffer.status}`);
+
+      const notADoc = await call(admin, 'POST', '/api/supplier-specials/read', { hello: 'world' });
+      check(notADoc.status === 400 && /Word/.test(notADoc.data?.error || ''),
+        'something that is not a Word document is turned away in words', JSON.stringify(notADoc.data));
+
+      // An upload, twice: the second one changes nothing and adds nothing.
+      const rows = [
+        { ...offer, brand: `Smoke Tours ${stamp}`, offer: 'Early booking bonus', code: 'SMOKEB2' },
+        { ...offer, brand: `Smoke Tours ${stamp}`, offer: 'Free night', code: '' },
+      ];
+      const first = await call(admin, 'POST', '/api/supplier-specials/import', { rows, title: 'Smoke list', issuedOn: '2026-10-02' });
+      check(first.status === 201 && first.data?.added === 2 && first.data?.updated === 0,
+        'an upload adds what is new', JSON.stringify(first.data));
+      const second = await call(admin, 'POST', '/api/supplier-specials/import', { rows, title: 'Smoke list', issuedOn: '2026-10-09' });
+      check(second.status === 201 && second.data?.added === 0 && second.data?.unchanged === 2,
+        'the same list again adds nothing', JSON.stringify(second.data));
+      const worded = await call(admin, 'POST', '/api/supplier-specials/import', {
+        rows: [{ ...rows[0], offer: 'Early booking bonus, extended', windowText: 'Through Dec 31, 2099' }],
+      });
+      check(worded.status === 201 && worded.data?.added === 0 && worded.data?.updated === 1,
+        'an offer with the same code, reworded, is updated and not doubled', JSON.stringify(worded.data));
+
+      const after = await call(admin, 'GET', '/api/supplier-specials');
+      const tours = (after.data?.specials || []).filter((s) => s.brand === `Smoke Tours ${stamp}`);
+      check(tours.length === 2, 'two offers are held, not four or five', `have ${tours.length}`);
+
+      const undone = await call(rival, 'DELETE', `/api/supplier-specials/lists/${first.data?.listId}`);
+      check(undone.status === 404, 'another agency cannot take an upload back', `status ${undone.status}`);
+      const undoes = await call(admin, 'DELETE', `/api/supplier-specials/lists/${first.data?.listId}`);
+      check(undoes.status === 200 && undoes.data?.removed === 2,
+        'the owner takes an upload back out, with what it added', JSON.stringify(undoes.data));
+      const gone = await call(admin, 'GET', '/api/supplier-specials');
+      check(!(gone.data?.specials || []).some((s) => s.brand === `Smoke Tours ${stamp}`),
+        'and it is gone', '');
+      await call(admin, 'DELETE', `/api/supplier-specials/lists/${second.data?.listId}`);
+    }
+
     // Put the smoke advisor back where the rest of the suite expects them.
     await call(admin, 'PUT', `/api/admin/advisors/${advisorId}/agency`,
       { agencyId: 'agency-house', platformOwner: false });

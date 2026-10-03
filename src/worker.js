@@ -252,6 +252,14 @@ import {
   handleDeleteEnquiry,
 } from './specials.js';
 import {
+  handleListSupplierSpecials,
+  handleReadSpecialsFile,
+  handleImportSpecials,
+  handleUndoSpecialsList,
+  handleSaveSupplierSpecial,
+  handleDeleteSupplierSpecial,
+} from './supplierspecials.js';
+import {
   handleListAgencies,
   handleCreateAgency,
   handleUpdateAgency,
@@ -442,6 +450,7 @@ const PAGE_FILES = {
   '/admin/agencies': '/admin/agencies.html',
   '/app/specials': '/app/specials.html',
   '/app/special': '/app/special.html',
+  '/app/supplier-specials': '/app/supplier-specials.html',
   '/app/goals': '/app/goals.html',
   '/app/commissions': '/app/commissions.html',
   '/app/reservations': '/app/reservations.html',
@@ -689,6 +698,8 @@ async function routeApi(request, env, path, method) {
   const groupBookMatch = path.match(/^\/api\/groups\/registrations\/([^/]+)\/book$/);
   const creditMatch = path.match(/^\/api\/credits\/([^/]+)$/);
   const specialMatch = path.match(/^\/api\/specials\/([^/]+)$/);
+  const supplierSpecialMatch = path.match(/^\/api\/supplier-specials\/([^/]+)$/);
+  const supplierListMatch = path.match(/^\/api\/supplier-specials\/lists\/([^/]+)$/);
   const myTplMatch = path.match(/^\/api\/form-templates\/([^/]+)$/);
   const itinMatch = path.match(/^\/api\/bookings\/([^/]+)\/itinerary$/);
   const itinConfMatch = path.match(/^\/api\/bookings\/([^/]+)\/confirmation$/);
@@ -1077,6 +1088,15 @@ async function routeApi(request, env, path, method) {
   if (specialMatch && method === 'DELETE') return handleDeleteSpecial(request, env, specialMatch[1]);
   if (enquiryBookMatch && method === 'POST') return handleBookEnquiry(request, env, enquiryBookMatch[1]);
   if (enquiryMatch && method === 'DELETE') return handleDeleteEnquiry(request, env, enquiryMatch[1]);
+
+  // What the suppliers are running this week: everyone reads it, the owner keeps it.
+  if (path === '/api/supplier-specials' && method === 'GET') return handleListSupplierSpecials(request, env);
+  if (path === '/api/supplier-specials' && method === 'POST') return handleSaveSupplierSpecial(request, env, null);
+  if (path === '/api/supplier-specials/read' && method === 'POST') return handleReadSpecialsFile(request, env);
+  if (path === '/api/supplier-specials/import' && method === 'POST') return handleImportSpecials(request, env);
+  if (supplierListMatch && method === 'DELETE') return handleUndoSpecialsList(request, env, supplierListMatch[1]);
+  if (supplierSpecialMatch && method === 'PUT') return handleSaveSupplierSpecial(request, env, supplierSpecialMatch[1]);
+  if (supplierSpecialMatch && method === 'DELETE') return handleDeleteSupplierSpecial(request, env, supplierSpecialMatch[1]);
   if (path === '/api/prefs/dashboard' && method === 'GET') return handleGetLayout(request, env);
   if (path === '/api/prefs/dashboard' && method === 'PUT') return handleSaveLayout(request, env);
   if (path === '/api/prefs/dashboard' && method === 'DELETE') return handleResetLayout(request, env);

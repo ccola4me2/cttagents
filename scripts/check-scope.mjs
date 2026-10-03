@@ -105,7 +105,13 @@ const OWNED = new Set([
 // key after the caller has already proved the row is theirs, so adding them
 // would mean a dozen entries in ALLOWED, and a rule that only passes because
 // of its exceptions is the failure this file warns about. Worth doing right.
-const AGENCY_OWNED = new Set(['forms', 'form_submissions']);
+const AGENCY_OWNED = new Set([
+  'forms', 'form_submissions',
+  // The suppliers' weekly offers. Everybody in the agency reads them and the
+  // owner keeps them, so agency_id is the predicate. `added_by` records who
+  // uploaded a row and is never what decides who may see it.
+  'supplier_specials', 'supplier_special_lists',
+]);
 
 // Carries a user_id, and is not reached through one.
 const EXEMPT = new Map([

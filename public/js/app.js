@@ -303,7 +303,8 @@ const NAV = [
   {
     hub: 'Marketing', icon: I.megaphone, items: [
       { href: '/app/reviews', label: 'Reviews' },
-      { href: '/app/specials', label: 'Specials' },
+      { href: '/app/supplier-specials', label: 'Supplier specials' },
+      { href: '/app/specials', label: 'My deals' },
       { href: '/app/formbuilder', label: 'Forms' },
       { href: '/app/qr', label: 'QR codes' },
       { href: '/app/automations', label: 'Automations' },

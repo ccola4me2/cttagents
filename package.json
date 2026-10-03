@@ -5,7 +5,7 @@
   "type": "module",
   "description": "CTT Agent Portal: a travel-advisor CRM front end over GoHighLevel, on Cloudflare Workers + D1.",
   "scripts": {
-    "check:all": "npm run check:migrations && npm run check:wiring && npm run check:payments && npm run check:writes && npm run check:forms && npm run check:dom && npm run check:fork && npm run check:dashes && npm run check:escapes && npm run check:sending && npm run check:private && npm run check:email && npm run check:routes && npm run check:columns && npm run check:shapes && npm run check:keep && npm run check:reads && npm run check:digest && npm run check:training && npm run check:groupquote && npm run check:trips && npm run check:confirmation && npm run check:contracts && npm run check:smoke",
+    "check:all": "npm run check:migrations && npm run check:wiring && npm run check:payments && npm run check:writes && npm run check:forms && npm run check:dom && npm run check:fork && npm run check:dashes && npm run check:escapes && npm run check:sending && npm run check:private && npm run check:email && npm run check:routes && npm run check:columns && npm run check:shapes && npm run check:keep && npm run check:reads && npm run check:digest && npm run check:training && npm run check:groupquote && npm run check:trips && npm run check:confirmation && npm run check:specialsdoc && npm run check:contracts && npm run check:smoke",
     "check:columns": "node scripts/check-columns.mjs",
     "check:dashes": "node scripts/check-dashes.mjs",
     "check:private": "node scripts/check-private.mjs",
@@ -37,7 +37,8 @@
     "check:training": "node scripts/check-training.mjs",
     "check:groupquote": "node scripts/check-groupquote.mjs",
     "check:trips": "node scripts/check-trips.mjs",
-    "check:confirmation": "node scripts/check-confirmation.mjs"
+    "check:confirmation": "node scripts/check-confirmation.mjs",
+    "check:specialsdoc": "node scripts/check-specialsdoc.mjs"
   },
   "devDependencies": {
     "wrangler": "^3.90.0"
