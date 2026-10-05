@@ -518,7 +518,7 @@ function lineHtml(l, i) {
       </div>
       <div><label>Amount</label><input data-amount="${i}" inputmode="decimal" value="${esc(l.amount)}" placeholder="0.00" autocomplete="off"></div>
       <div><label>Pay out date</label>
-        <select data-pay="${i}">${l.payoutOn ? '' : `<option value="" selected>${l.bookingId ? 'Next pay date' : 'Suggested for the trip'}</option>`}${dates.map((x) =>
+        <select data-pay="${i}">${l.payoutOn ? '' : `<option value="" selected>${l.bookingId ? 'Next pay date' : 'Automatic, after they travel'}</option>`}${dates.map((x) =>
     `<option value="${esc(x)}" ${x === l.payoutOn ? 'selected' : ''}>${esc(dateFmt(x))}${x === l.suggested ? ' (suggested)' : ''}</option>`).join('')}</select></div>
       <div><button class="btn btn-ghost btn-sm" type="button" data-remove="${i}" aria-label="Remove this line">&times;</button></div>
     </div>
