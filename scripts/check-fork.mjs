@@ -49,6 +49,9 @@ const THERE = 'trip-vara-website';
 //
 // Keyed "file:name", valued with the portal that should have it and the reason.
 const ALLOWED = new Map([
+  ['reconcile.js:syncCommissionStatus', ['cttagents', 'the commission desk records a check and has to bring each reservation\'s status into step with the money. It is built on cttagents first and not yet ported']],
+  ['db.js:maskCommissionStatus', ['cttagents', 'an advisor is not shown commission as received before its pay date. The pay-date rule is part of the commission desk, which trip-vara does not have yet']],
+  ['commissions.js:bucketFor', ['cttagents', 'the commission desk groups money owed by how long since the trip, using the same buckets the commission page has. Exported only for the desk']],
   ['suppression.js:handleListSuppressions', ['cttagents', 'the opt-out list screen belongs to Lists and Emails, which trip-vara does not have. Both portals share the unsubscribe link and the restore button on a client record']],
   ['suppression.js:handleAddSuppression', ['cttagents', 'the other half of the opt-out list screen']],
   ['admin.js:handleCreateAdvisor', ['cttagents', 'an owner creates advisors here; trip-vara advisors apply through a join link']],
