@@ -353,3 +353,100 @@ export async function readSpecialsDocx(buffer) {
   if (!xmlBytes) return null;
   return readSpecialsBlocks(blocksFromXml(new TextDecoder().decode(xmlBytes)));
 }
+
+// ---------------------------------------------------------------------------
+// The TLN promotions file
+// ---------------------------------------------------------------------------
+
+const collapse = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function isoOf(text) {
+  const t = String(text || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return validIso(t) ? t : null;
+  const m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  return m && validDay(Number(m[3]), Number(m[1]), Number(m[2])) ? `${m[3]}-${pad(m[1])}-${pad(m[2])}` : null;
+}
+
+function validIso(t) {
+  const [y, m, d] = t.split('-').map(Number);
+  return validDay(y, m, d);
+}
+
+/** "2026-10-30" as "Oct 30, 2026", which is how the page prints a date. */
+function longFrom(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return `${MONTH_SHORT[m - 1]} ${d}, ${y}`;
+}
+
+/**
+ * The weekly consumer promotions pulled from the Travel Leaders Network.
+ *
+ * A file of { updated, source, specials: [...] }, each special with a cruise line, a
+ * headline, the offer, a book-by date, a travel period and the link to its page.
+ * Everything is kept as worded. Two things are not copied verbatim, and both are
+ * about "Today": the file says a travel period starts "Today", which was true on the
+ * day it was pulled and is not true a week later, so it is replaced with that day.
+ *
+ * The link is kept exactly as given. It carries the agency's agent id, and changing
+ * or dropping it would send the lead somewhere that does not credit anybody.
+ */
+export function readSpecialsJson(text) {
+  let data;
+  try { data = JSON.parse(String(text || '')); } catch { return null; }
+  const list = Array.isArray(data) ? data : (data && Array.isArray(data.specials) ? data.specials : null);
+  if (!list) return null;
+
+  const issuedOn = isoOf(data && data.updated);
+  const pulled = issuedOn ? `${Number(issuedOn.slice(5, 7))}/${Number(issuedOn.slice(8, 10))}/${issuedOn.slice(0, 4)}` : null;
+
+  const out = {
+    title: 'Cruise specials from the Travel Leaders Network',
+    issuedOn,
+    intro: data && data.source ? String(data.source).slice(0, 300) : '',
+    rows: [],
+    skipped: [],
+    warnings: [],
+  };
+
+  for (const item of list) {
+    const brand = collapse(item && item.cruiseLine);
+    const offer = collapse(item && item.offer);
+    if (!brand || !offer) {
+      out.skipped.push({ label: brand || 'A line', count: 1, why: 'it has no cruise line or no offer' });
+      continue;
+    }
+
+    const link = /^https?:\/\/\S+$/i.test(String(item.link || '').trim()) ? String(item.link).trim() : null;
+    if (item.link && !link) out.warnings.push(`${brand}: that link is not a web address, so it was left off.`);
+
+    const endsOn = isoOf(item.bookBy);
+    let travel = collapse(item.travelPeriod);
+    if (pulled && /^today\b/i.test(travel)) travel = travel.replace(/^today\b/i, pulled);
+
+    out.rows.push({
+      category: 'Cruise lines',
+      brand,
+      program: '',
+      headline: collapse(item.headline),
+      offer,
+      windowText: endsOn ? longFrom(endsOn) : collapse(item.bookBy),
+      startsOn: null,
+      endsOn,
+      datesNote: endsOn ? '' : (item.bookBy ? 'unread' : 'none'),
+      code: null,
+      notes: '',
+      link,
+      travelPeriod: travel,
+      featured: item.featured ? 1 : 0,
+    });
+  }
+  return out;
+}
+
+/** A promotion's own number off its link, which is what makes it the same one next week. */
+export function promoId(link) {
+  const m = String(link || '').match(/travelleaders\.com\/promotions\/(\d+)/i);
+  return m ? m[1] : null;
+}

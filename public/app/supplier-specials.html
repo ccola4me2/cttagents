@@ -70,6 +70,8 @@
     padding: .15rem .55rem; cursor: pointer;
   }
   .ss-code:hover { background: var(--navy-50); }
+  .ss-headline { font-weight: 650; color: var(--navy-800); margin-bottom: .15rem; }
+  .ss-links { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
   mark { background: #fff1b8; color: inherit; border-radius: 3px; padding: 0 .1rem; }
   .ss-new { font-size: .68rem; font-weight: 800; letter-spacing: .06em; color: var(--teal-600); margin-left: .4rem; text-transform: uppercase; }
 
@@ -163,6 +165,8 @@
       </div>
       <div class="field"><label for="program">Programme <span class="muted">(optional)</span></label>
         <input id="program" name="program" maxlength="120" placeholder="TLN AmaMAX"></div>
+      <div class="field"><label for="headline">Headline <span class="muted">(optional)</span></label>
+        <input id="headline" name="headline" maxlength="160"></div>
       <div class="field"><label for="offer">The offer</label>
         <textarea id="offer" name="offer" maxlength="800" required rows="3"></textarea></div>
       <div class="field"><label for="windowText">Book by, as the supplier wrote it</label>
@@ -174,6 +178,15 @@
           <input id="endsOn" name="endsOn" type="date">
           <p class="field-hint">Leave blank when there is no deadline.</p></div>
       </div>
+      <div class="field-row">
+        <div class="field"><label for="travelPeriod">Travel period</label>
+          <input id="travelPeriod" name="travelPeriod" maxlength="160" placeholder="1/1/2027 - 12/31/2027"></div>
+        <div class="field"><label for="link">Link to the offer</label>
+          <input id="link" name="link" maxlength="600" placeholder="https://www.travelleaders.com/promotions/..." autocomplete="off">
+          <p class="field-hint">Leave it exactly as it was given. The agent id in it credits the lead.</p></div>
+      </div>
+      <label style="display:flex;align-items:center;gap:.5rem;font-weight:400;margin-bottom:.8rem;">
+        <input type="checkbox" id="featured" name="featured" style="width:auto;flex:none;"> Feature this offer</label>
       <div class="field-row">
         <div class="field"><label for="code">Code</label>
           <input id="code" name="code" maxlength="60"></div>
@@ -281,8 +294,8 @@ function haystack(s) {
   return {
     brand: flat(`${s.brand} ${s.program || ''}`),
     code: flat(s.code),
-    offer: flat(s.offer),
-    rest: flat(`${s.notes || ''} ${s.window_text || ''} ${s.category || ''}`),
+    offer: flat(`${s.headline || ''} ${s.offer}`),
+    rest: flat(`${s.notes || ''} ${s.window_text || ''} ${s.category || ''} ${s.travel_period || ''}`),
   };
 }
 
@@ -339,6 +352,7 @@ function passesStatus(s) {
     case 'live': return isLive(s);
     case 'week': return Boolean(s.ends_on) && s.ends_on >= d.today && days(s.ends_on, d.today) <= 7;
     case 'latest': return Boolean(d.latestListId) && s.list_id === d.latestListId;
+    case 'featured': return Boolean(s.featured) && isLive(s);
     case 'ended': return isOver(s);
     default: return true;
   }
@@ -353,7 +367,7 @@ function sorted(rows, scores) {
     out.sort((a, b) => (scores.get(b.id) - scores.get(a.id)) || byEnd(a, b));
   } else if (state.sort === 'brand') out.sort(byBrand);
   else if (state.sort === 'new') out.sort((a, b) => (b.created_at - a.created_at) || byBrand(a, b));
-  else out.sort((a, b) => (isOver(a) - isOver(b)) || byEnd(a, b) || a.brand.localeCompare(b.brand));
+  else out.sort((a, b) => (isOver(a) - isOver(b)) || (Boolean(b.featured) - Boolean(a.featured)) || byEnd(a, b) || a.brand.localeCompare(b.brand));
   return out;
 }
 
@@ -417,7 +431,7 @@ function drawFilters() {
   if (state.brand && !brands.includes(state.brand)) state.brand = '';
 
   const statuses = [
-    ['live', 'Running now'], ['week', 'Ending this week'], ['latest', 'Latest list'],
+    ['live', 'Running now'], ['featured', 'Featured'], ['week', 'Ending this week'], ['latest', 'Latest list'],
     ['ended', 'Ended'], ['all', 'Everything'],
   ];
   $('filters').innerHTML = `
@@ -444,16 +458,21 @@ function offerHtml(s, words, showBrand) {
   const meta = [];
   if (s.window_text) meta.push(`<span><b>Book by</b> ${mark(s.window_text, words)}</span>`);
   else if (s.ends_on) meta.push(`<span><b>Book by</b> ${esc(dateFmt(s.ends_on))}</span>`);
+  if (s.travel_period) meta.push(`<span><b>Travel</b> ${mark(s.travel_period, words)}</span>`);
   if (s.notes) meta.push(`<span>${mark(s.notes, words)}</span>`);
   return `<div class="ss-offer ${isOver(s) ? 'over' : ''}">
     <div>
-      <div class="ss-text">${showBrand ? `<strong>${mark(s.brand, words)}</strong> ` : ''}${
+      ${s.headline ? `<div class="ss-headline">${showBrand ? `${mark(s.brand, words)}: ` : ''}${mark(s.headline, words)}</div>` : ''}
+      <div class="ss-text">${showBrand && !s.headline ? `<strong>${mark(s.brand, words)}</strong> ` : ''}${
   s.program ? `<span class="ss-prog">${mark(s.program, words)}</span>` : ''}${mark(s.offer, words)}${
   isNew ? '<span class="ss-new">New</span>' : ''}</div>
       ${meta.length ? `<div class="ss-meta">${meta.join('')}</div>` : ''}
     </div>
     <div class="ss-side">
-      <div class="row"><span class="badge ${dl.tone}">${esc(dl.text)}</span></div>
+      <div class="row">${s.featured ? '<span class="badge badge-coral">Featured</span>' : ''}<span class="badge ${dl.tone}">${esc(dl.text)}</span></div>
+      <div class="ss-links noprint">${s.link ? `<a class="btn btn-secondary btn-sm" href="${esc(s.link)}" target="_blank"
+        rel="noopener noreferrer">See details</a>
+        <button class="btn btn-ghost btn-sm" type="button" data-copylink="${esc(s.id)}">Copy link</button>` : ''}</div>
       <div class="row noprint">
         ${s.code ? `<button class="ss-code" type="button" data-copycode="${esc(s.code)}" title="Copy the code">${mark(s.code, words)}</button>` : ''}
         ${d.canEdit ? `<button class="btn btn-secondary btn-sm" type="button" data-edit="${esc(s.id)}">Edit</button>` : ''}
@@ -563,6 +582,9 @@ document.addEventListener('click', (e) => {
     syncUrl();
     draw();
     $('clear').hidden = true;
+  } else if (t.dataset.copylink) {
+    const s = d.specials.find((x) => x.id === t.dataset.copylink);
+    if (s && s.link) copied(t, s.link, 'Copy link');
   } else if (t.dataset.copycode) {
     copied(t, t.dataset.copycode, t.dataset.copycode);
   } else if (t.dataset.edit) {
@@ -623,6 +645,8 @@ function openEdit(s) {
   set('brand', v.brand); set('category', v.category); set('program', v.program); set('offer', v.offer);
   set('windowText', v.window_text); set('startsOn', v.starts_on); set('endsOn', v.ends_on);
   set('code', v.code); set('notes', v.notes);
+  set('headline', v.headline); set('travelPeriod', v.travel_period); set('link', v.link);
+  edForm.elements.featured.checked = Boolean(v.featured);
   edDlg.showModal();
 }
 
@@ -653,10 +677,11 @@ function drawDrop(message) {
   $('up-title').textContent = 'Upload the weekly list';
   upBody.innerHTML = `${message ? `<div class="notice notice-error">${esc(message)}</div>` : ''}
     <div class="ss-drop" id="drop">
-      <strong>Drop the weekly specials document here</strong>
-      <p style="margin:.2rem 0 1rem;">A Word document (.docx) with a table for each kind of supplier.</p>
+      <strong>Drop the weekly specials file here</strong>
+      <p style="margin:.2rem 0 1rem;">The weekly Word document (.docx), or the Travel Leaders Network
+        specials file (.json) with its links.</p>
       <label class="btn btn-primary btn-sm" for="file" style="cursor:pointer;">Choose a file</label>
-      <input id="file" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+      <input id="file" type="file" accept=".docx,.json,application/json,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
     </div>
     <p class="field-hint" style="margin-top:.9rem;">You will see exactly what it found before anything is added.
       An offer that is already here is updated, not doubled.</p>`;
@@ -700,13 +725,15 @@ function drawPreview() {
       <span class="badge badge-amber">${c.changed} changed</span>
       <span class="badge badge-navy">${c.same} already here</span>
     </div>
+    ${(read.warnings || []).length ? `<div class="notice notice-warn">${read.warnings.map(esc).join(' ')}</div>` : ''}
     ${read.skipped.length ? `<div class="notice notice-info">Left out: ${read.skipped.map((s) =>
     `${esc(s.label)} (${s.count} rows), ${esc(s.why)}`).join('; ')}.</div>` : ''}
     <div class="ss-scroll"><table class="ss-prev"><thead><tr>
       <th>Brand</th><th>Offer</th><th>Book by</th><th></th></tr></thead><tbody>${read.rows.map((r) => `
       <tr class="${r.status}">
         <td><strong>${esc(r.brand)}</strong>${r.program ? `<br><span class="muted">${esc(r.program)}</span>` : ''}
-          <br><span class="muted">${esc(r.category)}</span></td>
+          ${r.headline ? `<br>${esc(r.headline)}` : ''}${r.featured ? ' <span class="badge badge-coral">Featured</span>' : ''}
+          <br><span class="muted">${esc(r.category)}${r.link ? ' · has a link' : ''}</span></td>
         <td>${esc(r.offer.length > 150 ? `${r.offer.slice(0, 150)}...` : r.offer)}${
   r.code ? `<br><span class="ss-code" style="cursor:default;">${esc(r.code)}</span>` : ''}</td>
         <td>${r.endsOn ? esc(dateFmt(r.endsOn)) : '<span class="muted">no end date</span>'}${

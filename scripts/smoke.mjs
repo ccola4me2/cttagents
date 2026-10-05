@@ -3366,6 +3366,33 @@ async function main() {
       check(worded.status === 201 && worded.data?.added === 0 && worded.data?.updated === 1,
         'an offer with the same code, reworded, is updated and not doubled', JSON.stringify(worded.data));
 
+      // A promotion with a link of its own: the link is kept exactly, and next week's
+      // copy of the same promotion is an update, not a second card.
+      const promoLink = `https://www.travelleaders.com/promotions/9${String(stamp).replace(/\D/g, '').slice(-5) || '00001'}?nav=0&agentId=532210`;
+      const promo = { category: 'Cruise lines', brand: `Smoke Cruises ${stamp}`, headline: 'Smoke headline',
+        offer: 'Smoke promotion offer', windowText: 'Dec 31, 2099', endsOn: '2099-12-31',
+        travelPeriod: '10/5/2026 - 12/31/2099', link: promoLink, featured: 1 };
+      const promoIn = await call(admin, 'POST', '/api/supplier-specials/import', { rows: [promo], title: 'Smoke TLN' });
+      check(promoIn.status === 201 && promoIn.data?.added === 1, 'a promotion with a link is added', JSON.stringify(promoIn.data));
+      const promoAgain = await call(admin, 'POST', '/api/supplier-specials/import', {
+        rows: [{ ...promo, headline: 'Reworded headline', offer: 'Reworded promotion offer' }] });
+      check(promoAgain.data?.added === 0 && promoAgain.data?.updated === 1,
+        'the same promotion next week, reworded, is updated and not doubled', JSON.stringify(promoAgain.data));
+      const promoSeen = await call(advisor, 'GET', '/api/supplier-specials');
+      const promoRow = (promoSeen.data?.specials || []).find((s) => s.brand === `Smoke Cruises ${stamp}`);
+      check(promoRow && promoRow.link === promoLink && promoRow.link.includes('agentId=532210'),
+        'an advisor gets the link exactly as it was given, agent id included', JSON.stringify(promoRow?.link));
+      check(promoRow && promoRow.featured === 1 && promoRow.headline === 'Reworded headline'
+        && promoRow.travel_period === '10/5/2026 - 12/31/2099',
+        'with its headline, travel period and featured flag', JSON.stringify(promoRow));
+      const badLink = await call(admin, 'POST', '/api/supplier-specials/import', { rows: [{ ...promo, link: 'javascript:alert(1)' }] });
+      check(badLink.status === 400, 'a link that is not a web address is refused', `status ${badLink.status}`);
+      const promoCount = ((await call(admin, 'GET', '/api/supplier-specials')).data?.specials || [])
+        .filter((s) => s.brand === `Smoke Cruises ${stamp}`).length;
+      check(promoCount === 1, 'one card for the promotion, not two', `have ${promoCount}`);
+      await call(admin, 'DELETE', `/api/supplier-specials/lists/${promoIn.data?.listId}`);
+      await call(admin, 'DELETE', `/api/supplier-specials/lists/${promoAgain.data?.listId}`);
+
       const after = await call(admin, 'GET', '/api/supplier-specials');
       const tours = (after.data?.specials || []).filter((s) => s.brand === `Smoke Tours ${stamp}`);
       check(tours.length === 2, 'two offers are held, not four or five', `have ${tours.length}`);

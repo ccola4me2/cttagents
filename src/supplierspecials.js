@@ -16,13 +16,14 @@
 import { json, badRequest, notFound, clean, cleanDate, uid, now, readJson } from './util.js';
 import { requireUser, requireAdmin, isAdmin } from './auth.js';
 import * as db from './db.js';
-import { readSpecialsDocx, matchKey, norm } from './specialsdoc.js';
+import { readSpecialsDocx, readSpecialsJson, matchKey, norm, promoId } from './specialsdoc.js';
 
 // Built from a list so it is not read as the table's whole column set: it leaves
 // out agency_id, added_by and match_key on purpose, which the page never needs.
 const COLUMNS = [
   'id', 'list_id', 'first_list_id', 'category', 'brand', 'program', 'offer', 'window_text',
   'starts_on', 'ends_on', 'code', 'notes', 'vendor_id', 'created_at', 'updated_at',
+  'headline', 'travel_period', 'link', 'featured',
 ].join(', ');
 
 const MAX_UPLOAD = 6 * 1024 * 1024;
@@ -83,11 +84,25 @@ const FIELDS = [
   ['offer', 'offer'], ['window_text', 'windowText'], ['starts_on', 'startsOn'],
   ['ends_on', 'endsOn'], ['code', 'code'], ['notes', 'notes'],
   ['category', 'category'], ['program', 'program'],
+  ['headline', 'headline'], ['travel_period', 'travelPeriod'], ['link', 'link'],
+  ['featured', 'featured'],
 ];
+
+/**
+ * What makes a row the same offer next week.
+ *
+ * A promotion from the Travel Leaders Network has a number of its own, in its link,
+ * and that is the one thing about it that does not change when somebody rewords the
+ * headline. Anything else is known by its brand, programme and the offer's words.
+ */
+function keyFor(row) {
+  const id = promoId(row.link);
+  return id ? `tln:${id}` : matchKey(row.brand, row.program, row.offer);
+}
 
 /** The same offer as one already held: its words, or failing that its code. */
 function findExisting(index, row) {
-  const key = matchKey(row.brand, row.program, row.offer);
+  const key = keyFor(row);
   if (index.byKey.has(key)) return index.byKey.get(key);
   // A weekly code is the offer's name. NCL's FLATOFF is worded a little
   // differently each week and is still one offer.
@@ -113,6 +128,10 @@ function changesBetween(was, row) {
 function tidy(body) {
   const brand = clean(body.brand, 120);
   const offer = clean(body.offer, 800);
+  // Kept exactly as given: the agent id in a TLN link is what credits the lead, and a
+  // link that has been tidied is a link that may no longer carry it.
+  const rawLink = String(body.link || '').trim();
+  if (rawLink && !/^https?:\/\/\S+$/i.test(rawLink)) return { error: 'The link needs to be a web address starting with https://.' };
   if (!brand) return { error: 'Name the brand.' };
   if (!offer) return { error: 'Say what the offer is.' };
 
@@ -131,6 +150,10 @@ function tidy(body) {
       endsOn,
       code: clean(body.code, 60) || null,
       notes: clean(body.notes, 800),
+      headline: clean(body.headline, 160),
+      travelPeriod: clean(body.travelPeriod, 160),
+      link: rawLink ? rawLink.slice(0, 600) : null,
+      featured: body.featured ? 1 : 0,
     },
   };
 }
@@ -186,19 +209,27 @@ export async function handleReadSpecialsFile(request, env) {
   if (buf.byteLength > MAX_UPLOAD) return badRequest('That file is larger than 6MB, which is far more than a weekly list.');
 
   const name = clean(request.headers.get('X-Filename') || '', 160);
-  if (name && !/\.docx$/i.test(name)) {
-    return badRequest('I can read Word documents (.docx). Open it in Word or Google Docs and save it as .docx, then upload that.');
+  const head = new TextDecoder().decode(new Uint8Array(buf).subarray(0, 40)).trimStart();
+  const isJson = /\.json$/i.test(name) || (!name && /^[{[]/.test(head));
+  if (name && !isJson && !/\.docx$/i.test(name)) {
+    return badRequest('I can read the weekly Word document (.docx) and the Travel Leaders Network specials file (.json). Open a Word file in Word or Google Docs and save it as .docx, then upload that.');
   }
 
   let doc = null;
   try {
-    doc = await readSpecialsDocx(buf);
+    doc = isJson ? readSpecialsJson(new TextDecoder().decode(buf)) : await readSpecialsDocx(buf);
   } catch (e) {
-    console.error('readSpecialsDocx', e);
+    console.error('readSpecials', e);
   }
-  if (!doc) return badRequest('That does not look like a Word document I can open. Save it as .docx and try again.');
+  if (!doc) {
+    return badRequest(isJson
+      ? 'That does not look like the specials file I read. It should be a .json file with a list of specials.'
+      : 'That does not look like a Word document I can open. Save it as .docx and try again.');
+  }
   if (!doc.rows.length) {
-    return badRequest('I could not find a table of offers in that document. It needs a table with a Brand column and an Offer column.');
+    return badRequest(isJson
+      ? 'There are no specials in that file.'
+      : 'I could not find a table of offers in that document. It needs a table with a Brand column and an Offer column.');
   }
   if (doc.rows.length > MAX_ROWS) return badRequest(`That list has ${doc.rows.length} offers, which is more than one upload takes (${MAX_ROWS}).`);
 
@@ -221,6 +252,7 @@ export async function handleReadSpecialsFile(request, env) {
     file: { name, title: doc.title, issuedOn: doc.issuedOn, intro: doc.intro },
     rows,
     skipped: doc.skipped,
+    warnings: doc.warnings || [],
     counts: { total: rows.length, new: count('new'), changed: count('changed'), same: count('same') },
   });
 }
@@ -263,25 +295,28 @@ export async function handleImportSpecials(request, env) {
       statements.push(env.DB.prepare(
         `UPDATE supplier_specials SET category = ?, program = ?, offer = ?, window_text = ?,
                 starts_on = ?, ends_on = ?, code = ?, notes = ?, vendor_id = COALESCE(?, vendor_id),
+                headline = ?, travel_period = ?, link = ?, featured = ?,
                 list_id = ?, updated_at = ?
           WHERE id = ? AND agency_id = ?`
       ).bind(row.category, row.program || null, row.offer, row.windowText || null,
              row.startsOn, row.endsOn, row.code, row.notes || null, vendorId,
+             row.headline || null, row.travelPeriod || null, row.link, row.featured,
              listId, ts, was.id, agencyId));
       continue;
     }
 
     const id = uid();
-    const key = matchKey(row.brand, row.program, row.offer);
+    const key = keyFor(row);
     added += 1;
     statements.push(env.DB.prepare(
       `INSERT INTO supplier_specials (id, agency_id, added_by, list_id, first_list_id, category,
          brand, program, offer, window_text, starts_on, ends_on, code, notes, vendor_id,
-         match_key, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+         match_key, headline, travel_period, link, featured, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(id, agencyId, user.id, listId, listId, row.category, row.brand, row.program || null,
            row.offer, row.windowText || null, row.startsOn, row.endsOn, row.code,
-           row.notes || null, vendorId, key, ts, ts));
+           row.notes || null, vendorId, key, row.headline || null, row.travelPeriod || null,
+           row.link, row.featured, ts, ts));
     // So the same offer twice in one document is added once.
     index.byKey.set(key, { id, ...row, window_text: row.windowText, starts_on: row.startsOn, ends_on: row.endsOn });
   }
@@ -338,27 +373,31 @@ export async function handleSaveSupplierSpecial(request, env, id) {
 
   const vendors = await agencyVendors(env, user);
   const vendorId = vendorFor(row.brand, vendors);
-  const key = matchKey(row.brand, row.program, row.offer);
+  const key = keyFor(row);
   const ts = now();
 
   if (!id) {
     const made = uid();
     await env.DB.prepare(
       `INSERT INTO supplier_specials (id, agency_id, added_by, category, brand, program, offer,
-         window_text, starts_on, ends_on, code, notes, vendor_id, match_key, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+         window_text, starts_on, ends_on, code, notes, vendor_id, match_key, headline,
+         travel_period, link, featured, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(made, user.agency_id, user.id, row.category, row.brand, row.program || null, row.offer,
            row.windowText || null, row.startsOn, row.endsOn, row.code, row.notes || null,
-           vendorId, key, ts, ts).run();
+           vendorId, key, row.headline || null, row.travelPeriod || null, row.link, row.featured,
+           ts, ts).run();
     return json({ ok: true, id: made }, 201);
   }
 
   const res = await env.DB.prepare(
     `UPDATE supplier_specials SET category = ?, brand = ?, program = ?, offer = ?, window_text = ?,
-            starts_on = ?, ends_on = ?, code = ?, notes = ?, vendor_id = ?, match_key = ?, updated_at = ?
+            starts_on = ?, ends_on = ?, code = ?, notes = ?, vendor_id = ?, match_key = ?,
+            headline = ?, travel_period = ?, link = ?, featured = ?, updated_at = ?
       WHERE id = ? AND agency_id = ?`
   ).bind(row.category, row.brand, row.program || null, row.offer, row.windowText || null,
-         row.startsOn, row.endsOn, row.code, row.notes || null, vendorId, key, ts,
+         row.startsOn, row.endsOn, row.code, row.notes || null, vendorId, key,
+         row.headline || null, row.travelPeriod || null, row.link, row.featured, ts,
          id, user.agency_id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('That offer was not found.');
   return json({ ok: true, id });

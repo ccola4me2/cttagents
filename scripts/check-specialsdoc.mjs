@@ -16,7 +16,7 @@
 
 import {
   blocksFromXml, readSpecialsBlocks, windowDates, codeFrom, splitBrand, categoryFrom,
-  matchKey, zipEntry,
+  matchKey, zipEntry, readSpecialsJson, promoId,
 } from '../src/specialsdoc.js';
 
 let failures = 0;
@@ -131,6 +131,47 @@ const XML = `<?xml version="1.0"?><w:document><w:body>
     `<w:document><w:body>${para('Heading1', 'T')}${para('Heading3', 'Cruise lines')}${table([HEAD, ['X', 'An offer', 'Through sailing date', '']])}</w:body></w:document>`)).rows[0].datesNote, 'unread');
   is('a table with no Brand and Offer columns is not read', readSpecialsBlocks(blocksFromXml(
     `<w:document><w:body>${table([['Name', 'Phone'], ['A', '1']])}</w:body></w:document>`)).rows.length, 0);
+}
+
+// ------------------------------------------------- the TLN promotions file ---
+// Consumer promotions come with a link that carries the agency's agent id. Losing or
+// tidying that id sends the lead somewhere that credits nobody, and a "Today" in a
+// travel period goes stale a week after it was written. Both are pinned here.
+const TLN = JSON.stringify({
+  updated: '2026-10-05',
+  source: 'Example source, Cruise + Consumer Promotions',
+  specials: [
+    { featured: true, cruiseLine: 'Sample Cruises', headline: 'A Headline', offer: '60% Off 2nd Guest + $600 Off Airfare + More',
+      bookBy: '10/30/2026', travelPeriod: 'Today - 11/30/2028',
+      link: 'https://www.example.com/promotions/70525?nav=0&agentId=123456' },
+    { featured: false, cruiseLine: 'Other Line', headline: 'Second', offer: 'Free upgrade',
+      bookBy: '05/01/2027', travelPeriod: 'All 2027 sailings',
+      link: 'https://www.travelleaders.com/promotions/70508?nav=0&agentId=532210' },
+    { cruiseLine: '', offer: 'no line' },
+    { cruiseLine: 'Bad Link Line', offer: 'Odd one', bookBy: 'soon', link: 'javascript:alert(1)' },
+  ],
+});
+{
+  const r = readSpecialsJson(TLN);
+  is('the file is read', r && r.rows.length, 3);
+  is('a line with no cruise line is left out and said', r.skipped.length, 1);
+  is('the date on the file', r.issuedOn, '2026-10-05');
+  is('a book-by date, as a date and as it is printed', [r.rows[0].endsOn, r.rows[0].windowText], ['2026-10-30', 'Oct 30, 2026']);
+  is('a year on the far side of New Year', r.rows[1].endsOn, '2027-05-01');
+  is('"Today" in a travel period is the day the file was pulled', r.rows[0].travelPeriod, '10/5/2026 - 11/30/2028');
+  is('a travel period with no "Today" is left as worded', r.rows[1].travelPeriod, 'All 2027 sailings');
+  is('the link is kept exactly as given, agent id and all',
+    r.rows[0].link, 'https://www.example.com/promotions/70525?nav=0&agentId=123456');
+  is('featured is a 1 or a 0', [r.rows[0].featured, r.rows[1].featured], [1, 0]);
+  is('the headline and the offer as worded', [r.rows[0].headline, r.rows[0].offer], ['A Headline', '60% Off 2nd Guest + $600 Off Airfare + More']);
+  is('a link that is not a web address is never kept', r.rows[2].link, null);
+  is('and the person is told', r.warnings.length, 1);
+  is('a book-by that is not a date is flagged, not guessed', [r.rows[2].endsOn, r.rows[2].datesNote], [null, 'unread']);
+  is('a promotion is known by its own number', promoId('https://www.travelleaders.com/promotions/70508?nav=0&agentId=532210'), '70508');
+  is('a link from anywhere else has no number', promoId('https://www.example.com/promotions/70525'), null);
+  is('a file that is not JSON is not read', readSpecialsJson('not json at all'), null);
+  is('JSON that is not a list of specials is not read', readSpecialsJson('{"hello": 1}'), null);
+  is('a bare list is read as the specials', readSpecialsJson('[{"cruiseLine":"A","offer":"B"}]').rows.length, 1);
 }
 
 // ------------------------------------------------------------------ zip ---
