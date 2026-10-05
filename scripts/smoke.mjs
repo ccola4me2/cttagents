@@ -3321,10 +3321,10 @@ async function main() {
 
       const seen = await call(advisor, 'GET', '/api/supplier-specials');
       const mine = (seen.data?.specials || []).find((s) => s.id === madeId);
-      check((seen.data?.lists || []).length <= 1
-        && (seen.data?.lists || []).every((l) => !('filename' in l) && !('added_count' in l)),
-        'an advisor is not sent the history of uploads, only which list this is',
-        JSON.stringify(seen.data?.lists));
+      check((seen.data?.lists || []).length === 0,
+        'an advisor is not sent the history of uploads', JSON.stringify(seen.data?.lists));
+      check(seen.data?.listCount === undefined || (/^\d{4}-\d{2}-\d{2}$/.test(seen.data?.updatedOn || '') || seen.data?.listCount === 0),
+        'only when it was last updated', JSON.stringify([seen.data?.listCount, seen.data?.updatedOn]));
       const ownerLists = await call(admin, 'GET', '/api/supplier-specials');
       check((ownerLists.data?.lists || []).length === 0 || 'filename' in (ownerLists.data.lists[0] || {}),
         'while the owner is', JSON.stringify((ownerLists.data?.lists || [])[0]));

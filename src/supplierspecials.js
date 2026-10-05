@@ -187,15 +187,18 @@ export async function handleListSupplierSpecials(request, env) {
   const all = (listed.results || []);
 
   // The history of uploads, with the file names and how many each one added, is the
-  // owner's. An advisor gets only what the page needs to say which list this is: its
-  // title, its date and its overview. Not sent rather than merely not shown.
-  const lists = canEdit
-    ? all
-    : all.slice(0, 1).map((l) => ({ id: l.id, title: l.title, issued_on: l.issued_on, intro: l.intro }));
+  // owner's, and not sent to anybody else. What everybody is told is when the list was
+  // last updated: the newest date printed on anything uploaded, or the day it was
+  // uploaded where it printed none.
+  const lists = canEdit ? all : [];
+  const dated = all.map((l) => l.issued_on || (l.created_at ? new Date(l.created_at * 1000).toISOString().slice(0, 10) : null))
+    .filter(Boolean).sort();
 
   return json({
     specials,
     lists,
+    listCount: all.length,
+    updatedOn: dated.length ? dated[dated.length - 1] : null,
     latestListId: all.length ? all[0].id : null,
     today: today(),
     canEdit,

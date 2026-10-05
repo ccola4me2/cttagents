@@ -75,9 +75,8 @@
   mark { background: #fff1b8; color: inherit; border-radius: 3px; padding: 0 .1rem; }
   .ss-new { font-size: .68rem; font-weight: 800; letter-spacing: .06em; color: var(--teal-600); margin-left: .4rem; text-transform: uppercase; }
 
-  .ss-intro { margin-bottom: 1rem; }
-  .ss-intro summary { cursor: pointer; padding: .8rem 1.25rem; font-weight: 600; color: var(--navy-800); }
-  .ss-intro p { margin: 0; padding: 0 1.25rem 1rem; color: var(--ink-700); line-height: 1.6; font-size: .9rem; }
+  .ss-updated { margin: .9rem .1rem 0; font-size: .86rem; color: var(--ink-500); }
+  .ss-updated strong { color: var(--navy-800); font-weight: 650; }
 
   .ss-drop {
     border: 2px dashed var(--navy-300); border-radius: 14px; padding: 2.2rem 1.2rem; text-align: center;
@@ -122,7 +121,7 @@
       <div id="err"></div>
       <section id="stats" class="stat-grid"></section>
 
-      <details class="card ss-intro" id="intro" hidden></details>
+      <p class="ss-updated" id="updated" hidden></p>
 
       <div class="ss-search" role="search" style="margin-top:1.1rem;">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -395,7 +394,6 @@ function drawStats() {
   const live = d.specials.filter(isLive);
   const soon = live.filter((s) => s.ends_on && days(s.ends_on, d.today) <= 7);
   const brands = new Set(live.map((s) => s.brand));
-  const latest = d.lists[0];
   const fresh = d.latestListId ? d.specials.filter((s) => s.first_list_id === d.latestListId && isLive(s)).length : 0;
   $('stats').innerHTML = `
     <div class="stat"><p class="label">Running now</p><p class="value">${live.length}</p>
@@ -404,17 +402,15 @@ function drawStats() {
       <p class="value" style="${soon.length ? 'color:var(--coral-500);' : ''}">${soon.length}</p>
       <p class="meta">worth a call today</p></div>
     <div class="stat"><p class="label">New on the latest list</p><p class="value">${fresh}</p>
-      <p class="meta">${latest && latest.issued_on ? `list dated ${esc(dateFmt(latest.issued_on))}` : 'no list yet'}</p></div>`;
+      <p class="meta">${d.updatedOn ? `updated ${esc(dateFmt(d.updatedOn))}` : 'no list yet'}</p></div>`;
 }
 
-function drawIntro() {
-  const el = $('intro');
-  const latest = d.lists[0];
-  if (!latest || !latest.intro) { el.hidden = true; return; }
+/** When the list was last updated, and nothing else about how it got here. */
+function drawUpdated() {
+  const el = $('updated');
+  if (!d.updatedOn) { el.hidden = true; return; }
   el.hidden = false;
-  el.innerHTML = `<summary>${esc(latest.title || 'The latest list')}${
-    latest.issued_on ? ` <span class="muted" style="font-weight:400;">&middot; ${esc(dateFmt(latest.issued_on))}</span>` : ''
-  }: the overview</summary><p>${esc(latest.intro)}</p>`;
+  el.innerHTML = `Updated <strong>${esc(dateFmt(d.updatedOn))}</strong>`;
 }
 
 function pill(group, value, label, n) {
@@ -454,7 +450,7 @@ function drawFilters() {
 
 function offerHtml(s, words, showBrand) {
   const dl = deadline(s);
-  const isNew = d.latestListId && s.first_list_id === d.latestListId && d.lists.length > 1;
+  const isNew = d.latestListId && s.first_list_id === d.latestListId && (d.listCount || 0) > 1;
   const meta = [];
   if (s.window_text) meta.push(`<span><b>Book by</b> ${mark(s.window_text, words)}</span>`);
   else if (s.ends_on) meta.push(`<span><b>Book by</b> ${esc(dateFmt(s.ends_on))}</span>`);
@@ -548,7 +544,7 @@ function drawHistory() {
 
 function drawAll() {
   drawStats();
-  drawIntro();
+  drawUpdated();
   draw();
   drawHistory();
   const shelves = [...new Set(d.specials.map((s) => s.category).filter(Boolean))];
