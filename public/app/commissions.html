@@ -62,7 +62,7 @@
           </section>
         </div>
         <div>
-          <!-- The last step of the money. Above vendor statements because it
+          <!-- The last step of the money. Above the receipts because it
                is the one with a deadline twice a month. -->
           <section class="card">
             <div class="card-head"><h2>Paying the advisors</h2>
@@ -90,27 +90,6 @@
               </div>
             </form>
             <div id="payouts"></div>
-          </section>
-          <section class="card" style="margin-top:1.5rem;">
-            <div class="card-head"><h2>Vendor statements</h2>
-              <button class="btn btn-ghost btn-sm" id="add-statement">Add</button></div>
-            <form id="statement-form" class="card-pad" hidden>
-              <div class="field"><label for="stmt-vendor">Vendor</label>
-                <input id="stmt-vendor" name="vendorName" required maxlength="120"></div>
-              <div class="field-row">
-                <div class="field"><label for="stmt-ref">Reference</label>
-                  <input id="stmt-ref" name="reference" maxlength="80" placeholder="Their statement number"></div>
-                <div class="field"><label for="stmt-date">Statement date</label>
-                  <input id="stmt-date" name="statementDate" type="date"></div>
-              </div>
-              <div class="field"><label for="stmt-total">Total paid</label>
-                <input id="stmt-total" name="total" inputmode="decimal" placeholder="0.00"></div>
-              <div class="toolbar" style="padding:0;">
-                <button class="btn btn-secondary btn-sm" type="submit">Save statement</button>
-                <button class="btn btn-ghost btn-sm" type="button" id="stmt-cancel">Cancel</button>
-              </div>
-            </form>
-            <div id="statements"></div>
           </section>
         </div>
       </div>
@@ -145,7 +124,6 @@ let d = null;
  */
 // Only the agency records commission. An advisor reads their money here and does not file it.
 const mayTouch = (r) => Boolean(d && d.mayPay) && (r.user_id === ME || Boolean(d.scope && d.scope.canPick));
-let statements = [];
 let payouts = [];
 const chosen = new Set();
 // Which row has its "record what arrived" line open. One at a time: this is
@@ -323,12 +301,6 @@ function render() {
                 </select></div>
               <div class="field" style="margin:0;"><label>Reference</label>
                 <input name="reference" maxlength="80" style="width:9rem;"></div>
-              <div class="field" style="margin:0;"><label>Statement</label>
-                <select name="statementId" style="width:12rem;">
-                  <option value="">Not on a statement</option>
-                  ${statements.map((x) => `<option value="${esc(x.id)}">${
-                    esc(x.vendor_name)}${x.reference ? ` ${esc(x.reference)}` : ''}</option>`).join('')}
-                </select></div>
               <div class="toolbar" style="padding:0;">
                 <button class="btn btn-secondary btn-sm" type="submit">Save</button>
                 <button class="btn btn-ghost btn-sm" type="button" data-cancel>Cancel</button>
@@ -371,7 +343,6 @@ function render() {
             amount: f.amount.value,
             receivedOn: f.receivedOn.value,
             reference: f.reference.value,
-            statementId: f.statementId.value || null,
           },
         });
         err.innerHTML = '';
@@ -382,7 +353,6 @@ function render() {
   });
 
   drawPayouts();
-  drawStatements();
   updateBulk();
 }
 
@@ -451,21 +421,6 @@ function drawPayouts() {
   });
 }
 
-function drawStatements() {
-  document.getElementById('statements').innerHTML = statements.length
-    ? `<ul class="rows">${statements.map((x) => `<li><div class="row-between">
-        <span><span class="t">${esc(x.vendor_name)}</span>
-          <span class="m">${x.reference ? `${esc(x.reference)} · ` : ''}${
-            x.statement_date ? esc(short(x.statement_date)) : 'no date'} · ${
-            x.lines} line${x.lines === 1 ? '' : 's'}</span></span>
-        <span style="text-align:right;">
-          <strong>${money(x.total_cents)}</strong>
-          <div class="muted" style="font-size:.72rem;${x.reconciled ? '' : 'color:var(--amber-600);'}">${
-            x.reconciled ? 'reconciled' : `${money(x.unmatched_cents)} unmatched`}</div></span>
-      </div></li>`).join('')}</ul>`
-    : '<p class="wempty">No statements filed. Add one when a vendor pays.</p>';
-}
-
 function updateBulk() {
   bulk.hidden = chosen.size === 0;
   document.getElementById('selected-count').textContent =
@@ -501,16 +456,6 @@ statusFilter.addEventListener('change', () => {
   if (serverSide) load(); else render();
 });
 
-const statementForm = document.getElementById('statement-form');
-document.getElementById('add-statement').addEventListener('click', () => {
-  statementForm.hidden = !statementForm.hidden;
-  if (!statementForm.hidden) statementForm.elements.vendorName.focus();
-});
-document.getElementById('stmt-cancel').addEventListener('click', () => {
-  statementForm.hidden = true;
-  statementForm.reset();
-});
-
 document.getElementById('payout-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target.elements;
@@ -533,26 +478,6 @@ document.getElementById('payout-form').addEventListener('submit', async (e) => {
   } catch (e2) { box.textContent = e2.message || 'Something went wrong.'; box.hidden = false; }
 });
 
-statementForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const f = statementForm.elements;
-  try {
-    await api('/api/commissions/statements', {
-      method: 'POST',
-      body: {
-        vendorName: f.vendorName.value,
-        reference: f.reference.value,
-        statementDate: f.statementDate.value,
-        total: f.total.value,
-      },
-    });
-    err.innerHTML = '';
-    statementForm.reset();
-    statementForm.hidden = true;
-    await load();
-  } catch (e2) { showError(err, e2); }
-});
-
 async function load() {
   try {
     // Reservations marked as earning nothing are off this page by default, so
@@ -560,18 +485,13 @@ async function load() {
     const params = [advisorParam(), statusFilter.value === 'none' ? 'status=none' : '']
       .filter(Boolean);
     const q = params.length ? `?${params.join('&')}` : '';
-    // Both together: the statements list feeds the picker on every receipt
-    // line, so a row cannot offer a statement the page has not loaded.
-    const [commissions, stmts, paid] = await Promise.all([
+    const [commissions, paid] = await Promise.all([
       api(`/api/commissions${q}`),
-      api('/api/commissions/statements'),
       api(`/api/payouts${advisorParam() ? `?${advisorParam()}` : ''}`),
     ]);
     d = commissions;
-    statements = stmts.statements || [];
     payouts = paid.payouts || [];
     mountScopePicker(document.getElementById('scope'), d, load);
-    document.getElementById('add-statement').hidden = !d.mayPay;
     render();
   } catch (e) { showError(err, e); }
 }

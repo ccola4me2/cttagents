@@ -36,7 +36,7 @@ const PAGES = [
   ['public/app/hotlists.html', ['/api/hotlists']],
   ['public/app/specials.html', ['/api/specials?state=all', '/api/vendors']],
   ['public/app/goals.html', ['/api/goals']],
-  ['public/app/commissions.html', ['/api/commissions', '/api/commissions/statements']],
+  ['public/app/commissions.html', ['/api/commissions']],
   ['public/app/form.html', ['/api/myforms', 'detail:/api/myforms/{formId}']],
   ['public/app/cruise-search.html', ['/api/catalog/search']],
   ['public/app/vendor.html', ['/api/vendors', 'detail:/api/vendors/{id}',
