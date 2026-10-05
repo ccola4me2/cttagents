@@ -115,6 +115,8 @@ function parseReceipt(body) {
       kind: oneOf(body.kind, COMMISSION_KIND_KEYS),
       amountCents,
       receivedOn: cleanDate(body.receivedOn),
+      // The pay date it goes out with. None means from before pay dates, payable now.
+      payoutOn: cleanDate(body.payoutOn),
       reference: clean(body.reference, 80),
       notes: clean(body.notes, 1000),
     },
@@ -189,11 +191,11 @@ export async function handleAddReceipt(request, env) {
   await env.DB.prepare(
     `INSERT INTO commission_receipts
        (id, user_id, booking_id, statement_id, amount_cents, received_on,
-        reference, notes, kind, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        reference, notes, kind, payout_on, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     id, owner.id, fields.bookingId, fields.statementId, fields.amountCents,
-    fields.receivedOn, fields.reference, fields.notes, fields.kind, ts, ts
+    fields.receivedOn, fields.reference, fields.notes, fields.kind, fields.payoutOn, ts, ts
   ).run();
 
   await syncCommissionStatus(env, owner.id, fields.bookingId);

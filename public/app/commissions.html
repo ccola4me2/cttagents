@@ -30,6 +30,9 @@
         Commission is earned when the client travels, so the clock starts on their return date. A trip
         that has not departed is not late, however long ago it was sold.
       </div>
+      <p class="muted" id="desk-hint" style="font-size:.84rem;margin:-.4rem 0 1rem;" hidden>
+        Recording a vendor's check, with its fee and the pay date for each line? Use
+        <a href="/admin/commissions">Admin &rarr; Commissions</a>.</p>
       <!-- Full width, and above the split. Twelve columns do not fit in half a
            page, and the two that fell off the end were money. -->
       <section class="card" style="margin-top:1.5rem;">
@@ -123,6 +126,9 @@ let d = null;
  * which is the same question both endpoints ask.
  */
 // Only the agency records commission. An advisor reads their money here and does not file it.
+/** The pay dates to choose from, with the one this trip would normally use selected. */
+const payOptions = (r) => ((d && d.payDates) || []).map((x) => `<option value="${esc(x)}"${
+  x === r.suggested_pay_on ? ' selected' : ''}>${esc(dateFmt(x))}${x === r.suggested_pay_on ? ' (suggested)' : ''}</option>`).join('');
 const mayTouch = (r) => Boolean(d && d.mayPay) && (r.user_id === ME || Boolean(d.scope && d.scope.canPick));
 let payouts = [];
 const chosen = new Set();
@@ -299,6 +305,8 @@ function render() {
                   ${(d.commissionKinds || []).map((k) => `<option value="${esc(k.kind)}">${
                     esc(k.label)}</option>`).join('')}
                 </select></div>
+              <div class="field" style="margin:0;"><label>Pay it out with</label>
+                <select name="payoutOn" style="width:11rem;">${payOptions(r)}</select></div>
               <div class="field" style="margin:0;"><label>Reference</label>
                 <input name="reference" maxlength="80" style="width:9rem;"></div>
               <div class="toolbar" style="padding:0;">
@@ -343,6 +351,7 @@ function render() {
             amount: f.amount.value,
             receivedOn: f.receivedOn.value,
             reference: f.reference.value,
+            payoutOn: f.payoutOn.value || null,
           },
         });
         err.innerHTML = '';
@@ -492,6 +501,7 @@ async function load() {
     d = commissions;
     payouts = paid.payouts || [];
     mountScopePicker(document.getElementById('scope'), d, load);
+    document.getElementById('desk-hint').hidden = !d.mayPay;
     render();
   } catch (e) { showError(err, e); }
 }

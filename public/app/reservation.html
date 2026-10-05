@@ -945,6 +945,23 @@ const receiptWord = (k) => ((d.commission.kinds || [])
  * agency writes a cheque against, and it is not the share of the expected
  * figure: paying that one out pays people from the agency's own pocket.
  */
+/** The pay dates on offer, with the one given selected. */
+function payChoices(c, selected, allowNone = false) {
+  const dates = [...new Set([...(c.payDates || []), selected].filter(Boolean))].sort();
+  return `${allowNone ? `<option value="" ${selected ? '' : 'selected'} disabled>Next payout</option>` : ''}${
+    dates.map((x) => `<option value="${esc(x)}" ${x === selected ? 'selected' : ''}>${
+      esc(dateFmt(x))}${x === c.suggestedPayOn ? ' (suggested)' : ''}</option>`).join('')}`;
+}
+
+/** Why that date, in words, so choosing a different one is a decision. */
+function payHint(suggested) {
+  const b = d.booking || {};
+  const back = b.return_date || b.depart_date;
+  return back
+    ? `${b.return_date ? 'Back' : 'Leaves'} ${short(back)}, so ${short(suggested)} is the first pay date after that. Pay dates are the 1st and the 15th.`
+    : 'No travel dates on this reservation, so the next pay date. Pay dates are the 1st and the 15th.';
+}
+
 function drawCommission() {
   const c = d.commission;
   const acts = document.getElementById('commission-actions');
@@ -997,12 +1014,15 @@ function drawCommission() {
           <input id="r-on" name="receivedOn" type="date" value="${esc(d.today)}"></div>
       </div>
       <div class="field-row">
+        <div class="field"><label for="r-pay">Pay it out with</label>
+          <select id="r-pay" name="payoutOn">${payChoices(c, c.suggestedPayOn)}</select>
+          <p class="field-hint">${esc(payHint(c.suggestedPayOn))}</p></div>
         <div class="field"><label for="r-kind">Which part</label>
           <select id="r-kind" name="kind">${(c.kinds || []).map((k) =>
       `<option value="${esc(k.kind)}">${esc(k.label)}</option>`).join('')}</select></div>
-        <div class="field"><label for="r-ref">Reference</label>
-          <input id="r-ref" name="reference" maxlength="80" placeholder="Their statement number"></div>
       </div>
+      <div class="field"><label for="r-ref">Reference</label>
+        <input id="r-ref" name="reference" maxlength="80" placeholder="Their statement number"></div>
       <p class="field-hint">Enter what the vendor sent, not what was expected. Less than the
         full amount leaves the rest showing as owed, which is the point. A clawback goes in
         as a negative.</p>
@@ -1013,12 +1033,15 @@ function drawCommission() {
     </form>
     ${rows.length ? `<div class="table-wrap"><table>
       <thead><tr><th>Arrived</th><th>Which part</th><th>Reference</th>
-        <th class="num">Amount</th><th></th></tr></thead>
+        <th class="num">Amount</th><th>Paid out with</th><th></th></tr></thead>
       <tbody>${rows.map((r) => `<tr>
         <td>${esc(r.received_on ? short(r.received_on) : 'no date')}</td>
         <td>${esc(receiptWord(r.kind))}</td>
         <td>${esc(r.reference || '-')}</td>
         <td class="num">${money(r.amount_cents)}</td>
+        <td>${c.mayRecord
+      ? `<select data-paydate="${esc(r.id)}" aria-label="Paid out with">${payChoices(c, r.payout_on, true)}</select>`
+      : esc(r.payout_on ? short(r.payout_on) : 'next payout')}</td>
         <td class="num">${c.mayRecord
       ? `<button class="btn btn-ghost btn-sm" data-drop-receipt="${esc(r.id)}">Remove</button>` : ''}</td>
       </tr>`).join('')}</tbody></table></div>`
@@ -1041,6 +1064,17 @@ function drawCommission() {
       await load();
     });
   }
+
+  // Change when an entry already recorded is paid out.
+  document.querySelectorAll('[data-paydate]').forEach((sel) => {
+    sel.addEventListener('change', async () => {
+      try {
+        await api(`/api/commissions/receipts/${encodeURIComponent(sel.dataset.paydate)}/pay-date`,
+          { method: 'PUT', body: { payoutOn: sel.value } });
+        await load();
+      } catch (e) { showError(err, e); }
+    });
+  });
 
   document.querySelectorAll('[data-drop-receipt]').forEach((btn) => {
     btn.addEventListener('click', async () => {

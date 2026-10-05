@@ -19,7 +19,7 @@ import {
 } from './split.js';
 import { settlement, SETTLEMENT_STATES, COMMISSION_KINDS } from './reconcile.js';
 import { owedByAdvisor, PAYOUT_METHODS } from './payouts.js';
-import { receiptShown, statusShown } from './paydates.js';
+import { receiptShown, statusShown, payDatesFrom, suggestPayDate } from './paydates.js';
 
 // What a batch may be moved to. "No commission" is not on it on purpose:
 // waiving a commission is a decision about one reservation, made where the
@@ -173,6 +173,10 @@ export async function handleListCommissions(request, env) {
 
     return {
       ...r, back, daysSince, bucket: bucketFor(daysSince),
+      // The pay date this would normally go out with, from when they travel.
+      suggested_pay_on: suggestPayDate({
+        receivedOn: today, returnDate: r.return_date, departDate: r.depart_date,
+      }, today),
       outstanding_by_kind: outstandingByKind,
       // Named for what it is used for. advisor_cents beside it is the share of
       // what is expected, and the pair being two different numbers is the
@@ -277,6 +281,7 @@ export async function handleListCommissions(request, env) {
     owed: await owedByAdvisor(env, scope),
     payoutMethods: PAYOUT_METHODS,
     mayPay: isAdmin(user) && !user.acting_as,
+    payDates: payDatesFrom(today, 12),
   });
 }
 

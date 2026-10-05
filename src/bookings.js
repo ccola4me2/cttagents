@@ -31,7 +31,7 @@ import {
   listPricing, summarise, reconcileBookingTotals, PRICE_KINDS, COMMISSION_KINDS,
 } from './pricing.js';
 import { settlement } from './reconcile.js';
-import { receiptShown } from './paydates.js';
+import { receiptShown, payDatesFrom, suggestPayDate, todayIso } from './paydates.js';
 
 // The taxonomy a travel agency actually reports on. Five buckets could not
 // tell a transfer from a tour from travel insurance, which meant "travel by
@@ -514,6 +514,12 @@ export async function handleBookingRecord(request, env, id) {
       // Recording that commission arrived is the agency's act, so only an owner is
       // offered the form, and the routes behind it refuse anybody else.
       mayRecord: isAdmin(user) && db.mayWrite(user, booking),
+      // The pay dates to choose from when recording money, and the one this trip
+      // would normally go out with: the first after the traveller is back.
+      payDates: payDatesFrom(todayIso(), 12),
+      suggestedPayOn: suggestPayDate({
+        receivedOn: todayIso(), returnDate: booking.return_date, departDate: booking.depart_date,
+      }),
     };
   })();
 

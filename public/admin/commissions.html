@@ -253,7 +253,9 @@ function checkRow(c) {
 
 function payDateSelect(line) {
   const dates = [...new Set([...(d.payDatesList || []), line.payout_on].filter(Boolean))].sort();
-  return `<select data-receipt="${esc(line.id)}">${dates.map((x) =>
+  // A line with no date was entered before pay dates, and is paid at the next payout
+  // until one is chosen.
+  return `<select data-receipt="${esc(line.id)}">${line.payout_on ? '' : '<option value="" selected disabled>Next payout</option>'}${dates.map((x) =>
     `<option value="${esc(x)}" ${x === line.payout_on ? 'selected' : ''}>${esc(dateFmt(x))}</option>`).join('')}</select>`;
 }
 
@@ -291,7 +293,7 @@ function drawReceived() {
         <td><a href="/app/reservation?id=${encodeURIComponent(r.booking_id)}">${esc(r.client_name)}</a>
           ${r.supplier ? `<span class="muted"> ${esc(r.supplier)}</span>` : ''}</td>
         <td>${esc(r.advisor_name)}</td><td class="r cd-money">${money(r.amount_cents)}</td>
-        <td>${r.payout_on ? payDateSelect(r) : '<span class="muted">next payout</span>'}</td></tr>`).join('')}
+        <td>${payDateSelect(r)}</td></tr>`).join('')}
       </tbody></table></div>` : '';
   return checks + loose;
 }
@@ -388,7 +390,7 @@ panel.addEventListener('click', async (e) => {
 
 panel.addEventListener('change', async (e) => {
   const sel = e.target.closest('select[data-receipt]');
-  if (!sel) return;
+  if (!sel || !sel.value) return;
   try {
     await api(`/api/commissions/receipts/${encodeURIComponent(sel.dataset.receipt)}/pay-date`,
       { method: 'PUT', body: { payoutOn: sel.value } });

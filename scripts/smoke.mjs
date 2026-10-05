@@ -9251,6 +9251,29 @@ async function main() {
   const notDoc = await call(admin, 'POST', '/api/commission-checks/read', { hello: 'world' });
   check(notDoc.status === 400, 'something that is not a remittance is turned away', `status ${notDoc.status}`);
 
+  // The simpler form on the reservation carries a pay date as well.
+  const simple = await call(admin, 'POST', '/api/commissions/receipts', {
+    bookingId: tripId, amount: '5.00', receivedOn: isoDay(0), kind: 'base', payoutOn: laterPay,
+  });
+  check(simple.status === 200, 'money recorded on the reservation can carry a pay date', `status ${simple.status}`);
+  const simpleRec = await call(admin, 'GET', `/api/bookings/${tripId}/record`);
+  const simpleLine = (simpleRec.data?.commission?.receipts || []).find((r) => r.id === simple.data?.id);
+  check(simpleLine?.payout_on === laterPay, 'and keeps it', JSON.stringify(simpleLine?.payout_on));
+  check((simpleRec.data?.commission?.payDates || []).length >= 8
+    && /^\d{4}-\d{2}-(01|15)$/.test(simpleRec.data?.commission?.suggestedPayOn || ''),
+    'the reservation offers the pay dates, and the one its trip suggests',
+    JSON.stringify([simpleRec.data?.commission?.payDates?.length, simpleRec.data?.commission?.suggestedPayOn]));
+  const advSimple = await call(advisor, 'GET', `/api/bookings/${tripId}/record`);
+  check(!(advSimple.data?.commission?.receipts || []).some((r) => r.id === simple.data?.id),
+    'and the advisor does not see it before its turn');
+  const listed = await call(admin, 'GET', '/api/commissions?advisor=all');
+  const listedRow = (listed.data?.rows || []).find((r) => r.id === tripId);
+  check((listed.data?.payDates || []).length >= 8 && Boolean(listedRow)
+    && /^\d{4}-\d{2}-(01|15)$/.test(listedRow.suggested_pay_on || ''),
+    'the commission page offers them too, with a suggestion for each trip',
+    JSON.stringify([listed.data?.payDates?.length, listedRow?.suggested_pay_on]));
+  await call(admin, 'DELETE', `/api/commissions/receipts/${simple.data?.id}`);
+
   const gone = await call(admin, 'DELETE', `/api/commission-checks/${checkId}`);
   check(gone.status === 200, 'the owner removes a check', `status ${gone.status}`);
   const afterGone = await call(admin, 'GET', `/api/bookings/${tripId}/record`);
