@@ -3346,7 +3346,7 @@ async function main() {
       check(noOffer.status === 400, 'so is one with no offer', `status ${noOffer.status}`);
 
       const notADoc = await call(admin, 'POST', '/api/supplier-specials/read', { hello: 'world' });
-      check(notADoc.status === 400 && /Word/.test(notADoc.data?.error || ''),
+      check(notADoc.status === 400 && /Word|specials file/.test(notADoc.data?.error || ''),
         'something that is not a Word document is turned away in words', JSON.stringify(notADoc.data));
 
       // An upload, twice: the second one changes nothing and adds nothing.

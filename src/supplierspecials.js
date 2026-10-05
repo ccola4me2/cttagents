@@ -114,7 +114,8 @@ function indexOf(rows) {
   const byKey = new Map();
   const byCode = new Map();
   for (const r of rows) {
-    byKey.set(r.match_key || matchKey(r.brand, r.program, r.offer), r);
+    // From the row's own fields, so a promotion known by the number in its link is found by it.
+    byKey.set(keyFor(r), r);
     if (r.code) byCode.set(`${norm(r.brand)}|${r.code.toLowerCase()}`, r);
   }
   return { byKey, byCode };
