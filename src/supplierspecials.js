@@ -184,12 +184,19 @@ export async function handleListSupplierSpecials(request, env) {
   // The link is only offered while the supplier still exists.
   const known = new Set(vendors.map((v) => v.id));
   const specials = rows.map((r) => ({ ...r, vendor_id: known.has(r.vendor_id) ? r.vendor_id : null }));
-  const lists = (listed.results || []);
+  const all = (listed.results || []);
+
+  // The history of uploads, with the file names and how many each one added, is the
+  // owner's. An advisor gets only what the page needs to say which list this is: its
+  // title, its date and its overview. Not sent rather than merely not shown.
+  const lists = canEdit
+    ? all
+    : all.slice(0, 1).map((l) => ({ id: l.id, title: l.title, issued_on: l.issued_on, intro: l.intro }));
 
   return json({
     specials,
     lists,
-    latestListId: lists.length ? lists[0].id : null,
+    latestListId: all.length ? all[0].id : null,
     today: today(),
     canEdit,
   });

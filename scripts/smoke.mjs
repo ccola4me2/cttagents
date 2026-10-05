@@ -3321,6 +3321,13 @@ async function main() {
 
       const seen = await call(advisor, 'GET', '/api/supplier-specials');
       const mine = (seen.data?.specials || []).find((s) => s.id === madeId);
+      check((seen.data?.lists || []).length <= 1
+        && (seen.data?.lists || []).every((l) => !('filename' in l) && !('added_count' in l)),
+        'an advisor is not sent the history of uploads, only which list this is',
+        JSON.stringify(seen.data?.lists));
+      const ownerLists = await call(admin, 'GET', '/api/supplier-specials');
+      check((ownerLists.data?.lists || []).length === 0 || 'filename' in (ownerLists.data.lists[0] || {}),
+        'while the owner is', JSON.stringify((ownerLists.data?.lists || [])[0]));
       check(Boolean(mine) && mine.code === 'SMOKEUP1' && mine.ends_on === '2099-12-31',
         'an advisor in the agency can read it', `status ${seen.status}`);
       check(seen.data?.canEdit === false, 'and is told they cannot change it', JSON.stringify(seen.data?.canEdit));
