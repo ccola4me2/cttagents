@@ -237,7 +237,7 @@ export async function handleCreateCheck(request, env) {
   if (!vendorName) return badRequest('Which vendor sent it?');
 
   const statementCents = toCents(body.statement);
-  if (!statementCents) return badRequest('What does the check say it is for? Enter the statement amount.');
+  if (!statementCents) return badRequest('Enter the check total, the amount the check or remittance says it is for.');
   const feeCents = toCents(body.fee) || 0;
   if (feeCents < 0 || feeCents > Math.abs(statementCents)) {
     return badRequest('A fee cannot be negative or more than the check.');
