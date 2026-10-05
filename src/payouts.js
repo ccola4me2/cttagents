@@ -22,6 +22,7 @@ import * as db from './db.js';
 import {
   SPLIT_PCT_SQL, ADVISOR_SHARE_SQL, NO_COMMISSION, UNSPLIT_COMMISSION_KINDS,
 } from './split.js';
+import { receiptShown, nextPayDate, todayIso } from './paydates.js';
 
 export const PAYOUT_METHODS = [
   { key: 'check', label: 'Check' },
@@ -48,11 +49,14 @@ const METHOD_KEYS = PAYOUT_METHODS.map((m) => m.key);
  */
 const EXEMPT_RECEIPTS = UNSPLIT_COMMISSION_KINDS.map((k) => `'${k}'`).join(', ');
 
-export function dueSql(alias = 'b') {
+export function dueSql(alias = 'b', through = null) {
+  // Only money assigned to this pay date or an earlier one is payable. A receipt
+  // with no pay date is from before there were any, and is payable now.
+  const payable = receiptShown('r', through);
   const received = `COALESCE((SELECT SUM(r.amount_cents) FROM commission_receipts r
-                               WHERE r.booking_id = ${alias}.id), 0)`;
+                               WHERE r.booking_id = ${alias}.id AND ${payable}), 0)`;
   const exempt = `COALESCE((SELECT SUM(r.amount_cents) FROM commission_receipts r
-                              WHERE r.booking_id = ${alias}.id
+                              WHERE r.booking_id = ${alias}.id AND ${payable}
                                 AND r.kind IN (${EXEMPT_RECEIPTS})), 0)`;
   // A waived trip pays nobody, the same rule every other total reads through.
   const share = `(CASE WHEN ${alias}.commission_status = '${NO_COMMISSION}' THEN 0
@@ -70,9 +74,11 @@ export function dueSql(alias = 'b') {
  * because that is the shape of the job: one payment per person, not one per
  * trip.
  */
-export async function owedByAdvisor(env, scope) {
+export async function owedByAdvisor(env, scope, through = null) {
   const scoped = db.scopeWhere(scope, 'b.user_id');
-  const { share, paid, due } = dueSql('b');
+  // Owed means payable at the next pay date, for everybody who asks. What has
+  // arrived but is assigned further out is scheduled, not owed.
+  const { share, paid, due } = dueSql('b', through || scope.hideAfter || nextPayDate(todayIso()));
   const { results } = await env.DB.prepare(
     `SELECT b.user_id,
             COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''), u.email)
@@ -91,8 +97,8 @@ export async function owedByAdvisor(env, scope) {
 }
 
 /** The reservations behind one advisor's figure, newest trip first. */
-async function owedTrips(env, advisorId) {
-  const { due } = dueSql('b');
+async function owedTrips(env, advisorId, through) {
+  const { due } = dueSql('b', through);
   const { results } = await env.DB.prepare(
     `SELECT b.id, b.client_name, b.supplier, b.return_date, ${due} AS due_cents
        FROM bookings b JOIN users u ON u.id = b.user_id
@@ -144,8 +150,9 @@ export async function handleListPayouts(request, env) {
   return json({
     payouts: results || [],
     // What is waiting, so the page can offer the run rather than making
-    // somebody add up the column themselves.
+    // somebody add up the column themselves. Payable at the next pay date.
     owed: await owedByAdvisor(env, scope),
+    nextPayDate: nextPayDate(todayIso()),
     methods: PAYOUT_METHODS,
     // Only an owner records one, and the page should not draw a button that
     // would be refused. Not while acting as an advisor either: requireAdmin
@@ -187,7 +194,10 @@ export async function handleCreatePayout(request, env) {
   const wanted = Array.isArray(body.bookingIds)
     ? body.bookingIds.filter((x) => typeof x === 'string').slice(0, 500) : null;
 
-  let trips = await owedTrips(env, advisorId);
+  // The pay date this run is for. Money assigned to a later one stays where it
+  // is, which is the whole point of assigning it.
+  const payDate = cleanDate(body.payDate) || nextPayDate(todayIso());
+  let trips = await owedTrips(env, advisorId, payDate);
   if (wanted) {
     const only = new Set(wanted);
     trips = trips.filter((t) => only.has(t.id));
@@ -232,7 +242,7 @@ export async function handleCreatePayout(request, env) {
     + `reservation${trips.length === 1 ? '' : 's'}`,
     { payoutId: id, amountCents: total });
 
-  return json({ ok: true, id, amountCents: total, trips: trips.length });
+  return json({ ok: true, id, amountCents: total, trips: trips.length, payDate });
 }
 
 /**

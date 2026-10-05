@@ -31,6 +31,7 @@ import {
   listPricing, summarise, reconcileBookingTotals, PRICE_KINDS, COMMISSION_KINDS,
 } from './pricing.js';
 import { settlement } from './reconcile.js';
+import { receiptShown } from './paydates.js';
 
 // The taxonomy a travel agency actually reports on. Five buckets could not
 // tell a transfer from a tour from travel insurance, which meant "travel by
@@ -229,7 +230,9 @@ export async function handleListBookings(request, env) {
   // One row past the cap came back if there is more behind it, so the page can
   // say the list was cut rather than filtering an answer that is already
   // missing what somebody is looking for.
-  const { rows: bookings, truncated } = db.capped(found, url.searchParams.get('limit'));
+  const { rows: capped, truncated } = db.capped(found, url.searchParams.get('limit'));
+  // An advisor is not told commission has arrived until its pay date is near.
+  const bookings = await db.maskCommissionStatus(env, user, capped);
   return json({
     bookings,
     truncated,
@@ -248,8 +251,9 @@ export async function handleGetBooking(request, env, id) {
   if (response) return response;
   // Read scope, not write scope: an owner opening an advisor's reservation
   // from search should see it. Editing it still goes through getBooking.
-  const booking = await db.getBookingInScope(env, id, db.scopeFor(env, user, request));
-  return booking ? json({ booking }) : notFound('Booking not found.');
+  const found = await db.getBookingInScope(env, id, db.scopeFor(env, user, request));
+  if (!found) return notFound('Booking not found.');
+  return json({ booking: await db.maskCommissionStatus(env, user, found) });
 }
 
 /**
@@ -271,6 +275,9 @@ export async function handleBookingRecord(request, env, id) {
   const scope = db.scopeFor(env, user, request);
   const booking = await db.getBookingInScope(env, id, scope);
   if (!booking) return notFound('Reservation not found.');
+  // What the reader may be told about the commission: see paydates.js.
+  const hideAfter = scope.hideAfter || null;
+  booking.commission_status = (await db.maskCommissionStatus(env, user, booking)).commission_status;
 
   // Scoped the same way the reservation was, so an owner reading an
   // associate's trip sees its payments too rather than an empty schedule.
@@ -445,9 +452,10 @@ export async function handleBookingRecord(request, env, id) {
   // commission, and scoping the receipts to the reader would show them an
   // empty list and a trip that looks unpaid.
   const receipts = await env.DB.prepare(
-    `SELECT id, amount_cents, received_on, kind, reference, statement_id, notes, created_at
+    `SELECT id, amount_cents, received_on, kind, reference, statement_id, notes, created_at,
+            payout_on, check_id
        FROM commission_receipts
-      WHERE booking_id = ? AND user_id = ?
+      WHERE booking_id = ? AND user_id = ? AND ${receiptShown('commission_receipts', hideAfter)}
       ORDER BY COALESCE(received_on, '0000-00-00') DESC, created_at DESC`
   ).bind(booking.id, booking.user_id).all().catch(() => ({ results: [] }));
 

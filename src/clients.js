@@ -14,6 +14,7 @@
 import { json, badRequest, notFound, clean, cleanDate, oneOf, uid, now, readJson } from './util.js';
 import { tenantFor } from './tenant.js';
 import { requireUser } from './auth.js';
+import { statusShown } from './paydates.js';
 import * as db from './db.js';
 import { suppressionFor } from './suppression.js';
 import { householdFor } from './households.js';
@@ -190,8 +191,8 @@ export async function handleClientRecord(request, env) {
     env.DB.prepare(
       `SELECT b.id, b.client_name, b.supplier, b.product_name, b.product_type, b.destination,
               b.confirmation_number, b.depart_date, b.return_date, b.status,
-              b.gross_cents, b.commission_cents, b.commission_status, b.travellers,
-              b.ghl_contact_id, b.user_id,
+              b.gross_cents, b.commission_cents, ${statusShown('b', scope.hideAfter)} AS commission_status,
+              b.travellers, b.ghl_contact_id, b.user_id,
               COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''), u.email)
                 AS advisor_name
          FROM bookings b LEFT JOIN users u ON u.id = b.user_id

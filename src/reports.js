@@ -10,6 +10,7 @@
 import { json, now } from './util.js';
 import { owedByAdvisor, paidByAdvisor } from './payouts.js';
 import { COMMISSION_RECEIVED, NO_COMMISSION } from './split.js';
+import { statusShown } from './paydates.js';
 import { tenantFor } from './tenant.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
@@ -494,7 +495,7 @@ async function noticesFor(env, user, scope) {
         AND b.status IN ('booked','travelled')
         -- Not in and not exempt. 'none' is a trip that never earns, and
         -- chasing it forever is what that status exists to stop.
-        AND b.commission_status NOT IN ('${COMMISSION_RECEIVED}', '${NO_COMMISSION}')
+        AND ${statusShown('b', scope.hideAfter)} NOT IN ('${COMMISSION_RECEIVED}', '${NO_COMMISSION}')
         AND b.commission_cents > 0
         AND COALESCE(b.return_date, b.depart_date) IS NOT NULL
         AND COALESCE(b.return_date, b.depart_date) < ?`
@@ -584,7 +585,7 @@ async function commissionSummary(env, scope, today) {
             COALESCE(b.return_date, b.depart_date) AS back
        FROM bookings b
       WHERE ${scoped.sql} AND b.status IN ('booked','travelled')
-        AND b.commission_status NOT IN ('${COMMISSION_RECEIVED}', '${NO_COMMISSION}')
+        AND ${statusShown('b', scope.hideAfter)} NOT IN ('${COMMISSION_RECEIVED}', '${NO_COMMISSION}')
         AND b.commission_cents > 0
       LIMIT 1000`
   ).bind(...scoped.binds).all();

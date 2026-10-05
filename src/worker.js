@@ -260,6 +260,16 @@ import {
   handleDeleteSupplierSpecial,
 } from './supplierspecials.js';
 import {
+  handleCommissionDesk,
+  handleReadRemittance,
+  handleSearchForCheck,
+  handleCreateCheck,
+  handleUpdateCheck,
+  handleDeleteCheck,
+  handleAddCheckLine,
+  handleSetPayDate,
+} from './commissiondesk.js';
+import {
   handleListAgencies,
   handleCreateAgency,
   handleUpdateAgency,
@@ -477,6 +487,7 @@ const PAGE_FILES = {
   '/app/reports': '/app/reports.html',
   '/app/settings': '/app/settings.html',
   '/admin/manual': '/admin/manual.html',
+  '/admin/commissions': '/admin/commissions.html',
   '/admin/training': '/admin/training.html',
   '/admin': '/admin/index.html',
   '/admin/': '/admin/index.html',
@@ -718,6 +729,9 @@ async function routeApi(request, env, path, method) {
   const enquiryMatch = path.match(/^\/api\/specials\/enquiries\/([^/]+)$/);
   const receiptMatch = path.match(/^\/api\/commissions\/receipts\/([^/]+)$/);
   const payoutMatch = path.match(/^\/api\/payouts\/([^/]+)$/);
+  const checkMatch = path.match(/^\/api\/commission-checks\/([^/]+)$/);
+  const checkLineMatch = path.match(/^\/api\/commission-checks\/([^/]+)\/lines$/);
+  const payDateMatch = path.match(/^\/api\/commissions\/receipts\/([^/]+)\/pay-date$/);
   const vendorStatementMatch = path.match(/^\/api\/commissions\/statements\/([^/]+)$/);
   const candidatesMatch = path.match(/^\/api\/commissions\/statements\/([^/]+)\/candidates$/);
   const clientMatch = path.match(/^\/api\/clients\/([^/]+)$/);
@@ -1163,6 +1177,16 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/payouts' && method === 'GET') return handleListPayouts(request, env);
   if (path === '/api/payouts' && method === 'POST') return handleCreatePayout(request, env);
   if (payoutMatch && method === 'DELETE') return handleDeletePayout(request, env, payoutMatch[1]);
+
+  // The commission desk: money in from vendors, and when each advisor is paid for it.
+  if (path === '/api/commission-desk' && method === 'GET') return handleCommissionDesk(request, env);
+  if (path === '/api/commission-checks/read' && method === 'POST') return handleReadRemittance(request, env);
+  if (path === '/api/commission-checks/search' && method === 'GET') return handleSearchForCheck(request, env);
+  if (path === '/api/commission-checks' && method === 'POST') return handleCreateCheck(request, env);
+  if (checkLineMatch && method === 'POST') return handleAddCheckLine(request, env, checkLineMatch[1]);
+  if (checkMatch && method === 'PUT') return handleUpdateCheck(request, env, checkMatch[1]);
+  if (checkMatch && method === 'DELETE') return handleDeleteCheck(request, env, checkMatch[1]);
+  if (payDateMatch && method === 'PUT') return handleSetPayDate(request, env, payDateMatch[1]);
   if (vendorStatementMatch && method === 'PUT') return handleUpdateStatement(request, env, vendorStatementMatch[1]);
   if (vendorStatementMatch && method === 'DELETE') return handleDeleteStatement(request, env, vendorStatementMatch[1]);
   if (path === '/api/commissions/status' && method === 'POST') {

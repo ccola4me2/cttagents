@@ -111,6 +111,9 @@ const AGENCY_OWNED = new Set([
   // owner keeps them, so agency_id is the predicate. `added_by` records who
   // uploaded a row and is never what decides who may see it.
   'supplier_specials', 'supplier_special_lists',
+  // A commission check: what a vendor paid the agency in one payment, which can
+  // cover several advisors' reservations, so no one advisor owns it. Owners only.
+  'commission_checks',
 ]);
 
 // Carries a user_id, and is not reached through one.

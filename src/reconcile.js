@@ -234,7 +234,7 @@ export async function handleDeleteReceipt(request, env, id) {
  * is not a question anybody was answering, and a status that can only be
  * wrong is worse than one fewer status.
  */
-async function syncCommissionStatus(env, userId, bookingId) {
+export async function syncCommissionStatus(env, userId, bookingId) {
   const booking = await env.DB.prepare(
     'SELECT commission_cents, commission_status FROM bookings WHERE id = ? AND user_id = ?'
   ).bind(bookingId, userId).first();

@@ -19,6 +19,7 @@ import {
 } from './split.js';
 import { settlement, SETTLEMENT_STATES, COMMISSION_KINDS } from './reconcile.js';
 import { owedByAdvisor, PAYOUT_METHODS } from './payouts.js';
+import { receiptShown, statusShown } from './paydates.js';
 
 // What a batch may be moved to. "No commission" is not on it on purpose:
 // waiving a commission is a decision about one reservation, made where the
@@ -36,7 +37,7 @@ function isoDay(offsetDays = 0) {
 }
 
 /** Which ageing bucket a returned trip falls into. */
-function bucketFor(daysSince) {
+export function bucketFor(daysSince) {
   if (daysSince === null) return 'travelling';
   if (daysSince < 0) return 'travelling';
   if (daysSince <= 30) return 'd30';
@@ -64,10 +65,15 @@ export async function handleListCommissions(request, env) {
   const scoped = db.scopeWhere(scope, 'b.user_id');
   const today = isoDay(0);
 
+  // An advisor is shown the commission that has arrived and is assigned to the
+  // next pay date or earlier. Money received for a later one is the agency's
+  // business until its turn. See paydates.js.
+  const shown = receiptShown('r', scope.hideAfter);
+  const statusNow = statusShown('b', scope.hideAfter);
   const where = [scoped.sql, "b.status IN ('booked','travelled')", 'b.commission_cents > 0'];
   const binds = [...scoped.binds];
   if (status) {
-    where.push('b.commission_status = ?');
+    where.push(`${statusNow} = ?`);
     binds.push(status);
   } else {
     // A reservation marked "no commission" pays nobody: not the advisor and
@@ -84,22 +90,22 @@ export async function handleListCommissions(request, env) {
   const pct = SPLIT_PCT_SQL();
   const { results } = await env.DB.prepare(
     `SELECT b.id, b.client_name, b.supplier, b.product_name, b.depart_date, b.return_date,
-            b.gross_cents, b.commission_cents, b.commission_status, b.confirmation_number,
+            b.gross_cents, b.commission_cents, ${statusNow} AS commission_status, b.confirmation_number,
             b.user_id, ${pct} AS split_pct,
             COALESCE((SELECT SUM(r.amount_cents) FROM commission_receipts r
-                       WHERE r.booking_id = b.id), 0) AS received_cents,
+                       WHERE r.booking_id = b.id AND ${shown}), 0) AS received_cents,
             COALESCE((SELECT SUM(r.amount_cents) FROM commission_receipts r
-                       WHERE r.booking_id = b.id AND r.kind = 'base'), 0) AS received_base_cents,
+                       WHERE r.booking_id = b.id AND ${shown} AND r.kind = 'base'), 0) AS received_base_cents,
             COALESCE((SELECT SUM(r.amount_cents) FROM commission_receipts r
-                       WHERE r.booking_id = b.id AND r.kind = 'package'), 0) AS received_package_cents,
+                       WHERE r.booking_id = b.id AND ${shown} AND r.kind = 'package'), 0) AS received_package_cents,
             COALESCE((SELECT SUM(r.amount_cents) FROM commission_receipts r
-                       WHERE r.booking_id = b.id AND r.kind IN ('bonus','bonus_shared')), 0)
+                       WHERE r.booking_id = b.id AND ${shown} AND r.kind IN ('bonus','bonus_shared')), 0)
               AS received_bonus_cents,
             -- The part of what arrived that the agency takes no share of.
             -- Not the figure above it: that one counts the casino bonus,
             -- which is split like anything else.
             COALESCE((SELECT SUM(r.amount_cents) FROM commission_receipts r
-                       WHERE r.booking_id = b.id AND r.kind IN (${
+                       WHERE r.booking_id = b.id AND ${shown} AND r.kind IN (${
   UNSPLIT_COMMISSION_KINDS.map((k) => `'${k}'`).join(', ')})), 0)
               AS received_unsplit_cents,
             COALESCE((SELECT SUM(p.commission_cents) FROM booking_pricing p
@@ -110,7 +116,7 @@ export async function handleListCommissions(request, env) {
                        WHERE p.booking_id = b.id AND p.commission_kind IN ('bonus','bonus_shared')), 0)
               AS expected_bonus_cents,
             (SELECT MAX(r.received_on) FROM commission_receipts r
-              WHERE r.booking_id = b.id) AS last_received_on,
+              WHERE r.booking_id = b.id AND ${shown}) AS last_received_on,
             -- What the agency has already handed the advisor against this
             -- trip, and when. Without it the payout run shows the same rows
             -- on the 15th and the 30th and the only record of the first one

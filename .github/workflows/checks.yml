@@ -219,6 +219,13 @@ jobs:
       - name: The weekly specials list is read the way it was written
         run: npm run check:specialsdoc
 
+      # Commission is paid on the 1st and the 15th, and an advisor sees none of it
+      # before its pay date. The ways it goes wrong pay somebody the wrong money on
+      # the wrong day: someone back on the 31st paid on the 31st, a month that rolls
+      # into the wrong year, a date that is not a date reaching a SQL string.
+      - name: Pay dates, and what an advisor may see before one
+        run: npm run check:paydates
+
       - name: Build the database from the migrations
         run: npx wrangler d1 migrations apply cttagents --local
 

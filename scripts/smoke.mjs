@@ -9078,6 +9078,151 @@ async function main() {
   check(gone.status === 404, 'and it cannot be removed twice', `status ${gone.status}`);
   }
 
+  // ---------------------------------- a commission check, and its pay date ----
+  // Money comes in on one day and goes out on a pay date the owner chooses. The
+  // rule an advisor lives under is the one worth testing hardest: they see money
+  // that has arrived and is assigned to the next pay date or earlier, and nothing
+  // scheduled further out, in any of the places commission is shown.
+  {
+  step('A commission check, and the day it is paid out');
+
+  const asAdvisor = await call(advisor, 'GET', '/api/commission-desk');
+  check(asAdvisor.status === 403, 'an advisor cannot open the commission desk', `status ${asAdvisor.status}`);
+  const advRecord = await call(advisor, 'POST', '/api/commission-checks', { vendorName: 'X', statement: '1', lines: [] });
+  check(advRecord.status === 403, 'nor record a check', `status ${advRecord.status}`);
+  const advRead = await call(advisor, 'POST', '/api/commission-checks/read', {});
+  check(advRead.status === 403, 'nor read a remittance', `status ${advRead.status}`);
+  const advSearch = await call(advisor, 'GET', '/api/commission-checks/search?q=smoke');
+  check(advSearch.status === 403, 'nor search reservations for one', `status ${advSearch.status}`);
+
+  const desk = await call(admin, 'GET', '/api/commission-desk');
+  check(desk.status === 200 && desk.data?.nextPayDate, 'the owner opens it, and it knows the next pay date',
+    `status ${desk.status}`);
+  const nextPay = desk.data?.nextPayDate;
+  const laterPay = (desk.data?.payDatesList || []).find((d) => d > nextPay);
+  check(/^\d{4}-\d{2}-(01|15)$/.test(nextPay || '') && Boolean(laterPay),
+    'pay dates fall on the 1st and the 15th', `${nextPay} ${laterPay}`);
+
+  const trip = await call(advisor, 'POST', '/api/bookings', {
+    clientName: `Check ${stamp}`, supplier: 'Smoke Vendor', status: 'booked',
+    departDate: isoDay(-20), returnDate: isoDay(-10), gross: '2000', commission: '200',
+  });
+  const tripId = trip.data?.booking?.id;
+  check(Boolean(tripId), 'a reservation to be paid for');
+  if (tripId) cleanup('the check reservation', () => dropBooking(tripId));
+
+  const dueFor = (body) => ((body?.owed || []).find((o) => o.user_id === advisorId) || {}).due_cents || 0;
+  const dueBefore = dueFor((await call(admin, 'GET', '/api/payouts')).data);
+
+  // A check for 200.00 with 4.00 taken out, assigned to a pay date beyond the next.
+  const made = await call(admin, 'POST', '/api/commission-checks', {
+    vendorName: 'Smoke Vendor', reference: `CHK-${stamp}`, receivedOn: isoDay(0),
+    statement: '200.00', fee: '4.00', feeNote: 'Check processing fee',
+    lines: [{ bookingId: tripId, amount: '200.00', payoutOn: laterPay }],
+  });
+  const checkId = made.data?.id;
+  check(made.status === 201 && checkId && made.data?.unmatchedCents === 0,
+    'the owner records it, matched to the reservation', JSON.stringify(made.data));
+  if (checkId) cleanup('the commission check', () => call(admin, 'DELETE', `/api/commission-checks/${checkId}`));
+
+  const dupe = await call(admin, 'POST', '/api/commission-checks', {
+    vendorName: 'Smoke Vendor', reference: `CHK-${stamp}`, statement: '5', lines: [] });
+  check(dupe.status === 409 && dupe.data?.code === 'duplicate', 'the same check number twice is refused',
+    `status ${dupe.status}`);
+  const tooMuch = await call(admin, 'POST', '/api/commission-checks', {
+    vendorName: 'Smoke Vendor', reference: `CHK2-${stamp}`, statement: '50.00',
+    lines: [{ bookingId: tripId, amount: '80.00' }] });
+  check(tooMuch.status === 400, 'lines that add up to more than the check are refused', `status ${tooMuch.status}`);
+  const bigFee = await call(admin, 'POST', '/api/commission-checks', {
+    vendorName: 'Smoke Vendor', reference: `CHK3-${stamp}`, statement: '10.00', fee: '20.00', lines: [] });
+  check(bigFee.status === 400, 'and so is a fee bigger than the check', `status ${bigFee.status}`);
+
+  // The owner sees all of it.
+  const ownerRec = await call(admin, 'GET', `/api/bookings/${tripId}/record`);
+  const receipt = (ownerRec.data?.commission?.receipts || [])[0];
+  check(ownerRec.data?.commission?.receivedCents === 20000 && receipt?.payout_on === laterPay,
+    'the owner sees it received, and the day it is assigned to',
+    JSON.stringify({ got: ownerRec.data?.commission?.receivedCents, on: receipt?.payout_on }));
+  const share = ownerRec.data?.commission?.payoutCents || 0;
+
+  // The advisor sees none of it: not the receipt, not the money, not the word received.
+  const advRec = await call(advisor, 'GET', `/api/bookings/${tripId}/record`);
+  check(advRec.data?.commission?.receivedCents === 0 && (advRec.data?.commission?.receipts || []).length === 0,
+    'the advisor does not see money assigned to a later pay date',
+    JSON.stringify(advRec.data?.commission?.receivedCents));
+  check(advRec.data?.commission?.status !== 'received' && advRec.data?.booking?.commission_status !== 'received',
+    'nor is told its commission has been received', advRec.data?.booking?.commission_status);
+  const advList = await call(advisor, 'GET', '/api/commissions');
+  const advRow = (advList.data?.rows || []).find((r) => r.id === tripId);
+  check(advRow && advRow.received_cents === 0 && advRow.commission_status !== 'received' && advRow.payout_cents === 0,
+    'nor on the commission page', JSON.stringify(advRow && [advRow.received_cents, advRow.commission_status]));
+  const advBookings = await call(advisor, 'GET', '/api/bookings');
+  const advBooking = (advBookings.data?.bookings || []).find((b) => b.id === tripId);
+  check(advBooking && advBooking.commission_status !== 'received', 'nor in the list of reservations',
+    advBooking?.commission_status);
+  check(dueFor((await call(admin, 'GET', '/api/payouts')).data) === dueBefore,
+    'and none of it is owed to them at the next pay date', String(dueFor((await call(admin, 'GET', '/api/payouts')).data)));
+
+  // On the owner's desk it is scheduled for the day chosen.
+  const after = await call(admin, 'GET', '/api/commission-desk');
+  const day = (after.data?.payDates || []).find((p) => p.date === laterPay);
+  const mine = (day?.advisors || []).find((a) => a.userId === advisorId);
+  check(mine && mine.cents >= share && (mine.trips || []).some((t) => t.bookingId === tripId),
+    'the owner sees it scheduled for that pay date, under the advisor', JSON.stringify(mine));
+  const checkRow = (after.data?.checks || []).find((c) => c.id === checkId);
+  check(checkRow && checkRow.statement_cents === 20000 && checkRow.fee_cents === 400 && checkRow.net_cents === 19600
+    && checkRow.unmatched_cents === 0,
+    'with the fee kept on the check, and what reached the bank worked out', JSON.stringify(checkRow));
+  check(after.data?.tiles?.feesCents >= 400 && after.data?.tiles?.receivedCents >= 20000,
+    'and counted in the year\'s totals');
+
+  // Only an owner moves a date.
+  const advMove = await call(advisor, 'PUT', `/api/commissions/receipts/${receipt?.id}/pay-date`, { payoutOn: nextPay });
+  check(advMove.status === 403, 'an advisor cannot move a pay date', `status ${advMove.status}`);
+  const advDel = await call(advisor, 'DELETE', `/api/commission-checks/${checkId}`);
+  check(advDel.status === 403, 'nor delete a check', `status ${advDel.status}`);
+
+  // Moved to the next pay date, it becomes theirs.
+  const moved = await call(admin, 'PUT', `/api/commissions/receipts/${receipt?.id}/pay-date`, { payoutOn: nextPay });
+  check(moved.status === 200, 'the owner moves it to the next pay date', `status ${moved.status}`);
+  const advNow = await call(advisor, 'GET', `/api/bookings/${tripId}/record`);
+  check(advNow.data?.commission?.receivedCents === 20000 && advNow.data?.commission?.payoutCents === share,
+    'and the advisor now sees the money, and their share of it',
+    JSON.stringify([advNow.data?.commission?.receivedCents, advNow.data?.commission?.payoutCents, share]));
+  check(advNow.data?.commission?.status === 'received', 'and that it has been received');
+  check(dueFor((await call(admin, 'GET', '/api/payouts')).data) === dueBefore + share,
+    'and it is owed to them at the next pay date', `${dueFor((await call(admin, 'GET', '/api/payouts')).data)} vs ${dueBefore + share}`);
+
+  // A payout run for the next pay date does not take money assigned beyond it.
+  await call(admin, 'PUT', `/api/commissions/receipts/${receipt?.id}/pay-date`, { payoutOn: laterPay });
+  check(dueFor((await call(admin, 'GET', '/api/payouts')).data) === dueBefore,
+    'sent back out, it is no longer owed now', '');
+
+  // A check not fully matched, finished later.
+  const part = await call(admin, 'POST', '/api/commission-checks', {
+    vendorName: 'Smoke Vendor', reference: `CHK4-${stamp}`, statement: '100.00', lines: [] });
+  const partId = part.data?.id;
+  check(part.status === 201 && part.data?.unmatchedCents === 10000, 'a check can be recorded before its lines are matched',
+    JSON.stringify(part.data));
+  if (partId) cleanup('the part-matched check', () => call(admin, 'DELETE', `/api/commission-checks/${partId}`));
+  const addLine = await call(admin, 'POST', `/api/commission-checks/${partId}/lines`, {
+    bookingId: tripId, amount: '100.00', payoutOn: laterPay });
+  check(addLine.status === 201, 'a line is added to it afterwards', `status ${addLine.status}`);
+  const overLine = await call(admin, 'POST', `/api/commission-checks/${partId}/lines`, {
+    bookingId: tripId, amount: '1.00', payoutOn: laterPay });
+  check(overLine.status === 400, 'but not more than the check was for', `status ${overLine.status}`);
+
+  const notDoc = await call(admin, 'POST', '/api/commission-checks/read', { hello: 'world' });
+  check(notDoc.status === 400, 'something that is not a remittance is turned away', `status ${notDoc.status}`);
+
+  const gone = await call(admin, 'DELETE', `/api/commission-checks/${checkId}`);
+  check(gone.status === 200, 'the owner removes a check', `status ${gone.status}`);
+  const afterGone = await call(admin, 'GET', `/api/bookings/${tripId}/record`);
+  check(afterGone.data?.commission?.receivedCents === 10000 && afterGone.data?.booking?.commission_status !== 'received',
+    'and what it brought in comes back out, leaving only the other check\'s line',
+    JSON.stringify(afterGone.data?.commission?.receivedCents));
+  }
+
   // -------------------------------------------- moving it to its advisor ----
   // A trip typed in by the owner without first working as the advisor lands
   // on the owner's book: their production, their commission, their statement.

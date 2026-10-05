@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Commissions | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+<style>
+  .cd-tiles { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+  .cd-tile {
+    font: inherit; text-align: left; cursor: pointer; background: #fff; border: 1.5px solid var(--navy-100);
+    border-radius: var(--radius); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .cd-tile:hover { border-color: var(--navy-300); }
+  .cd-tile[aria-pressed="true"] { border-color: var(--teal-500); box-shadow: 0 0 0 3px var(--teal-50); }
+  .cd-tile .label { margin: 0; font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-400); }
+  .cd-tile .value { margin: .3rem 0 .2rem; font-size: 1.7rem; font-weight: 700; color: var(--navy-800); }
+  .cd-tile .meta { margin: 0; font-size: .78rem; color: var(--ink-500); }
+
+  .cd-head { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin: 1.4rem 0 .7rem; }
+  .cd-head h2 { margin: 0; font-size: 1.05rem; color: var(--navy-800); }
+  .cd-head .m { color: var(--ink-500); font-size: .84rem; }
+
+  .cd-date { margin-bottom: 1rem; overflow: hidden; }
+  .cd-date-head { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; padding: .85rem 1.25rem; background: var(--navy-50); border-bottom: 1px solid var(--navy-100); }
+  .cd-date-head h3 { margin: 0; font-size: 1rem; color: var(--navy-800); }
+  .cd-date-head .tot { margin-left: auto; font-weight: 700; color: var(--navy-800); }
+  .cd-adv { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: .5rem 1rem; align-items: center; padding: .75rem 1.25rem; border-bottom: 1px solid var(--navy-100); }
+  .cd-adv:last-child { border-bottom: 0; }
+  .cd-adv .nm { font-weight: 600; color: var(--navy-800); }
+  .cd-adv .trips { grid-column: 1 / -1; font-size: .8rem; color: var(--ink-500); }
+  .cd-adv .trips span { display: inline-block; margin-right: .9rem; }
+  .cd-money { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+  .cd-table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+  .cd-table th { text-align: left; font-size: .68rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-400); padding: .6rem .8rem; border-bottom: 1px solid var(--navy-100); white-space: nowrap; }
+  .cd-table th.r, .cd-table td.r { text-align: right; }
+  .cd-table td { padding: .65rem .8rem; border-bottom: 1px solid var(--navy-100); vertical-align: top; }
+  .cd-table tr.open > td { background: var(--navy-50); border-bottom-color: transparent; }
+  .cd-table tr.sub td { background: var(--navy-50); padding: .2rem .8rem .9rem; }
+  .cd-scroll { overflow-x: auto; }
+  .cd-lines { width: 100%; border-collapse: collapse; font-size: .82rem; background: #fff; border: 1px solid var(--navy-100); border-radius: 8px; }
+  .cd-lines td, .cd-lines th { padding: .45rem .7rem; border-bottom: 1px solid var(--navy-100); text-align: left; }
+  .cd-lines th { font-size: .66rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-400); }
+  .cd-lines td.r, .cd-lines th.r { text-align: right; }
+  .cd-lines select { width: auto; font-size: .8rem; padding: .2rem 1.6rem .2rem .5rem; }
+  .cd-chips { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .9rem; }
+  .cd-chip { font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer; border: 1px solid var(--navy-200); background: #fff; color: var(--navy-700); border-radius: 999px; padding: .3rem .8rem; }
+  .cd-chip[aria-pressed="true"] { background: var(--navy-800); border-color: var(--navy-800); color: #fff; }
+  .cd-chip .n { font-weight: 400; opacity: .75; margin-left: .3rem; }
+
+  /* The check form */
+  .cd-drop { border: 2px dashed var(--navy-300); border-radius: 12px; padding: 1.1rem; text-align: center; color: var(--ink-500); background: var(--navy-50); font-size: .88rem; }
+  .cd-drop.over { background: var(--teal-50); border-color: var(--teal-500); }
+  .cd-drop strong { color: var(--navy-800); }
+  .cd-line { border: 1px solid var(--navy-100); border-radius: 10px; padding: .8rem .9rem; margin-bottom: .7rem; background: #fff; }
+  .cd-line .top { display: grid; grid-template-columns: minmax(0, 1fr) 7.5rem 9.5rem auto; gap: .6rem; align-items: end; }
+  .cd-line label { display: block; font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-400); margin-bottom: .2rem; }
+  .cd-line .who { font-weight: 600; color: var(--navy-800); }
+  .cd-line .sub { font-size: .78rem; color: var(--ink-500); margin-top: .15rem; }
+  .cd-line .page { font-size: .76rem; color: var(--ink-500); background: var(--navy-50); border-radius: 6px; padding: .35rem .55rem; margin-bottom: .55rem; word-break: break-word; }
+  .cd-line .warn { font-size: .78rem; color: var(--amber-600); margin-top: .4rem; }
+  .cd-pick { display: flex; flex-direction: column; gap: .3rem; margin-top: .45rem; }
+  .cd-pick button { font: inherit; text-align: left; cursor: pointer; background: #fff; border: 1px solid var(--navy-200); border-radius: 8px; padding: .4rem .6rem; font-size: .82rem; }
+  .cd-pick button:hover { border-color: var(--teal-500); background: var(--teal-50); }
+  .cd-sum { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: baseline; margin: .4rem 0 0; font-size: .86rem; color: var(--ink-700); }
+  .cd-sum b { color: var(--navy-800); }
+  @media (max-width: 700px) {
+    .cd-line .top { grid-template-columns: 1fr 1fr; }
+    .cd-adv { grid-template-columns: 1fr auto; }
+    .cd-adv .acts { grid-column: 1 / -1; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Commissions</h1>
+        <p class="sub">Money in from vendors, and when each advisor is paid for it.</p></div>
+      <div class="toolbar" style="margin:0;">
+        <select id="year" aria-label="Year"></select>
+        <button class="btn btn-primary btn-sm" id="record">Record a check</button>
+      </div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <section class="cd-tiles" id="tiles"></section>
+      <div id="panel"><p class="spinner">Loading...</p></div>
+    </div>
+  </div>
+</div>
+
+<dialog id="chk-dlg" style="max-width:min(60rem, 96vw);width:96vw;">
+  <form method="dialog" id="chk-form" novalidate>
+    <div class="card-head"><h2 id="chk-title">Record a check</h2>
+      <button class="btn btn-ghost btn-sm" type="button" id="chk-close">Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" id="chk-err" hidden></div>
+      <div class="cd-drop" id="drop">
+        <strong>Drop the vendor's payment remittance (PDF) here</strong> to fill this in, or type it below.
+        <div style="margin-top:.6rem;"><label class="btn btn-secondary btn-sm" for="chk-file" style="cursor:pointer;">Choose a PDF</label>
+          <input id="chk-file" type="file" accept="application/pdf,.pdf" hidden></div>
+      </div>
+
+      <div class="field-row" style="margin-top:1rem;">
+        <div class="field"><label for="vendorName">Vendor</label>
+          <input id="vendorName" maxlength="120" list="vendor-names" autocomplete="off"></div>
+        <div class="field"><label for="reference">Check number</label>
+          <input id="reference" maxlength="80" autocomplete="off"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="receivedOn">Received on</label>
+          <input id="receivedOn" type="date"></div>
+        <div class="field"><label for="statement">What the check is for</label>
+          <input id="statement" inputmode="decimal" placeholder="198.00" autocomplete="off">
+          <p class="field-hint">The statement amount, before anything was taken out.</p></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="fee">Fee taken out</label>
+          <input id="fee" inputmode="decimal" placeholder="0.00" autocomplete="off">
+          <p class="field-hint">The agency's expense. It never comes out of an advisor's share.</p></div>
+        <div class="field"><label for="feeNote">What the fee was</label>
+          <input id="feeNote" maxlength="200" placeholder="Check processing fee"></div>
+      </div>
+      <p class="cd-sum" id="net"></p>
+
+      <h3 style="margin:1.3rem 0 .6rem;font-size:.95rem;color:var(--navy-800);">What it pays for</h3>
+      <div id="lines"></div>
+      <button class="btn btn-secondary btn-sm" type="button" id="add-line">Add a line</button>
+      <p class="cd-sum" id="sum"></p>
+      <div class="field" style="margin-top:1rem;"><label for="notes">Notes</label>
+        <input id="notes" maxlength="1000"></div>
+    </div>
+    <div class="card-foot">
+      <span class="muted" id="chk-hint" style="margin-right:auto;font-size:.8rem;"></span>
+      <button class="btn btn-primary" type="submit" id="chk-save">Save the check</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="pay-dlg">
+  <form method="dialog" id="pay-form">
+    <div class="card-head"><h2 id="pay-title">Mark as paid</h2>
+      <button class="btn btn-ghost btn-sm" type="button" id="pay-close">Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" id="pay-err" hidden></div>
+      <p id="pay-what" style="margin-top:0;"></p>
+      <div class="field-row">
+        <div class="field"><label for="paidOn">Paid on</label><input id="paidOn" type="date"></div>
+        <div class="field"><label for="method">How</label>
+          <select id="method"></select></div>
+      </div>
+      <div class="field"><label for="payRef">Check number or transfer reference</label>
+        <input id="payRef" maxlength="80" autocomplete="off"></div>
+      <p class="field-hint">This records that you have paid them. It does not send any money.</p>
+    </div>
+    <div class="card-foot"><button class="btn btn-primary" type="submit">Mark as paid</button></div>
+  </form>
+</dialog>
+<datalist id="vendor-names"></datalist>
+
+<script type="module">
+import { api, mountShell, esc, money, dateFmt, showError } from '/js/app.js';
+await mountShell({ admin: true });
+
+const $ = (id) => document.getElementById(id);
+const panel = $('panel');
+const errEl = $('err');
+
+let d = null;
+let view = 'scheduled';
+let year = String(new Date().getFullYear());
+let openCheck = null;
+let bucket = '';
+let methods = [{ key: 'check', label: 'Check' }, { key: 'ach', label: 'Bank transfer' },
+  { key: 'cash', label: 'Cash' }, { key: 'other', label: 'Something else' }];
+
+const short = (iso) => (iso ? dateFmt(iso).replace(/,? \d{4}$/, '') : '');
+const cents = (v) => Math.round(Number(String(v ?? '').replace(/[^0-9.-]/g, '')) * 100) || 0;
+const plain = (c) => (c / 100).toFixed(2);
+
+// ---------------------------------------------------------------------------
+// The tiles
+// ---------------------------------------------------------------------------
+
+function drawTiles() {
+  const t = d.tiles;
+  const next = d.payDates.find((p) => p.isNext);
+  const tile = (key, label, value, meta) => `
+    <button class="cd-tile" type="button" data-view="${key}" aria-pressed="${view === key}">
+      <p class="label">${label}</p><p class="value">${value}</p><p class="meta">${meta}</p></button>`;
+  $('tiles').innerHTML = [
+    tile('received', `Received in ${esc(year)}`, money(t.receivedCents),
+      t.feesCents ? `less ${money(t.feesCents)} fees = ${money(t.netCents)} at the bank` : `${t.receivedLines} line${t.receivedLines === 1 ? '' : 's'} from vendors`),
+    tile('paid', `Paid out in ${esc(year)}`, money(t.paidOutCents),
+      `${t.payouts} payout${t.payouts === 1 ? '' : 's'} to advisors`),
+    tile('scheduled', 'Scheduled to pay out', money(t.scheduledCents),
+      next ? `next payout ${esc(short(d.nextPayDate))}: ${money(next.totalCents)}` : `next pay date ${esc(short(d.nextPayDate))}`),
+    tile('owed', 'Still owed to us', money(t.owedToUsCents),
+      `${t.owedToUsCount} reservation${t.owedToUsCount === 1 ? '' : 's'} not yet paid`),
+  ].join('');
+}
+
+// ---------------------------------------------------------------------------
+// The lists
+// ---------------------------------------------------------------------------
+
+function drawScheduled() {
+  if (!d.payDates.length) {
+    return `<div class="card"><div class="empty"><h3>Nothing scheduled</h3>
+      <p>Record a check and choose the day it will be paid out, and it will show here.</p></div></div>`;
+  }
+  return d.payDates.map((p) => `
+    <section class="card cd-date">
+      <div class="cd-date-head">
+        <h3>${esc(dateFmt(p.date))}</h3>
+        <span class="badge ${p.isNext ? 'badge-green' : 'badge-navy'}">${p.isNext ? 'Next payout' : 'Scheduled'}</span>
+        <span class="muted" style="font-size:.8rem;">${p.isNext
+    ? 'Advisors can see this one' : 'Advisors cannot see this yet'}</span>
+        <span class="tot cd-money">${money(p.totalCents)}</span>
+      </div>
+      ${p.advisors.map((a) => `
+        <div class="cd-adv">
+          <span class="nm">${esc(a.name)}</span>
+          <span class="cd-money">${money(a.cents)}</span>
+          <span class="acts">${p.isNext
+    ? `<button class="btn btn-secondary btn-sm" type="button" data-pay="${esc(a.userId)}" data-date="${esc(p.date)}"
+                 data-name="${esc(a.name)}" data-cents="${a.cents}">Mark paid</button>` : ''}</span>
+          <div class="trips">${a.trips.map((t) => `<span>${esc(t.client)}${t.supplier ? ` (${esc(t.supplier)})` : ''}: ${money(t.cents)}</span>`).join('')}</div>
+        </div>`).join('')}
+    </section>`).join('');
+}
+
+function checkRow(c) {
+  const open = openCheck === c.id;
+  const gap = c.unmatched_cents;
+  return `<tr class="${open ? 'open' : ''}" data-row="${esc(c.id)}" style="cursor:pointer;">
+      <td>${esc(c.received_on ? dateFmt(c.received_on) : '')}</td>
+      <td><strong>${esc(c.vendor_name)}</strong>${c.reference ? `<div class="muted">${esc(c.reference)}</div>` : ''}</td>
+      <td class="r cd-money">${money(c.statement_cents)}</td>
+      <td class="r cd-money">${c.fee_cents ? `${money(c.fee_cents)}` : '<span class="muted">none</span>'}</td>
+      <td class="r cd-money">${money(c.net_cents)}</td>
+      <td>${Math.abs(gap) <= 1
+    ? '<span class="badge badge-green">All matched</span>'
+    : `<span class="badge badge-amber">${money(gap)} not matched</span>`}
+        <span class="muted"> ${c.lines} line${c.lines === 1 ? '' : 's'}</span></td>
+    </tr>${open ? `<tr class="sub"><td colspan="6">${checkDetail(c)}</td></tr>` : ''}`;
+}
+
+function payDateSelect(line) {
+  const dates = [...new Set([...(d.payDatesList || []), line.payout_on].filter(Boolean))].sort();
+  return `<select data-receipt="${esc(line.id)}">${dates.map((x) =>
+    `<option value="${esc(x)}" ${x === line.payout_on ? 'selected' : ''}>${esc(dateFmt(x))}</option>`).join('')}</select>`;
+}
+
+function checkDetail(c) {
+  const lines = c.lineItems || [];
+  return `<div style="margin-top:.4rem;">
+    ${c.fee_note ? `<p class="muted" style="margin:.2rem 0 .6rem;">Fee: ${esc(c.fee_note)}${c.notes ? `. ${esc(c.notes)}` : ''}</p>`
+    : (c.notes ? `<p class="muted" style="margin:.2rem 0 .6rem;">${esc(c.notes)}</p>` : '')}
+    ${lines.length ? `<table class="cd-lines"><thead><tr><th>Reservation</th><th>Advisor</th><th class="r">Amount</th><th>Paid out with</th></tr></thead><tbody>
+      ${lines.map((l) => `<tr><td><a href="/app/reservation?id=${encodeURIComponent(l.booking_id)}">${esc(l.client_name)}</a>
+        ${l.supplier ? `<span class="muted"> ${esc(l.supplier)}</span>` : ''}</td>
+        <td>${esc(l.advisor_name)}</td><td class="r cd-money">${money(l.amount_cents)}</td>
+        <td>${l.payout_on ? payDateSelect(l) : '<span class="muted">next payout</span>'}</td></tr>`).join('')}
+      </tbody></table>` : '<p class="muted">No lines yet.</p>'}
+    <div style="display:flex;gap:.5rem;margin-top:.7rem;flex-wrap:wrap;">
+      <button class="btn btn-secondary btn-sm" type="button" data-addline="${esc(c.id)}">Add a line</button>
+      <button class="btn btn-ghost btn-sm" type="button" data-delcheck="${esc(c.id)}">Delete this check</button>
+    </div></div>`;
+}
+
+function drawReceived() {
+  if (!d.checks.length) {
+    return `<div class="card"><div class="empty"><h3>No checks in ${esc(year)}</h3>
+      <p>Press Record a check when one arrives.</p></div></div>`;
+  }
+  return `<div class="card cd-scroll"><table class="cd-table"><thead><tr>
+    <th>Received</th><th>Vendor</th><th class="r">Statement</th><th class="r">Fee</th><th class="r">At the bank</th><th></th>
+    </tr></thead><tbody>${d.checks.map(checkRow).join('')}</tbody></table></div>`;
+}
+
+function drawPaid() {
+  if (!d.paid.length) {
+    return `<div class="card"><div class="empty"><h3>Nothing paid out in ${esc(year)}</h3>
+      <p>Mark a payout as paid from Scheduled to pay out, and it will be listed here.</p></div></div>`;
+  }
+  return `<div class="card cd-scroll"><table class="cd-table"><thead><tr>
+    <th>Paid on</th><th>Advisor</th><th class="r">Amount</th><th>How</th><th class="r">Reservations</th><th></th>
+    </tr></thead><tbody>${d.paid.map((p) => `<tr>
+      <td>${esc(p.paid_on ? dateFmt(p.paid_on) : '')}</td><td>${esc(p.advisor_name)}</td>
+      <td class="r cd-money">${money(p.amount_cents)}</td>
+      <td>${esc((methods.find((m) => m.key === p.method) || { label: p.method || '' }).label)}${p.reference ? ` <span class="muted">${esc(p.reference)}</span>` : ''}</td>
+      <td class="r">${p.trips}</td>
+      <td class="r"><button class="btn btn-ghost btn-sm" type="button" data-delpay="${esc(p.id)}">Undo</button></td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+function drawOwed() {
+  const rows = d.outstanding.filter((o) => !bucket || o.bucket === bucket);
+  const chips = `<div class="cd-chips">
+    <button class="cd-chip" type="button" data-bucket="" aria-pressed="${bucket === ''}">All<span class="n">${d.outstanding.length}</span></button>
+    ${d.buckets.map((b) => `<button class="cd-chip" type="button" data-bucket="${esc(b.key)}" aria-pressed="${bucket === b.key}"
+      title="${esc(b.hint)}">${esc(b.label)}<span class="n">${b.count} · ${money(b.cents)}</span></button>`).join('')}</div>`;
+  if (!rows.length) {
+    return `${chips}<div class="card"><div class="empty"><h3>Nothing owed here</h3>
+      <p>Every reservation in this group has had its commission paid.</p></div></div>`;
+  }
+  return `${chips}<div class="card cd-scroll"><table class="cd-table"><thead><tr>
+    <th>Reservation</th><th>Advisor</th><th>Travelled</th><th class="r">Days</th><th class="r">Expected</th><th class="r">Received</th><th class="r">Owed</th>
+    </tr></thead><tbody>${rows.map((o) => `<tr>
+      <td><a href="/app/reservation?id=${encodeURIComponent(o.id)}">${esc(o.clientName)}</a>
+        <div class="muted">${esc([o.supplier, o.productName].filter(Boolean).join(' · '))}</div></td>
+      <td>${esc(o.advisorName || '')}</td>
+      <td>${o.travelDate ? esc(dateFmt(o.travelDate)) : '<span class="muted">no date</span>'}</td>
+      <td class="r">${o.daysSince === null ? '' : (o.daysSince < 0 ? `<span class="muted">in ${-o.daysSince}</span>` : o.daysSince)}</td>
+      <td class="r cd-money">${money(o.expectedCents)}</td><td class="r cd-money">${money(o.receivedCents)}</td>
+      <td class="r cd-money"><strong>${money(o.owedCents)}</strong></td></tr>`).join('')}</tbody></table></div>
+    ${d.outstandingTruncated ? '<p class="muted">Showing the oldest 500.</p>' : ''}`;
+}
+
+const TITLES = {
+  scheduled: ['Payouts by date', 'Only the next one is visible to advisors. Each advisor sees their own, and nothing scheduled further out.'],
+  received: ['Checks received', 'Click a check to see its lines, change when each is paid out, or add one.'],
+  paid: ['Paid out', 'What the agency has paid its advisors.'],
+  owed: ['Still owed to us', 'Commission expected from vendors that has not arrived, counted from the day they travelled.'],
+};
+
+function draw() {
+  drawTiles();
+  const [title, sub] = TITLES[view];
+  const body = view === 'scheduled' ? drawScheduled() : view === 'received' ? drawReceived()
+    : view === 'paid' ? drawPaid() : drawOwed();
+  panel.innerHTML = `<div class="cd-head"><h2>${esc(title)}</h2><span class="m">${esc(sub)}</span></div>${body}`;
+}
+
+// ---------------------------------------------------------------------------
+// Loading
+// ---------------------------------------------------------------------------
+
+async function load() {
+  try {
+    d = await api(`/api/commission-desk?year=${encodeURIComponent(year)}`);
+    // Each check carries its own lines, so opening one needs no second request.
+    const lines = d.checkLines || {};
+    d.checks.forEach((c) => { c.lineItems = lines[c.id] || []; });
+    year = d.year;
+    $('year').innerHTML = d.years.map((y) => `<option ${y === year ? 'selected' : ''}>${esc(y)}</option>`).join('');
+    draw();
+  } catch (e) { showError(panel, e); }
+}
+
+$('year').addEventListener('change', (e) => { year = e.target.value; openCheck = null; load(); });
+$('tiles').addEventListener('click', (e) => {
+  const t = e.target.closest('[data-view]');
+  if (t) { view = t.dataset.view; draw(); }
+});
+
+panel.addEventListener('click', async (e) => {
+  const t = e.target.closest('button, tr[data-row]');
+  if (!t) return;
+  if (t.dataset.bucket !== undefined) { bucket = t.dataset.bucket; draw(); return; }
+  if (t.dataset.pay) { openPay(t.dataset); return; }
+  if (t.dataset.addline) { openCheckDialog(d.checks.find((c) => c.id === t.dataset.addline)); return; }
+  if (t.dataset.delcheck) { await removeCheck(t.dataset.delcheck); return; }
+  if (t.dataset.delpay) { await undoPayout(t.dataset.delpay); return; }
+  if (t.dataset.row && !e.target.closest('select, a')) {
+    openCheck = openCheck === t.dataset.row ? null : t.dataset.row;
+    draw();
+  }
+});
+
+panel.addEventListener('change', async (e) => {
+  const sel = e.target.closest('select[data-receipt]');
+  if (!sel) return;
+  try {
+    await api(`/api/commissions/receipts/${encodeURIComponent(sel.dataset.receipt)}/pay-date`,
+      { method: 'PUT', body: { payoutOn: sel.value } });
+    errEl.innerHTML = '<div class="notice notice-ok">Pay date changed.</div>';
+    await load();
+  } catch (err) { showError(errEl, err); }
+});
+
+async function removeCheck(id) {
+  if (!confirm('Delete this check and its lines? Money assigned to a pay date comes off the schedule.')) return;
+  try {
+    await api(`/api/commission-checks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    openCheck = null;
+    errEl.innerHTML = '<div class="notice notice-ok">The check was removed.</div>';
+    await load();
+  } catch (e) { showError(errEl, e); }
+}
+
+async function undoPayout(id) {
+  if (!confirm('Take this payout back? What it covered goes back to being owed.')) return;
+  try {
+    await api(`/api/payouts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    errEl.innerHTML = '<div class="notice notice-ok">The payout was taken back.</div>';
+    await load();
+  } catch (e) { showError(errEl, e); }
+}
+
+// ---------------------------------------------------------------------------
+// Marking an advisor paid
+// ---------------------------------------------------------------------------
+
+const payDlg = $('pay-dlg');
+let paying = null;
+
+function openPay(ds) {
+  paying = ds;
+  $('pay-err').hidden = true;
+  $('pay-what').innerHTML = `Pay <strong>${esc(ds.name)}</strong> ${money(Number(ds.cents))} for the ${esc(dateFmt(ds.date))} payout.`;
+  $('paidOn').value = d.today;
+  $('method').innerHTML = methods.map((m) => `<option value="${esc(m.key)}">${esc(m.label)}</option>`).join('');
+  $('payRef').value = '';
+  payDlg.showModal();
+}
+$('pay-close').addEventListener('click', () => payDlg.close());
+$('pay-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/api/payouts', { method: 'POST', body: {
+      userId: paying.pay, payDate: paying.date, paidOn: $('paidOn').value,
+      method: $('method').value, reference: $('payRef').value,
+    } });
+    payDlg.close();
+    errEl.innerHTML = `<div class="notice notice-ok">Recorded as paid.</div>`;
+    await load();
+  } catch (err) { showError($('pay-err'), err); }
+});
+
+// ---------------------------------------------------------------------------
+// Recording a check
+// ---------------------------------------------------------------------------
+
+const dlg = $('chk-dlg');
+let lines = [];
+let addingTo = null;
+let filename = '';
+let timers = new Map();
+
+const blankLine = () => ({
+  bookingId: null, label: '', sub: '', advisorName: '', expected: 0, received: 0, amount: '', touched: false,
+  payoutOn: '', suggested: '', page: '', candidates: [], query: '', results: [], returnDate: '', departDate: '',
+});
+
+function chooseReservation(line, r) {
+  line.bookingId = r.id;
+  line.label = r.clientName;
+  line.sub = [r.supplier, r.productName, r.confirmationNumber].filter(Boolean).join(' · ');
+  line.advisorName = r.advisorName || '';
+  line.expected = r.expectedCents;
+  line.received = r.receivedCents;
+  line.suggested = r.suggestedPayOn;
+  line.payoutOn = line.payoutOn || r.suggestedPayOn;
+  line.returnDate = r.returnDate || '';
+  line.departDate = r.departDate || '';
+  line.candidates = [];
+  line.results = [];
+  line.query = '';
+}
+
+function totals() {
+  const statement = cents($('statement').value);
+  const fee = cents($('fee').value);
+  const matched = lines.reduce((n, l) => n + cents(l.amount), 0);
+  return { statement, fee, matched, gap: statement - matched };
+}
+
+function drawNet() {
+  const t = totals();
+  $('net').innerHTML = t.statement
+    ? `<span>At the bank: <b>${money(t.statement - t.fee)}</b></span>${t.fee ? `<span>Fee: <b>${money(t.fee)}</b>, paid by the agency</span>` : ''}`
+    : '';
+}
+
+function lineHtml(l, i) {
+  const amt = cents(l.amount);
+  const short = l.bookingId && l.expected && amt && amt < l.expected - 1;
+  const travel = l.returnDate || l.departDate;
+  const dates = [...new Set([...(d.payDatesList || []), l.payoutOn].filter(Boolean))].sort();
+  return `<div class="cd-line" data-i="${i}">
+    ${l.page ? `<div class="page">From the page: ${esc(l.page)}</div>` : ''}
+    <div class="top">
+      <div>
+        <label>Reservation</label>
+        ${l.bookingId
+    ? `<div class="who">${esc(l.label)} <button class="btn btn-ghost btn-sm" type="button" data-change="${i}">Change</button></div>
+           <div class="sub">${esc(l.sub)}${l.advisorName ? ` · ${esc(l.advisorName)}` : ''}${l.expected ? ` · expected ${money(l.expected)}` : ''}</div>`
+    : `<input data-q="${i}" placeholder="Search by client, confirmation number or vendor" value="${esc(l.query)}" autocomplete="off">`}
+      </div>
+      <div><label>Amount</label><input data-amount="${i}" inputmode="decimal" value="${esc(l.amount)}" placeholder="0.00" autocomplete="off"></div>
+      <div><label>Paid out with</label>
+        <select data-pay="${i}" ${l.bookingId ? '' : 'disabled'}>${dates.map((x) =>
+    `<option value="${esc(x)}" ${x === l.payoutOn ? 'selected' : ''}>${esc(dateFmt(x))}${x === l.suggested ? ' (suggested)' : ''}</option>`).join('')}</select></div>
+      <div><button class="btn btn-ghost btn-sm" type="button" data-remove="${i}" aria-label="Remove this line">&times;</button></div>
+    </div>
+    ${!l.bookingId && (l.candidates.length || l.results.length) ? `<div class="cd-pick">${[...l.candidates, ...l.results].map((r) =>
+    `<button type="button" data-use="${i}" data-id="${esc(r.id)}">${esc(r.clientName)}
+      <span class="muted"> ${esc([r.supplier, r.productName, r.confirmationNumber].filter(Boolean).join(' · '))} · ${esc(r.advisorName || '')}${
+  r.departDate ? ` · ${esc(dateFmt(r.departDate))}` : ''}</span></button>`).join('')}</div>` : ''}
+    ${l.bookingId && travel && l.payoutOn ? `<div class="sub">${l.returnDate ? 'Back' : 'Leaves'} ${esc(dateFmt(travel))}, so paid out ${esc(dateFmt(l.suggested))} unless you choose another day.</div>` : ''}
+    ${short ? `<div class="warn">Expected ${money(l.expected)}, this is ${money(l.expected - amt)} less. If the commission was entered wrong on the reservation, correct it there.</div>` : ''}
+  </div>`;
+}
+
+function drawLines() {
+  $('lines').innerHTML = lines.length ? lines.map(lineHtml).join('')
+    : '<p class="muted">Add a line for each reservation this check pays for.</p>';
+  const t = totals();
+  $('sum').innerHTML = t.statement
+    ? `<span>Lines: <b>${money(t.matched)}</b> of <b>${money(t.statement)}</b></span>${Math.abs(t.gap) > 1
+      ? `<span style="color:var(--amber-600);">${money(t.gap)} not matched to a reservation yet. You can add it later.</span>` : '<span style="color:var(--green-600);">All matched</span>'}`
+    : '';
+  drawNet();
+}
+
+function resetForm() {
+  filename = '';
+  lines = [];
+  $('chk-err').hidden = true;
+  ['vendorName', 'reference', 'statement', 'fee', 'feeNote', 'notes'].forEach((k) => { $(k).value = ''; });
+  $('receivedOn').value = d.today;
+  $('chk-hint').textContent = '';
+}
+
+function openCheckDialog(existing) {
+  addingTo = existing || null;
+  resetForm();
+  $('drop').hidden = Boolean(existing);
+  $('chk-save').textContent = existing ? 'Add the line' : 'Save the check';
+  $('chk-title').textContent = existing ? `Add a line to the ${existing.vendor_name} check` : 'Record a check';
+  if (existing) {
+    ['vendorName', 'reference', 'statement', 'fee', 'feeNote', 'notes'].forEach((k) => { $(k).disabled = true; });
+    $('receivedOn').disabled = true;
+    $('vendorName').value = existing.vendor_name;
+    $('reference').value = existing.reference || '';
+    $('receivedOn').value = existing.received_on || '';
+    $('statement').value = plain(existing.statement_cents);
+    $('fee').value = existing.fee_cents ? plain(existing.fee_cents) : '';
+    $('feeNote').value = existing.fee_note || '';
+    $('chk-hint').textContent = `${money(existing.unmatched_cents)} of this check is not matched yet.`;
+    const l = blankLine();
+    l.amount = existing.unmatched_cents > 0 ? plain(existing.unmatched_cents) : '';
+    lines = [l];
+  } else {
+    ['vendorName', 'reference', 'statement', 'fee', 'feeNote', 'notes', 'receivedOn'].forEach((k) => { $(k).disabled = false; });
+    lines = [blankLine()];
+  }
+  drawLines();
+  dlg.showModal();
+}
+
+$('record').addEventListener('click', () => openCheckDialog(null));
+$('chk-close').addEventListener('click', () => dlg.close());
+$('add-line').addEventListener('click', () => { lines.push(blankLine()); drawLines(); });
+
+['statement', 'fee'].forEach((k) => $(k).addEventListener('input', () => {
+  // One line and nothing typed on it yet: it is the whole check, so it follows.
+  if (!addingTo && lines.length === 1 && !lines[0].touched) lines[0].amount = $('statement').value;
+  drawLines();
+}));
+
+$('lines').addEventListener('input', (e) => {
+  const i = Number(e.target.dataset.i || (e.target.closest('.cd-line') || {}).dataset?.i);
+  const line = lines[i];
+  if (!line) return;
+  if (e.target.dataset.amount !== undefined) {
+    line.amount = e.target.value; line.touched = true;
+    const t = totals();
+    $('sum').innerHTML = `<span>Lines: <b>${money(t.matched)}</b> of <b>${money(t.statement)}</b></span>${
+      Math.abs(t.gap) > 1 && t.statement ? `<span style="color:var(--amber-600);">${money(t.gap)} not matched yet</span>` : ''}`;
+    return;
+  }
+  if (e.target.dataset.q !== undefined) {
+    line.query = e.target.value;
+    clearTimeout(timers.get(i));
+    timers.set(i, setTimeout(async () => {
+      if (line.query.trim().length < 2) { line.results = []; drawLines(); return; }
+      try {
+        const out = await api(`/api/commission-checks/search?q=${encodeURIComponent(line.query.trim())}`);
+        line.results = out.reservations || [];
+        const focus = document.querySelector(`[data-q="${i}"]`);
+        const pos = focus ? focus.selectionStart : null;
+        drawLines();
+        const again = document.querySelector(`[data-q="${i}"]`);
+        if (again) { again.focus(); if (pos !== null) again.setSelectionRange(pos, pos); }
+      } catch { /* the list just stays as it was */ }
+    }, 250));
+  }
+});
+
+$('lines').addEventListener('change', (e) => {
+  const sel = e.target.closest('select[data-pay]');
+  if (sel) lines[Number(sel.dataset.pay)].payoutOn = sel.value;
+});
+
+$('lines').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.remove !== undefined) { lines.splice(Number(b.dataset.remove), 1); drawLines(); }
+  else if (b.dataset.change !== undefined) {
+    const l = lines[Number(b.dataset.change)];
+    Object.assign(l, { bookingId: null, label: '', sub: '', suggested: '', payoutOn: '', returnDate: '', departDate: '' });
+    drawLines();
+  } else if (b.dataset.use !== undefined) {
+    const l = lines[Number(b.dataset.use)];
+    const r = [...l.candidates, ...l.results].find((x) => x.id === b.dataset.id);
+    if (r) { chooseReservation(l, r); drawLines(); }
+  }
+});
+
+// ---- Reading the PDF ------------------------------------------------------
+
+const drop = $('drop');
+async function readRemittance(file) {
+  $('chk-err').hidden = true;
+  $('chk-hint').textContent = `Reading ${file.name}...`;
+  try {
+    const res = await fetch('/api/commission-checks/read', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/pdf' }, body: file,
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || 'That file could not be read.');
+    const r = out.remittance;
+    filename = file.name;
+    d.payDatesList = out.payDates || d.payDatesList;
+    $('vendorName').value = r.payer || '';
+    $('reference').value = r.checkNumber || '';
+    $('statement').value = r.totalCents !== null ? plain(r.totalCents) : '';
+    lines = r.lines.map((l) => {
+      const x = blankLine();
+      x.amount = plain(l.amountCents);
+      x.touched = true;
+      x.page = [l.traveller ? `${l.traveller.last}/${l.traveller.first}` : '', l.locator ? `reference ${l.locator}` : '',
+        l.ticket ? `ticket ${l.ticket}` : '', l.travelDate ? `travel ${dateFmt(l.travelDate)}` : '',
+        l.agent ? `agent ${l.agent}` : ''].filter(Boolean).join(' · ');
+      x.candidates = l.candidates || [];
+      const pick = x.candidates.find((c) => c.id === l.pick);
+      if (pick) chooseReservation(x, pick);
+      return x;
+    });
+    if (!lines.length) lines = [blankLine()];
+    const unsure = lines.filter((l) => !l.bookingId).length;
+    $('chk-hint').textContent = `Read ${r.lines.length} line${r.lines.length === 1 ? '' : 's'}${unsure
+      ? `. ${unsure} need a reservation chosen.` : ', and found a reservation for each.'}${out.duplicate
+      ? ' A check with this number is already recorded.' : ''}`;
+    if (r.warnings && r.warnings.length) {
+      $('chk-err').textContent = r.warnings.join(' ');
+      $('chk-err').hidden = false;
+    }
+    drawLines();
+  } catch (e) {
+    $('chk-hint').textContent = '';
+    $('chk-err').textContent = e.message;
+    $('chk-err').hidden = false;
+  }
+}
+$('chk-file').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) readRemittance(f); });
+['dragenter', 'dragover'].forEach((n) => drop.addEventListener(n, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach((n) => drop.addEventListener(n, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', (e) => { const f = e.dataTransfer.files[0]; if (f) readRemittance(f); });
+
+// ---- Saving ---------------------------------------------------------------
+
+$('chk-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = $('chk-err');
+  err.hidden = true;
+  const payload = lines.filter((l) => l.bookingId || cents(l.amount)).map((l) => ({
+    bookingId: l.bookingId, amount: l.amount, payoutOn: l.payoutOn,
+  }));
+  if (payload.some((l) => !l.bookingId)) {
+    err.textContent = 'Choose a reservation for every line, or remove the ones that are not for a reservation yet.';
+    err.hidden = false;
+    return;
+  }
+  try {
+    if (addingTo) {
+      for (const l of payload) {
+        await api(`/api/commission-checks/${encodeURIComponent(addingTo.id)}/lines`, { method: 'POST', body: l });
+      }
+      dlg.close();
+      errEl.innerHTML = '<div class="notice notice-ok">The line was added.</div>';
+    } else {
+      const out = await api('/api/commission-checks', { method: 'POST', body: {
+        vendorName: $('vendorName').value, reference: $('reference').value, receivedOn: $('receivedOn').value,
+        statement: $('statement').value, fee: $('fee').value, feeNote: $('feeNote').value,
+        notes: $('notes').value, filename, lines: payload,
+      } });
+      dlg.close();
+      const when = payload.length ? [...new Set(payload.map((l) => l.payoutOn).filter(Boolean))].sort().map((x) => short(x)).join(', ') : '';
+      errEl.innerHTML = `<div class="notice notice-ok">Check recorded${when ? `, to be paid out ${esc(when)}` : ''}.${
+        Math.abs(out.unmatchedCents) > 1 ? ` ${money(out.unmatchedCents)} is not matched to a reservation yet.` : ''}</div>`;
+      view = 'received';
+      openCheck = out.id;
+    }
+    await load();
+  } catch (ex) {
+    err.textContent = ex.message;
+    err.hidden = false;
+  }
+});
+
+api('/api/vendors').then((v) => {
+  $('vendor-names').innerHTML = (v.vendors || []).map((x) => `<option value="${esc(x.name)}"></option>`).join('');
+}).catch(() => {});
+
+await load();
+</script>
+</body></html>

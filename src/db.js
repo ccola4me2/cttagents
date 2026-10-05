@@ -9,6 +9,7 @@ import { uid, now } from './util.js';
 import {
   SPLIT_PCT_SQL, ADVISOR_SHARE_SQL, UNSPLIT_SQL, EARNED_SQL, COMMISSION_RECEIVED,
 } from './split.js';
+import { hideAfterFor, statusShown } from './paydates.js';
 
 const USER_COLUMNS = `
   id, email, first_name, last_name, phone, agency_name, role, status,
@@ -372,7 +373,11 @@ export async function consumeResetToken(env, tokenHash) {
 export function visibilityScope(env, user, advisorId = null) {
   const agencyId = user.agency_id || null;
   if (user.role !== 'admin' || !agencyId) {
-    return { all: false, userId: user.id, agencyId, self: true };
+    // hideAfter is the last pay date whose commission this reader may see: an
+    // advisor is shown what has arrived and is assigned to the next pay date or
+    // earlier, and an owner is shown all of it. Every reader of commission money
+    // that takes a scope applies it, so the rule travels with the scope.
+    return { all: false, userId: user.id, agencyId, self: true, hideAfter: hideAfterFor(user) };
   }
   if (advisorId && advisorId !== 'all') {
     return { all: false, userId: advisorId, agencyId, self: advisorId === user.id };
@@ -1067,6 +1072,38 @@ export async function deleteBooking(env, id, userId) {
   return Boolean(res.meta && res.meta.changes > 0);
 }
 
+/**
+ * Reservations as the reader is allowed to see their commission.
+ *
+ * An advisor is not told a reservation's commission has been received while any
+ * of what arrived is still waiting for its pay date: it reads as pending until
+ * it is theirs. Owners see the status as it is. Takes one reservation or a list
+ * and returns the same shape.
+ */
+export async function maskCommissionStatus(env, user, rows) {
+  const hideAfter = hideAfterFor(user);
+  const list = Array.isArray(rows) ? rows : [rows];
+  if (!hideAfter) return rows;
+
+  const ids = list.filter((r) => r && r.commission_status === COMMISSION_RECEIVED).map((r) => r.id);
+  if (!ids.length) return rows;
+
+  const own = scopeWhere(selfScope(user), 'user_id');
+  const held = new Set();
+  for (let i = 0; i < ids.length; i += 200) {
+    const chunk = ids.slice(i, i + 200);
+    const { results } = await env.DB.prepare(
+      `SELECT DISTINCT booking_id FROM commission_receipts
+        WHERE ${own.sql} AND payout_on > ? AND booking_id IN (${chunk.map(() => '?').join(', ')})`
+    ).bind(...own.binds, hideAfter, ...chunk).all().catch(() => ({ results: [] }));
+    for (const r of results || []) held.add(r.booking_id);
+  }
+  if (!held.size) return rows;
+
+  const shown = list.map((r) => (r && held.has(r.id) ? { ...r, commission_status: 'pending' } : r));
+  return Array.isArray(rows) ? shown : shown[0];
+}
+
 /** Headline numbers for the dashboard and the reports page. */
 export async function bookingStats(env, scope) {
   const scoped = scopeWhere(scope, 'b.user_id');
@@ -1089,9 +1126,9 @@ export async function bookingStats(env, scope) {
        SUM(CASE WHEN b.status IN ('booked','travelled') THEN b.gross_cents ELSE 0 END) AS gross_cents,
        SUM(CASE WHEN b.status IN ('booked','travelled') THEN ${earned} ELSE 0 END) AS commission_cents,
        SUM(CASE WHEN b.status IN ('booked','travelled') THEN ${share} ELSE 0 END) AS commission_share_cents,
-       SUM(CASE WHEN b.commission_status = '${COMMISSION_RECEIVED}' THEN ${earned} ELSE 0 END)
+       SUM(CASE WHEN ${statusShown('b', scope.hideAfter)} = '${COMMISSION_RECEIVED}' THEN ${earned} ELSE 0 END)
          AS commission_paid_cents,
-       SUM(CASE WHEN b.commission_status = '${COMMISSION_RECEIVED}' THEN ${share} ELSE 0 END)
+       SUM(CASE WHEN ${statusShown('b', scope.hideAfter)} = '${COMMISSION_RECEIVED}' THEN ${share} ELSE 0 END)
          AS commission_paid_share_cents
      FROM bookings b LEFT JOIN users u ON u.id = b.user_id WHERE ${scoped.sql}`
   ).bind(...scoped.binds).first();
@@ -1284,7 +1321,7 @@ export async function productionByAdvisor(env, scope, sinceDate,
             COUNT(b.id) AS bookings,
             COALESCE(SUM(b.gross_cents), 0) AS gross_cents,
             COALESCE(SUM(${EARNED_SQL('b.commission_cents', 'b.commission_status')}), 0) AS commission_cents,
-            COALESCE(SUM(CASE WHEN b.commission_status = '${COMMISSION_RECEIVED}'
+            COALESCE(SUM(CASE WHEN ${statusShown('b', scope.hideAfter)} = '${COMMISSION_RECEIVED}'
               THEN ${EARNED_SQL('b.commission_cents', 'b.commission_status')} END), 0)
               AS commission_paid_cents,
             -- What this advisor keeps, and what the agency keeps out of what
