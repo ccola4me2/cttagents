@@ -305,7 +305,7 @@ function render() {
                   ${(d.commissionKinds || []).map((k) => `<option value="${esc(k.kind)}">${
                     esc(k.label)}</option>`).join('')}
                 </select></div>
-              <div class="field" style="margin:0;"><label>Pay it out with</label>
+              <div class="field" style="margin:0;"><label>Pay out date</label>
                 <select name="payoutOn" style="width:11rem;">${payOptions(r)}</select></div>
               <div class="field" style="margin:0;"><label>Reference</label>
                 <input name="reference" maxlength="80" style="width:9rem;"></div>

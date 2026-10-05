@@ -1014,7 +1014,7 @@ function drawCommission() {
           <input id="r-on" name="receivedOn" type="date" value="${esc(d.today)}"></div>
       </div>
       <div class="field-row">
-        <div class="field"><label for="r-pay">Pay it out with</label>
+        <div class="field"><label for="r-pay">Pay out date</label>
           <select id="r-pay" name="payoutOn">${payChoices(c, c.suggestedPayOn)}</select>
           <p class="field-hint">${esc(payHint(c.suggestedPayOn))}</p></div>
         <div class="field"><label for="r-kind">Which part</label>
@@ -1033,14 +1033,14 @@ function drawCommission() {
     </form>
     ${rows.length ? `<div class="table-wrap"><table>
       <thead><tr><th>Arrived</th><th>Which part</th><th>Reference</th>
-        <th class="num">Amount</th><th>Paid out with</th><th></th></tr></thead>
+        <th class="num">Amount</th><th>Pay out date</th><th></th></tr></thead>
       <tbody>${rows.map((r) => `<tr>
         <td>${esc(r.received_on ? short(r.received_on) : 'no date')}</td>
         <td>${esc(receiptWord(r.kind))}</td>
         <td>${esc(r.reference || '-')}</td>
         <td class="num">${money(r.amount_cents)}</td>
         <td>${c.mayRecord
-      ? `<select data-paydate="${esc(r.id)}" aria-label="Paid out with">${payChoices(c, r.payout_on, true)}</select>`
+      ? `<select data-paydate="${esc(r.id)}" aria-label="Pay out date">${payChoices(c, r.payout_on, true)}</select>`
       : esc(r.payout_on ? short(r.payout_on) : 'next payout')}</td>
         <td class="num">${c.mayRecord
       ? `<button class="btn btn-ghost btn-sm" data-drop-receipt="${esc(r.id)}">Remove</button>` : ''}</td>

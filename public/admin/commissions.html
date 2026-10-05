@@ -264,7 +264,7 @@ function checkDetail(c) {
   return `<div style="margin-top:.4rem;">
     ${c.fee_note ? `<p class="muted" style="margin:.2rem 0 .6rem;">Fee: ${esc(c.fee_note)}${c.notes ? `. ${esc(c.notes)}` : ''}</p>`
     : (c.notes ? `<p class="muted" style="margin:.2rem 0 .6rem;">${esc(c.notes)}</p>` : '')}
-    ${lines.length ? `<table class="cd-lines"><thead><tr><th>Reservation</th><th>Advisor</th><th class="r">Amount</th><th>Paid out with</th></tr></thead><tbody>
+    ${lines.length ? `<table class="cd-lines"><thead><tr><th>Reservation</th><th>Advisor</th><th class="r">Amount</th><th>Pay out date</th></tr></thead><tbody>
       ${lines.map((l) => `<tr><td><a href="/app/reservation?id=${encodeURIComponent(l.booking_id)}">${esc(l.client_name)}</a>
         ${l.supplier ? `<span class="muted"> ${esc(l.supplier)}</span>` : ''}</td>
         <td>${esc(l.advisor_name)}</td><td class="r cd-money">${money(l.amount_cents)}</td>
@@ -288,7 +288,7 @@ function drawReceived() {
     ? `<div class="cd-head"><h2>Recorded one reservation at a time</h2>
       <span class="m">Entered on the reservation itself, so there is no check to show a fee or a pay date for.</span></div>
       <div class="card cd-scroll"><table class="cd-table"><thead><tr>
-      <th>Received</th><th>Reservation</th><th>Advisor</th><th class="r">Amount</th><th>Paid out with</th></tr></thead><tbody>
+      <th>Received</th><th>Reservation</th><th>Advisor</th><th class="r">Amount</th><th>Pay out date</th></tr></thead><tbody>
       ${d.loose.map((r) => `<tr><td>${esc(r.received_on ? dateFmt(r.received_on) : '')}</td>
         <td><a href="/app/reservation?id=${encodeURIComponent(r.booking_id)}">${esc(r.client_name)}</a>
           ${r.supplier ? `<span class="muted"> ${esc(r.supplier)}</span>` : ''}</td>
@@ -517,7 +517,7 @@ function lineHtml(l, i) {
     : `<input data-q="${i}" placeholder="Search by client, confirmation number or vendor" value="${esc(l.query)}" autocomplete="off">`}
       </div>
       <div><label>Amount</label><input data-amount="${i}" inputmode="decimal" value="${esc(l.amount)}" placeholder="0.00" autocomplete="off"></div>
-      <div><label>Paid out with</label>
+      <div><label>Pay out date</label>
         <select data-pay="${i}">${l.payoutOn ? '' : `<option value="" selected>${l.bookingId ? 'Next pay date' : 'Suggested for the trip'}</option>`}${dates.map((x) =>
     `<option value="${esc(x)}" ${x === l.payoutOn ? 'selected' : ''}>${esc(dateFmt(x))}${x === l.suggested ? ' (suggested)' : ''}</option>`).join('')}</select></div>
       <div><button class="btn btn-ghost btn-sm" type="button" data-remove="${i}" aria-label="Remove this line">&times;</button></div>
