@@ -9173,6 +9173,12 @@ async function main() {
     vendorName: 'Smoke Vendor', reference: `CHK3-${stamp}`, statement: '10.00', fee: '20.00', lines: [] });
   check(bigFee.status === 400, 'and so is a fee bigger than the check', `status ${bigFee.status}`);
 
+  // Finding a reservation says what the advisor keeps of it, so a line can show the share.
+  const found = await call(admin, 'GET', `/api/commission-checks/search?q=${encodeURIComponent(`Check ${stamp}`)}`);
+  const foundTrip = (found.data?.reservations || []).find((r) => r.id === tripId);
+  check(foundTrip && typeof foundTrip.splitPct === 'number' && foundTrip.splitPct >= 0 && foundTrip.splitPct <= 100,
+    'a search result carries the split the advisor keeps', JSON.stringify(foundTrip && foundTrip.splitPct));
+
   // The owner sees all of it.
   const ownerRec = await call(admin, 'GET', `/api/bookings/${tripId}/record`);
   const receipt = (ownerRec.data?.commission?.receipts || [])[0];

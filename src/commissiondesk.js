@@ -82,6 +82,8 @@ async function findReservations(env, admin, { locator, last, text, limit = 12 })
     `SELECT b.id, b.client_name, b.supplier, b.product_name, b.product_type, b.depart_date,
             b.return_date, b.confirmation_number, b.commission_cents, b.commission_status,
             b.user_id,
+            u.default_split_pct, u.lead_split_pct, b.personal, b.lead_source, b.advisor_split_pct,
+            b.agreed_split_pct, b.agreed_lead_split_pct,
             COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''), u.email)
               AS advisor_name,
             (SELECT GROUP_CONCAT(t.name, ' | ') FROM travellers t
@@ -109,6 +111,8 @@ async function findReservations(env, admin, { locator, last, text, limit = 12 })
     receivedCents: b.received_cents || 0,
     advisorId: b.user_id,
     advisorName: b.advisor_name,
+    // The share the advisor keeps, so a line can say what it pays them before it is saved.
+    splitPct: splitPct(b, b.default_split_pct, b.lead_split_pct),
     // The pay date this one would normally go out with, from when the traveller is back.
     suggestedPayOn: suggestPayDate({ receivedOn: today, returnDate: b.return_date, departDate: b.depart_date }, today),
   }));

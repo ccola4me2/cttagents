@@ -459,7 +459,7 @@ let filename = '';
 let timers = new Map();
 
 const blankLine = () => ({
-  bookingId: null, label: '', sub: '', advisorName: '', expected: 0, received: 0, amount: '', touched: false,
+  bookingId: null, label: '', sub: '', advisorName: '', pct: 100, expected: 0, received: 0, amount: '', touched: false,
   payoutOn: '', suggested: '', page: '', candidates: [], query: '', results: [], returnDate: '', departDate: '',
 });
 
@@ -468,6 +468,7 @@ function chooseReservation(line, r) {
   line.label = r.clientName;
   line.sub = [r.supplier, r.productName, r.confirmationNumber].filter(Boolean).join(' · ');
   line.advisorName = r.advisorName || '';
+  line.pct = r.splitPct;
   line.expected = r.expectedCents;
   line.received = r.receivedCents;
   line.suggested = r.suggestedPayOn;
@@ -492,6 +493,12 @@ function drawNet() {
   $('net').innerHTML = t.statement
     ? `<span>At the bank: <b>${money(t.statement - t.fee)}</b></span>${t.fee ? `<span>Fee: <b>${money(t.fee)}</b>, paid by the agency</span>` : ''}`
     : '';
+}
+
+/** What a line pays the advisor and what the agency keeps, at the split on the reservation. */
+function shareLine(name, pct, amt) {
+  const mine = Math.round(amt * pct / 100);
+  return `${name || 'The advisor'} keeps ${pct}%: ${money(mine)}. The agency keeps ${money(amt - mine)}.`;
 }
 
 function lineHtml(l, i) {
@@ -523,8 +530,18 @@ function lineHtml(l, i) {
     ${l.bookingId && travel && l.payoutOn ? `<div class="sub">${l.returnDate ? 'Back' : 'Leaves'} ${esc(dateFmt(travel))}, so paid out ${esc(dateFmt(l.suggested))} unless you choose another day.</div>` : ''}
     ${l.bookingId && l.received ? `<div class="warn">This reservation already has ${money(l.received)} received${
   l.received === amt ? ', the same amount as this line, so this may already be recorded' : ''}. Only continue if this is a further payment.</div>` : ''}
+    ${l.bookingId && amt ? `<div class="sub">${esc(shareLine(l.advisorName, l.pct, amt))}</div>` : ''}
     ${short ? `<div class="warn">Expected ${money(l.expected)}, this is ${money(l.expected - amt)} less. If the commission was entered wrong on the reservation, correct it there.</div>` : ''}
   </div>`;
+}
+
+/** The advisors' share of every line together, and the agency's. */
+function shares() {
+  const withTrip = lines.filter((l) => l.bookingId && cents(l.amount));
+  if (!withTrip.length) return '';
+  const total = withTrip.reduce((n, l) => n + cents(l.amount), 0);
+  const adv = withTrip.reduce((n, l) => n + Math.round(cents(l.amount) * l.pct / 100), 0);
+  return `<span>To advisors <b>${money(adv)}</b>, agency keeps <b>${money(total - adv)}</b></span>`;
 }
 
 function drawLines() {
@@ -532,7 +549,7 @@ function drawLines() {
     : '<p class="muted">Add a line for each reservation this check pays for.</p>';
   const t = totals();
   $('sum').innerHTML = t.statement
-    ? `<span>Lines: <b>${money(t.matched)}</b> of <b>${money(t.statement)}</b></span>${Math.abs(t.gap) > 1
+    ? `<span>Lines: <b>${money(t.matched)}</b> of <b>${money(t.statement)}</b></span>${shares()}${Math.abs(t.gap) > 1
       ? `<span style="color:var(--amber-600);">${money(t.gap)} not matched to a reservation yet. You can add it later.</span>` : '<span style="color:var(--green-600);">All matched</span>'}`
     : '';
   drawNet();
@@ -591,7 +608,7 @@ $('lines').addEventListener('input', (e) => {
   if (e.target.dataset.amount !== undefined) {
     line.amount = e.target.value; line.touched = true;
     const t = totals();
-    $('sum').innerHTML = `<span>Lines: <b>${money(t.matched)}</b> of <b>${money(t.statement)}</b></span>${
+    $('sum').innerHTML = `<span>Lines: <b>${money(t.matched)}</b> of <b>${money(t.statement)}</b></span>${shares()}${
       Math.abs(t.gap) > 1 && t.statement ? `<span style="color:var(--amber-600);">${money(t.gap)} not matched yet</span>` : ''}`;
     return;
   }
@@ -614,6 +631,8 @@ $('lines').addEventListener('input', (e) => {
 });
 
 $('lines').addEventListener('change', (e) => {
+  // An amount typed is finished once the box is left, so the share under it can be drawn.
+  if (e.target.dataset.amount !== undefined) { drawLines(); return; }
   const sel = e.target.closest('select[data-pay]');
   if (sel) {
     const line = lines[Number(sel.dataset.pay)];
