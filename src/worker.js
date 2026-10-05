@@ -488,6 +488,7 @@ const PAGE_FILES = {
   '/app/settings': '/app/settings.html',
   '/admin/manual': '/admin/manual.html',
   '/admin/commissions': '/admin/commissions.html',
+  '/admin/specials': '/admin/specials.html',
   '/admin/training': '/admin/training.html',
   '/admin': '/admin/index.html',
   '/admin/': '/admin/index.html',

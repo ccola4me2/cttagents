@@ -331,6 +331,7 @@ const ADMIN_NAV = [
   { href: '/admin/', label: 'Advisors', icon: I.people },
   { href: '/admin/agencies', label: 'Agency', icon: I.handshake },
   { href: '/admin/commissions', label: 'Commissions', icon: I.chart },
+  { href: '/admin/specials', label: 'Supplier specials', icon: I.megaphone },
   { href: '/admin/training', label: 'Training', icon: I.book },
   { href: '/admin/manual', label: 'Running the agency', icon: I.book },
   { href: '/app/', label: 'Back to portal', icon: I.back },
