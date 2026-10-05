@@ -31,7 +31,7 @@ const STATEMENT_COLUMNS = `
 
 const RECEIPT_COLUMNS = `
   r.id, r.user_id, r.booking_id, r.statement_id, r.amount_cents, r.received_on,
-  r.reference, r.notes, r.kind, r.created_at, r.updated_at
+  r.reference, r.notes, r.kind, r.created_at, r.updated_at, r.check_id, r.payout_on
 `;
 
 // ---------------------------------------------------------------------------
