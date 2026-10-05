@@ -432,10 +432,14 @@ export async function handleDeleteCheck(request, env, id) {
     }
   }
 
-  const scopeD = db.scopeWhere(db.agencyScope(admin), 'user_id');
+  // One delete per advisor whose reservations were on it, naming that advisor, rather
+  // than one sweeping delete across the agency. The advisors are the ones the
+  // agency-scoped read above found, so nothing outside the agency is reachable.
+  const advisors = [...new Set(touched.map((t) => t.user_id))];
   await env.DB.batch([
-    env.DB.prepare(`DELETE FROM commission_receipts WHERE check_id = ? AND ${scopeD.sql}`)
-      .bind(id, ...scopeD.binds),
+    ...advisors.map((advisorId) => env.DB.prepare(
+      'DELETE FROM commission_receipts WHERE check_id = ? AND user_id = ?'
+    ).bind(id, advisorId)),
     env.DB.prepare('DELETE FROM commission_checks WHERE id = ? AND agency_id = ?')
       .bind(id, admin.agency_id),
   ]);
