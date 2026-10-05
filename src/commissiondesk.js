@@ -646,6 +646,18 @@ export async function handleCommissionDesk(request, env) {
     });
   }
 
+  // Money filed one reservation at a time, before there were checks, or typed on a
+  // reservation's own page. Listed beside the checks so the year's total and its list
+  // agree about what arrived.
+  const loose = (receiptRows.results || [])
+    .filter((r) => !r.check_id
+      && String(r.received_on || '').slice(0, 4) === year)
+    .map((r) => ({
+      id: r.id, booking_id: r.booking_id, received_on: r.received_on, client_name: r.client_name,
+      supplier: r.supplier, advisor_name: r.advisor_name, amount_cents: r.amount_cents,
+      payout_on: r.payout_on,
+    }));
+
   const scheduledCents = payDates.reduce((n, d) => n + d.totalCents, 0);
   const received = receivedRow?.cents || 0;
   const fees = feeRow?.cents || 0;
@@ -668,6 +680,7 @@ export async function handleCommissionDesk(request, env) {
       owedToUsCount: outstanding.length,
     },
     checkLines,
+    loose,
     checks: (checkRows.results || []).map((c) => ({
       ...c,
       net_cents: (c.statement_cents || 0) - (c.fee_cents || 0),

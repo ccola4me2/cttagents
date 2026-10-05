@@ -275,13 +275,25 @@ function checkDetail(c) {
 }
 
 function drawReceived() {
-  if (!d.checks.length) {
-    return `<div class="card"><div class="empty"><h3>No checks in ${esc(year)}</h3>
-      <p>Press Record a check when one arrives.</p></div></div>`;
-  }
-  return `<div class="card cd-scroll"><table class="cd-table"><thead><tr>
+  const checks = d.checks.length
+    ? `<div class="card cd-scroll"><table class="cd-table"><thead><tr>
     <th>Received</th><th>Vendor</th><th class="r">Statement</th><th class="r">Fee</th><th class="r">At the bank</th><th></th>
-    </tr></thead><tbody>${d.checks.map(checkRow).join('')}</tbody></table></div>`;
+    </tr></thead><tbody>${d.checks.map(checkRow).join('')}</tbody></table></div>`
+    : `<div class="card"><div class="empty"><h3>No checks recorded in ${esc(year)}</h3>
+      <p>Press Record a check when one arrives.</p></div></div>`;
+  // Money entered on a reservation's own page, before checks were recorded here.
+  const loose = (d.loose || []).length
+    ? `<div class="cd-head"><h2>Recorded one reservation at a time</h2>
+      <span class="m">Entered on the reservation itself, so there is no check to show a fee or a pay date for.</span></div>
+      <div class="card cd-scroll"><table class="cd-table"><thead><tr>
+      <th>Received</th><th>Reservation</th><th>Advisor</th><th class="r">Amount</th><th>Paid out with</th></tr></thead><tbody>
+      ${d.loose.map((r) => `<tr><td>${esc(r.received_on ? dateFmt(r.received_on) : '')}</td>
+        <td><a href="/app/reservation?id=${encodeURIComponent(r.booking_id)}">${esc(r.client_name)}</a>
+          ${r.supplier ? `<span class="muted"> ${esc(r.supplier)}</span>` : ''}</td>
+        <td>${esc(r.advisor_name)}</td><td class="r cd-money">${money(r.amount_cents)}</td>
+        <td>${r.payout_on ? payDateSelect(r) : '<span class="muted">next payout</span>'}</td></tr>`).join('')}
+      </tbody></table></div>` : '';
+  return checks + loose;
 }
 
 function drawPaid() {
@@ -503,8 +515,11 @@ function lineHtml(l, i) {
     ${!l.bookingId && (l.candidates.length || l.results.length) ? `<div class="cd-pick">${[...l.candidates, ...l.results].map((r) =>
     `<button type="button" data-use="${i}" data-id="${esc(r.id)}">${esc(r.clientName)}
       <span class="muted"> ${esc([r.supplier, r.productName, r.confirmationNumber].filter(Boolean).join(' · '))} · ${esc(r.advisorName || '')}${
-  r.departDate ? ` · ${esc(dateFmt(r.departDate))}` : ''}</span></button>`).join('')}</div>` : ''}
+  r.departDate ? ` · ${esc(dateFmt(r.departDate))}` : ''}${
+  r.receivedCents ? ` · <strong style="color:var(--amber-600);">${money(r.receivedCents)} already received</strong>` : ''}</span></button>`).join('')}</div>` : ''}
     ${l.bookingId && travel && l.payoutOn ? `<div class="sub">${l.returnDate ? 'Back' : 'Leaves'} ${esc(dateFmt(travel))}, so paid out ${esc(dateFmt(l.suggested))} unless you choose another day.</div>` : ''}
+    ${l.bookingId && l.received ? `<div class="warn">This reservation already has ${money(l.received)} received${
+  l.received === amt ? ', the same amount as this line, so this may already be recorded' : ''}. Only continue if this is a further payment.</div>` : ''}
     ${short ? `<div class="warn">Expected ${money(l.expected)}, this is ${money(l.expected - amt)} less. If the commission was entered wrong on the reservation, correct it there.</div>` : ''}
   </div>`;
 }
