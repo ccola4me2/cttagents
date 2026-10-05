@@ -5934,14 +5934,34 @@ async function main() {
   // Two states, not four: a commission is waiting or it is in, and the step
   // that used to sit between them was a claim about paperwork that nobody
   // kept up to date.
-  const marked = await call(advisor, 'POST', '/api/commissions/status', {
+  // Recording that commission has arrived is the agency's act. An advisor who could
+  // mark their own trip received could put it on the next payout.
+  const advMarks = await call(advisor, 'POST', '/api/commissions/status', {
+    ids: [recent.data.booking.id], status: 'received',
+  });
+  check(advMarks.status === 403, 'an advisor cannot mark commission received',
+    `status ${advMarks.status}`);
+  const advQuick = await call(advisor, 'POST', `/api/bookings/${recent.data.booking.id}/quick`,
+    { commissionStatus: 'received' });
+  check(advQuick.status === 403, 'nor by editing the reservation\'s commission status',
+    `status ${advQuick.status}`);
+  const advNew = await call(advisor, 'POST', '/api/bookings', {
+    clientName: `Born Paid ${stamp}`, supplier: 'Test Cruise Line', status: 'booked',
+    departDate: isoDay(30), returnDate: isoDay(37), gross: '1000', commission: '100',
+    commissionStatus: 'received',
+  });
+  check(advNew.status === 403, 'nor by creating a reservation that is already received',
+    `status ${advNew.status}`);
+  if (advNew.data?.booking?.id) await dropBooking(advNew.data.booking.id);
+
+  const marked = await call(admin, 'POST', '/api/commissions/status', {
     ids: [recent.data.booking.id, stale.data.booking.id], status: 'received',
   });
   check(marked.data?.changed === 2, 'several are marked received at once', marked.data?.changed);
   check(marked.data?.recorded === 2,
     'and the money is recorded, not just the label moved', JSON.stringify(marked.data));
 
-  const oldState = await call(advisor, 'POST', '/api/commissions/status', {
+  const oldState = await call(admin, 'POST', '/api/commissions/status', {
     ids: [recent.data.booking.id], status: 'invoiced',
   });
   check(oldState.status === 400, 'invoiced is no longer a state anything accepts',
@@ -5991,7 +6011,7 @@ async function main() {
     `${after.data.totals.payoutCents} + ${after.data.totals.agencyReceivedCents} `
     + `vs ${after.data.totals.paidCents}`);
 
-  const badStatus = await call(advisor, 'POST', '/api/commissions/status',
+  const badStatus = await call(admin, 'POST', '/api/commissions/status',
     { ids: [recent.data.booking.id], status: 'nonsense' });
   check(badStatus.status === 400, 'an unknown status is refused rather than defaulted',
     `status ${badStatus.status}`);
@@ -6207,7 +6227,7 @@ async function main() {
 
   // The case this exists for: a vendor settles the base on its normal
   // turnaround and holds the bonus for a quarter.
-  await call(advisor, 'POST', '/api/commissions/receipts', {
+  await call(admin, 'POST', '/api/commissions/receipts', {
     bookingId: splitId, kind: 'base', amount: '600', receivedOn: isoDay(-2),
   });
   const afterBase = await call(advisor, 'GET', '/api/commissions');
@@ -6222,7 +6242,7 @@ async function main() {
     `${afterBase.data?.totals?.owedBonusCents}`);
 
   // Commission entered without saying which part has always meant the base.
-  await call(advisor, 'POST', '/api/commissions/receipts', {
+  await call(admin, 'POST', '/api/commissions/receipts', {
     bookingId: splitId, kind: 'bonus', amount: '150', receivedOn: isoDay(-1),
   });
   const afterBonus = await call(advisor, 'GET', '/api/commissions');
@@ -6247,10 +6267,23 @@ async function main() {
   const shortId = shortBooking.data?.booking?.id;
   check(Boolean(shortId), 'a travelled reservation expecting 600 in commission');
 
-  const receipt = await call(advisor, 'POST', '/api/commissions/receipts', {
+  // The agency records what arrives. The advisor sees it, and files none of it.
+  const advFiles = await call(advisor, 'POST', '/api/commissions/receipts', {
     bookingId: shortId, amount: 450, receivedOn: isoDay(-3), reference: 'EFT 88213',
   });
-  check(receipt.status === 200, 'the vendor pays 450 of it', `status ${receipt.status}`);
+  check(advFiles.status === 403, 'an advisor cannot record commission received',
+    `status ${advFiles.status}`);
+  const advStmt = await call(advisor, 'POST', '/api/commissions/statements', {
+    vendorName: 'Test Cruise Line', reference: 'ADV-1', total: 100,
+  });
+  check(advStmt.status === 403, 'nor file a vendor statement', `status ${advStmt.status}`);
+
+  const receipt = await call(admin, 'POST', '/api/commissions/receipts', {
+    bookingId: shortId, amount: 450, receivedOn: isoDay(-3), reference: 'EFT 88213',
+  });
+  check(receipt.status === 200, 'the agency records that the vendor paid 450 of it', `status ${receipt.status}`);
+  const advDrops = await call(advisor, 'DELETE', `/api/commissions/receipts/${receipt.data?.id}`);
+  check(advDrops.status === 403 || advDrops.status === 404, 'nor take one off', `status ${advDrops.status}`);
 
   const shortView = await call(advisor, 'GET', '/api/commissions');
   const shortRow = (shortView.data?.rows || []).find((r) => r.id === shortId);
@@ -6265,7 +6298,7 @@ async function main() {
 
   // Receipts are money, so a second one tops the reservation up rather than
   // replacing what came before.
-  await call(advisor, 'POST', '/api/commissions/receipts', {
+  await call(admin, 'POST', '/api/commissions/receipts', {
     bookingId: shortId, amount: 150, receivedOn: isoDay(-1),
   });
   const settledView = await call(advisor, 'GET', '/api/commissions');
@@ -6278,19 +6311,19 @@ async function main() {
 
   // A statement is the vendor's own document: its total is entered from the
   // paper, and the lines matched underneath. The two agreeing is the proof.
-  const stmt = await call(advisor, 'POST', '/api/commissions/statements', {
+  const stmt = await call(admin, 'POST', '/api/commissions/statements', {
     vendorName: 'Test Cruise Line', reference: 'STMT-1', statementDate: isoDay(-2), total: 600,
   });
   const stmtId = stmt.data?.id;
   check(Boolean(stmtId), 'a vendor statement for 600 is filed');
 
-  const unmatched = await call(advisor, 'GET', '/api/commissions/statements');
+  const unmatched = await call(admin, 'GET', '/api/commissions/statements');
   const filed = (unmatched.data?.statements || []).find((x) => x.id === stmtId);
   check(filed && filed.reconciled === false && filed.unmatched_cents === 60000,
     'unreconciled until something is matched to it',
     `unmatched ${filed?.unmatched_cents}`);
 
-  const cands = await call(advisor, 'GET', `/api/commissions/statements/${stmtId}/candidates`);
+  const cands = await call(admin, 'GET', `/api/commissions/statements/${stmtId}/candidates`);
   check(!(cands.data?.candidates || []).some((c) => c.id === shortId),
     'a reservation already settled is not offered as a line',
     `${cands.data?.candidates?.length} candidate(s)`);
@@ -6309,12 +6342,15 @@ async function main() {
     'and the associate sees it against their own trip',
     JSON.stringify((theirReceipts.data?.receipts || []).map((r) => r.amount_cents)));
 
-  // And taken off again, by the associate, which is the other half of the same
-  // rule and leaves the totals below reading what they were written to read.
-  const unfiled = await call(advisor, 'DELETE',
+  // Taking one off is the agency's too, and it leaves the totals below reading
+  // what they were written to read.
+  const unfiledByAdvisor = await call(advisor, 'DELETE',
     `/api/commissions/receipts/${receiptNotMine.data?.id}`);
-  check(unfiled.status === 200, 'and can take one off that the owner put on',
-    `status ${unfiled.status}`);
+  check(unfiledByAdvisor.status === 403, 'the associate cannot take one off',
+    `status ${unfiledByAdvisor.status}`);
+  const unfiled = await call(admin, 'DELETE',
+    `/api/commissions/receipts/${receiptNotMine.data?.id}`);
+  check(unfiled.status === 200, 'the owner can', `status ${unfiled.status}`);
 
   // The owner has to be able to reach it on the screen, not only through the
   // API. The page drew the Record button and the tick box only on rows the
@@ -6469,7 +6505,7 @@ async function main() {
   check(portalBad.status === 302 || portalBad.status === 200,
     'a made-up sign-in link opens nothing', `status ${portalBad.status}`);
 
-  await call(advisor, 'DELETE', `/api/commissions/statements/${stmtId}`);
+  await call(admin, 'DELETE', `/api/commissions/statements/${stmtId}`);
   const afterDelete = await call(advisor, 'GET', '/api/commissions');
   const stillPaid = (afterDelete.data?.rows || []).find((r) => r.id === shortId);
   check(stillPaid?.received_cents === 60000,
@@ -6508,7 +6544,7 @@ async function main() {
   // nought: this reservation has been through the whole suite by now and may
   // already carry money.
   const hadReceived = rc.receivedCents || 0;
-  const withMoney = await call(advisor, 'POST', '/api/commissions/receipts', {
+  const withMoney = await call(admin, 'POST', '/api/commissions/receipts', {
     bookingId, amount: '25', receivedOn: isoDay(-1), kind: 'base',
   });
   const recPaid = await call(advisor, 'GET', `/api/bookings/${bookingId}/record`);
@@ -6518,7 +6554,7 @@ async function main() {
     `${recPaid.data?.commission?.receivedCents} from ${hadReceived}`);
   const justFiled = (recPaid.data?.commission?.receipts || [])
     .find((x) => x.amount_cents === 2500);
-  if (justFiled) await call(advisor, 'DELETE', `/api/commissions/receipts/${justFiled.id}`);
+  if (justFiled) await call(admin, 'DELETE', `/api/commissions/receipts/${justFiled.id}`);
   const recBack = await call(advisor, 'GET', `/api/bookings/${bookingId}/record`);
   check(recBack.data?.commission?.receivedCents === hadReceived,
     'and taking it off puts the trip back where it was',
@@ -9001,7 +9037,7 @@ async function main() {
     .find((o) => o.user_id === advisorId) || {}).due_cents || 0;
   const dueBefore = dueFor(beforeMoney.data);
 
-  await call(advisor, 'POST', '/api/commissions/receipts', {
+  await call(admin, 'POST', '/api/commissions/receipts', {
     bookingId: earnerId, amount: '600', receivedOn: isoDay(-2), kind: 'base',
   });
 
@@ -9050,7 +9086,7 @@ async function main() {
   // Money arriving later on a trip already paid out is owed again on its
   // own. A vendor settling the base in March and the bonus in June is the
   // normal case, not an exception.
-  await call(advisor, 'POST', '/api/commissions/receipts', {
+  await call(admin, 'POST', '/api/commissions/receipts', {
     bookingId: earnerId, amount: '100', receivedOn: isoDay(-1), kind: 'bonus',
   });
   const later = await call(admin, 'GET', '/api/payouts');

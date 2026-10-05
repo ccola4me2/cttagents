@@ -11,7 +11,7 @@
 // overdue and the report worth ignoring.
 
 import { json, badRequest, oneOf, uid, now, readJson } from './util.js';
-import { requireUser, isAdmin } from './auth.js';
+import { requireUser, requireAdmin, isAdmin } from './auth.js';
 import * as db from './db.js';
 import {
   SPLIT_PCT_SQL, ADVISOR_SHARE_SQL, UNSPLIT_SQL, EARNED_SQL, NO_COMMISSION, COMMISSION_RECEIVED,
@@ -285,11 +285,11 @@ export async function handleListCommissions(request, env) {
  *
  * Commission is invoiced and chased in batches, one vendor statement at a
  * time, so doing it one reservation at a time is the kind of friction that
- * ends with nobody doing it at all. Scoped to the caller's own reservations:
- * an owner may read an associate's commission but not declare it paid.
+ * ends with nobody doing it at all. Only an owner does it: marking a trip
+ * received records money, and recording money is the agency's act.
  */
 export async function handleSetCommissionStatus(request, env) {
-  const { user, response } = await requireUser(request, env);
+  const { user, response } = await requireAdmin(request, env);
   if (response) return response;
 
   const body = await readJson(request);

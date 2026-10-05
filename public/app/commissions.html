@@ -143,7 +143,8 @@ let d = null;
  * answer to "are you an owner, and not sitting in somebody else's seat",
  * which is the same question both endpoints ask.
  */
-const mayTouch = (r) => r.user_id === ME || Boolean(d && d.scope && d.scope.canPick);
+// Only the agency records commission. An advisor reads their money here and does not file it.
+const mayTouch = (r) => Boolean(d && d.mayPay) && (r.user_id === ME || Boolean(d.scope && d.scope.canPick));
 let statements = [];
 let payouts = [];
 const chosen = new Set();
@@ -570,6 +571,7 @@ async function load() {
     statements = stmts.statements || [];
     payouts = paid.payouts || [];
     mountScopePicker(document.getElementById('scope'), d, load);
+    document.getElementById('add-statement').hidden = !d.mayPay;
     render();
   } catch (e) { showError(err, e); }
 }

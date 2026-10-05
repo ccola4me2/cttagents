@@ -48,6 +48,10 @@ const STATUSES = ['quoted', 'booked', 'travelled', 'cancelled'];
 // nobody is going to send. A courtesy booking, a friend at cost, an amenity
 // the vendor pays nothing on.
 const COMMISSION_STATUSES = ['pending', COMMISSION_RECEIVED, NO_COMMISSION];
+
+// Said the same way on every route that refuses it.
+const RECEIVED_BY_AGENCY = 'Only the agency records that commission has arrived. '
+  + 'It is marked received when the money is recorded.';
 const BOOKING_METHODS = ['direct', 'portal', 'phone', 'group', 'other'];
 // 'unknown' leads because oneOf falls back to the first entry, and not having
 // asked is the honest default. Recording a decline is a deliberate act.
@@ -507,7 +511,9 @@ export async function handleBookingRecord(request, env, id) {
       kinds: COMMISSION_KINDS,
       // Whether this reader may file one. Filing a receipt resolves the
       // reservation's owner, so an owner's cheque lands on the advisor's book.
-      mayRecord: db.mayWrite(user, booking),
+      // Recording that commission arrived is the agency's act, so only an owner is
+      // offered the form, and the routes behind it refuse anybody else.
+      mayRecord: isAdmin(user) && db.mayWrite(user, booking),
     };
   })();
 
@@ -635,6 +641,11 @@ export async function handleCreateBooking(request, env) {
   // booking with one attached, which is the same hole as editing it after.
   fields.advisorSplitPct = null;
 
+  // Whether commission has arrived is recorded by the agency, with the money.
+  if (fields.commissionStatus === COMMISSION_RECEIVED && !isAdmin(user)) {
+    return forbidden(RECEIVED_BY_AGENCY);
+  }
+
   // The client record is created as a side effect of booking, so nobody has
   // to maintain a separate list of people before they can take a reservation.
   fields.clientId = await db.resolveClient(env, user.id, fields.clientName,
@@ -760,6 +771,12 @@ export async function handleQuickUpdate(request, env, id) {
   const before = await db.getBooking(env, id, owner.id);
   if (!before) return notFound('Reservation not found.');
 
+  if (Object.prototype.hasOwnProperty.call(body, 'commissionStatus')
+    && oneOf(body.commissionStatus, COMMISSION_STATUSES) === COMMISSION_RECEIVED
+    && before.commission_status !== COMMISSION_RECEIVED && !isAdmin(user)) {
+    return forbidden(RECEIVED_BY_AGENCY);
+  }
+
   // Checked against what will actually be stored rather than what was sent,
   // so a commission typed into a row whose value is already recorded is
   // refused the same way the dialog refuses it.
@@ -849,6 +866,12 @@ export async function handleUpdateBooking(request, env, id) {
   // and the trip total and the commission were two more that nothing had
   // noticed yet.
   keepWhatWasNotSent(fields, raw, before);
+  // Saving the page back with a status it already had is fine; moving a trip to
+  // received is the agency recording money, and an advisor does not.
+  if (fields.commissionStatus === COMMISSION_RECEIVED
+    && before.commission_status !== COMMISSION_RECEIVED && !isAdmin(user)) {
+    return forbidden(RECEIVED_BY_AGENCY);
+  }
 
   fields.clientId = await db.resolveClient(env, owner.id, fields.clientName,
     { ghlContactId: fields.ghlContactId });

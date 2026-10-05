@@ -1678,7 +1678,8 @@ function drawPriceSummary() {
     <div class="field" style="max-width:18rem;margin-top:${s ? '1rem' : '0'};">
       <label for="m-commission-status">Commission status</label>
       <select id="m-commission-status" ${ro ? 'disabled' : ''}>
-        ${selectOptions((d.fieldOptions || {}).commissionStatuses, b.commission_status)}</select></div>
+        ${selectOptions(((d.fieldOptions || {}).commissionStatuses || []).filter((s) =>
+    s !== 'received' || b.commission_status === 'received' || (d.commission && d.commission.mayRecord)), b.commission_status)}</select></div>
     ${ro ? '' : '<button class="btn btn-secondary btn-sm" id="save-money">Save these</button>'}`;
 
   if (!s) {

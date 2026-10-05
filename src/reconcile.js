@@ -20,7 +20,7 @@
 
 import { json, badRequest, notFound, clean, cleanDate, toCents, oneOf, uid, now, readJson } from './util.js';
 import { COMMISSION_KINDS, COMMISSION_KIND_KEYS } from './pricing.js';
-import { requireUser } from './auth.js';
+import { requireUser, requireAdmin } from './auth.js';
 import { COMMISSION_RECEIVED } from './split.js';
 import * as db from './db.js';
 
@@ -153,8 +153,12 @@ export async function handleListReceipts(request, env) {
   return json({ receipts: results || [] });
 }
 
+// Recording that commission has arrived is the agency's act, never the advisor's.
+// An advisor who could file a receipt could mark their own trip paid and put it on
+// the next payout, which is the same hole as an advisor setting their own split.
+// Reading stays open: an advisor sees their own trips' money, subject to paydates.js.
 export async function handleAddReceipt(request, env) {
-  const { user, response } = await requireUser(request, env);
+  const { user, response } = await requireAdmin(request, env);
   if (response) return response;
 
   const body = await readJson(request);
@@ -201,7 +205,7 @@ export async function handleAddReceipt(request, env) {
 }
 
 export async function handleDeleteReceipt(request, env, id) {
-  const { user, response } = await requireUser(request, env);
+  const { user, response } = await requireAdmin(request, env);
   if (response) return response;
 
   // Whose record this is: see db.writerFor.
@@ -306,7 +310,7 @@ export async function handleListStatements(request, env) {
 }
 
 export async function handleCreateStatement(request, env) {
-  const { user, response } = await requireUser(request, env);
+  const { user, response } = await requireAdmin(request, env);
   if (response) return response;
 
   const body = await readJson(request);
@@ -329,7 +333,7 @@ export async function handleCreateStatement(request, env) {
 }
 
 export async function handleUpdateStatement(request, env, id) {
-  const { user, response } = await requireUser(request, env);
+  const { user, response } = await requireAdmin(request, env);
   if (response) return response;
 
   // Whose record this is: see db.writerFor.
@@ -355,7 +359,7 @@ export async function handleUpdateStatement(request, env, id) {
 }
 
 export async function handleDeleteStatement(request, env, id) {
-  const { user, response } = await requireUser(request, env);
+  const { user, response } = await requireAdmin(request, env);
   if (response) return response;
 
   // Whose record this is: see db.writerFor.
