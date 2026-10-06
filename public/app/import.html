@@ -191,7 +191,7 @@ function drawPricing(read) {
     </div>
     <p id="pl-check" style="margin:.6rem 0 0;font-size:.9rem;"></p>`;
   box.oninput = checkPricing;
-  document.getElementById('cf-gross').addEventListener('input', checkPricing);
+  document.querySelector('[data-conf="gross"]').addEventListener('input', checkPricing);
   checkPricing();
 }
 
@@ -200,7 +200,7 @@ function checkPricing() {
   const inputs = [...document.querySelectorAll('[data-price]')];
   if (!inputs.length) return true;
   const sum = inputs.reduce((n, el) => n + cents(el.value), 0);
-  const total = cents(document.getElementById('cf-gross').value);
+  const total = cents(document.querySelector('[data-conf="gross"]').value);
   const out = document.getElementById('pl-check');
   if (!sum) { out.textContent = 'No pricing lines will be saved.'; out.style.color = ''; return true; }
   const agree = Math.abs(sum - total) <= 1;
