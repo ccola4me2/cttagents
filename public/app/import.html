@@ -52,6 +52,7 @@ Guest 1: COLE/DEBORAH"></textarea>
           </div>
           <div class="card-foot">
             <button class="btn btn-primary" type="button" id="conf-create">Create the reservation</button>
+            <div class="notice notice-error" id="conf-create-error" role="alert" hidden style="margin-top:.8rem;"></div>
           </div>
         </div>
       </section>
@@ -244,8 +245,9 @@ document.getElementById('conf-read').addEventListener('click', async () => {
 });
 
 document.getElementById('conf-create').addEventListener('click', async () => {
+  const createErr = document.getElementById('conf-create-error');
   const btn = document.getElementById('conf-create');
-  confErr.hidden = true;
+  createErr.hidden = true;
   const body = { status: 'booked' };
   const bad = [];
   document.querySelectorAll('[data-conf]').forEach((el) => {
@@ -258,20 +260,20 @@ document.getElementById('conf-create').addEventListener('click', async () => {
     if (iso) body[el.dataset.conf] = iso; else bad.push(el.previousElementSibling.textContent);
   });
   if (bad.length) {
-    confErr.textContent = `${bad.join(' and ')} ${bad.length === 1 ? 'is' : 'are'} not a date I can read. Write it like 05/12/2028.`;
-    confErr.hidden = false;
+    createErr.textContent = `${bad.join(' and ')} ${bad.length === 1 ? 'is' : 'are'} not a date I can read. Write it like 05/12/2028.`;
+    { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
     return;
   }
   if (!body.clientName) {
-    confErr.textContent = 'A reservation needs a client name.';
-    confErr.hidden = false;
+    createErr.textContent = 'A reservation needs a client name.';
+    { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
     return;
   }
   btn.disabled = true;
   try {
     const res = await api('/api/bookings', { method: 'POST', body });
     location.href = `/app/reservation?id=${encodeURIComponent(res.booking.id)}`;
-  } catch (e) { confErr.textContent = e.message; confErr.hidden = false; btn.disabled = false; }
+  } catch (e) { createErr.textContent = e.message; { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); } btn.disabled = false; }
 });
 
 
