@@ -136,6 +136,24 @@ const CONF_FIELDS = [
   ['finalPaymentDue', 'Final payment due'],
 ];
 
+const DATE_KEYS = ['departDate', 'returnDate', 'finalPaymentDue'];
+
+/** 2028-05-12, 5/12/2028 and 05/12/28 as 2028-05-12. Null when it is not a real day. */
+function toIso(text) {
+  const t = String(text).trim();
+  let y; let m; let d;
+  let hit = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (hit) { [, y, m, d] = hit; } else {
+    hit = t.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2}|\d{4})$/);
+    if (!hit) return null;
+    [, m, d, y] = hit;
+    if (y.length === 2) y = `20${y}`;
+  }
+  const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  const back = new Date(`${iso}T00:00:00Z`);
+  return Number.isFinite(back.getTime()) && back.toISOString().slice(0, 10) === iso ? iso : null;
+}
+
 const confErr = document.getElementById('conf-error');
 const confResult = document.getElementById('conf-result');
 
@@ -210,7 +228,8 @@ document.getElementById('conf-read').addEventListener('click', async () => {
     const source = read.from[key];
     return `<div class="field" style="margin-bottom:.7rem;">
       <label for="cf-${key}">${esc(label)}</label>
-      <input id="cf-${key}" data-conf="${key}" value="${esc(value === undefined ? '' : String(value))}">
+      <input id="cf-${key}" data-conf="${key}" value="${esc(value === undefined ? '' : String(value))}"${
+  DATE_KEYS.includes(key) ? ' placeholder="05/12/2028"' : ''}>
       <p class="field-hint" style="margin:.2rem 0 0;">${source
         ? 'read from: ' + esc(source)
         : '<span style="color:var(--ink-500);">not found, fill it in if you need it</span>'}</p>
@@ -228,9 +247,21 @@ document.getElementById('conf-create').addEventListener('click', async () => {
   const btn = document.getElementById('conf-create');
   confErr.hidden = true;
   const body = { status: 'booked' };
+  const bad = [];
   document.querySelectorAll('[data-conf]').forEach((el) => {
-    if (el.value.trim()) body[el.dataset.conf] = el.value.trim();
+    const raw = el.value.trim();
+    if (!raw) return;
+    if (!DATE_KEYS.includes(el.dataset.conf)) { body[el.dataset.conf] = raw; return; }
+    // A date typed the way people write it, 05/12/2028, becomes the form the portal
+    // stores. Anything that is not a date is named, instead of the whole save failing.
+    const iso = toIso(raw);
+    if (iso) body[el.dataset.conf] = iso; else bad.push(el.previousElementSibling.textContent);
   });
+  if (bad.length) {
+    confErr.textContent = `${bad.join(' and ')} ${bad.length === 1 ? 'is' : 'are'} not a date I can read. Write it like 05/12/2028.`;
+    confErr.hidden = false;
+    return;
+  }
   if (!body.clientName) {
     confErr.textContent = 'A reservation needs a client name.';
     confErr.hidden = false;
