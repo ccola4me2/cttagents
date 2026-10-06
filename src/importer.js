@@ -13,6 +13,7 @@ import { json, badRequest, clean, cleanDate, toCents, oneOf, readJson } from './
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 import { resolveVendor } from './vendors.js';
+import { writePricingGrid } from './pricing.js';
 import { upsertClient } from './clients.js';
 
 const MAX_ROWS = 500;
@@ -22,6 +23,8 @@ const MAX_ROWS = 500;
 export const FIELDS = [
   'clientName', 'supplier', 'productName', 'departDate', 'returnDate',
   'confirmationNumber', 'gross', 'commission', 'status', 'destination',
+  // The parts of the price. Any of them fills the Pricing tab; none is required.
+  'fare', 'taxes', 'insurance', 'gratuities',
 ];
 
 // What a column heading has to contain to be recognised. Checked in order, so
@@ -33,7 +36,12 @@ const HEADINGS = [
   [/^(depart|sail|travel date|start)/i, 'departDate'],
   [/^(return|end|back)/i, 'returnDate'],
   [/^(conf|booking (no|num|ref)|reservation (no|num))/i, 'confirmationNumber'],
-  [/^(gross|total|fare|price|amount|value)/i, 'gross'],
+  // Before the total, which would otherwise take "Fare" and "Insurance" as the whole price.
+  [/^(insur|protection)/i, 'insurance'],
+  [/^(tax|port|govt|gov|fees?\b)/i, 'taxes'],
+  [/^(grat|tips?\b)/i, 'gratuities'],
+  [/^(cabin fare|cruise fare|net fare|base fare|fare)/i, 'fare'],
+  [/^(gross|total|price|amount|value)/i, 'gross'],
   [/^(comm)/i, 'commission'],
   [/^(status)/i, 'status'],
   [/^(destination|region|area)/i, 'destination'],
@@ -171,11 +179,25 @@ export function parsePaste(text, mapping) {
       departDate: anyDate(raw.departDate),
       returnDate: anyDate(raw.returnDate),
       gross: raw.gross ? String(raw.gross).replace(/[^0-9.]/g, '') : '',
+      fare: raw.fare ? String(raw.fare).replace(/[^0-9.]/g, '') : '',
+      taxes: raw.taxes ? String(raw.taxes).replace(/[^0-9.]/g, '') : '',
+      insurance: raw.insurance ? String(raw.insurance).replace(/[^0-9.]/g, '') : '',
+      gratuities: raw.gratuities ? String(raw.gratuities).replace(/[^0-9.]/g, '') : '',
       commission: raw.commission ? String(raw.commission).replace(/[^0-9.]/g, '') : '',
       status: oneOf(raw.status, ['quoted', 'booked', 'travelled', 'cancelled']),
       problems: [],
     };
 
+    // A sheet with fare and fees columns and no total has a total: the sum of its parts.
+    // One with both has to agree with itself, or the Pricing tab would quietly change
+    // the total the sheet gave.
+    const parts = ['fare', 'taxes', 'insurance', 'gratuities'].reduce((n, k) => n + toCents(row[k]), 0);
+    if (parts) {
+      if (!toCents(row.gross)) row.gross = (parts / 100).toFixed(2);
+      else if (parts > toCents(row.gross) + 1) {
+        row.problems.push('the fare, taxes, insurance and gratuities add up to more than the total');
+      }
+    }
     if (!row.clientName) row.problems.push('no client name');
     if (raw.departDate && !row.departDate) row.problems.push(`could not read the date "${raw.departDate}"`);
     rows.push(row);
@@ -254,7 +276,7 @@ export async function handleRunImport(request, env) {
     try {
       const clientId = await db.resolveClient(env, user.id, row.clientName);
       const vendorId = await resolveVendor(env, user.id, row.supplier);
-      await db.createBooking(env, user.id, {
+      const booking = await db.createBooking(env, user.id, {
         clientName: row.clientName,
         supplier: row.supplier,
         productType: 'cruise',
@@ -276,6 +298,23 @@ export async function handleRunImport(request, env) {
         vendorId,
       });
       created += 1;
+
+      // The parts of the price go into the Pricing tab, not just the total onto the
+      // reservation. What the sheet's total holds beyond its columns is kept as Other
+      // charges, so the total the sheet gave is the total the reservation has.
+      const lines = [['fare', row.fare], ['taxes', row.taxes], ['insurance', row.insurance],
+        ['gratuities', row.gratuities]].filter(([, v]) => toCents(v) > 0);
+      if (lines.length && booking && booking.id) {
+        const sum = lines.reduce((n, [, v]) => n + toCents(v), 0);
+        const rest = toCents(row.gross) - sum;
+        const cells = lines.map(([kind, v]) => ({ kind, amount: (toCents(v) / 100).toFixed(2), commissionable: kind === 'fare' }));
+        if (rest > 1) cells.push({ kind: 'other', amount: (rest / 100).toFixed(2), commissionable: false });
+        await writePricingGrid(env, user, booking.id, {
+          cells,
+          commissions: toCents(row.commission) > 0 ? [{ kind: 'base', amount: (toCents(row.commission) / 100).toFixed(2) }] : [],
+          rates: [],
+        });
+      }
       // Within one paste as well as against the database, so a list pasted
       // twice in the same box does not import twice.
       if (row.confirmationNumber) existing.add(row.confirmationNumber);

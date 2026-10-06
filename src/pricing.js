@@ -188,6 +188,21 @@ export async function handleSavePricingGrid(request, env, bookingId) {
   if (!booking) return notFound('Reservation not found.');
 
   const body = await readJson(request);
+  const lines = await writePricingGrid(env, owner, bookingId, body);
+  await db.logActivity(env, owner.id, 'pricing.grid',
+    db.byHand(`Priced ${booking.client_name}'s trip`, user, owner), { bookingId });
+  return json({ ok: true, lines });
+}
+
+/**
+ * Writes a whole pricing grid for one reservation and brings its totals into line.
+ *
+ * What the pricing screen saves, and what a confirmation or a spreadsheet import
+ * saves, are the same thing: rows of charges, the commission in cash, and the rate
+ * each kind earns. One writer, so an import cannot price a trip differently from
+ * somebody typing the same figures. Returns how many lines it wrote.
+ */
+export async function writePricingGrid(env, owner, bookingId, body) {
   const cells = Array.isArray(body.cells) ? body.cells.slice(0, 400) : [];
   const commissions = Array.isArray(body.commissions) ? body.commissions.slice(0, 50) : [];
 
@@ -276,9 +291,7 @@ export async function handleSavePricingGrid(request, env, bookingId) {
   }
 
   await syncBookingTotals(env, bookingId, owner.id);
-  await db.logActivity(env, owner.id, 'pricing.grid',
-    db.byHand(`Priced ${booking.client_name}'s trip`, user, owner), { bookingId });
-  return json({ ok: true, lines: rows.length });
+  return rows.length;
 }
 
 export async function handleAddPriceLine(request, env, bookingId) {

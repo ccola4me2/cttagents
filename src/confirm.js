@@ -39,8 +39,8 @@ const LABELS = {
   gross: ['total booking amount', 'total stateroom amount', 'grand total', 'total price',
     'total cost', 'total amount', 'trip total', 'total due', 'total'],
   deposit: ['deposit amount', 'initial payment', 'deposit paid', 'deposit'],
-  finalPaymentDue: ['final payment due', 'final payment date', 'balance due date',
-    'final payment', 'balance due'],
+  finalPaymentDue: ['final payment due date', 'final payment due', 'final payment date',
+    'balance due date', 'final payment', 'balance due'],
   // The two an agent confirmation carries that this did not read. Commission
   // is the point of the document from the agency's side, and the client's name
   // is what the reservation gets filed under.
@@ -136,6 +136,7 @@ const COLUMN_LABELS = [
   'departure port', 'fare commission rate', 'enhancement commission rate',
   'gross amount of reservation', 'discounts applied', 'insurance amount',
   'travel advisor name', 'agency', 'stateroom subtotal',
+  'discounts applied', 'remaining balance due', 'final payment due date',
 ];
 
 /**
@@ -194,6 +195,131 @@ function splitColumns(line) {
   const tail = text.slice(from).trim();
   if (tail) out.push(tail);
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// The price, line by line
+// ---------------------------------------------------------------------------
+
+const MONEY_TOKEN = /-?\$?\s*\d[\d,]*\.\d{2}\b/g;
+
+const cents = (token) => toCents(String(token).replace(/[$,\s]/g, ''));
+
+/**
+ * A row that is a label and then only money: "Cabin Fare $1,768.00 $1,768.00".
+ *
+ * An agent copy prices each guest in a column, so one line carries a figure per
+ * guest and the line's amount is their sum. Only a line that is nothing but the
+ * label and money counts: "Fare Commission Rate: 15%" starts with "fare" and is
+ * not a fare, and a label with prose after it is not a row of figures.
+ *
+ * With `all`, every matching line is added up, which is how a trip with two
+ * staterooms is priced. Without it the first is the answer, which is how a
+ * summary line such as "Insurance Amount" is read.
+ */
+function moneyRow(lines, aliases, { all = false } = {}) {
+  for (const alias of aliases) {
+    let total = 0;
+    let first = null;
+    let hits = 0;
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line.toLowerCase().startsWith(alias)) continue;
+      const rest = line.slice(alias.length);
+      // The label ends where it ends: "faresheet" is not "fare".
+      if (/^[a-z]/i.test(rest)) continue;
+      const body = rest.replace(/^\s*[:\-–—]?\s*/, '');
+      const tokens = body.match(MONEY_TOKEN);
+      if (!tokens || body.replace(MONEY_TOKEN, '').replace(/[\s$]/g, '')) continue;
+      total += tokens.reduce((n, t) => n + cents(t), 0);
+      hits += 1;
+      if (!first) first = line;
+      if (!all) break;
+    }
+    if (hits) return { cents: total, line: first, hits };
+  }
+  return null;
+}
+
+const fixed = (c) => (c / 100).toFixed(2);
+const said = (c) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/**
+ * What the client was charged, split into the parts the Pricing grid holds.
+ *
+ * A confirmation prints a fare, a discount, taxes and fees, sometimes insurance and
+ * gratuities, and a total. The total alone was all that came across, which left the
+ * Pricing tab empty and the trip looking like one lump with a commission on it. Here
+ * each part is read where it is printed, and the sum is checked against the total
+ * the document itself states: a trip that does not add up is shown as not adding up,
+ * and is never saved as though it did.
+ *
+ * Fare is taken after the discount. A vendor pays commission on the fare the client
+ * actually paid, so fifteen per cent of the discounted fare is the figure printed
+ * as the commission, and putting the undiscounted fare in the grid would make a
+ * correct commission look like half of what was expected.
+ *
+ * Taxes and fees are the government taxes plus the cruise's own required fees. A
+ * label that wraps over two lines can lose its figures, so when the document states a
+ * gross amount, whatever is left once fare and insurance are taken out of it is
+ * counted as fees rather than dropped, and the page says so.
+ */
+function readPricing(lines, fields) {
+  const fare = moneyRow(lines, ['cabin fare', 'cruise fare', 'stateroom fare', 'base fare', 'fare'], { all: true });
+  if (!fare) return null;
+
+  const discount = moneyRow(lines, ['discounts applied', 'total discounts'])
+    || moneyRow(lines, ['discount(s)', 'discounts', 'discount'], { all: true });
+  const govt = moneyRow(lines, ['govt. taxes & fees', 'govt taxes & fees', 'government taxes & fees',
+    'government taxes and fees', 'taxes, fees & port expenses', 'taxes, fees and port expenses',
+    'taxes & fees', 'taxes and fees', 'port charges and taxes', 'port charges', 'port fees', 'taxes'], { all: true });
+  const required = moneyRow(lines, ['required cruise fees & expenses', 'required cruise fees',
+    'cruise fees & expenses', 'port expenses', 'cruise fees'], { all: true });
+  const insurance = moneyRow(lines, ['insurance amount', 'travel insurance', 'insurance premium', 'insurance']);
+  const gratuities = moneyRow(lines, ['prepaid gratuities', 'gratuities', 'service charges']);
+  const gross = moneyRow(lines, ['gross amount of reservation']);
+
+  const notes = [];
+  const off = discount && discount.cents <= fare.cents ? discount.cents : 0;
+  const netFare = fare.cents - off;
+  let taxes = (govt ? govt.cents : 0) + (required ? required.cents : 0);
+  const insured = insurance ? insurance.cents : 0;
+  const tips = gratuities ? gratuities.cents : 0;
+
+  if (off) notes.push(`Fare is the cabin fare ${said(fare.cents)} less discounts ${said(off)}.`);
+  if (gross) {
+    const gap = gross.cents - fare.cents - insured - tips - taxes;
+    if (gap > 0) {
+      taxes += gap;
+      notes.push(`${said(gap)} of the gross amount had no label I could read, so it is counted as taxes and fees.`);
+    }
+  }
+
+  const out = [];
+  if (netFare > 0) out.push({ kind: 'fare', label: 'Fare', amount: fixed(netFare), from: fare.line });
+  if (taxes > 0) {
+    out.push({ kind: 'taxes', label: 'Taxes and port fees', amount: fixed(taxes),
+      from: [govt && govt.line, required && required.line].filter(Boolean).join(' | ') || 'the rest of the gross amount' });
+  }
+  if (insured > 0) out.push({ kind: 'insurance', label: 'Travel insurance', amount: fixed(insured), from: insurance.line });
+  if (tips > 0) out.push({ kind: 'gratuities', label: 'Gratuities', amount: fixed(tips), from: gratuities.line });
+
+  const sum = netFare + taxes + insured + tips;
+  const stated = fields.gross ? toCents(fields.gross) : null;
+  const rate = pick(lines, ['fare commission rate', 'commission rate']);
+  const pct = rate ? Number(String(rate.value).replace(/[^0-9.]/g, '')) : NaN;
+
+  return {
+    lines: out,
+    totalCents: sum,
+    statedCents: stated,
+    // Only a trip whose lines add up to the total the document gives is offered as
+    // priced. One that does not is shown with the gap, for somebody to settle.
+    balanced: stated !== null && Math.abs(sum - stated) <= 1,
+    differenceCents: stated === null ? null : stated - sum,
+    ratePct: Number.isFinite(pct) && pct > 0 && pct <= 100 ? pct : null,
+    notes,
+  };
 }
 
 export function parseConfirmation(text) {
@@ -288,9 +414,12 @@ export function parseConfirmation(text) {
     delete from.returnDate;
   }
 
+  const pricing = readPricing(lines, fields);
+
   return {
     fields,
     from,
+    pricing,
     guests: people.map((g) => g.name),
     // Named so the page can say what it did not find rather than leaving the
     // advisor to notice the blanks.

@@ -50,6 +50,7 @@ Guest 1: COLE/DEBORAH"></textarea>
             <div id="conf-fields"></div>
             <p class="field-hint" id="conf-missing" style="margin:.8rem 0 0;"></p>
           </div>
+          <div class="card-pad" id="conf-pricing" style="border-top:1px solid var(--navy-100);" hidden></div>
           <div class="card-foot">
             <button class="btn btn-primary" type="button" id="conf-create">Create the reservation</button>
             <div class="notice notice-error" id="conf-create-error" role="alert" hidden style="margin-top:.8rem;"></div>
@@ -107,7 +108,7 @@ Guest 1: COLE/DEBORAH"></textarea>
      loaded only on this page. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script type="module">
-import { api, mountShell, esc, money, showError } from '/js/app.js';
+import { api, mountShell, esc, money, dateFmt, showError } from '/js/app.js';
 await mountShell();
 
 /**
@@ -161,6 +162,77 @@ function showDate(value) {
   return iso ? `${iso.slice(5, 7)}/${iso.slice(8, 10)}/${iso.slice(0, 4)}` : value;
 }
 
+// ---- The price, line by line ----------------------------------------------
+
+const PRICE_LABEL = { fare: 'Fare', taxes: 'Taxes and port fees', insurance: 'Travel insurance',
+  gratuities: 'Gratuities' };
+const cents = (v) => Math.round(Number(String(v ?? '').replace(/[^0-9.-]/g, '')) * 100) || 0;
+const say = (c) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+function drawPricing(read) {
+  const box = document.getElementById('conf-pricing');
+  const pr = read.pricing;
+  if (!pr || !pr.lines.length) { box.hidden = true; box.innerHTML = ''; return; }
+  box.hidden = false;
+  box.innerHTML = `<p class="label" style="margin:0 0 .4rem;">The price, line by line</p>
+    <p class="field-hint" style="margin:0 0 .8rem;">These go into the Pricing tab when you create the reservation.
+      Change any of them. Clear them all to leave Pricing empty.</p>
+    ${pr.notes.map((n) => `<p class="field-hint" style="margin:0 0 .5rem;color:var(--amber-600);">${esc(n)}</p>`).join('')}
+    ${pr.lines.map((l) => `<div class="field" style="margin-bottom:.6rem;">
+        <label for="pl-${esc(l.kind)}">${esc(PRICE_LABEL[l.kind] || l.label)}</label>
+        <input id="pl-${esc(l.kind)}" data-price="${esc(l.kind)}" inputmode="decimal" value="${esc(l.amount)}">
+        <p class="field-hint" style="margin:.2rem 0 0;">read from: ${esc(l.from || '')}</p></div>`).join('')}
+    <div class="field-row">
+      <div class="field"><label for="pl-comm">Commission</label>
+        <input id="pl-comm" inputmode="decimal" value="${esc(read.fields.commission || '')}"></div>
+      <div class="field"><label for="pl-rate">Rate on the fare</label>
+        <input id="pl-rate" inputmode="decimal" value="${pr.ratePct === null ? '' : esc(String(pr.ratePct))}" placeholder="15">
+        <p class="field-hint" style="margin:.2rem 0 0;">percent, if the confirmation states one</p></div>
+    </div>
+    <p id="pl-check" style="margin:.6rem 0 0;font-size:.9rem;"></p>`;
+  box.oninput = checkPricing;
+  document.getElementById('cf-gross').addEventListener('input', checkPricing);
+  checkPricing();
+}
+
+/** The lines against the trip total, said in words. Returns whether they agree. */
+function checkPricing() {
+  const inputs = [...document.querySelectorAll('[data-price]')];
+  if (!inputs.length) return true;
+  const sum = inputs.reduce((n, el) => n + cents(el.value), 0);
+  const total = cents(document.getElementById('cf-gross').value);
+  const out = document.getElementById('pl-check');
+  if (!sum) { out.textContent = 'No pricing lines will be saved.'; out.style.color = ''; return true; }
+  const agree = Math.abs(sum - total) <= 1;
+  out.textContent = agree
+    ? `Adds up to ${say(sum)}, the trip total.`
+    : `Adds up to ${say(sum)}, and the trip total is ${say(total)}. They have to agree before this can be saved.`;
+  out.style.color = agree ? 'var(--green-600)' : 'var(--red-600)';
+  return agree;
+}
+
+/** The pricing grid body the server expects, from the boxes on screen. */
+function pricingBody() {
+  const cells = [...document.querySelectorAll('[data-price]')]
+    .filter((el) => cents(el.value) > 0)
+    // Only the fare earns commission here. The confirmation states the commission as a
+    // figure, and it is that rate on the fare; marking insurance or fees as earning
+    // would make a correct commission look short.
+    .map((el) => ({ kind: el.dataset.price, amount: String(cents(el.value) / 100), commissionable: el.dataset.price === 'fare' }));
+  const comm = cents(document.getElementById('pl-comm') && document.getElementById('pl-comm').value);
+  const pkg = cents(lastRead && lastRead.fields.commissionPackage);
+  const rate = Number(document.getElementById('pl-rate') && document.getElementById('pl-rate').value);
+  return {
+    cells,
+    commissions: [
+      ...(comm > 0 ? [{ kind: 'base', amount: String(comm / 100) }] : []),
+      ...(pkg > 0 ? [{ kind: 'package', amount: String(pkg / 100) }] : []),
+    ],
+    rates: Number.isFinite(rate) && rate > 0 ? [{ kind: 'fare', pct: rate }] : [],
+  };
+}
+
+let lastRead = null;
 const confErr = document.getElementById('conf-error');
 const confResult = document.getElementById('conf-result');
 
@@ -230,6 +302,7 @@ document.getElementById('conf-read').addEventListener('click', async () => {
       { method: 'POST', body: { text: document.getElementById('conf-text').value } });
   } catch (e) { confErr.textContent = e.message; confErr.hidden = false; return; }
 
+  lastRead = read;
   document.getElementById('conf-fields').innerHTML = CONF_FIELDS.map(([key, label]) => {
     const value = read.fields[key];
     const source = read.from[key];
@@ -242,6 +315,8 @@ document.getElementById('conf-read').addEventListener('click', async () => {
         : '<span style="color:var(--ink-500);">not found, fill it in if you need it</span>'}</p>
     </div>`;
   }).join('');
+
+  drawPricing(read);
 
   const gaps = CONF_FIELDS.filter(([k]) => read.fields[k] === undefined).map(([, l]) => l);
   document.getElementById('conf-missing').textContent = gaps.length
@@ -275,9 +350,27 @@ document.getElementById('conf-create').addEventListener('click', async () => {
     { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
     return;
   }
+  const priced = pricingBody();
+  if (priced.cells.length && !checkPricing()) {
+    createErr.textContent = 'The pricing lines do not add up to the trip total. Correct one of them, or clear the pricing boxes to leave Pricing empty.';
+    { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+    return;
+  }
   btn.disabled = true;
   try {
     const res = await api('/api/bookings', { method: 'POST', body });
+    if (priced.cells.length) {
+      // The reservation exists by now, so a failure here is said and not hidden, and the
+      // person is left on a way to it rather than with nothing.
+      try {
+        await api(`/api/bookings/${encodeURIComponent(res.booking.id)}/pricing`, { method: 'PUT', body: priced });
+      } catch (e3) {
+        createErr.innerHTML = `The reservation was created, but its pricing was not saved (${esc(e3.message)}).
+          <a href="/app/reservation?id=${encodeURIComponent(res.booking.id)}">Open the reservation</a> and enter it on the Pricing tab.`;
+        createErr.hidden = false;
+        return;
+      }
+    }
     location.href = `/app/reservation?id=${encodeURIComponent(res.booking.id)}`;
   } catch (e) { createErr.textContent = e.message; { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); } btn.disabled = false; }
 });
@@ -292,6 +385,7 @@ const LABEL = {
   clientName: 'Client', supplier: 'Vendor', productName: 'Ship or product',
   departDate: 'Departing', returnDate: 'Returning', confirmationNumber: 'Confirmation',
   gross: 'Trip cost', commission: 'Commission', status: 'Status', destination: 'Destination',
+  fare: 'Fare', taxes: 'Taxes and port fees', insurance: 'Insurance', gratuities: 'Gratuities',
 };
 
 function drawMapping(d) {
@@ -332,9 +426,12 @@ function drawPreview(d) {
         <td><span class="name">${esc(r.clientName || '-')}</span></td>
         <td>${esc(r.supplier || '-')}</td>
         <td>${esc(r.productName || '-')}</td>
-        <td>${esc(r.departDate || '-')}</td>
+        <td>${esc(r.departDate ? dateFmt(r.departDate) : '-')}</td>
         <td>${esc(r.confirmationNumber || '-')}</td>
-        <td class="num">${r.gross ? esc(money(Math.round(Number(r.gross) * 100))) : '-'}</td>
+        <td class="num">${r.gross ? esc(money(Math.round(Number(r.gross) * 100))) : '-'}${
+  ['fare', 'taxes', 'insurance', 'gratuities'].some((k) => Number(r[k]) > 0)
+    ? `<div class="muted" style="font-size:.72rem;">into Pricing: ${['fare', 'taxes', 'insurance', 'gratuities']
+      .filter((k) => Number(r[k]) > 0).map((k) => esc(LABEL[k].toLowerCase())).join(', ')}</div>` : ''}</td>
       </tr>`;
     }).join('')}</tbody></table></div>`;
 

@@ -5394,6 +5394,35 @@ async function main() {
   check(ran.data?.created === 2 && ran.data?.skipped === 2,
     'the import creates the sound rows and skips the rest', JSON.stringify(ran.data));
 
+  // A sheet with the parts of the price in their own columns fills the Pricing tab.
+  const pricedSheet = [
+    'CLIENT\tVENDOR\tCONFIRMATION\tFARE\tTAXES AND FEES\tINSURANCE\tTOTAL\tCOMMISSION',
+    `Priced, Pat\tVirgin Voyages\tIMPP-${stamp}\t1000.00\t300.00\t100.00\t1500.00\t150.00`,
+  ].join('\n');
+  const pvp = await call(advisor, 'POST', '/api/import/preview', { text: pricedSheet });
+  check(pvp.data?.rows?.[0]?.fare === '1000.00' && pvp.data?.rows?.[0]?.taxes === '300.00'
+    && pvp.data?.rows?.[0]?.insurance === '100.00' && pvp.data?.rows?.[0]?.gross === '1500.00',
+    'fare, taxes and insurance columns are recognised, apart from the total',
+    JSON.stringify(pvp.data?.rows?.[0]));
+  const ranPriced = await call(advisor, 'POST', '/api/import/reservations', { text: pricedSheet });
+  check(ranPriced.data?.created === 1, 'a sheet with price columns imports', JSON.stringify(ranPriced.data));
+  const pricedHit = ((await call(advisor, 'GET', `/api/bookings?q=IMPP-${stamp}`)).data?.bookings || [])[0];
+  if (pricedHit) cleanup('an imported priced reservation', () => dropBooking(pricedHit.id));
+  const pricedRec = await call(advisor, 'GET', `/api/bookings/${pricedHit?.id}/record`);
+  const pricedKinds = Object.fromEntries((pricedRec.data?.pricing || []).map((l) => [l.kind, l.amount_cents]));
+  check(pricedKinds.fare === 100000 && pricedKinds.taxes === 30000 && pricedKinds.insurance === 10000,
+    'and each part lands in its own Pricing line', JSON.stringify(pricedKinds));
+  check(pricedKinds.other === 10000,
+    'what the total holds beyond its columns is kept as Other charges, not lost', JSON.stringify(pricedKinds));
+  check(pricedRec.data?.booking?.gross_cents === 150000 && pricedRec.data?.booking?.commission_cents === 15000,
+    'so the trip total and commission are what the sheet said',
+    JSON.stringify([pricedRec.data?.booking?.gross_cents, pricedRec.data?.booking?.commission_cents]));
+  const overSheet = await call(advisor, 'POST', '/api/import/preview', { text: [
+    'CLIENT\tVENDOR\tFARE\tTAXES\tTOTAL', 'Over, Olive\tVirgin Voyages\t1000\t300\t900'].join('\n') });
+  check((overSheet.data?.rows?.[0]?.problems || []).some((x) => /add up to more than the total/.test(x)),
+    'parts that add up to more than the total are flagged, not quietly changed',
+    JSON.stringify(overSheet.data?.rows?.[0]?.problems));
+
   const imported = await call(advisor, 'GET', `/api/bookings?q=IMP1-${stamp}`);
   const madeIt = (imported.data?.bookings || [])[0];
   check(madeIt && madeIt.client_name === 'Manuel Montoro', 'and they are real reservations');
@@ -6088,6 +6117,42 @@ async function main() {
   check(cf.clientName === 'Angela Simic',
     'and the guest printed at the top with no label at all is the client', cf.clientName);
   check(cf.travellers === 2, 'with the guest count read from a total', `${cf.travellers}`);
+
+  // The price line by line, in the layout an agent copy uses. Invented figures: a fare of
+  // 1,000 each less 500 each, 100 each of taxes, 80 each of cruise fees whose label wraps
+  // and loses its figures, and insurance. The fees have to be recovered from the gross.
+  const pricedCopy = [
+    'Alex Sample', 'BOOKING ID: 99887766',
+    'Departure Date: Aug 11, 2028 Return Date: Aug 18, 2028',
+    'Ship: Example Ship Total Guests: 2',
+    'Cabin Fare $1,000.00 $1,000.00',
+    'Discount(s) $500.00 $500.00',
+    'Govt. Taxes & Fees $100.00 $100.00',
+    'Required Cruise Fees &',
+    'Gross Amount of Reservation: $ 2,460.00',
+    'Discounts Applied: $ 1,000.00',
+    'Insurance Amount: $ 100.00',
+    'Total Booking Amount: $ 1,460.00',
+    'Final Payment Due Date: May 12, 2028',
+    'Fare Commission Rate: 15%',
+    'Fare Commission: $150.00',
+  ].join('\n');
+  const pc = await call(advisor, 'POST', '/api/import/confirmation', { text: pricedCopy });
+  const pp = pc.data?.pricing;
+  check(pc.data?.fields?.finalPaymentDue === '2028-05-12',
+    'a "Final Payment Due Date" is read, not missed for the label being longer', pc.data?.fields?.finalPaymentDue);
+  const amountOf = (k) => (pp?.lines || []).find((l) => l.kind === k)?.amount;
+  check(amountOf('fare') === '1000.00',
+    'the fare comes across after the discount, since that is what commission is paid on', amountOf('fare'));
+  check(amountOf('taxes') === '360.00',
+    'taxes and fees are one line, including fees whose label could not be read', amountOf('taxes'));
+  check(amountOf('insurance') === '100.00', 'insurance is its own line', amountOf('insurance'));
+  check(pp?.balanced === true && pp?.ratePct === 15,
+    'the lines add up to the total the document states, and the rate is read',
+    JSON.stringify([pp?.balanced, pp?.ratePct, pp?.differenceCents]));
+  const plain = await call(advisor, 'POST', '/api/import/confirmation',
+    { text: 'Booking ID: 12345\nTotal Booking Amount: $ 1,976.80\nFare Commission: $80.93' });
+  check(plain.data?.pricing === null, 'a confirmation with no breakdown offers none', JSON.stringify(plain.data?.pricing));
 
   // -------------------------------------------- a group that takes names --
   step('Putting your name down for a group trip');
