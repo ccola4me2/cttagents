@@ -27,7 +27,7 @@ await mountShell();
 
 const panel = document.getElementById('panel');
 const day = (ts) => (ts ? new Date(ts * 1000).toLocaleDateString(undefined,
-  { day: 'numeric', month: 'long', year: 'numeric' }) : '');
+  { day: '2-digit', month: '2-digit', year: 'numeric' }) : '');
 
 // Stripe's own words, said plainly. The state matters most when somebody is
 // worried about it, which is the worst moment to be reading jargon.

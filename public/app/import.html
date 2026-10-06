@@ -155,6 +155,12 @@ function toIso(text) {
   return Number.isFinite(back.getTime()) && back.toISOString().slice(0, 10) === iso ? iso : null;
 }
 
+/** What a date box shows: 05/12/2028, whatever form the document gave it in. */
+function showDate(value) {
+  const iso = toIso(value);
+  return iso ? `${iso.slice(5, 7)}/${iso.slice(8, 10)}/${iso.slice(0, 4)}` : value;
+}
+
 const confErr = document.getElementById('conf-error');
 const confResult = document.getElementById('conf-result');
 
@@ -229,7 +235,7 @@ document.getElementById('conf-read').addEventListener('click', async () => {
     const source = read.from[key];
     return `<div class="field" style="margin-bottom:.7rem;">
       <label for="cf-${key}">${esc(label)}</label>
-      <input id="cf-${key}" data-conf="${key}" value="${esc(value === undefined ? '' : String(value))}"${
+      <input id="cf-${key}" data-conf="${key}" value="${esc(value === undefined ? '' : (DATE_KEYS.includes(key) ? showDate(String(value)) : String(value)))}"${
   DATE_KEYS.includes(key) ? ' placeholder="05/12/2028"' : ''}>
       <p class="field-hint" style="margin:.2rem 0 0;">${source
         ? 'read from: ' + esc(source)

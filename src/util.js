@@ -245,6 +245,17 @@ export function badDate(value) {
   return Boolean(s) && cleanDate(s) === null;
 }
 
+/**
+ * A stored day, 2026-10-30, as people here write it: 10/30/2026.
+ *
+ * Read off the text and never through a Date, so a day cannot shift with a timezone.
+ * Anything that is not a stored day comes back as nothing, not as a guess.
+ */
+export function usDate(iso) {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[2]}/${m[3]}/${m[1]}` : '';
+}
+
 /** Dollars (string or number) to integer cents. Negative and NaN become 0. */
 /**
  * The next time a month and day comes round, on or after a given day.

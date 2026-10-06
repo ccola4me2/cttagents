@@ -76,7 +76,8 @@ export function dateFmt(iso) {
   // 0 is not a date here. A stamp of zero means unset in every table this
   // reads from, and the epoch is a worse answer than nothing.
   if (iso === null || iso === undefined || iso === '' || iso === 0) return '';
-  const asDay = { month: 'short', day: 'numeric', year: 'numeric' };
+  // 10/06/2026, the way the agency writes a date, however it was stored.
+  const asDay = { month: '2-digit', day: '2-digit', year: 'numeric' };
 
   if (typeof iso === 'number' || /^\d{10,}$/.test(String(iso))) {
     const d = new Date(Number(iso) * 1000);

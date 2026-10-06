@@ -8,7 +8,7 @@
 // These pages are unauthenticated by design. Everything below assumes hostile
 // input.
 
-import { json, badRequest, notFound, uid, now, clean, cleanText, isValidEmail, normalizeEmail, sha256Hex, readJson, escapeHtml as esc } from './util.js';
+import { json, badRequest, notFound, uid, now, clean, cleanText, isValidEmail, normalizeEmail, sha256Hex, readJson, escapeHtml as esc, usDate } from './util.js';
 import * as db from './db.js';
 import { hydrateForm } from './formbuilder.js';
 import { upsertClient } from './clients.js';
@@ -315,8 +315,7 @@ async function loadGroup(env, code) {
  */
 function sayDate(iso) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || '')) return iso || '';
-  return new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US',
-    { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  return usDate(iso);
 }
 
 /**

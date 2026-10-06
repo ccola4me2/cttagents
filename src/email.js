@@ -8,7 +8,7 @@
 // automation engine can record what happened, and distinguishes a failure
 // worth retrying from one that is not.
 
-import { PermanentError, escapeHtml } from './util.js';
+import { PermanentError, escapeHtml, usDate } from './util.js';
 import { unsubscribeToken } from './unsubtoken.js';
 
 import { DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand.js';
@@ -1058,9 +1058,7 @@ export async function sendPaymentReminder(env, {
   const money = (cents) => `$${((cents || 0) / 100).toLocaleString('en-US', {
     minimumFractionDigits: 2, maximumFractionDigits: 2,
   })}`;
-  const when = new Date(`${dueDate}T00:00:00Z`).toLocaleDateString('en-US', {
-    day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
-  });
+  const when = usDate(dueDate);
 
   const trip = [tripName, vendor].filter(Boolean).join(' with ') || 'your trip';
   const word = REMIND_WORD[kind] || REMIND_WORD.final;

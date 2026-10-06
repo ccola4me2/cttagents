@@ -12,7 +12,7 @@
 // named here to reach a client, which means a column added to the reservation
 // next month cannot leak into a client's inbox by default.
 
-import { json, badRequest, notFound, readJson, now, sha256Hex } from './util.js';
+import { json, badRequest, notFound, readJson, now, sha256Hex, usDate } from './util.js';
 import { requireUser } from './auth.js';
 import { layout, escapeHtml, sendHtml } from './email.js';
 import { listPricing, PRICE_KINDS } from './pricing.js';
@@ -252,10 +252,7 @@ const money = (cents) => `$${((cents || 0) / 100).toLocaleString('en-US', {
   minimumFractionDigits: 2, maximumFractionDigits: 2,
 })}`;
 
-const day = (iso) => (iso
-  ? new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-US',
-      { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
-  : '');
+const day = (iso) => usDate(iso);
 
 function rows(items, { strike = false } = {}) {
   return items.map((i) => `<tr>
@@ -344,8 +341,7 @@ export function renderStatement(env, s) {
     !quote && s.invoiceNo
       ? `<p style="margin:0 0 14px;font-size:13px;color:#5c7286;">
           Invoice ${escapeHtml(s.invoiceNo)}${s.invoiceIssuedAt
-            ? ` &middot; ${escapeHtml(new Date(s.invoiceIssuedAt * 1000)
-                .toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' }))}` : ''}</p>`
+            ? ` &middot; ${escapeHtml(usDate(new Date(s.invoiceIssuedAt * 1000).toISOString().slice(0, 10)))}` : ''}</p>`
       : '',
     `<p style="margin:0 0 14px;">Hello ${escapeHtml(s.clientName || 'there')},</p>`,
     quote
