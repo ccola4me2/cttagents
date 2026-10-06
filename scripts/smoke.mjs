@@ -5407,7 +5407,6 @@ async function main() {
   const ranPriced = await call(advisor, 'POST', '/api/import/reservations', { text: pricedSheet });
   check(ranPriced.data?.created === 1, 'a sheet with price columns imports', JSON.stringify(ranPriced.data));
   const pricedHit = ((await call(advisor, 'GET', `/api/bookings?q=IMPP-${stamp}`)).data?.bookings || [])[0];
-  if (pricedHit) cleanup('an imported priced reservation', () => dropBooking(pricedHit.id));
   const pricedRec = await call(advisor, 'GET', `/api/bookings/${pricedHit?.id}/record`);
   const pricedKinds = Object.fromEntries((pricedRec.data?.pricing || []).map((l) => [l.kind, l.amount_cents]));
   check(pricedKinds.fare === 100000 && pricedKinds.taxes === 30000 && pricedKinds.insurance === 10000,
@@ -5417,6 +5416,9 @@ async function main() {
   check(pricedRec.data?.booking?.gross_cents === 150000 && pricedRec.data?.booking?.commission_cents === 15000,
     'so the trip total and commission are what the sheet said',
     JSON.stringify([pricedRec.data?.booking?.gross_cents, pricedRec.data?.booking?.commission_cents]));
+  // Gone at once. Left to the end of the suite it would sit among the most recent quotes
+  // and crowd out a later check that looks at them.
+  if (pricedHit) await dropBooking(pricedHit.id);
   const overSheet = await call(advisor, 'POST', '/api/import/preview', { text: [
     'CLIENT\tVENDOR\tFARE\tTAXES\tTOTAL', 'Over, Olive\tVirgin Voyages\t1000\t300\t900'].join('\n') });
   check((overSheet.data?.rows?.[0]?.problems || []).some((x) => /add up to more than the total/.test(x)),
