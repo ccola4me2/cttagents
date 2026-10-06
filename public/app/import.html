@@ -162,33 +162,47 @@ function showDate(value) {
   return iso ? `${iso.slice(5, 7)}/${iso.slice(8, 10)}/${iso.slice(0, 4)}` : value;
 }
 
-// ---- The price, line by line ----------------------------------------------
+// ---- The price, line by line, a column per guest ---------------------------------
 
-const PRICE_LABEL = { fare: 'Fare', taxes: 'Taxes and port fees', insurance: 'Travel insurance',
-  gratuities: 'Gratuities' };
+const PRICE_ROWS = [['fare', 'Fare'], ['taxes', 'Taxes and port fees'], ['insurance', 'Travel insurance'],
+  ['gratuities', 'Gratuities']];
 const cents = (v) => Math.round(Number(String(v ?? '').replace(/[^0-9.-]/g, '')) * 100) || 0;
 const say = (c) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** The columns the price is split into: one per guest the document prices, else the trip. */
+function priceColumns(read) {
+  const pr = read.pricing;
+  if (pr.guests && pr.guests.length > 1) return pr.guests;
+  const one = { name: '', fare: '', taxes: '', insurance: '', gratuities: '', commission: read.fields.commission || '' };
+  for (const l of pr.lines) one[l.kind] = l.amount;
+  return [one];
+}
 
 function drawPricing(read) {
   const box = document.getElementById('conf-pricing');
   const pr = read.pricing;
   if (!pr || !pr.lines.length) { box.hidden = true; box.innerHTML = ''; return; }
+  const cols = priceColumns(read);
+  const perGuest = cols.length > 1;
   box.hidden = false;
-  box.innerHTML = `<p class="label" style="margin:0 0 .4rem;">The price, line by line</p>
-    <p class="field-hint" style="margin:0 0 .8rem;">These go into the Pricing tab when you create the reservation.
-      Change any of them. Clear them all to leave Pricing empty.</p>
+  box.innerHTML = `<p class="label" style="margin:0 0 .4rem;">The price${perGuest ? ', guest by guest' : ', line by line'}</p>
+    <p class="field-hint" style="margin:0 0 .8rem;">${perGuest
+    ? 'Each guest is added to the reservation and priced on their own. '
+    : ''}These go into the Pricing tab when you create the reservation. Change any of them, or clear them all to leave Pricing empty.</p>
     ${pr.notes.map((n) => `<p class="field-hint" style="margin:0 0 .5rem;color:var(--amber-600);">${esc(n)}</p>`).join('')}
-    ${pr.lines.map((l) => `<div class="field" style="margin-bottom:.6rem;">
-        <label for="pl-${esc(l.kind)}">${esc(PRICE_LABEL[l.kind] || l.label)}</label>
-        <input id="pl-${esc(l.kind)}" data-price="${esc(l.kind)}" inputmode="decimal" value="${esc(l.amount)}">
-        <p class="field-hint" style="margin:.2rem 0 0;">read from: ${esc(l.from || '')}</p></div>`).join('')}
-    <div class="field-row">
-      <div class="field"><label for="pl-comm">Commission</label>
-        <input id="pl-comm" inputmode="decimal" value="${esc(read.fields.commission || '')}"></div>
-      <div class="field"><label for="pl-rate">Rate on the fare</label>
-        <input id="pl-rate" inputmode="decimal" value="${pr.ratePct === null ? '' : esc(String(pr.ratePct))}" placeholder="15">
-        <p class="field-hint" style="margin:.2rem 0 0;">percent, if the confirmation states one</p></div>
-    </div>
+    <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">
+      <thead><tr><th></th>${cols.map((c, i) => `<th style="text-align:left;padding:.3rem .4rem;min-width:9rem;">${perGuest
+    ? `<input data-gname="${i}" value="${esc(c.name || '')}" placeholder="Guest ${i + 1} name" aria-label="Guest ${i + 1} name">
+        ${c.dob ? `<div class="field-hint" style="margin:.2rem 0 0;font-weight:400;">born ${esc(dateFmt(c.dob))}</div>` : ''}`
+    : 'This trip'}</th>`).join('')}</tr></thead>
+      <tbody>${[...PRICE_ROWS, ['commission', 'Commission']].map(([kind, label]) => `<tr>
+        <th scope="row" style="text-align:left;padding:.3rem .4rem;font-weight:600;">${esc(label)}</th>
+        ${cols.map((c, i) => `<td style="padding:.3rem .4rem;"><input ${kind === 'commission' ? `data-comm="${i}"` : `data-price="${kind}" data-col="${i}"`}
+          inputmode="decimal" value="${esc(c[kind] && Number(c[kind]) ? c[kind] : '')}" aria-label="${esc(label)}${perGuest ? ` for guest ${i + 1}` : ''}"></td>`).join('')}
+      </tr>`).join('')}</tbody></table></div>
+    <div class="field" style="max-width:14rem;margin-top:.8rem;"><label for="pl-rate">Rate on the fare</label>
+      <input id="pl-rate" inputmode="decimal" value="${pr.ratePct === null ? '' : esc(String(pr.ratePct))}" placeholder="15">
+      <p class="field-hint" style="margin:.2rem 0 0;">percent, if the confirmation states one</p></div>
     <p id="pl-check" style="margin:.6rem 0 0;font-size:.9rem;"></p>`;
   box.oninput = checkPricing;
   document.querySelector('[data-conf="gross"]').addEventListener('input', checkPricing);
@@ -211,25 +225,36 @@ function checkPricing() {
   return agree;
 }
 
-/** The pricing grid body the server expects, from the boxes on screen. */
-function pricingBody() {
+/** The guests to add, in column order, when the price is split by guest. */
+function guestList() {
+  return [...document.querySelectorAll('[data-gname]')].map((el, i) => ({
+    name: el.value.trim(), dob: (lastRead.pricing.guests[i] || {}).dob || null,
+  }));
+}
+
+/** The pricing grid body the server expects. `ids` are the new travellers, by column. */
+function pricingBody(ids) {
   const cells = [...document.querySelectorAll('[data-price]')]
     .filter((el) => cents(el.value) > 0)
     // Only the fare earns commission here. The confirmation states the commission as a
     // figure, and it is that rate on the fare; marking insurance or fees as earning
     // would make a correct commission look short.
-    .map((el) => ({ kind: el.dataset.price, amount: String(cents(el.value) / 100), commissionable: el.dataset.price === 'fare' }));
-  const comm = cents(document.getElementById('pl-comm') && document.getElementById('pl-comm').value);
-  const pkg = cents(lastRead && lastRead.fields.commissionPackage);
+    .map((el) => ({ travellerId: ids ? ids[Number(el.dataset.col)] : null, kind: el.dataset.price,
+      amount: String(cents(el.value) / 100), commissionable: el.dataset.price === 'fare' }));
+  const commissions = [];
+  document.querySelectorAll('[data-comm]').forEach((el) => {
+    const c = cents(el.value);
+    if (c > 0) commissions.push({ travellerId: ids ? ids[Number(el.dataset.comm)] : null, kind: 'base', amount: String(c / 100) });
+  });
+  const guests = (lastRead && lastRead.pricing && lastRead.pricing.guests) || [];
+  if (ids) {
+    guests.forEach((g, i) => { const c = cents(g.commissionPackage); if (c > 0) commissions.push({ travellerId: ids[i], kind: 'package', amount: String(c / 100) }); });
+  } else {
+    const c = cents(lastRead && lastRead.fields.commissionPackage);
+    if (c > 0) commissions.push({ travellerId: null, kind: 'package', amount: String(c / 100) });
+  }
   const rate = Number(document.getElementById('pl-rate') && document.getElementById('pl-rate').value);
-  return {
-    cells,
-    commissions: [
-      ...(comm > 0 ? [{ kind: 'base', amount: String(comm / 100) }] : []),
-      ...(pkg > 0 ? [{ kind: 'package', amount: String(pkg / 100) }] : []),
-    ],
-    rates: Number.isFinite(rate) && rate > 0 ? [{ kind: 'fare', pct: rate }] : [],
-  };
+  return { cells, commissions, rates: Number.isFinite(rate) && rate > 0 ? [{ kind: 'fare', pct: rate }] : [] };
 }
 
 let lastRead = null;
@@ -350,8 +375,16 @@ document.getElementById('conf-create').addEventListener('click', async () => {
     { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
     return;
   }
-  const priced = pricingBody();
-  if (priced.cells.length && !checkPricing()) {
+  const splitByGuest = document.querySelectorAll('[data-gname]').length > 1;
+  const people = splitByGuest ? guestList() : [];
+  if (splitByGuest && [...document.querySelectorAll('[data-price]')].some((el) => cents(el.value) > 0)
+    && people.some((g) => !g.name)) {
+    createErr.textContent = 'Type each guest\'s name, so the price can be put against the right person.';
+    { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+    return;
+  }
+  const hasLines = [...document.querySelectorAll('[data-price]')].some((el) => cents(el.value) > 0);
+  if (hasLines && !checkPricing()) {
     createErr.textContent = 'The pricing lines do not add up to the trip total. Correct one of them, or clear the pricing boxes to leave Pricing empty.';
     { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
     return;
@@ -359,11 +392,20 @@ document.getElementById('conf-create').addEventListener('click', async () => {
   btn.disabled = true;
   try {
     const res = await api('/api/bookings', { method: 'POST', body });
-    if (priced.cells.length) {
+    if (hasLines) {
       // The reservation exists by now, so a failure here is said and not hidden, and the
       // person is left on a way to it rather than with nothing.
       try {
-        await api(`/api/bookings/${encodeURIComponent(res.booking.id)}/pricing`, { method: 'PUT', body: priced });
+        let ids = null;
+        if (splitByGuest) {
+          ids = [];
+          for (let i = 0; i < people.length; i += 1) {
+            const made = await api(`/api/bookings/${encodeURIComponent(res.booking.id)}/travellers`,
+              { method: 'POST', body: { name: people[i].name, dob: people[i].dob, isLead: i === 0 } });
+            ids.push(made.id);
+          }
+        }
+        await api(`/api/bookings/${encodeURIComponent(res.booking.id)}/pricing`, { method: 'PUT', body: pricingBody(ids) });
       } catch (e3) {
         createErr.innerHTML = `The reservation was created, but its pricing was not saved (${esc(e3.message)}).
           <a href="/app/reservation?id=${encodeURIComponent(res.booking.id)}">Open the reservation</a> and enter it on the Pricing tab.`;

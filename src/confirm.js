@@ -222,6 +222,7 @@ function moneyRow(lines, aliases, { all = false } = {}) {
     let total = 0;
     let first = null;
     let hits = 0;
+    const values = [];
     for (const raw of lines) {
       const line = raw.trim();
       if (!line.toLowerCase().startsWith(alias)) continue;
@@ -232,16 +233,75 @@ function moneyRow(lines, aliases, { all = false } = {}) {
       const tokens = body.match(MONEY_TOKEN);
       if (!tokens || body.replace(MONEY_TOKEN, '').replace(/[\s$]/g, '')) continue;
       total += tokens.reduce((n, t) => n + cents(t), 0);
+      tokens.forEach((t) => values.push(cents(t)));
       hits += 1;
       if (!first) first = line;
       if (!all) break;
     }
-    if (hits) return { cents: total, line: first, hits };
+    // `values` is every figure in the order printed: a column per guest, and one more
+    // run of columns for each further stateroom.
+    if (hits) return { cents: total, line: first, hits, values };
   }
   return null;
 }
 
+/** Everything after a label on every line that starts with it, joined in order. */
+function afterLabel(lines, aliases) {
+  const parts = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    const lower = line.toLowerCase();
+    const alias = aliases.find((a) => lower.startsWith(a) && !/^[a-z]/i.test(line.slice(a.length)));
+    if (!alias) continue;
+    const rest = line.slice(alias.length).replace(/^\s*[:\-–—]?\s*/, '').trim();
+    if (rest) parts.push(rest);
+  }
+  return parts.join(' ');
+}
+
 const fixed = (c) => (c / 100).toFixed(2);
+
+/** A total cut into n parts that add back up to it, the odd cent going to the first. */
+function spread(total, n) {
+  const each = Math.floor(total / n);
+  return Array.from({ length: n }, (_, i) => (i === 0 ? total - each * (n - 1) : each));
+}
+
+/** A total shared in proportion to weights, adding back up to it exactly. */
+function shareBy(total, weights) {
+  const sum = weights.reduce((a, b) => a + b, 0);
+  if (!sum) return spread(total, weights.length);
+  const parts = weights.map((w) => Math.floor((total * w) / sum));
+  parts[0] += total - parts.reduce((a, b) => a + b, 0);
+  return parts;
+}
+
+/**
+ * The people the price columns belong to.
+ *
+ * An agent copy has a header of first names and one of last names, each a run of words
+ * in guest order, and a date of birth beside each. Those only separate cleanly when there
+ * is one word per guest, which is the ordinary case; a two word first name or last name
+ * makes the counts disagree and the names are left for a person to fill in, rather than
+ * guessed at and filed against the wrong traveller.
+ */
+function guestsFromColumns(lines, n, listed) {
+  const first = afterLabel(lines, ['first name', 'first names', 'given name']).split(/\s+/).filter(Boolean);
+  const last = afterLabel(lines, ['last name', 'last names', 'surname']).split(/\s+/).filter(Boolean);
+  const born = [...afterLabel(lines, ['date of birth, age', 'date of birth', 'dob'])
+    .matchAll(/([A-Za-z]{3,9}\.? \d{1,2},? \d{4})/g)].map((m) => anyDate(m[1]) || null);
+
+  let names = null;
+  if (first.length === n && last.length === n) {
+    names = first.map((f, i) => `${fixCaps(f)} ${fixCaps(last[i])}`.trim());
+  } else if (listed.length === n) {
+    names = listed.map((g) => g.name);
+  }
+  return Array.from({ length: n }, (_, i) => ({
+    name: names ? names[i] : '',
+    dob: born.length === n ? born[i] : null,
+  }));
+}
 const said = (c) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /**
@@ -264,17 +324,21 @@ const said = (c) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigit
  * gross amount, whatever is left once fare and insurance are taken out of it is
  * counted as fees rather than dropped, and the page says so.
  */
-function readPricing(lines, fields) {
+function readPricing(lines, fields, listed) {
   const fare = moneyRow(lines, ['cabin fare', 'cruise fare', 'stateroom fare', 'base fare', 'fare'], { all: true });
   if (!fare) return null;
 
-  const discount = moneyRow(lines, ['discounts applied', 'total discounts'])
-    || moneyRow(lines, ['discount(s)', 'discounts', 'discount'], { all: true });
+  // Per guest rows first: a discount printed for each guest is that guest's, and the
+  // summary total beneath is only the same money added up.
+  const discount = moneyRow(lines, ['discount(s)', 'discounts', 'discount'], { all: true })
+    || moneyRow(lines, ['discounts applied', 'total discounts']);
   const govt = moneyRow(lines, ['govt. taxes & fees', 'govt taxes & fees', 'government taxes & fees',
     'government taxes and fees', 'taxes, fees & port expenses', 'taxes, fees and port expenses',
     'taxes & fees', 'taxes and fees', 'port charges and taxes', 'port charges', 'port fees', 'taxes'], { all: true });
-  const required = moneyRow(lines, ['required cruise fees & expenses', 'required cruise fees',
-    'cruise fees & expenses', 'port expenses', 'cruise fees'], { all: true });
+  // The label wraps over two lines on some documents, with the figures on either one.
+  const required = moneyRow(lines, ['required cruise fees & expenses', 'required cruise fees &',
+    'required cruise fees', 'cruise fees & expenses', 'port expenses', 'cruise fees'], { all: true })
+    || moneyRow(lines.filter((l, i) => /^required cruise fees/i.test((lines[i - 1] || '').trim())), ['expenses'], { all: true });
   const insurance = moneyRow(lines, ['insurance amount', 'travel insurance', 'insurance premium', 'insurance']);
   const gratuities = moneyRow(lines, ['prepaid gratuities', 'gratuities', 'service charges']);
   const gross = moneyRow(lines, ['gross amount of reservation']);
@@ -295,6 +359,34 @@ function readPricing(lines, fields) {
     }
   }
 
+  // ---- Each guest's own column ------------------------------------------------------
+  const n = fare.values.length > 1 ? fare.values.length : (listed.length > 1 ? listed.length : 1);
+  const columnOf = (row, total) => (row && row.values.length === n ? row.values
+    : spread(total, n));
+  const perGuest = n > 1 ? (() => {
+    const fares = columnOf(fare, fare.cents);
+    const offs = off ? columnOf(discount, off) : new Array(n).fill(0);
+    const govts = govt ? columnOf(govt, govt.cents) : new Array(n).fill(0);
+    const reqs = required ? columnOf(required, required.cents) : new Array(n).fill(0);
+    // Fees that had no readable label are spread evenly: nothing says whose they are.
+    const owed = taxes - (govt ? govt.cents : 0) - (required ? required.cents : 0);
+    const gap = spread(Math.max(owed, 0), n);
+    const cover = spread(insured, n);
+    const tipCols = gratuities ? columnOf(gratuities, tips) : new Array(n).fill(0);
+    const people = guestsFromColumns(lines, n, listed);
+    const netFares = fares.map((f, i) => f - offs[i]);
+    const comm = fields.commission ? shareBy(toCents(fields.commission), netFares) : new Array(n).fill(0);
+    const pack = fields.commissionPackage ? shareBy(toCents(fields.commissionPackage), netFares) : new Array(n).fill(0);
+    return people.map((who, i) => ({
+      name: who.name, dob: who.dob,
+      fare: fixed(netFares[i]), taxes: fixed(govts[i] + reqs[i] + gap[i]),
+      insurance: fixed(cover[i]), gratuities: fixed(tipCols[i]),
+      commission: fixed(comm[i]), commissionPackage: fixed(pack[i]),
+    }));
+  })() : null;
+  if (perGuest && insured) notes.push('Insurance is not printed per guest, so it is shared equally between them.');
+  if (perGuest && perGuest.some((g) => !g.name)) notes.push('The guest names could not be told apart, so type each one in.');
+
   const out = [];
   if (netFare > 0) out.push({ kind: 'fare', label: 'Fare', amount: fixed(netFare), from: fare.line });
   if (taxes > 0) {
@@ -311,6 +403,9 @@ function readPricing(lines, fields) {
 
   return {
     lines: out,
+    // One entry per traveller when the document prices each guest, else null and the
+    // price stays a single column for the trip.
+    guests: perGuest,
     totalCents: sum,
     statedCents: stated,
     // Only a trip whose lines add up to the total the document gives is offered as
@@ -414,7 +509,7 @@ export function parseConfirmation(text) {
     delete from.returnDate;
   }
 
-  const pricing = readPricing(lines, fields);
+  const pricing = readPricing(lines, fields, people);
 
   return {
     fields,
