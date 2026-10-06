@@ -6171,32 +6171,32 @@ async function main() {
     JSON.stringify(gs.map((g) => g.commission)));
 
   // What the page does when somebody presses Create: the guests, then a price for each.
-  const split = await call(advisor, 'POST', '/api/bookings', {
+  const guestTrip = await call(advisor, 'POST', '/api/bookings', {
     clientName: 'Alex Sample', supplier: 'Test Cruise Line', status: 'booked',
     gross: '1460.00', commission: '150.00', travellers: 2 });
-  const splitId = split.data?.booking?.id;
-  if (splitId) cleanup('the per guest reservation', () => dropBooking(splitId));
-  const tIds = [];
+  const guestTripId = guestTrip.data?.booking?.id;
+  if (guestTripId) cleanup('the per guest reservation', () => dropBooking(guestTripId));
+  const guestIds = [];
   for (const [i, g] of gs.entries()) {
-    const t = await call(advisor, 'POST', `/api/bookings/${splitId}/travellers`, { name: g.name, dob: g.dob, isLead: i === 0 });
-    tIds.push(t.data?.id);
+    const t = await call(advisor, 'POST', `/api/bookings/${guestTripId}/travellers`, { name: g.name, dob: g.dob, isLead: i === 0 });
+    guestIds.push(t.data?.id);
   }
-  check(tIds.length === 2 && tIds.every(Boolean), 'the guests are added to the reservation');
-  const put = await call(advisor, 'PUT', `/api/bookings/${splitId}/pricing`, {
+  check(guestIds.length === 2 && guestIds.every(Boolean), 'the guests are added to the reservation');
+  const guestPut = await call(advisor, 'PUT', `/api/bookings/${guestTripId}/pricing`, {
     cells: gs.flatMap((g, i) => ['fare', 'taxes', 'insurance'].map((k) => ({
-      travellerId: tIds[i], kind: k, amount: g[k], commissionable: k === 'fare' }))),
-    commissions: gs.map((g, i) => ({ travellerId: tIds[i], kind: 'base', amount: g.commission })),
+      travellerId: guestIds[i], kind: k, amount: g[k], commissionable: k === 'fare' }))),
+    commissions: gs.map((g, i) => ({ travellerId: guestIds[i], kind: 'base', amount: g.commission })),
     rates: [{ kind: 'fare', pct: 15 }] });
-  check(put.status === 200, 'and the price is saved against each of them', `status ${put.status}`);
-  const splitRec = await call(advisor, 'GET', `/api/bookings/${splitId}/record`);
-  const guestLines = (id) => (splitRec.data?.pricing || []).filter((l) => l.traveller_id === id);
-  check(guestLines(tIds[0]).length >= 3 && guestLines(tIds[1]).length >= 3
-    && guestLines(tIds[0]).find((l) => l.kind === 'fare')?.amount_cents === 50000
-    && guestLines(tIds[1]).find((l) => l.kind === 'taxes')?.amount_cents === 18000,
-    'each guest has their own lines in the grid', JSON.stringify((splitRec.data?.pricing || []).map((l) => [l.kind, l.amount_cents, !!l.traveller_id])));
-  check(splitRec.data?.booking?.gross_cents === 146000 && splitRec.data?.booking?.commission_cents === 15000,
+  check(guestPut.status === 200, 'and the price is saved against each of them', `status ${guestPut.status}`);
+  const guestRec = await call(advisor, 'GET', `/api/bookings/${guestTripId}/record`);
+  const guestLines = (id) => (guestRec.data?.pricing || []).filter((l) => l.traveller_id === id);
+  check(guestLines(guestIds[0]).length >= 3 && guestLines(guestIds[1]).length >= 3
+    && guestLines(guestIds[0]).find((l) => l.kind === 'fare')?.amount_cents === 50000
+    && guestLines(guestIds[1]).find((l) => l.kind === 'taxes')?.amount_cents === 18000,
+    'each guest has their own lines in the grid', JSON.stringify((guestRec.data?.pricing || []).map((l) => [l.kind, l.amount_cents, !!l.traveller_id])));
+  check(guestRec.data?.booking?.gross_cents === 146000 && guestRec.data?.booking?.commission_cents === 15000,
     'and the trip total and commission still come to what the document said',
-    JSON.stringify([splitRec.data?.booking?.gross_cents, splitRec.data?.booking?.commission_cents]));
+    JSON.stringify([guestRec.data?.booking?.gross_cents, guestRec.data?.booking?.commission_cents]));
   const plain = await call(advisor, 'POST', '/api/import/confirmation',
     { text: 'Booking ID: 12345\nTotal Booking Amount: $ 1,976.80\nFare Commission: $80.93' });
   check(plain.data?.pricing === null, 'a confirmation with no breakdown offers none', JSON.stringify(plain.data?.pricing));
