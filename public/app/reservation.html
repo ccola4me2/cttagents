@@ -651,8 +651,8 @@ function drawDocuments() {
             ? `<label style="display:flex;align-items:center;gap:.4rem;font-weight:400;margin:0;">
                  <input type="checkbox" data-share-doc="${esc(f.id)}"${f.shared ? ' checked' : ''}
                    style="width:auto;flex:none;">
-                 <span class="muted">${f.shared ? 'shared' : 'no'}</span></label>`
-            : `<span class="muted">${f.shared ? 'shared' : 'no'}</span>`}</td>
+                 <span class="muted">${f.shared ? 'Shared with client' : 'Not shared'}</span></label>`
+            : `<span class="muted">${f.shared ? 'Shared with client' : 'Not shared'}</span>`}</td>
           <td class="num">${d.editable
             ? `<button class="btn btn-ghost btn-sm" data-doc="${esc(f.id)}">Remove</button>` : ''}</td>
         </tr>`).join('')}</tbody></table></div>`
