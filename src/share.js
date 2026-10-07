@@ -279,7 +279,8 @@ async function loadTrip(env, code) {
                      WHERE booking_id = ? AND user_id = ? ORDER BY sort_order ASC`)
       .bind(booking.id, owner).all(),
     env.DB.prepare(`SELECT kind, amount_cents, due_date, paid_date FROM booking_payments
-                     WHERE booking_id = ? AND user_id = ? ORDER BY COALESCE(due_date, paid_date) ASC`)
+                     WHERE booking_id = ? AND user_id = ? AND payment_class = 'hard'
+                     ORDER BY COALESCE(due_date, paid_date) ASC`)
       .bind(booking.id, owner).all(),
     env.DB.prepare(`SELECT id, filename, category, size_bytes, from_client FROM documents
                      WHERE booking_id = ? AND user_id = ?
