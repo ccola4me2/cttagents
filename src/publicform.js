@@ -277,7 +277,7 @@ export async function renderPublicForm(request, env, slug) {
  */
 // Kept as its own constant so the closing script tag is never written inside
 // another template literal, which is how a page silently ends early.
-const GROUP_SCRIPT = ['<scr', 'ipt>',
+const GROUP_SCRIPT = '<scr' + 'ipt>\n' + [
   "const f=document.getElementById('f');",
   "f.addEventListener('submit', async (e) => {",
   '  e.preventDefault();',
@@ -295,7 +295,7 @@ const GROUP_SCRIPT = ['<scr', 'ipt>',
   '  f.outerHTML = \'<h2>Thanks, you are on the list</h2><p>\' +',
   "    (data.message || 'We will be in touch shortly.') + '</p>';",
   '});',
-  '</scr', 'ipt>'].join('\n');
+  ].join('\n') + '\n</scr' + 'ipt>';
 
 async function loadGroup(env, code) {
   const row = await env.DB.prepare(
@@ -549,7 +549,7 @@ export async function renderSpecialPage(request, env, code) {
     { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
-const SPECIAL_SCRIPT = ['<scr', 'ipt>',
+const SPECIAL_SCRIPT = '<scr' + 'ipt>\n' + [
   "const f=document.getElementById('f');",
   "f.addEventListener('submit', async (e) => {",
   '  e.preventDefault();',
@@ -567,7 +567,7 @@ const SPECIAL_SCRIPT = ['<scr', 'ipt>',
   '  f.outerHTML = \'<h2>Thanks, we have got that</h2><p>\' +',
   "    (data.message || 'We will be in touch shortly.') + '</p>';",
   '});',
-  '</scr', 'ipt>'].join('\n');
+  ].join('\n') + '\n</scr' + 'ipt>';
 
 export async function handleSpecialEnquiry(request, env, code) {
   const s = await loadSpecial(env, code);

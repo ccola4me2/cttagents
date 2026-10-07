@@ -3542,6 +3542,8 @@ async function main() {
     check(live.status === 200 && live.raw.includes('Western Caribbean'),
       'and the page is then served to anybody, signed in or not', `status ${live.status}`);
     check(live.raw.includes('$799'), 'with the price on it');
+    check(live.raw.includes('<script>\n') && !live.raw.includes('<scr\nipt>'),
+      'and its script is a script, not text on the page');
     check(!live.raw.includes(ADVISOR_EMAIL),
       'and nothing on it that belongs to the advisor rather than the deal');
 
@@ -6312,6 +6314,11 @@ async function main() {
   const publicPage = await call(null, 'GET', `/g/ph-${stamp}`);
   check(publicPage.status === 200, 'the page is public, with no session at all',
     `status ${publicPage.status}`);
+  // The page's own script has to arrive as a script. It was once joined with a
+  // newline inside its own tag, so the code showed as text under the button.
+  check(publicPage.raw.includes('<script>\n') && publicPage.raw.includes('\n</script>')
+      && !publicPage.raw.includes('<scr\nipt>'),
+    'and its script is a script, not text on the page');
 
   const signUp = await call(null, 'POST', `/g/ph-${stamp}`, {
     name: `Jimmy ${stamp}`, email: `jimmy-${stamp}@test.dev`, phone: '555-0180',
