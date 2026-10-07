@@ -430,14 +430,17 @@ export function renderStatement(env, s) {
     // ends at a total and the only way to answer is to compose a reply, which
     // is the step most people never take.
     //
-    // A statement gets none: the trip is already booked, there is nothing to
-    // answer, and the page is reachable from the link they were already sent.
+    // A statement gets one only when the trip page exists, pointing at the
+    // documents and payment dates there. Nothing to answer, so no "answer" label.
     html: layout(env, {
       heading,
       body,
       footer,
-      cta: s.mode === 'quote' && s.shareCode
-        ? { label: 'See it and answer', href: `${appUrl(env)}/t/${s.shareCode}` }
+      // An invoice links to the trip page only where one already exists, and
+      // never makes one: whether a client has a page is the advisor's choice.
+      cta: s.shareCode
+        ? { label: s.mode === 'quote' ? 'See it and answer' : 'See your trip and documents',
+            href: `${appUrl(env)}/t/${s.shareCode}` }
         : null,
     }),
   };

@@ -2946,6 +2946,13 @@ async function main() {
       'a statement has a fingerprint of what it would say', `${inv.data?.fingerprint}`);
     check(inv.data?.changedSince === false,
       'nothing has changed while nothing has been sent', `${inv.data?.changedSince}`);
+    {
+      // The invoice points at the trip page when there is one and invents none.
+      const code = inv.data?.statement?.shareCode || null;
+      const page = String(inv.data?.html || '');
+      check(code ? page.includes(`/t/${code}`) : !page.includes('See your trip and documents'),
+        'a statement links to the trip page only when one exists', `${code}`);
+    }
 
     // The send needs a working mail key, which a local run does not have, so
     // the fingerprint is written the way a send would write it. What is being
