@@ -22,6 +22,7 @@
     </header>
     <div class="content">
       <div id="err"></div>
+      <div class="notice notice-ok" id="saved-note" role="status" hidden>Group saved.</div>
       <section id="stats" class="stat-grid" hidden></section>
 
       <section class="card" id="link-card" hidden style="margin-top:1.5rem;">
@@ -596,11 +597,21 @@ function allValues(values) {
   return { ...other, ...values, ...grid };
 }
 
-async function save(values) {
+let savedTimer = null;
+async function save(values, toTop = true) {
   const body = allValues(values);
   if (groupId) {
     await api(`/api/groups/${encodeURIComponent(groupId)}`, { method: 'PUT', body });
     await load();
+    // Saving used to change nothing you could see, so it read as if the button
+    // had done nothing. Say so at the top of the page, and go there.
+    if (toTop) {
+      const note = document.getElementById('saved-note');
+      note.hidden = false;
+      clearTimeout(savedTimer);
+      savedTimer = setTimeout(() => { note.hidden = true; }, 8000);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   } else {
     const created = await api('/api/groups', { method: 'POST', body });
     location.href = `/app/group?id=${encodeURIComponent(created.group.id)}`;
@@ -650,11 +661,11 @@ async function save(values) {
   form.elements.groupType.addEventListener('change', () => picker.refresh());
 })();
 
-onSubmit(form, save);
+onSubmit(form, (values) => save(values));
 onSubmit(regForm, (values) => save({
   ...values,
   registrationOpen: regForm.elements.registrationOpen.checked,
-}));
+}, false));
 
 deleteBtn.addEventListener('click', async () => {
   if (!confirm('Delete this group? The reservations made from it are kept.')) return;
