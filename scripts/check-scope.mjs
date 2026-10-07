@@ -45,7 +45,7 @@ const OWNED = new Set([
   // Theirs to read and nobody's to write but an owner's, which the handlers
   // enforce with requireAdmin on top of these predicates.
   'advisor_payouts', 'advisor_payout_lines',
-  'group_registrations', 'task_items', 'task_templates', 'trip_messages',
+  'group_registrations', 'task_items', 'task_templates', 'trip_messages', 'trip_views',
   // Several reservations as one trip. The advisor's own, read on the owner screens
   // by scope and written only through db.writerFor; the public page finds it by
   // share code and every statement under it names the advisor anyway.

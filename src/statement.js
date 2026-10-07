@@ -440,7 +440,7 @@ export function renderStatement(env, s) {
       // never makes one: whether a client has a page is the advisor's choice.
       cta: s.shareCode
         ? { label: s.mode === 'quote' ? 'See it and answer' : 'See your trip and documents',
-            href: `${appUrl(env)}/t/${s.shareCode}` }
+            href: `${appUrl(env)}/t/${s.shareCode}?s=${s.mode === 'quote' ? 'quote' : 'invoice'}` }
         : null,
     }),
   };

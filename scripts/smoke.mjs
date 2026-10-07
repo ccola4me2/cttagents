@@ -2810,9 +2810,37 @@ async function main() {
     cleanup('the shared trip page',
       () => call(advisor, 'POST', `/api/bookings/${bookingId}/share`, { on: false }));
 
+    // Machines are not visitors. Mail scanners and link previewers open the
+    // page before the client does, and the advisor's own preview link and
+    // signed-in browser are not the client either.
+    {
+      const as = (agent, path = '', extra = {}) => fetch(`${BASE}/t/${code}${path}`,
+        { headers: { 'user-agent': agent, ...extra }, redirect: 'manual' }).then((r) => r.text());
+      await as('Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)');
+      await as('Slackbot-LinkExpanding 1.0');
+      await as('Mozilla/5.0 (Windows NT 10.0) Microsoft Office/16.0 (Outlook)');
+      await as('Mozilla/5.0 (Macintosh) AppleWebKit/605 Safari/605', '?preview');
+      await as('Mozilla/5.0 (Macintosh) AppleWebKit/605 Safari/605', '', { cookie: 'tv_session=x' });
+      const seen = await call(advisor, 'GET', `/api/bookings/${bookingId}/record`);
+      check(!seen.data?.booking?.view_count && (seen.data?.views || []).length === 0,
+        'scanners, previews and the advisor are not counted as the client looking',
+        `${seen.data?.booking?.view_count} / ${(seen.data?.views || []).length}`);
+    }
+
     const page = await call(null, 'GET', `/t/${code}`);
     check(page.status === 200, 'the page is public, with no session at all',
       `status ${page.status}`);
+    {
+      const first = await call(advisor, 'GET', `/api/bookings/${bookingId}/record`);
+      check(first.data?.booking?.view_count === 1 && (first.data?.views || []).length === 1
+          && first.data.views[0].source === 'link',
+        'a person opening it is counted once, with where they came from',
+        `${first.data?.booking?.view_count} / ${JSON.stringify(first.data?.views)}`);
+      await call(null, 'GET', `/t/${code}?s=invoice`);
+      const again = await call(advisor, 'GET', `/api/bookings/${bookingId}/record`);
+      check(again.data?.booking?.view_count === 1,
+        'and opening it again in the same sitting is the same visit', `${again.data?.booking?.view_count}`);
+    }
 
     // The whole reason this page is dangerous. Every one of these is on the
     // reservation it was built from.

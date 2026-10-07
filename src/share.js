@@ -30,14 +30,14 @@ import { json, badRequest, notFound, clean, cleanText, oneOf, uid, now, sha256He
   escapeHtml as esc, usDate } from './util.js';
 import { brandForUser, DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand.js';
 import { currentClient } from './clientauth.js';
-import { requireUser, borrowedSeat } from './auth.js';
+import { requireUser, borrowedSeat, SESSION_COOKIE } from './auth.js';
 import { tenantFor } from './tenant.js';
 import * as db from './db.js';
 import { fireTrigger } from './automations.js';
 import { ITEM_KINDS } from './itinerary.js';
 import {
   sendTripMessageEmail, sendOptionChosenEmail, sendQuoteDeclinedEmail,
-  sendQuoteAcceptedEmail, sendTripReplyEmail,
+  sendQuoteAcceptedEmail, sendTripReplyEmail, sendTripViewedEmail,
 } from './email.js';
 import { docsReady, safeName, MAX_BYTES } from './documents.js';
 import { submitReview, reviewFor, tripIsOver } from './reviews.js';
@@ -198,7 +198,7 @@ export async function handleReplyTripMessage(request, env, bookingId) {
         advisorName,
         tripName: booking.itinerary || booking.product_name || 'your trip',
         body: text,
-        href: `${appUrl(env)}/t/${booking.share_code}`,
+        href: `${appUrl(env)}/t/${booking.share_code}?s=reply`,
         agencyId: owner.agency_id || null,
         agencyName: owner.agency_name || '',
       });
@@ -676,19 +676,21 @@ export async function renderTripPage(request, env, code) {
   //
   // Best effort on purpose: a client reading their trip must never see an
   // error because a counter would not increment.
-  if (!new URL(request.url).searchParams.has('preview')) {
-    try {
-      const ts = now();
-      await env.DB.prepare(
-        `UPDATE bookings
-            SET viewed_first_at = COALESCE(viewed_first_at, ?),
-                viewed_last_at = ?,
-                view_count = COALESCE(view_count, 0) + 1
-          WHERE id = ? AND user_id = ?`
-      ).bind(ts, ts, b.id, b.user_id).run();
-    } catch (e) {
-      console.error('trip view count', e);
+  // Counted when the page is a person looking at it, and not otherwise. Left
+  // out: the advisor's own preview link, any browser signed in to the portal,
+  // anything that is not a plain GET, and the mail scanners and link previewers
+  // that open every link in a message before the client does. Without that the
+  // number said "opened" for a trip nobody had looked at.
+  try {
+    const here = new URL(request.url);
+    const signedIn = new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=`)
+      .test(request.headers.get('Cookie') || '');
+    if (!here.searchParams.has('preview') && request.method === 'GET' && !signedIn
+        && !looksAutomatic(request)) {
+      await recordTripView(env, b, tripSource(here.searchParams.get('s')));
     }
+  } catch (e) {
+    console.error('trip view count', e);
   }
 
   const advisor = [b.first_name, b.last_name].filter(Boolean).join(' ') || b.agency_name || 'your advisor';
@@ -2011,4 +2013,104 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
   ${body}
 </div>
 </body></html>`;
+}
+
+// ---------------------------------------------------------------------------
+// Who looked at the page
+// ---------------------------------------------------------------------------
+
+/** Which link the client followed. Only the markers this portal puts on its own. */
+function tripSource(raw) {
+  return ['invoice', 'quote', 'reply'].includes(raw) ? raw : 'link';
+}
+
+/**
+ * Whether a request is a machine rather than a person.
+ *
+ * Mail security gateways, phone link previews and chat apps fetch a link the
+ * moment a message arrives. Nothing here is perfect, and nothing needs to be:
+ * the cost of a missed scanner is one false "opened", and the cost of a wrong
+ * guess the other way is a client who did look and is not shown as having.
+ * So the list is the unmistakable ones, plus an empty agent and the prefetch
+ * headers browsers send when they load a page nobody has asked to see yet.
+ */
+export function looksAutomatic(request) {
+  const agent = request.headers.get('User-Agent') || '';
+  if (!agent) return true;
+  const purpose = `${request.headers.get('Sec-Purpose') || ''} ${request.headers.get('Purpose') || ''}`;
+  if (/prefetch|preview/i.test(purpose)) return true;
+  return /bot\b|crawl|spider|slurp|preview|scan|fetch|monitor|headless|lighthouse|python|curl\/|wget|java\/|go-http|okhttp|libwww|httpclient|axios|facebookexternalhit|facebot|whatsapp|telegram|googleimageproxy|google-read|bingpreview|microsoft office|ms-office|safelinks|proofpoint|mimecast|barracuda|symantec|trend ?micro|sophos|forcepoint|zscaler|urldefense|mailscanner|ironport|cisco|fireeye|checkpoint|sandbox/i
+    .test(agent);
+}
+
+// A visit closer than this to the last one is the same sitting: a refresh, a
+// switch back to the tab, a phone waking up.
+const SAME_SITTING_SECONDS = 30 * 60;
+
+/**
+ * One person looked at the trip page.
+ *
+ * Writes the visit, moves the counters the reservation already shows, and tells
+ * the advisor the first time: the first time anybody looks, and the first time
+ * somebody follows the link in a given invoice or quote after it was sent. Not
+ * on every visit. An alert for each of nine is how an advisor learns to ignore
+ * the tenth.
+ *
+ * Best effort throughout. A client reading their trip never sees a failure
+ * because a counter would not increment.
+ */
+export async function recordTripView(env, booking, source) {
+  const row = await env.DB.prepare(
+    `SELECT viewed_first_at, viewed_last_at, quote_sent_at, statement_sent_at
+       FROM bookings WHERE id = ? AND user_id = ?`
+  ).bind(booking.id, booking.user_id).first();
+  if (!row) return;
+
+  const ts = now();
+  const sentAt = source === 'invoice' ? row.statement_sent_at
+    : source === 'quote' ? row.quote_sent_at : null;
+  let firstFromSend = false;
+  if (sentAt) {
+    const earlier = await env.DB.prepare(
+      `SELECT id FROM trip_views
+        WHERE booking_id = ? AND user_id = ? AND source = ? AND viewed_at >= ? LIMIT 1`
+    ).bind(booking.id, booking.user_id, source, sentAt).first();
+    firstFromSend = !earlier;
+  }
+  const firstEver = !row.viewed_first_at;
+
+  if (!firstFromSend && row.viewed_last_at && ts - row.viewed_last_at < SAME_SITTING_SECONDS) {
+    return;
+  }
+
+  await env.DB.prepare(
+    `INSERT INTO trip_views (id, booking_id, user_id, source, viewed_at) VALUES (?, ?, ?, ?, ?)`
+  ).bind(uid(), booking.id, booking.user_id, source, ts).run();
+  await env.DB.prepare(
+    `UPDATE bookings
+        SET viewed_first_at = COALESCE(viewed_first_at, ?),
+            viewed_last_at = ?,
+            view_count = COALESCE(view_count, 0) + 1
+      WHERE id = ? AND user_id = ?`
+  ).bind(ts, ts, booking.id, booking.user_id).run();
+
+  if (!firstEver && !firstFromSend) return;
+
+  const what = source === 'invoice' ? 'the invoice' : source === 'quote' ? 'the quote'
+    : 'their trip page';
+  const tripName = booking.itinerary || booking.product_name || 'their trip';
+  await db.logActivity(env, booking.user_id, 'trip.viewed',
+    `${booking.client_name} opened ${what}`, { id: booking.id, source });
+  try {
+    await sendTripViewedEmail(env, {
+      to: booking.notify_email || booking.advisor_email,
+      firstName: booking.first_name,
+      clientName: booking.client_name,
+      tripName,
+      what,
+      href: `${appUrl(env)}/app/reservation?id=${encodeURIComponent(booking.id)}`,
+    });
+  } catch (e) {
+    console.error('trip viewed mail', e);
+  }
 }

@@ -691,7 +691,7 @@ const WRITABLE = new Set([
   // A reservation and everything hanging off one.
   'bookings', 'booking_payments', 'booking_pricing', 'quote_options',
   'penalty_tiers', 'documents', 'components', 'travellers', 'amenities',
-  'itinerary_items', 'trip_messages', 'trips',
+  'itinerary_items', 'trip_messages', 'trip_views', 'trips',
   // The book behind it: the people, the households they sit in, the groups
   // they travel with, and the money owed either way.
   'clients', 'households', 'travel_groups', 'group_registrations',
@@ -851,7 +851,7 @@ export async function setBookingSplit(env, id, { advisorSplitPct, leadSource }) 
 export const BOOKING_CHILDREN = [
   'travellers', 'booking_pricing', 'booking_payments', 'amenities',
   'penalty_tiers', 'quote_options', 'components', 'documents',
-  'itinerary_items', 'tasks', 'trip_messages', 'reviews',
+  'itinerary_items', 'tasks', 'trip_messages', 'trip_views', 'reviews',
   'client_credits', 'commission_receipts', 'group_registrations',
 ];
 

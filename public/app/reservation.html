@@ -543,7 +543,14 @@ function drawShare() {
                ? `, last ${esc(timeAgo(b.viewed_last_at))}` : ''}.`
         : `<span class="muted">Not opened yet.${b.shared_at
             ? ` Shared ${esc(timeAgo(b.shared_at))}.` : ''}</span>`}
-        <span class="muted">Your own Open it link is not counted.</span></p>
+        <span class="muted">Your own Open it link is not counted, and neither are mail
+          scanners.</span></p>
+      ${(d.views || []).length ? `<ul class="plain" style="margin:.5rem 0 0;font-size:.9rem;">${
+        d.views.map((v) => `<li>${esc(new Date(v.viewed_at * 1000).toLocaleString('en-US', {
+          month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }))}
+          <span class="muted">${({ invoice: 'opened from the invoice', quote: 'opened from the quote',
+            reply: 'opened from your reply' })[v.source] || 'opened the page'}</span></li>`).join('')
+      }</ul>` : ''}
       <p class="field-hint" style="margin-top:.6rem;">Anybody with this link can see the trip.
         ${shownDocs ? `${shownDocs} document${shownDocs === 1 ? '' : 's'} shared.`
           : 'No documents shared yet.'}

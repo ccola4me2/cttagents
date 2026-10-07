@@ -540,6 +540,8 @@ export async function handleBookingRecord(request, env, id) {
     // request of its own: a note nobody sees is the read-only page quietly
     // breaking the promise that telling you is enough.
     messages: await tripMessages(env, booking.id, booking.user_id),
+    // Who opened the page and from which link, so "did they see the invoice" has an answer.
+    views: await tripViews(env, booking.id, booking.user_id),
     // Whether the invoice or quote the client is holding still matches this
     // reservation. Answered here so the page can say "changed since you sent
     // it" without the advisor having to open the preview and compare by eye.
@@ -622,6 +624,15 @@ async function statementStale(env, booking, parts) {
     console.error('statement stale', e);
     return false;
   }
+}
+
+/** The visits behind "opened N times", newest first. */
+async function tripViews(env, bookingId, userId) {
+  const { results } = await env.DB.prepare(
+    `SELECT id, source, viewed_at FROM trip_views
+      WHERE booking_id = ? AND user_id = ? ORDER BY viewed_at DESC LIMIT 20`
+  ).bind(bookingId, userId).all().catch(() => ({ results: [] }));
+  return results || [];
 }
 
 /** The conversation on the trip page, both sides of it, newest first. */

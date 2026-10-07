@@ -1137,3 +1137,28 @@ export async function sendPaymentReminder(env, {
   }
   return { ok: true, subject };
 }
+
+/**
+ * Telling the advisor a client has looked.
+ *
+ * The first time only, and only when it was a person: the caller decides that.
+ * Goes to the advisor, never the client, and says only what happened. It does
+ * not say the client has read or understood anything, because opening a page
+ * is not that.
+ */
+export function sendTripViewedEmail(env, { to, firstName, clientName, tripName, what, href }) {
+  if (!to) return Promise.resolve({ skipped: true });
+  return send(env, {
+    to,
+    subject: `${clientName} opened ${what}`,
+    html: layout(env, {
+      heading: `${escapeHtml(clientName)} opened ${escapeHtml(what)}`,
+      body: `<p style="margin:0 0 12px;">Hi ${escapeHtml(firstName || 'there')},</p>
+             <p style="margin:0 0 12px;">${escapeHtml(clientName)} has just opened ${escapeHtml(what)}
+             for <strong>${escapeHtml(tripName)}</strong>.</p>
+             <p style="margin:0;">That is the first time, so this is the only note you will get
+             about it. Every visit after is on the reservation.</p>`,
+      cta: { label: 'Open the reservation', href },
+    }),
+  });
+}
