@@ -324,6 +324,7 @@ export async function handleCreatePayment(request, env) {
       `${fields.paidDate ? 'Recorded' : 'Scheduled'} ${fields.kind} for ${booking.client_name}`,
       user, owner),
     { bookingId: fields.bookingId });
+  await resizeAutoFinal(env, owner, fields.bookingId);
   return json({ ok: true, payment }, 201);
 }
 
@@ -393,6 +394,7 @@ export async function handleUpdatePayment(request, env, id) {
 
   await db.logActivity(env, owner.id, 'payment.update',
     db.byHand('Updated a payment', user, owner), { id });
+  await resizeAutoFinal(env, owner, fields.bookingId);
   return json({ ok: true, payment });
 }
 
@@ -556,6 +558,7 @@ export async function handleMarkPaid(request, env, id) {
       ? `Recorded a part payment, ${remainder} cents still due`
       : 'Marked a payment received', user, owner),
     { id, received, remainder });
+  await resizeAutoFinal(env, owner, existing.booking_id);
   return json({ ok: true, payment, remainder: rest });
 }
 
@@ -575,6 +578,7 @@ export async function handleDeletePayment(request, env, id) {
   }
   await db.logActivity(env, owner.id, 'payment.delete',
     db.byHand('Removed a payment', user, owner), { id });
+  if (existing) await resizeAutoFinal(env, owner, existing.booking_id);
   return json({ ok: true });
 }
 
@@ -595,6 +599,53 @@ export async function handleDeletePayment(request, env, id) {
 export const SOFT_DAYS = 10;
 
 /**
+ * Keeps an automatic final balance equal to what the rest of the schedule
+ * leaves over.
+ *
+ * The final row is written once, from the trip cost, and used to stay at that
+ * figure for ever. A deposit recorded afterwards, or a price that moved, then
+ * left the schedule adding up to more than the trip, and the client's page
+ * showed a final payment that included money they had already paid.
+ *
+ * Only rows the portal wrote and nobody has touched (from_booking, unpaid) are
+ * moved: an advisor who types an amount takes the row out of this, exactly as
+ * they do for its date. The soft reminder follows its twin. Nothing is made,
+ * deleted or marked paid, and a balance of nought or less leaves the row alone
+ * rather than writing a payment of nothing.
+ */
+export async function resizeAutoFinal(env, user, bookingId) {
+  try {
+    const booking = await db.getBooking(env, bookingId, user.id);
+    if (!booking || !booking.gross_cents) return;
+    const rows = await db.listPayments(env, db.selfScope(user), { bookingId });
+    const hard = rows.filter((p) => p.payment_class === 'hard');
+    const finals = hard.filter((p) => p.kind === 'final' && !p.paid_date
+      && Number(p.from_booking) === 1);
+    // One automatic final is the case this is for. Anything stranger was built
+    // by hand and is left as it is.
+    if (finals.length !== 1) return;
+    const final = finals[0];
+    const others = hard.filter((p) => p.id !== final.id)
+      .reduce((n, p) => n + (p.amount_cents || 0), 0);
+    const balance = booking.gross_cents - others;
+    if (balance <= 0 || balance === final.amount_cents) return;
+    await env.DB.prepare(
+      `UPDATE booking_payments SET amount_cents = ?, updated_at = ?
+        WHERE id = ? AND user_id = ? AND from_booking = 1 AND paid_date IS NULL`
+    ).bind(balance, now(), final.id, user.id).run();
+    for (const p of rows.filter((x) => x.kind === 'final' && x.payment_class === 'soft'
+      && !x.paid_date && Number(x.from_booking) === 1)) {
+      await env.DB.prepare(
+        `UPDATE booking_payments SET amount_cents = ?, updated_at = ?
+          WHERE id = ? AND user_id = ? AND from_booking = 1 AND paid_date IS NULL`
+      ).bind(balance, now(), p.id, user.id).run();
+    }
+  } catch (e) {
+    console.error('resize final', e);
+  }
+}
+
+/**
  * Put whatever the schedule does not cover yet onto the reservation's own dates.
  *
  * Shared by the button and by saving a reservation, so pressing Build and
@@ -606,6 +657,7 @@ export const SOFT_DAYS = 10;
  * dates move. See 0077_schedule_follows.sql.
  */
 export async function buildSchedule(env, user, booking) {
+  await resizeAutoFinal(env, user, booking.id);
   const existing = await db.listPayments(env, db.selfScope(user), { bookingId: booking.id });
   const have = new Set(existing.map((p) => p.kind));
   // What the schedule already accounts for, taken or still to come. Hard rows

@@ -640,6 +640,18 @@ async function main() {
     });
     const payId = made.data?.payment?.id;
     if (check(made.status === 201 && payId, 'a payment is scheduled', `status ${made.status}`)) {
+      // The automatic final balance gives way to what has been scheduled
+      // since, and the reminder with it, so the schedule never adds up to
+      // more than the trip.
+      {
+        const rs = (await call(advisor, 'GET', `/api/bookings/${bookingId}/record`))
+          .data?.payments || [];
+        const fh = rs.find((p) => p.kind === 'final' && p.payment_class === 'hard');
+        const fs = rs.find((p) => p.kind === 'final' && p.payment_class === 'soft');
+        check(fh?.amount_cents === 350000 && fs?.amount_cents === 350000,
+          'a new payment comes off the automatic final balance and its reminder',
+          `${fh?.amount_cents} and ${fs?.amount_cents}`);
+      }
       const part = await call(advisor, 'POST', `/api/payments/${payId}/paid`,
         { amount: '400', paidDate: isoDay(0) });
       check(part.status === 200, 'part of it is received', `status ${part.status}`);
@@ -669,6 +681,13 @@ async function main() {
       // does not break something further down.
       await call(advisor, 'DELETE', `/api/payments/${restId}`);
       await call(advisor, 'DELETE', `/api/payments/${payId}`);
+      {
+        const rs = (await call(advisor, 'GET', `/api/bookings/${bookingId}/record`))
+          .data?.payments || [];
+        const fh = rs.find((p) => p.kind === 'final' && p.payment_class === 'hard');
+        check(fh?.amount_cents === 450000,
+          'and removing it puts the final balance back', `${fh?.amount_cents}`);
+      }
     }
 
     // The reminder and the deadline are one obligation shown twice, so paying
