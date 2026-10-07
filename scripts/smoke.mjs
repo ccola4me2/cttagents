@@ -203,6 +203,19 @@ let advisorId = null;
 async function main() {
   console.log(`Smoke test against ${BASE}`);
 
+  // The privacy policy is public, readable without signing in, and linked from the places
+  // that ask people for their details.
+  step('The privacy policy');
+  {
+    const page = await call(null, 'GET', '/privacy');
+    check(page.status === 200 && /Privacy policy/.test(page.raw || ''),
+      'it is a public page, readable without signing in', `status ${page.status}`);
+    check(/never sell personal information/i.test(page.raw || '') && /one cookie/i.test(page.raw || ''),
+      'and says what the portal really does', '');
+    const login = await call(null, 'GET', '/login');
+    check(/href="\/privacy"/.test(login.raw || ''), 'the sign in page links to it', '');
+  }
+
   // ---------------------------------------------------------------- admin --
   step('Admin signs in');
   const login = await call(admin, 'POST', '/api/auth/login',

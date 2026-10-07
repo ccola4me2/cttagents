@@ -348,6 +348,7 @@ export function bookBody({ client, bookings, paid, portal = false }) {
     <footer class="foot">
       <p class="dim small">${esc(client.agency_name || '')}${
         client.seller_of_travel ? ` &middot; ${esc(client.seller_of_travel)}` : ''}</p>
+      <p class="dim small"><a href="/privacy">Privacy policy</a></p>
     </footer>
   </div>`;
 

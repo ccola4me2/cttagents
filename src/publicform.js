@@ -1026,6 +1026,6 @@ function page(title, body, brand) {
   <div class="brand"><img src="${esc(b.logoUrl || '/logo-mark.png')}" alt="">
     <span><b>${esc(b.name)}</b><small>${esc(b.tagline || '')}</small></span></div>
   <div class="card">${body}</div>
-  <p class="foot">&copy; ${new Date().getFullYear()} ${esc(b.name)}</p>
+  <p class="foot">&copy; ${new Date().getFullYear()} ${esc(b.name)} &middot; <a href="/privacy">Privacy policy</a></p>
 </div></body></html>`;
 }

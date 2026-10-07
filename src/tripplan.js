@@ -308,6 +308,7 @@ export function planBody(env, plan) {
     <footer class="foot" data-url="${esc(`${appUrl(env)}/i/${trip.share_code}`)}">
       <p class="dim small">${esc(trip.agency_name || '')}${
   trip.seller_of_travel ? ` &middot; ${esc(trip.seller_of_travel)}` : ''}</p>
+      <p class="dim small"><a href="/privacy">Privacy policy</a></p>
     </footer>
   </div>${PRINT_SCRIPT}`;
 }

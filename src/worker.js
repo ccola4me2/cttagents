@@ -430,6 +430,7 @@ const PUBLIC_PAGES = new Set([
   '/forgot-password', '/forgot-password.html',
   '/reset-password', '/reset-password.html',
   '/pending', '/pending.html',
+  '/privacy', '/privacy.html',
 ]);
 
 // Extension-less page paths mapped to the file that serves them.
@@ -439,6 +440,7 @@ const PAGE_FILES = {
   '/forgot-password': '/forgot-password.html',
   '/reset-password': '/reset-password.html',
   '/pending': '/pending.html',
+  '/privacy': '/privacy.html',
   '/app': '/app/index.html',
   '/app/': '/app/index.html',
   '/app/payments': '/app/payments.html',

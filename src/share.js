@@ -962,6 +962,7 @@ export async function renderTripPage(request, env, code) {
            address of the live page. -->
       ${b.agency_name ? `<p>${esc(b.agency_name)}</p>` : ''}
       ${b.seller_of_travel ? `<p class="dim">${esc(b.seller_of_travel)}</p>` : ''}
+      <p class="dim small"><a href="/privacy">Privacy policy</a></p>
     </footer>
     ${home ? REVIEW_SCRIPT : ''}
     ${SAY_SCRIPT}
