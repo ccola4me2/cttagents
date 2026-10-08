@@ -157,12 +157,12 @@ let today = iso(new Date());
 let editing = null;
 let openDay = null;
 
-/** The Monday on or before the first of this month, so the grid starts whole. */
+/** The Sunday on or before the first of this month, so the grid starts whole. */
 function gridStart(date) {
   const first = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
-  // getUTCDay is 0 for Sunday. The week here starts on Monday, which is how a
-  // working week is actually spoken about.
-  const back = (first.getUTCDay() + 6) % 7;
+  // getUTCDay is 0 for Sunday, which is where the week starts here, the way a
+  // wall calendar in the US does.
+  const back = first.getUTCDay();
   return addDays(iso(first), -back);
 }
 
@@ -198,7 +198,7 @@ function draw(from) {
     byDay.get(e.date).push(e);
   }
 
-  const head = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+  const head = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
     .map((d) => `<div class="cal-head">${d}</div>`).join('');
 
   const month = cursor.getUTCMonth();
