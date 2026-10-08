@@ -177,7 +177,12 @@ async function load() {
   const to = addDays(from, 41);
   monthName.textContent = monthLabel(cursor);
   try {
-    const d = await api(`/api/calendar?from=${from}&to=${to}${advisorParam()}`);
+    const who = advisorParam();
+    const d = await api(`/api/calendar?from=${from}&to=${to}${who ? `&${who}` : ''}`);
+    // Drawn from the answer, because the answer says whether this reader may
+    // pick and who the choices are. Asked before the first load it had
+    // nothing to draw from and so never appeared.
+    mountScopePicker(document.getElementById('scope'), d, load);
     events = d.events || [];
     today = d.today || today;
     draw(from);
@@ -433,7 +438,6 @@ document.getElementById('drop').addEventListener('click', async () => {
   } catch (e) { box.textContent = e.message; box.hidden = false; }
 });
 
-mountScopePicker(document.getElementById('scope'), load);
 await load();
 
 // Arriving from the dashboard's month, where somebody pressed Appointment on a

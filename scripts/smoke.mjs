@@ -1386,6 +1386,15 @@ async function main() {
   // it, because acting on it happens there.
   check(evs.every((e) => e.href), 'and every one of them leads somewhere');
 
+  // Whose diary it is. Opened with no choice made, the calendar is the
+  // reader's own, whatever their role; an owner widens it by asking.
+  {
+    const mine = await call(advisor, 'GET', `/api/calendar?from=${isoDay(-1)}&to=${isoDay(40)}`);
+    check(mine.data?.scope?.label === 'Just me'
+        && (mine.data?.events || []).some((e) => e.id === apptId),
+      'the calendar opens on your own diary', JSON.stringify(mine.data?.scope));
+  }
+
   // The window is clamped rather than obeyed. A request for five years would
   // otherwise be five years of five queries.
   const greedy = await call(advisor, 'GET', `/api/calendar?from=${isoDay(0)}&to=${isoDay(900)}`);

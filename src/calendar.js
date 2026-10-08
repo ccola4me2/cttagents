@@ -37,7 +37,13 @@ export async function handleCalendar(request, env) {
   const limit = dayOffset(from, 120);
   const to = askedTo > limit ? limit : askedTo;
 
-  const scope = db.scopeFor(env, user, request);
+  // A calendar is first of all yours. An owner opens on their own diary and
+  // picks the whole agency or one advisor from the list; without that choice
+  // written in the address they would open on everybody's, which is a wall of
+  // other people's birthdays and appointments.
+  const scope = new URL(request.url).searchParams.has('advisor')
+    ? db.scopeFor(env, user, request)
+    : db.visibilityScope(env, user, user.id);
   const where = (column) => db.scopeWhere(scope, column);
 
   const appts = where('a.user_id');
