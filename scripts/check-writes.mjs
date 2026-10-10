@@ -65,6 +65,9 @@ const ALLOWED = [
   ['appointments:kind', 'SET title = ?, on_date = ?, start_time = ?, end_time = ?, location = ?,',
     'call, video or in person, which an invite does not say in any form worth trusting '
     + 'and an advisor may well have set by hand'],
+  ['appointments:outcome', 'SET title = ?, on_date = ?, start_time = ?, end_time = ?, location = ?,',
+    'what came of a meeting is written by whoever held it. A redelivery of the invite from '
+    + 'the organiser knows nothing about it and must not clear it'],
   ['clients:name', 'UPDATE clients SET email = ?',
     'the create path, which fills in blanks on somebody already on the books. It is '
     + 'reached by name, so renaming from it would rename the person it just matched'],
