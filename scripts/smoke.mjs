@@ -1409,7 +1409,6 @@ async function main() {
       depositRefundable: 'nonrefundable', groupLabel: 'TLN', groupNumber: '123456' });
     const madeId = made.data?.booking?.id;
     if (check(made.status === 201 && madeId, 'and is taken once it does', `status ${made.status}`)) {
-      cleanup('the group reservation', () => dropBooking(madeId));
       const rec = (await call(advisor, 'GET', `/api/bookings/${madeId}/record`)).data?.booking || {};
       check(rec.group_label === 'TLN' && rec.group_number === '123456'
           && rec.deposit_refundable === 'nonrefundable',
@@ -1429,7 +1428,6 @@ async function main() {
       const copy = await call(advisor, 'POST', `/api/bookings/${madeId}/duplicate`, {});
       const copyId = copy.data?.booking?.id;
       if (check(copy.status === 201 && copyId, 'a reservation can be duplicated', `status ${copy.status}`)) {
-        cleanup('the copy', () => dropBooking(copyId));
         const c = (await call(advisor, 'GET', `/api/bookings/${copyId}/record`)).data?.booking || {};
         check(c.supplier === 'Norwegian Cruise Line' && c.depart_date === isoDay(200)
             && c.group_label === 'TLN' && c.group_number === '123456',
@@ -1447,6 +1445,9 @@ async function main() {
       const amenities = (await call(advisor, 'GET', `/api/bookings/${madeId}/record`)).data?.amenities || [];
       check(am.status < 300 && amenities.some((a) => a.source === 'tln'),
         'TLN can be the source of an amenity', `status ${am.status}`);
+      // Dropped at once. A quote left lying about crowds the lists later checks count.
+      if (typeof copyId !== 'undefined' && copyId) await dropBooking(copyId);
+      await dropBooking(madeId);
     }
 
     // The counts behind the status list.
@@ -1466,8 +1467,10 @@ async function main() {
       const on = (grid.data?.events || []).find((e) => e.id === apptId);
       check(on && on.done === true && on.outcome === 'Went over the plan for Alaska',
         'and the calendar shows it done', JSON.stringify(on && [on.done, on.outcome]));
+      // The whole appointment as it was made, so this edit changes nothing but the title.
       const edited = await call(advisor, 'PUT', `/api/appointments/${apptId}`,
-        { title: on?.title || 'Smoke appointment', onDate: on?.date, startTime: on?.time || '14:00' });
+        { title: `Planning call ${stamp}`, onDate: apptDay, startTime: '14:00', endTime: '15:00',
+          clientId, kind: 'call', location: 'Zoom', notes: 'Alaska cabins' });
       check(edited.status === 200 && edited.data?.appointment?.outcome === 'Went over the plan for Alaska',
         'an edit that says nothing about the outcome leaves it', `status ${edited.status}`);
       await call(advisor, 'PUT', `/api/appointments/${apptId}`, { done: false, outcome: '' });
