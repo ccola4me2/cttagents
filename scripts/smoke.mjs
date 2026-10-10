@@ -1450,6 +1450,39 @@ async function main() {
       await dropBooking(madeId);
     }
 
+    // A reminder a set number of days before sailing, once for each trip.
+    {
+      const noDays = await call(advisor, 'POST', '/api/automations', { name: `Check-in ${stamp}`,
+        triggerType: 'booking.departing',
+        steps: [{ action: 'create_task', title: 'Check-in reminder for {{name}}', dueInDays: 0 }] });
+      check(noDays.status === 400, 'a trip-departing automation has to say how many days', `status ${noDays.status}`);
+      const auto = await call(advisor, 'POST', '/api/automations', { name: `Check-in ${stamp}`,
+        triggerType: 'booking.departing', daysBefore: 45,
+        steps: [{ action: 'create_task', title: `Check-in reminder for {{name}}`, dueInDays: 0 }] });
+      const autoId = auto.data?.automation?.id;
+      if (check(auto.status === 200 && autoId && auto.data.automation.triggerConfig?.daysBefore === 45,
+        'and is kept with its number of days', JSON.stringify(auto.data?.automation?.triggerConfig))) {
+        const crossed = await call(advisor, 'POST', '/api/bookings', { clientName: `Crossed ${stamp}`,
+          status: 'booked', gross: '1000', departDate: isoDay(41), returnDate: isoDay(48) });
+        const inside = await call(advisor, 'POST', '/api/bookings', { clientName: `Inside ${stamp}`,
+          status: 'booked', gross: '1000', departDate: isoDay(20), returnDate: isoDay(27) });
+        await call(advisor, 'POST', '/api/automations/run', { automationId: autoId });
+        await call(advisor, 'POST', '/api/automations/run', { automationId: autoId });
+        const tasks = (await call(advisor, 'GET', '/api/tasks?state=open')).data?.tasks || [];
+        const mine = tasks.filter((x) => x.title === `Check-in reminder for Crossed ${stamp}`);
+        check(mine.length === 1, 'a trip that has just come inside the line gets it once, however often it runs',
+          `${mine.length}`);
+        check(!tasks.some((x) => x.title === `Check-in reminder for Inside ${stamp}`),
+          'and one that was already well inside it is left alone');
+        for (const x of tasks.filter((y) => /^Check-in reminder for /.test(y.title))) {
+          await call(advisor, 'DELETE', `/api/tasks/${x.id}`);
+        }
+        await call(advisor, 'DELETE', `/api/automations/${autoId}`);
+        if (crossed.data?.booking?.id) await dropBooking(crossed.data.booking.id);
+        if (inside.data?.booking?.id) await dropBooking(inside.data.booking.id);
+      }
+    }
+
     // The counts behind the status list.
     const list = await call(advisor, 'GET', '/api/bookings');
     check(typeof list.data?.stats?.cancelled === 'number' && typeof list.data?.stats?.travelled === 'number',

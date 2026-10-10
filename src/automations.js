@@ -33,6 +33,10 @@ export const TRIGGERS = [
   // these for its own to-do lists; firing them as triggers lets a GoHighLevel
   // campaign do the talking instead of the advisor remembering to.
   'booking.returned',
+  // A trip a set number of days from sailing. The days are the automation's own:
+  // online check-in, passports, final documents and "what to pack" all have a
+  // different distance from departure, and one trigger with a number serves them all.
+  'booking.departing',
   // The client said yes. Until now that was recorded and nothing followed it,
   // so the form, the deposit reminder and the welcome all waited on an advisor
   // noticing. It is the one moment in the whole arc where the client has just
@@ -155,6 +159,9 @@ export function fill(template, context) {
  * Starts every active automation matching a trigger. Never throws: a broken
  * automation must not break the thing that fired it.
  */
+// How long after crossing its line a trip still counts as having just crossed it.
+const DEPARTING_GRACE_DAYS = 7;
+
 export async function fireTrigger(env, agencyId, triggerType, context = {}, { key = null } = {}) {
   try {
     const { results } = await env.DB.prepare(
@@ -168,6 +175,16 @@ export async function fireTrigger(env, agencyId, triggerType, context = {}, { ke
 
       // trigger_config narrows which events match, e.g. one specific form.
       if (a.triggerConfig.formId && a.triggerConfig.formId !== context.formId) continue;
+
+      // A trip is "departing" for an automation once it is inside that automation's own
+      // distance, and for a week after: the week is a catch-up so a trip entered, or an
+      // automation switched on, just after the line does not send to every trip already
+      // inside it, only to the ones that crossed it lately.
+      if (triggerType === 'booking.departing') {
+        const days = Number(a.triggerConfig.daysBefore) || 0;
+        const left = Number(context.days_to_go);
+        if (!days || !(left <= days && left > days - DEPARTING_GRACE_DAYS)) continue;
+      }
 
       const ts = now();
       try {
@@ -257,8 +274,16 @@ async function runStep(env, run, step, context) {
       const unsubscribeUrl = `${appUrl(env)}/u/${await unsubscribeToken(env, agency?.id || null, to)}`;
       const footer = marketingFooter({ agencyName: agency?.name, unsubscribeUrl });
 
+      // Replies go to a person. Without this a client answering "are you sailing this
+      // winter" or "I cannot check in" is writing to noreply@, and the answer is lost.
+      let replyTo = context.advisor_email || null;
+      if (!replyTo && context.ownerId) {
+        const owner = await env.DB.prepare('SELECT email, notify_email FROM users WHERE id = ?')
+          .bind(context.ownerId).first().catch(() => null);
+        replyTo = (owner && (owner.notify_email || owner.email)) || null;
+      }
       await sendAutomationEmail(env, to, fill(step.subject, context), fill(step.body, context),
-        { footer, unsubscribeUrl });
+        { footer, unsubscribeUrl, replyTo });
       return { status: 'ok', detail: `emailed ${to}, with an opt out` };
     }
     // The advisor's own to-do list, not a contact task in a CRM that is gone.
@@ -444,6 +469,54 @@ export async function scanTimeTriggers(env, agencyId, { withinDays = 7 } = {}) {
     fired += 1;
   }
 
+  // Trips a set distance from sailing, for whichever automations ask for one. Looked at
+  // only when there is one, because it reads every booked trip in the next year.
+  const { results: asking } = await env.DB.prepare(
+    `SELECT trigger_config_json FROM automations
+      WHERE agency_id = ? AND trigger_type = 'booking.departing' AND active = 1`
+  ).bind(agencyId).all();
+  const furthest = Math.max(0, ...(asking || []).map((r) => {
+    try { return Number(JSON.parse(r.trigger_config_json || '{}').daysBefore) || 0; } catch { return 0; }
+  }));
+  if (furthest) {
+    const outer = new Date(Date.now() + furthest * 86400000).toISOString().slice(0, 10);
+    const { results: leaving } = await env.DB.prepare(
+      `SELECT b.id, b.user_id, b.client_id, b.client_name, b.supplier, b.product_name,
+              b.depart_date, b.return_date, b.ghl_contact_id, c.email AS client_email,
+              u.first_name AS advisor_first, COALESCE(u.notify_email, u.email) AS advisor_email
+         FROM bookings b
+         JOIN users u ON u.id = b.user_id
+         LEFT JOIN clients c ON c.id = b.client_id AND c.user_id = b.user_id
+        WHERE u.agency_id = ?
+          AND b.status = 'booked'
+          AND b.personal = 0
+          AND b.depart_date > ? AND b.depart_date <= ?
+        ORDER BY b.depart_date ASC
+        LIMIT 500`
+    ).bind(agencyId, today, outer).all();
+
+    for (const row of leaving || []) {
+      const left = Math.round((Date.parse(`${row.depart_date}T00:00:00Z`)
+        - Date.parse(`${today}T00:00:00Z`)) / 86400000);
+      await fireTrigger(env, agencyId, 'booking.departing', {
+        bookingId: row.id,
+        clientId: row.client_id || null,
+        contactId: row.ghl_contact_id || null,
+        email: row.client_email || null,
+        name: row.client_name,
+        supplier: row.supplier || '',
+        product: row.product_name || '',
+        depart_date: row.depart_date || '',
+        return_date: row.return_date || '',
+        days_to_go: left,
+        // The booking's own advisor signs it and takes the replies.
+        advisor: row.advisor_first || '',
+        advisor_email: row.advisor_email || '',
+      }, { key: `depart:${row.id}` });
+      fired += 1;
+    }
+  }
+
   for (const row of results || []) {
     await fireTrigger(env, agencyId, 'booking.final_payment_due', {
       paymentId: row.id,
@@ -591,6 +664,11 @@ export async function handleSaveAutomation(request, env, id = null) {
   const agencyId = tenantFor(env, user);
   const cfg = {};
   if (clean(body.formId, 64)) cfg.formId = clean(body.formId, 64);
+  if (triggerType === 'booking.departing') {
+    const days = Math.round(Number(body.daysBefore));
+    if (!(days >= 1 && days <= 365)) return badRequest('How many days before departure? Between 1 and 365.');
+    cfg.daysBefore = days;
+  }
   const ts = now();
 
   if (id) {

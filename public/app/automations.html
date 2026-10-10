@@ -16,6 +16,7 @@
       <div><h1>Automations</h1><p class="sub">When something happens, do these things. Runs on its own.</p></div>
       <div class="toolbar" style="margin:0;">
         <button class="btn btn-ghost btn-sm" id="run-now">Run due steps</button>
+        <button class="btn btn-ghost btn-sm" id="checkin-auto">Start from the check-in reminder</button>
         <button class="btn btn-primary btn-sm" id="new-auto">New automation</button>
       </div>
     </header>
@@ -45,7 +46,16 @@
           <option value="contact.created">A new contact is added</option>
           <option value="booking.created">A reservation is created</option>
           <option value="booking.final_payment_due">A final payment falls due</option>
+          <option value="booking.departing">A trip is a set number of days from sailing</option>
         </select></div>
+      <div class="field" id="days-field" hidden>
+        <label for="daysBefore">How many days before they sail</label>
+        <input id="daysBefore" name="daysBefore" type="number" min="1" max="365" inputmode="numeric" placeholder="45">
+        <p class="field-hint">It runs once for each booked trip, when the trip comes inside that many
+          days. A trip that was already inside when this was switched on is left alone unless it
+          crossed in the last week, so turning it on does not send to everybody at once. Use
+          <code>{{days_to_go}}</code>, <code>{{depart_date}}</code>, <code>{{product}}</code>
+          and <code>{{advisor}}</code> in the message.</p></div>
       <div class="field" id="form-filter-field" hidden>
         <label for="formId">Which form</label>
         <select id="formId" name="formId"><option value="">Any form</option></select>
@@ -65,6 +75,12 @@
       <p class="field-hint" style="margin-top:.8rem;">Use <code>{{first_name}}</code>, <code>{{name}}</code>
       or <code>{{email}}</code> anywhere in a message and it gets filled in. Unknown ones become blank
       rather than showing to the client.</p>
+    </div>
+    <div class="dialog-body" style="padding-top:0;">
+      <label style="display:flex;gap:.5rem;align-items:center;font-weight:600;">
+        <input type="checkbox" id="active" name="active" checked style="width:auto;flex:none;"> On
+      </label>
+      <p class="field-hint">Switched off, it is kept and does nothing until you turn it on.</p>
     </div>
     <div class="dialog-foot">
       <button class="btn btn-danger" type="button" id="delete-auto" hidden>Delete</button>
@@ -93,6 +109,7 @@ const TRIGGER_LABEL = {
   'contact.created': 'Contact added',
   'booking.created': 'Reservation created',
   'booking.final_payment_due': 'Final payment due',
+  'booking.departing': 'Days before sailing',
   'option.chosen': 'Client chose an option',
   'quote.declined': 'Client said no',
   'quote.accepted': 'Client said yes',
@@ -176,7 +193,7 @@ function readSteps() {
   });
 }
 
-async function openBuilder(a) {
+async function openBuilder(a, preset = null) {
   editingId = a ? a.id : null;
   form.reset();
   stepsEl.innerHTML = '';
@@ -196,7 +213,15 @@ async function openBuilder(a) {
     form.elements.description.value = a.description || '';
     form.elements.triggerType.value = a.triggerType;
     if (a.triggerConfig && a.triggerConfig.formId) form.elements.formId.value = a.triggerConfig.formId;
+    if (a.triggerConfig && a.triggerConfig.daysBefore) form.elements.daysBefore.value = a.triggerConfig.daysBefore;
+    form.elements.active.checked = Boolean(a.active);
     a.steps.forEach((s) => stepsEl.appendChild(stepRow(s)));
+  } else if (preset) {
+    form.elements.name.value = preset.name;
+    form.elements.description.value = preset.description;
+    form.elements.triggerType.value = preset.triggerType;
+    form.elements.daysBefore.value = preset.daysBefore;
+    preset.steps.forEach((s) => stepsEl.appendChild(stepRow(s)));
   } else {
     stepsEl.appendChild(stepRow({ action: 'send_email', subject: 'Thanks for getting in touch',
       body: 'Hi {{first_name}},\n\nThanks for reaching out. I will come back to you shortly with some options.\n\nBrent' }));
@@ -208,6 +233,9 @@ async function openBuilder(a) {
 function syncTriggerFields() {
   document.getElementById('form-filter-field').hidden =
     form.elements.triggerType.value !== 'form.submitted';
+  const days = form.elements.triggerType.value === 'booking.departing';
+  document.getElementById('days-field').hidden = !days;
+  form.elements.daysBefore.required = days;
 }
 form.elements.triggerType.addEventListener('change', syncTriggerFields);
 
@@ -307,6 +335,23 @@ async function showDetail(id) {
 }
 
 document.getElementById('new-auto').addEventListener('click', () => openBuilder(null));
+
+// The one most agencies want, ready to read and change. Online check-in opens about this
+// far out for most cruise lines, and a reminder at that point is the one a client acts on.
+const CHECKIN = {
+  name: 'Online check-in reminder',
+  description: 'Reminds the lead guest to complete online check-in, once, when the trip is 45 days out',
+  triggerType: 'booking.departing',
+  daysBefore: 45,
+  steps: [{ action: 'send_email', subject: 'Time to complete your online check-in',
+    body: 'Hi {{first_name}},\n\nYour sailing on {{product}} departs on {{depart_date}}, which is {{days_to_go}} days away, '
+      + 'so now is a good time to complete your online check-in with the cruise line.\n\n'
+      + 'Check-in is where you confirm your passport details, add a card for onboard charges and choose your '
+      + 'arrival time at the port. Doing it early means a much shorter wait on embarkation day.\n\n'
+      + 'Please also check that every traveller\'s passport is valid for at least six months after the return date.\n\n'
+      + 'If anything is unclear, or you would like me to go through it with you, just reply to this email.\n\n{{advisor}}' }],
+};
+document.getElementById('checkin-auto').addEventListener('click', () => openBuilder(null, CHECKIN));
 document.getElementById('add-step').addEventListener('click', () =>
   stepsEl.appendChild(stepRow({ action: document.getElementById('add-type').value })));
 dlg.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => dlg.close()));
@@ -338,7 +383,8 @@ onSubmit(form, async (values) => {
   const steps = readSteps();
   if (!steps.length) throw new Error('Add at least one step.');
   const path = editingId ? `/api/automations/${encodeURIComponent(editingId)}` : '/api/automations';
-  await api(path, { method: editingId ? 'PUT' : 'POST', body: { ...values, steps } });
+  await api(path, { method: editingId ? 'PUT' : 'POST',
+    body: { ...values, steps, active: form.elements.active.checked } });
   dlg.close();
   await load();
 });
