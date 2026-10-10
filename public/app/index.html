@@ -229,13 +229,13 @@ function build() {
       <p class="value">${money(s.commissionCents)}</p>
       <p class="meta">${money(s.commissionPaidCents)} received from vendors</p>
       <span class="go">See what is owed</span></a>
-    <a class="stat" href="/app/commissions${advisor ? `?${advisor.slice(1)}` : ''}">
+    ${everyone ? `<a class="stat" href="/app/commissions${advisor ? `?${advisor.slice(1)}` : ''}">
       <p class="label">Agency earns</p>
       <p class="value">${money(agencyEarns)}</p>
       <p class="meta">${agencyEarns
         ? `the advisors keep ${money(s.commissionShareCents)}`
         : 'no split is recorded, so the advisors keep all of it'}</p>
-      <span class="go">See the split</span></a>`;
+      <span class="go">See the split</span></a>` : ''}`;
 
   // Said once, in plain words, because the same balance appears in both
   // figures days apart and that is not obvious from two numbers side by side.
