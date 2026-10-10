@@ -72,10 +72,18 @@ function render(bookings, stats, scope, d = {}) {
   // your own name in every row of your own list is noise.
   const showAdvisor = Boolean(scope && scope.all);
   cache = bookings;
+  // The counts beside the choices, so the filter says what is behind each one. The
+  // totals are the whole book, not what is on screen, so they do not move as it is filtered.
+  const counts = { '': stats.total, quoted: stats.quoted, booked: stats.booked,
+    travelled: stats.travelled || 0, cancelled: stats.cancelled || 0 };
+  for (const o of statusFilter.options) {
+    const name = o.dataset.name || (o.dataset.name = o.textContent);
+    o.textContent = `${name} (${counts[o.value] ?? 0})`;
+  }
   queueMicrotask(drawPickBar);
   statsEl.innerHTML = `
     <div class="stat"><p class="label">Reservations</p><p class="value">${stats.total}</p>
-      <p class="meta">${stats.booked} booked, ${stats.quoted} quoted</p></div>
+      <p class="meta">${stats.booked} booked, ${stats.quoted} quoted, ${stats.travelled || 0} travelled, ${stats.cancelled || 0} cancelled</p></div>
     <div class="stat"><p class="label">Volume</p><p class="value">${money(stats.grossCents)}</p>
       <p class="meta">Booked and travelled</p></div>
     <div class="stat"><p class="label">Commission</p><p class="value">${money(stats.commissionCents)}</p>

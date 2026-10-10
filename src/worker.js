@@ -35,6 +35,7 @@ import { handleProposals, handleMarkBooked, handleSetDeclined } from './proposal
   handleCreateBooking,
   handleUpdateBooking,
   handleQuickUpdate,
+  handleDuplicateBooking,
   handleDeleteBooking,
   handleWelcomed,
 } from './bookings.js'; import {
@@ -119,6 +120,7 @@ import {
   handleUploadDocument,
   handleGetDocument,
   handleDeleteDocument,
+  handleRenameDocument,
 } from './documents.js';
 import {
   handleStatement,
@@ -657,6 +659,7 @@ async function routeApi(request, env, path, method) {
   const bookingMatch = path.match(/^\/api\/bookings\/([^/]+)$/);
   const recordMatch = path.match(/^\/api\/bookings\/([^/]+)\/record$/);
   const quickMatch = path.match(/^\/api\/bookings\/([^/]+)\/quick$/);
+  const duplicateMatch = path.match(/^\/api\/bookings\/([^/]+)\/duplicate$/);
   const statementMatch = path.match(/^\/api\/bookings\/([^/]+)\/statement$/);
   const welcomedMatch = path.match(/^\/api\/bookings\/([^/]+)\/welcomed$/);
   const shareMatch = path.match(/^\/api\/bookings\/([^/]+)\/share$/);
@@ -787,6 +790,7 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/bookings' && method === 'POST') return handleCreateBooking(request, env);
   if (recordMatch && method === 'GET') return handleBookingRecord(request, env, recordMatch[1]);
   if (quickMatch && method === 'POST') return handleQuickUpdate(request, env, quickMatch[1]);
+  if (duplicateMatch && method === 'POST') return handleDuplicateBooking(request, env, duplicateMatch[1]);
   // What the client is told, which is a narrow subset of what the record holds.
   if (statementMatch && method === 'POST') return handleStatement(request, env, statementMatch[1]);
   if (welcomedMatch && method === 'POST') return handleWelcomed(request, env, welcomedMatch[1]);
@@ -799,6 +803,7 @@ async function routeApi(request, env, path, method) {
   if (docsMatch && method === 'POST') return handleUploadDocument(request, env, docsMatch[1]);
   if (docMatch && method === 'GET') return handleGetDocument(request, env, docMatch[1]);
   if (docMatch && method === 'DELETE') return handleDeleteDocument(request, env, docMatch[1]);
+  if (docMatch && method === 'PUT') return handleRenameDocument(request, env, docMatch[1]);
 
   // The two or three choices a quote offers, and which one the client took.
   if (optionsMatch && method === 'POST') return handleAddOption(request, env, optionsMatch[1]);

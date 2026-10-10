@@ -11,7 +11,7 @@
 // the advisor who owns it, and streamed. Guessing a key gets you nothing,
 // because the key is not the address.
 
-import { json, badRequest, notFound, clean, oneOf, uid, now } from './util.js';
+import { json, badRequest, notFound, clean, oneOf, uid, now, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 
@@ -117,12 +117,19 @@ export async function handleUploadDocument(request, env, bookingId) {
   return json({ ok: true, id, filename, category, sizeBytes: file.size }, 201);
 }
 
+// The only kinds shown in the browser rather than downloaded. All are formats a browser
+// draws without running anything: no HTML, no SVG, no script of any kind.
+const SHOWN_INLINE = ['application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
 /**
  * Streams a document back.
  *
- * Always as an attachment. A file the advisor uploaded is served from the same
- * origin as the portal, so an HTML or SVG document rendered inline would run
- * its own script against a signed in session. Downloading it cannot.
+ * Opened in the browser for a PDF or a picture, and downloaded for everything else, or
+ * when ?download is asked for. A file the advisor uploaded is served from the same
+ * origin as the portal, so an HTML or SVG document rendered inline would run its own
+ * script against a signed in session. That is why the inline list is short, why the
+ * type is the one the file was stored with, and why sniffing is switched off: a file
+ * that is not what it says it is gets nothing rendered.
  */
 export async function handleGetDocument(request, env, id) {
   const { user, response } = await requireUser(request, env);
@@ -141,16 +148,66 @@ export async function handleGetDocument(request, env, id) {
   const object = await env.DOCS.get(row.object_key);
   if (!object) return notFound('That file is no longer in storage.');
 
+  const type = String(row.content_type || '').toLowerCase();
+  const inline = SHOWN_INLINE.includes(type) && !new URL(request.url).searchParams.has('download');
   return new Response(object.body, {
     headers: {
       'Content-Type': row.content_type || 'application/octet-stream',
-      'Content-Disposition': `attachment; filename="${row.filename.replace(/"/g, '')}"`,
+      // A plain copy for old clients and the real name beside it. A renamed file may
+      // carry any character, and a header only carries Latin letters as they are.
+      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="${
+        row.filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '')}"; filename*=UTF-8''${
+        encodeURIComponent(row.filename)}`,
       // Belt and braces with the disposition above: no sniffing a type the
       // browser might decide to render instead.
       'X-Content-Type-Options': 'nosniff',
       'Cache-Control': 'private, no-store',
     },
   });
+}
+
+/**
+ * Rename a document, or file it under another heading.
+ *
+ * Open to whoever can edit the reservation, which is the point: a file uploaded under
+ * the wrong name used to have to be deleted and attached again. Only the name and the
+ * heading change. The stored object, who may see it and whether the client can are not
+ * touched, and the extension is kept when the new name leaves it off.
+ */
+export async function handleRenameDocument(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const owner = await db.writerFor(env, user, 'documents', id);
+  if (!owner) return notFound('Document not found.');
+
+  const row = await env.DB.prepare(
+    `SELECT ${COLUMNS} FROM documents WHERE id = ? AND user_id = ?`
+  ).bind(id, owner.id).first();
+  if (!row) return notFound('Document not found.');
+
+  const body = await readJson(request);
+  let filename = row.filename;
+  if (body.filename !== undefined) {
+    // Spaces and capitals stay: the whole reason to rename is to name it properly.
+    // Only what a path or a header cannot carry is removed.
+    let name = clean(String(body.filename), 120).replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ')
+      .replace(/\s+/g, ' ').trim().replace(/^\.+/, '');
+    if (!name) return badRequest('Give it a name.');
+    const ext = /\.[A-Za-z0-9]{1,8}$/.exec(row.filename);
+    if (ext && !/\.[A-Za-z0-9]{1,8}$/.test(name)) name = `${name}${ext[0]}`;
+    filename = name.slice(0, 120);
+  }
+  const category = body.category === undefined ? row.category : oneOf(body.category, CATEGORIES);
+
+  await env.DB.prepare(
+    'UPDATE documents SET filename = ?, category = ?, updated_at = ? WHERE id = ? AND user_id = ?'
+  ).bind(filename, category, now(), id, owner.id).run();
+
+  // Neither the old name nor the new one goes in the log: see handleUploadDocument.
+  await db.logActivity(env, owner.id, 'document.rename',
+    db.byHand('Renamed a document', user, owner), { bookingId: row.booking_id });
+  return json({ ok: true, id, filename, category });
 }
 
 export async function handleDeleteDocument(request, env, id) {

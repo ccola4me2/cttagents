@@ -133,10 +133,23 @@ export function anyDate(raw) {
     return cleanDate(out);
   }
 
+  // 25-Oct-2026 and 25 October 2026, which is how Norwegian writes every date. Read by
+  // hand rather than left to Date.parse, which takes a date in this shape as local time
+  // and can come out a day early once it is turned back into UTC.
+  const named = value.match(/^(\d{1,2})[\s-]+([A-Za-z]{3,9})\.?[\s,-]+(\d{4})$/);
+  if (named) {
+    const month = MONTHS.indexOf(named[2].slice(0, 3).toLowerCase());
+    if (month >= 0) {
+      return cleanDate(`${named[3]}-${String(month + 1).padStart(2, '0')}-${String(Number(named[1])).padStart(2, '0')}`);
+    }
+  }
+
   const parsed = Date.parse(value);
   if (Number.isFinite(parsed)) return new Date(parsed).toISOString().slice(0, 10);
   return null;
 }
+
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
 /** Turns pasted text into rows, with the problems named rather than dropped. */
 export function parsePaste(text, mapping) {

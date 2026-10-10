@@ -16,7 +16,8 @@ import { requireUser } from './auth.js';
 import * as db from './db.js';
 
 const AMENITY_STATUS = ['requested', 'confirmed', 'applied', 'declined'];
-const AMENITY_SOURCE = ['vendor', 'agency', 'client'];
+// TLN is the Travel Leaders Network, whose onboard credit is the amenity most trips carry.
+const AMENITY_SOURCE = ['vendor', 'agency', 'client', 'tln'];
 
 const TRAVELLER_COLUMNS = `
   id, booking_id, user_id, name, dob, email, phone, passport_number,

@@ -899,6 +899,23 @@ export async function handleSetBookingStatus(request, env, bookingId) {
     commissionStatus: booking.commission_status,
     status,
     notes: booking.notes,
+    // Everything else the row holds. This save writes every column, so a field
+    // left out here is a field cleared, which is how a status change once took the
+    // cabin, the group link and the client link with it.
+    groupId: booking.group_id,
+    clientId: booking.client_id,
+    vendorId: booking.vendor_id,
+    cabin: booking.cabin,
+    cabinCategory: booking.cabin_category,
+    itinerary: booking.itinerary,
+    bookingMethod: booking.booking_method,
+    insuranceStatus: booking.insurance_status,
+    advisorSplitPct: booking.advisor_split_pct === null || booking.advisor_split_pct === undefined
+      ? null : Number(booking.advisor_split_pct),
+    personal: booking.personal,
+    groupLabel: booking.group_label,
+    groupNumber: booking.group_number,
+    depositRefundable: booking.deposit_refundable,
   });
 
   await db.logActivity(env, owner.id, 'booking.status',

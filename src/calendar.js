@@ -60,7 +60,7 @@ export async function handleCalendar(request, env) {
   const [appointments, taskRows, leadRows, tripRows, payRows] = await Promise.all([
     env.DB.prepare(
       `SELECT a.id, a.title, a.on_date, a.start_time, a.end_time, a.location, a.kind,
-              a.cancelled_at, a.done_at, c.name AS client_name
+              a.cancelled_at, a.done_at, a.outcome, c.name AS client_name
          FROM appointments a
          LEFT JOIN clients c ON c.id = a.client_id
         WHERE ${appts.sql} AND a.on_date >= ? AND a.on_date <= ?
@@ -120,7 +120,7 @@ export async function handleCalendar(request, env) {
       time: a.start_time, endTime: a.end_time || '',
       title: a.title, who: a.client_name || '', where: a.location || '',
       note: a.kind || '',
-      muted: Boolean(a.cancelled_at), done: Boolean(a.done_at),
+      muted: Boolean(a.cancelled_at), done: Boolean(a.done_at), outcome: a.outcome || '',
       href: `/app/calendar?open=${encodeURIComponent(a.id)}`,
     });
   }

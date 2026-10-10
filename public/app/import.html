@@ -109,6 +109,7 @@ Guest 1: COLE/DEBORAH"></textarea>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script type="module">
 import { api, mountShell, esc, money, dateFmt, showError } from '/js/app.js';
+import { confirmNewClient } from '/js/new-client.js';
 await mountShell();
 
 /**
@@ -132,13 +133,14 @@ const CONF_FIELDS = [
   ['travellers', 'Travellers'],
   ['gross', 'Trip total'],
   ['deposit', 'Deposit'],
+  ['depositDue', 'Deposit due'],
   // The number the agency is actually working for, and it was being read off
   // the confirmation and then not shown.
   ['commission', 'Commission'],
   ['finalPaymentDue', 'Final payment due'],
 ];
 
-const DATE_KEYS = ['departDate', 'returnDate', 'finalPaymentDue'];
+const DATE_KEYS = ['departDate', 'returnDate', 'depositDue', 'finalPaymentDue'];
 
 /** 2028-05-12, 5/12/2028 and 05/12/28 as 2028-05-12. Null when it is not a real day. */
 function toIso(text) {
@@ -339,7 +341,15 @@ document.getElementById('conf-read').addEventListener('click', async () => {
         ? 'read from: ' + esc(source)
         : '<span style="color:var(--ink-500);">not found, fill it in if you need it</span>'}</p>
     </div>`;
-  }).join('');
+  }).join('') + `<div class="field" style="margin-bottom:.7rem;">
+      <label for="cf-depositRefundable">Deposit is</label>
+      <select id="cf-depositRefundable" data-conf="depositRefundable">
+        <option value="">Choose one</option>
+        <option value="refundable">Refundable</option>
+        <option value="nonrefundable">Non refundable</option>
+      </select>
+      <p class="field-hint" style="margin:.2rem 0 0;">Required when there is a deposit. The confirmation does not say.</p>
+    </div>`;
 
   drawPricing(read);
 
@@ -370,6 +380,12 @@ document.getElementById('conf-create').addEventListener('click', async () => {
     { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
     return;
   }
+  if (lastRead && lastRead.fields && lastRead.fields.productType) body.productType = lastRead.fields.productType;
+  if (cents(body.deposit) > 0 && !body.depositRefundable) {
+    createErr.textContent = 'Choose whether the deposit is refundable or non refundable.';
+    { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+    return;
+  }
   if (!body.clientName) {
     createErr.textContent = 'A reservation needs a client name.';
     { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
@@ -389,6 +405,8 @@ document.getElementById('conf-create').addEventListener('click', async () => {
     { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
     return;
   }
+  // A name that is not on the books is asked about before the reservation is made.
+  if (!(await confirmNewClient(body.clientName))) return;
   btn.disabled = true;
   try {
     const res = await api('/api/bookings', { method: 'POST', body });

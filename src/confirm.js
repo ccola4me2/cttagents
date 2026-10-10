@@ -24,7 +24,7 @@ import { normKey } from './catalog.js';
 const LABELS = {
   confirmationNumber: ['booking id', 'confirmation number', 'reservation number', 'booking number',
     'booking reference', 'booking id', 'reservation id', 'confirmation code',
-    'confirmation', 'conf #', 'conf no', 'res #', 'booking'],
+    'confirmation', 'conf #', 'conf no', 'res #', 'booking', 'reservation'],
   supplier: ['cruise line', 'travel supplier', 'supplier', 'vendor', 'carrier', 'operator'],
   productName: ['ship name', 'ship', 'vessel', 'resort', 'hotel', 'tour name', 'package'],
   departDate: ['embarkation date', 'embarkation', 'sailing date', 'sail date',
@@ -417,8 +417,195 @@ function readPricing(lines, fields, listed) {
   };
 }
 
+/**
+ * A label on one line and its value on the next, put back together.
+ *
+ * Some confirmations lay a block out as a column of labels with the values beneath
+ * them, so the text comes out as "RESERVATION:" and then "65387883" on a line of its
+ * own. Labels are only read with their value in front of them, so the whole block was
+ * invisible. A line that is nothing but a label with a colon, followed by one that is
+ * not itself a label, is one line.
+ */
+function stackLabels(lines) {
+  const out = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const here = lines[i].trim();
+    const next = (lines[i + 1] || '').trim();
+    if (/^[A-Za-z][A-Za-z /#&.()-]{1,40}:$/.test(here) && next && !/:$/.test(next)
+        && !/^[A-Za-z][A-Za-z /#&.()-]{1,40}:\s/.test(next)) {
+      out.push(`${here} ${next}`);
+      i += 1;
+    } else {
+      out.push(lines[i]);
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Norwegian, which prints the price a different way
+// ---------------------------------------------------------------------------
+
+const NCL_DATE = /\b(\d{1,2}-[A-Za-z]{3}-\d{4})\b/;
+
+/** Surname first, as Norwegian prints a guest: "MITCHENER LORA CHRISTINE" is Lora Christine Mitchener. */
+function nclName(raw) {
+  const words = raw.trim().split(/\s+/);
+  if (words.length < 2) return fixCaps(raw.trim());
+  return fixCaps(`${words.slice(1).join(' ')} ${words[0]}`);
+}
+
+/** The guests, one numbered line each with a protection yes or no at the end. */
+function nclGuests(lines) {
+  const out = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    const m = /^(\d{1,2})\s+([A-Z][A-Z'.-]+(?:\s+[A-Z][A-Z'.-]*)+?)\s+(?:YES|NO)\b/.exec(line);
+    if (!m) continue;
+    const name = nclName(m[2]);
+    if (name && !out.some((g) => g.name === name)) out.push({ name, line });
+  }
+  return out;
+}
+
+/** A row of money after a label, each figure as cents, a minus sign kept. */
+function nclRow(lines, re) {
+  for (const raw of lines) {
+    const line = raw.trim();
+    const m = re.exec(line);
+    if (!m) continue;
+    const rest = line.slice(m[0].length);
+    const tokens = rest.match(/-?\$?\s*\d[\d,]*\.\d{2}\b/g);
+    if (!tokens || rest.replace(/-?\$?\s*\d[\d,]*\.\d{2}\b/g, '').replace(/[\s$]/g, '')) continue;
+    // Not toCents, which refuses a minus sign: savings are printed as negatives.
+    return { line, values: tokens.map((x) => Math.round(Number(x.replace(/[$,\s]/g, '')) * 100)) };
+  }
+  return null;
+}
+
+/** The figures of a Norwegian row: a total and then one column per guest. */
+function nclColumns(row, n) {
+  if (!row) return null;
+  const v = row.values;
+  if (v.length === n + 1 && v.slice(1).reduce((a, b) => a + b, 0) === v[0]) return v.slice(1);
+  if (v.length === n) return v;
+  if (v.length === 1) return spread(v[0], n);
+  return null;
+}
+
+/**
+ * Norwegian's "booking components per guest" table, as the same pricing the other readers return.
+ *
+ * Each row carries the trip's figure and then one for each guest: Guest Fare, Taxes/Fees/Port
+ * Exp, Savings, and a charge for each package such as drinks or dining. Savings are taken off
+ * the fare, which is what the commission is paid on, and the package charges are counted as
+ * gratuities because they are the service charge on something prepaid. The guest copy shows
+ * no commission, so none is invented.
+ */
+function readNclPricing(lines, fields, listed) {
+  const gross = nclRow(lines, /^gross total\s+/i);
+  const fareRow = nclRow(lines, /^guest fare\s+/i);
+  if (!gross || !fareRow) return null;
+
+  const n = Math.max(1, listed.length || fareRow.values.length - 1);
+  const fare = nclColumns(fareRow, n);
+  const taxRow = nclRow(lines, /^taxes\/fees(?:\/port exp(?:enses)?)?\s+/i);
+  const taxes = taxRow ? nclColumns(taxRow, n) : null;
+  const saveRow = nclRow(lines, /^(?:savings|discounts?)\s+/i);
+  const savings = saveRow ? nclColumns(saveRow, n) : null;
+  if (!fare) return null;
+
+  const services = lines.map((l) => nclRow([l], /^(?:[A-Za-z' &.-]+?)\s+(?:service|srv)\s+charge\s+/i))
+    .filter(Boolean).map((r) => nclColumns(r, n)).filter(Boolean);
+
+  const zero = new Array(n).fill(0);
+  const off = savings ? savings.map((x) => Math.abs(x)) : zero;
+  const netFare = fare.map((f, i) => f - off[i]);
+  const tax = taxes || zero;
+  const tips = services.reduce((acc, col) => acc.map((x, i) => x + col[i]), zero);
+
+  const people = listed.length === n ? listed.map((g) => ({ name: g.name, dob: null }))
+    : Array.from({ length: n }, () => ({ name: '', dob: null }));
+  const perGuest = n > 1 ? people.map((who, i) => ({
+    name: who.name, dob: who.dob,
+    fare: fixed(netFare[i]), taxes: fixed(tax[i]), insurance: '0.00', gratuities: fixed(tips[i]),
+    commission: '0.00', commissionPackage: '0.00',
+  })) : null;
+
+  const sum = (col) => col.reduce((a, b) => a + b, 0);
+  const out = [];
+  if (sum(netFare) > 0) out.push({ kind: 'fare', label: 'Fare', amount: fixed(sum(netFare)), from: fareRow.line });
+  if (sum(tax) > 0) out.push({ kind: 'taxes', label: 'Taxes and port fees', amount: fixed(sum(tax)), from: taxRow.line });
+  if (sum(tips) > 0) out.push({ kind: 'gratuities', label: 'Gratuities', amount: fixed(sum(tips)), from: 'the service charges' });
+
+  const total = sum(netFare) + sum(tax) + sum(tips);
+  const stated = gross.values[0];
+  const notes = [];
+  if (off.some(Boolean)) notes.push(`Fare is the guest fare ${said(sum(fare))} less savings ${said(sum(off))}.`);
+  if (tips.some(Boolean)) notes.push('Dining and drinks service charges are shown as gratuities.');
+  if (lines.some((l) => /^shore excursion/i.test(l.trim()))) {
+    notes.push('Shore excursions are printed separately and are not part of this price.');
+  }
+  notes.push('The guest copy shows no commission, so none is filled in.');
+  if (perGuest && perGuest.some((g) => !g.name)) notes.push('The guest names could not be told apart, so type each one in.');
+
+  return {
+    lines: out,
+    guests: perGuest,
+    totalCents: total,
+    statedCents: stated,
+    balanced: Math.abs(total - stated) <= 1,
+    differenceCents: stated - total,
+    ratePct: null,
+    notes,
+  };
+}
+
+/** Everything Norwegian prints in its own way, applied over what the general reader found. */
+function readNcl(lines, fields, from) {
+  const set = (key, value, line) => {
+    if (value === null || value === undefined || value === '' || fields[key] !== undefined) return;
+    fields[key] = value;
+    from[key] = String(line).trim().slice(0, 160);
+  };
+
+  // "SAILING: 25-Oct-2026 to 1-Nov-2026": the dates, which no other line carries on its own.
+  for (const raw of lines) {
+    const m = /^(?:sailing|vacation)\s*:\s*(\d{1,2}-[A-Za-z]{3}-\d{4})\s*(?:to|-|–)\s*(\d{1,2}-[A-Za-z]{3}-\d{4})/i.exec(raw.trim());
+    if (!m) continue;
+    set('departDate', anyDate(m[1]), raw);
+    set('returnDate', anyDate(m[2]), raw);
+    break;
+  }
+
+  // "BF / 9806": the category code and then the cabin.
+  const cab = /^([A-Za-z0-9]{1,5})\s*\/\s*(\d{3,5}[A-Za-z]?)$/.exec(String(fields.cabin || '').trim());
+  if (cab) {
+    const was = from.cabin;
+    fields.cabin = cab[2];
+    if (!fields.cabinCategory) { fields.cabinCategory = cab[1]; from.cabinCategory = was; }
+  }
+
+  // The payment schedule: only the dates are printed, not the amounts.
+  for (const raw of lines) {
+    const line = raw.trim();
+    const dep = /^first deposit due on\s+(\d{1,2}-[A-Za-z]{3}-\d{4})/i.exec(line);
+    if (dep) set('depositDue', anyDate(dep[1]), line);
+    const fin = /^final payment due on\s+(\d{1,2}-[A-Za-z]{3}-\d{4})/i.exec(line);
+    if (fin) set('finalPaymentDue', anyDate(fin[1]), line);
+  }
+
+  const gross = nclRow(lines, /^gross total\s+/i);
+  if (gross) set('gross', fixed(gross.values[0]), gross.line);
+
+  if (!fields.supplier && /^norwegian\b|\bncl\b/i.test(`${fields.productName || ''} ${lines.join(' ')}`)) {
+    fields.supplier = 'Norwegian Cruise Line';
+    from.supplier = fields.productName ? `the ship, ${fields.productName}` : 'Norwegian';
+  }
+}
+
 export function parseConfirmation(text) {
-  const lines = String(text || '').split(/\r?\n/).slice(0, 400)
+  const lines = stackLabels(String(text || '').split(/\r?\n/).slice(0, 400))
     .flatMap(splitColumns)
     .slice(0, 900);
   const fields = {};
@@ -438,7 +625,8 @@ export function parseConfirmation(text) {
   take('productName', LABELS.productName);
   take('departDate', LABELS.departDate, anyDate);
   take('returnDate', LABELS.returnDate, anyDate);
-  take('destination', LABELS.destination);
+  // A sailing's date range is not a destination.
+  take('destination', LABELS.destination, (v) => (NCL_DATE.test(v) ? null : clean(v, 200)));
   take('cabin', LABELS.cabin, (v) => clean(v, 40));
   take('cabinCategory', LABELS.cabinCategory, (v) => clean(v, 120));
   take('finalPaymentDue', LABELS.finalPaymentDue, anyDate);
@@ -491,7 +679,12 @@ export function parseConfirmation(text) {
     }
   }
 
-  const people = guests(lines);
+  // Norwegian: dates, cabin, schedule, guests and price in its own layout.
+  const nclPeople = /booking components per guest/i.test(text) || /^\s*sailing\s*:\s*\d{1,2}-[A-Za-z]{3}-\d{4}/im.test(text)
+    ? nclGuests(lines) : [];
+  readNcl(lines, fields, from);
+
+  const people = guests(lines).length ? guests(lines) : nclPeople;
   if (people.length) {
     fields.travellers = people.length;
     // The lead guest is the client unless the advisor says otherwise. Named
@@ -509,7 +702,14 @@ export function parseConfirmation(text) {
     delete from.returnDate;
   }
 
-  const pricing = readPricing(lines, fields, people);
+  const pricing = (/booking components per guest/i.test(text) ? readNclPricing(lines, fields, people) : null)
+    || readPricing(lines, fields, people);
+
+  // Said once it is plain, so it does not depend on a reservation form's default.
+  if (fields.productName || fields.cabin || /\b(?:cruise|stateroom|sailing|embark)/i.test(text)) {
+    fields.productType = 'cruise';
+    from.productType = fields.productName ? `a ship, ${fields.productName}` : 'cruise wording';
+  }
 
   return {
     fields,

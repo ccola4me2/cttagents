@@ -255,6 +255,7 @@
         <div class="field"><label for="a-source">Paid for by</label>
           <select id="a-source" name="source">
             <option value="vendor">The vendor</option>
+            <option value="tln">TLN</option>
             <option value="agency">The agency</option>
             <option value="client">The client</option>
           </select></div>
@@ -648,9 +649,14 @@ function drawDocuments() {
         <thead><tr><th>File</th><th>What it is</th><th class="num">Size</th>
           <th>Client sees</th><th></th></tr></thead>
         <tbody>${rows.map((f) => `<tr>
-          <td><a class="name" href="/api/documents/${esc(f.id)}">${esc(f.filename)}</a>
-            <div class="muted">${esc(timeAgo(f.created_at))}</div></td>
-          <td><span class="badge badge-navy">${esc(f.category || 'other')}</span>
+          <td><a class="name" href="/api/documents/${esc(f.id)}" target="_blank" rel="noopener">${esc(f.filename)}</a>
+            <div class="muted">${esc(timeAgo(f.created_at))} &middot;
+              <a href="/api/documents/${esc(f.id)}?download=1">Download</a></div></td>
+          <td>${d.editable
+            ? `<select data-doc-cat="${esc(f.id)}" class="btn-sm" style="width:auto;" aria-label="What it is">${
+                (d.documentCategories || []).map((c) => `<option value="${esc(c)}"${(f.category || 'other') === c ? ' selected' : ''}>${
+                  esc(c === 'other' ? 'Unfiled' : c[0].toUpperCase() + c.slice(1))}</option>`).join('')}</select>`
+            : `<span class="badge badge-navy">${esc(f.category || 'other')}</span>`}
             ${f.from_client
               ? '<div><span class="badge badge-amber">the client sent this</span></div>' : ''}</td>
           <td class="num">${esc(KB(f.size_bytes || 0))}</td>
@@ -661,7 +667,8 @@ function drawDocuments() {
                  <span class="muted">${f.shared ? 'Shared with client' : 'Not shared'}</span></label>`
             : `<span class="muted">${f.shared ? 'Shared with client' : 'Not shared'}</span>`}</td>
           <td class="num">${d.editable
-            ? `<button class="btn btn-ghost btn-sm" data-doc="${esc(f.id)}">Remove</button>` : ''}</td>
+            ? `<button class="btn btn-ghost btn-sm" data-doc-rename="${esc(f.id)}" data-name="${esc(f.filename)}">Rename</button>
+               <button class="btn btn-ghost btn-sm" data-doc="${esc(f.id)}">Remove</button>` : ''}</td>
         </tr>`).join('')}</tbody></table></div>`
     : `<div class="empty"><h3>Nothing attached</h3>
         <p>The vendor confirmation, the insurance policy, the air tickets. Ten megabytes each.</p></div>`;
@@ -696,6 +703,28 @@ function drawDocuments() {
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Upload failed (${res.status})`);
       await load();
     } catch (e) { showError(err, e); input.disabled = false; }
+  });
+
+  // Named properly where it sits, so a wrong name is not a delete and attach again.
+  document.querySelectorAll('[data-doc-rename]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const name = prompt('Name this document', btn.dataset.name);
+      if (name === null || !name.trim() || name.trim() === btn.dataset.name) return;
+      btn.disabled = true;
+      try { await api(`/api/documents/${encodeURIComponent(btn.dataset.docRename)}`,
+        { method: 'PUT', body: { filename: name } });
+        await load(); }
+      catch (e) { showError(err, e); btn.disabled = false; }
+    });
+  });
+  document.querySelectorAll('[data-doc-cat]').forEach((pick) => {
+    pick.addEventListener('change', async () => {
+      pick.disabled = true;
+      try { await api(`/api/documents/${encodeURIComponent(pick.dataset.docCat)}`,
+        { method: 'PUT', body: { category: pick.value } });
+        await load(); }
+      catch (e) { showError(err, e); pick.disabled = false; }
+    });
   });
 
   document.querySelectorAll('[data-doc]').forEach((btn) => {
@@ -779,6 +808,9 @@ function drawDetail() {
         text('productName', 'Ship, hotel or product', b.product_name)),
     row(text('confirmationNumber', 'Confirmation number', b.confirmation_number),
         select('insuranceStatus', 'Insurance', o.insuranceStatuses, b.insurance_status || 'unknown')),
+    // A group the agency does not run itself, such as a TLN group.
+    row(text('groupLabel', 'Group name', b.group_label),
+        text('groupNumber', 'Group number', b.group_number)),
 
     group('Travel'),
     row(date('departDate', 'Departing', b.depart_date),
@@ -806,6 +838,16 @@ function drawDetail() {
              ${ro ? 'disabled' : ''}>
            <p class="field-hint"${depositNote.warn ? ' style="color:var(--amber-600);"' : ''}>${
              esc(depositNote.text)}</p></div>`),
+    `<div class="field"><label for="f-depositRefundable">Deposit is</label>
+       <select id="f-depositRefundable" name="depositRefundable" ${ro ? 'disabled' : ''}>
+         <option value=""${b.deposit_refundable ? '' : ' selected'}>${b.deposit_cents ? 'Choose one' : 'Not set'}</option>
+         <option value="refundable"${b.deposit_refundable === 'refundable' ? ' selected' : ''}>Refundable</option>
+         <option value="nonrefundable"${b.deposit_refundable === 'nonrefundable' ? ' selected' : ''}>Non refundable</option>
+       </select>
+       <p class="field-hint"${b.deposit_cents && !b.deposit_refundable ? ' style="color:var(--amber-600);"' : ''}>${
+         b.deposit_cents && !b.deposit_refundable
+           ? 'Choose one before saving. A deposit has to say whether it comes back.'
+           : 'Whether the deposit comes back if the trip is cancelled.'}</p></div>`,
 
     row(text('destination', 'Destination', b.destination),
         text('itinerary', 'Itinerary', b.itinerary)),
@@ -1874,7 +1916,7 @@ function drawAmenities() {
     ? `<ul class="rows">${d.amenities.map((a) => `<li><div class="row-between">
         <span><span class="t">${esc(a.description)}</span>
           <span class="m"><span class="badge ${AMENITY_TONE[a.status] || 'badge-navy'}">${esc(a.status)}</span>
-            ${a.source ? ' · ' + esc(a.source) : ''}</span></span>
+            ${a.source ? ' · ' + esc(a.source === 'tln' ? 'TLN' : a.source) : ''}</span></span>
         <span style="text-align:right;">
           <strong>${a.amount_cents ? money(a.amount_cents) : ''}</strong>
           ${d.editable ? `<div><button class="btn btn-ghost btn-sm" data-amenity="${esc(a.id)}">Edit</button></div>` : ''}
@@ -1938,8 +1980,20 @@ function render() {
          : ''}
        ${outgoing ? `<button class="btn ${stale ? 'btn-secondary' : 'btn-ghost'} btn-sm"
          id="send-statement">${esc(outgoing)}</button>` : ''}
+       <button class="btn btn-ghost btn-sm" id="duplicate-btn">Duplicate</button>
 `
     : '';
+  const dupe = document.getElementById('duplicate-btn');
+  if (dupe) dupe.addEventListener('click', async () => {
+    if (!confirm('Make a copy of this reservation?\n\nThe vendor, ship, dates and group come across. '
+      + 'The confirmation number, cabin, price, payments and travellers do not.')) return;
+    dupe.disabled = true;
+    try {
+      const made = await api(`/api/bookings/${encodeURIComponent(id)}/duplicate`, { method: 'POST', body: {} });
+      try { sessionStorage.setItem('ctt.copied', b.client_name || ''); } catch { /* the copy still opens */ }
+      location.href = `/app/reservation?id=${encodeURIComponent(made.booking.id)}`;
+    } catch (e) { showError(err, e); dupe.disabled = false; }
+  });
 
   // Said once, plainly, where it is read.
   //
@@ -2970,6 +3024,8 @@ onSubmit(detailForm, async (values) => {
   await api(`/api/bookings/${encodeURIComponent(id)}`, { method: 'PUT', body: values });
   await load();
   err.innerHTML = '<div class="notice notice-ok">Saved.</div>';
+  // Where the message is, so a save visibly did something.
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
 const optionDlg = document.getElementById('option-dlg');
@@ -3181,6 +3237,19 @@ onSubmit(postForm, async (values) => {
   err.innerHTML = `<div class="notice notice-warn">The reservation saved, but ${
     lost.length === 1 ? 'this traveller was' : 'these travellers were'} not added: ${
     esc(lost.join(', '))}. Add ${lost.length === 1 ? 'them' : 'each of them'} below.</div>`;
+})();
+
+// Arrived here from Duplicate: say what the copy is and what is left to do.
+(() => {
+  let from = null;
+  try {
+    from = sessionStorage.getItem('ctt.copied');
+    sessionStorage.removeItem('ctt.copied');
+  } catch { return; }
+  if (from === null) return;
+  err.innerHTML = `<div class="notice notice-info">This is a copy${from ? ` of ${esc(from)}'s reservation` : ''}.
+    Change the client, then add the confirmation number, cabin, travellers and price, and
+    mark it booked when it is.</div>`;
 })();
 
 const travellerDlg = document.getElementById('traveller-dlg');

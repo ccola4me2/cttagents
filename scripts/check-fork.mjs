@@ -73,6 +73,8 @@ const ALLOWED = new Map([
   ['email.js:fromAs', ['cttagents', 'sending as the agency for a broadcast, cttagents only']],
   ['itinerary.js:handleReorderItinerary', ['cttagents', 'dragging itinerary items, cttagents only']],
   ['split.js:COMPANY_LEAD', ['cttagents', 'a second commission rate for company-supplied leads, cttagents only']],
+  ['bookings.js:handleDuplicateBooking', ['cttagents', 'copying a reservation, asked for by the cttagents agents and not yet taken to trip-vara']],
+  ['documents.js:handleRenameDocument', ['cttagents', 'renaming an attached document, asked for by the cttagents agents and not yet taken to trip-vara']],
 ]);
 
 const sibling = process.argv[2] || join(ROOT, '..', THERE);

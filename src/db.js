@@ -579,7 +579,8 @@ const BOOKING_COLUMNS = `
   created_at, updated_at, share_code, shared_at, statement_hash, lead_source,
   itinerary_shared, options_open,
   viewed_first_at, viewed_last_at, view_count,
-  declined_at, declined_reason, accepted_at, trip_id
+  declined_at, declined_reason, accepted_at, trip_id,
+  group_label, group_number, deposit_refundable
 `;
 
 // The same columns qualified, for the queries that join users to name the
@@ -977,9 +978,10 @@ export async function createBooking(env, userId, f) {
         depart_date, return_date, deposit_due, final_payment_due, travellers,
         gross_cents, deposit_cents, commission_cents, commission_status, status, notes,
         group_id, client_id, vendor_id, cabin, cabin_category, itinerary,
-        booking_method, insurance_status, advisor_split_pct, personal, created_at, updated_at,
+        booking_method, insurance_status, advisor_split_pct, personal,
+        group_label, group_number, deposit_refundable, created_at, updated_at,
         agreed_split_pct, agreed_lead_split_pct)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
        ${AGREED_SPLIT_SQL})`
   ).bind(
     id, userId, f.ghlContactId || null, f.ghlOpportunityId || null,
@@ -990,7 +992,7 @@ export async function createBooking(env, userId, f) {
     f.status, f.notes || null, f.groupId || null, f.clientId || null, f.vendorId || null,
     f.cabin || null, f.cabinCategory || null, f.itinerary || null, f.bookingMethod || null,
     f.insuranceStatus || 'unknown', f.advisorSplitPct == null ? null : f.advisorSplitPct,
-    f.personal ? 1 : 0, ts, ts,
+    f.personal ? 1 : 0, f.groupLabel || null, f.groupNumber || null, f.depositRefundable || null, ts, ts,
     userId, userId
   ).run();
   return getBooking(env, id, userId);
@@ -1005,7 +1007,8 @@ export async function updateBooking(env, id, userId, f) {
        travellers = ?, gross_cents = ?, deposit_cents = ?, commission_cents = ?, commission_status = ?,
        status = ?, notes = ?, group_id = ?, client_id = ?, vendor_id = ?,
        cabin = ?, cabin_category = ?, itinerary = ?, booking_method = ?,
-       insurance_status = ?, advisor_split_pct = ?, personal = ?, updated_at = ?
+       insurance_status = ?, advisor_split_pct = ?, personal = ?,
+       group_label = ?, group_number = ?, deposit_refundable = ?, updated_at = ?
      WHERE id = ? AND user_id = ?`
   ).bind(
     f.ghlContactId || null, f.ghlOpportunityId || null, f.clientName, f.supplier || null,
@@ -1015,7 +1018,8 @@ export async function updateBooking(env, id, userId, f) {
     f.status, f.notes || null, f.groupId || null, f.clientId || null, f.vendorId || null,
     f.cabin || null, f.cabinCategory || null, f.itinerary || null, f.bookingMethod || null,
     f.insuranceStatus || 'unknown', f.advisorSplitPct == null ? null : f.advisorSplitPct,
-    f.personal ? 1 : 0, now(), id, userId
+    f.personal ? 1 : 0, f.groupLabel || null, f.groupNumber || null, f.depositRefundable || null,
+    now(), id, userId
   ).run();
   if (!res.meta || res.meta.changes === 0) return null;
   return getBooking(env, id, userId);
@@ -1123,6 +1127,7 @@ export async function bookingStats(env, scope) {
        SUM(CASE WHEN b.status = 'booked' THEN 1 ELSE 0 END) AS booked,
        SUM(CASE WHEN b.status = 'quoted' THEN 1 ELSE 0 END) AS quoted,
        SUM(CASE WHEN b.status = 'travelled' THEN 1 ELSE 0 END) AS travelled,
+       SUM(CASE WHEN b.status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
        SUM(CASE WHEN b.status IN ('booked','travelled') THEN b.gross_cents ELSE 0 END) AS gross_cents,
        SUM(CASE WHEN b.status IN ('booked','travelled') THEN ${earned} ELSE 0 END) AS commission_cents,
        SUM(CASE WHEN b.status IN ('booked','travelled') THEN ${share} ELSE 0 END) AS commission_share_cents,
@@ -1137,6 +1142,7 @@ export async function bookingStats(env, scope) {
     booked: row?.booked || 0,
     quoted: row?.quoted || 0,
     travelled: row?.travelled || 0,
+    cancelled: row?.cancelled || 0,
     grossCents: row?.gross_cents || 0,
     commissionCents: row?.commission_cents || 0,
     commissionShareCents: row?.commission_share_cents || 0,

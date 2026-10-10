@@ -432,7 +432,7 @@ async function main() {
     productType: 'cruise', confirmationNumber: `SMK${stamp}`,
     departDate: isoDay(120), returnDate: isoDay(127),
     depositDue: isoDay(5), finalPaymentDue: isoDay(60),
-    gross: '5000', deposit: '500', commission: '600', status: 'booked',
+    gross: '5000', deposit: '500', depositRefundable: 'refundable', commission: '600', status: 'booked',
   });
   const bookingId = res.data?.booking?.id;
   const clientId = res.data?.booking?.client_id;
@@ -695,7 +695,7 @@ async function main() {
     // payments changes totals the shared reservation is checked against.
     const twin = await call(advisor, 'POST', '/api/bookings', {
       clientName: `Twin ${stamp}`, supplier: 'Carnival', productType: 'cruise',
-      departDate: isoDay(120), gross: '4000', deposit: '1000',
+      departDate: isoDay(120), gross: '4000', deposit: '1000', depositRefundable: 'refundable',
       depositDue: isoDay(10), finalPaymentDue: isoDay(60), status: 'booked',
     });
     const twinId = twin.data?.booking?.id;
@@ -1393,6 +1393,85 @@ async function main() {
     check(mine.data?.scope?.label === 'Just me'
         && (mine.data?.events || []).some((e) => e.id === apptId),
       'the calendar opens on your own diary', JSON.stringify(mine.data?.scope));
+  }
+
+  // ----------------------------------- requests from the agents (group, deposit, copy) --
+  step('Group numbers, deposits that say whether they come back, copies, outcomes');
+  {
+    const base = { clientName: `Dep ${stamp}`, supplier: 'Norwegian Cruise Line', productType: 'cruise',
+      departDate: isoDay(200), returnDate: isoDay(207), gross: '1000', deposit: '200', status: 'quoted' };
+
+    // A deposit has to say whether it comes back.
+    const unsaid = await call(advisor, 'POST', '/api/bookings', base);
+    check(unsaid.status === 400 && /refundable/i.test(unsaid.data?.error || ''),
+      'a reservation with a deposit must say whether it is refundable', `status ${unsaid.status}`);
+    const made = await call(advisor, 'POST', '/api/bookings', { ...base,
+      depositRefundable: 'nonrefundable', groupLabel: 'TLN', groupNumber: '123456' });
+    const madeId = made.data?.booking?.id;
+    if (check(made.status === 201 && madeId, 'and is taken once it does', `status ${made.status}`)) {
+      cleanup('the group reservation', () => dropBooking(madeId));
+      const rec = (await call(advisor, 'GET', `/api/bookings/${madeId}/record`)).data?.booking || {};
+      check(rec.group_label === 'TLN' && rec.group_number === '123456'
+          && rec.deposit_refundable === 'nonrefundable',
+        'the outside group name and number, and the deposit kind, are kept',
+        JSON.stringify([rec.group_label, rec.group_number, rec.deposit_refundable]));
+
+      // The full save refuses a blank kind, and leaves it alone when it is not mentioned.
+      const blank = await call(advisor, 'PUT', `/api/bookings/${madeId}`,
+        { ...base, depositRefundable: '', groupLabel: 'TLN', groupNumber: '123456' });
+      check(blank.status === 400, 'saving it again with the kind blanked is refused', `status ${blank.status}`);
+      const silent = await call(advisor, 'PUT', `/api/bookings/${madeId}`, { ...base });
+      check(silent.status === 200
+          && (await call(advisor, 'GET', `/api/bookings/${madeId}/record`)).data?.booking?.deposit_refundable === 'nonrefundable',
+        'and a save that says nothing about it leaves it as it was', `status ${silent.status}`);
+
+      // A copy for the next family on the sailing.
+      const copy = await call(advisor, 'POST', `/api/bookings/${madeId}/duplicate`, {});
+      const copyId = copy.data?.booking?.id;
+      if (check(copy.status === 201 && copyId, 'a reservation can be duplicated', `status ${copy.status}`)) {
+        cleanup('the copy', () => dropBooking(copyId));
+        const c = (await call(advisor, 'GET', `/api/bookings/${copyId}/record`)).data?.booking || {};
+        check(c.supplier === 'Norwegian Cruise Line' && c.depart_date === isoDay(200)
+            && c.group_label === 'TLN' && c.group_number === '123456',
+          'the copy carries the vendor, the dates and the group',
+          JSON.stringify([c.supplier, c.depart_date, c.group_label, c.group_number]));
+        check(c.status === 'quoted' && !c.confirmation_number && !c.gross_cents && !c.deposit_cents
+            && !c.deposit_refundable,
+          'but not the confirmation number, the money or the deposit kind, and starts as a quote',
+          JSON.stringify([c.status, c.confirmation_number, c.gross_cents, c.deposit_cents]));
+      }
+
+      // TLN as a source for an amenity.
+      const am = await call(advisor, 'POST', `/api/bookings/${madeId}/amenities`,
+        { description: 'Onboard credit', source: 'tln', amount: '100' });
+      const amenities = (await call(advisor, 'GET', `/api/bookings/${madeId}/record`)).data?.amenities || [];
+      check(am.status < 300 && amenities.some((a) => a.source === 'tln'),
+        'TLN can be the source of an amenity', `status ${am.status}`);
+    }
+
+    // The counts behind the status list.
+    const list = await call(advisor, 'GET', '/api/bookings');
+    check(typeof list.data?.stats?.cancelled === 'number' && typeof list.data?.stats?.travelled === 'number',
+      'the reservation list counts every status, not just booked and quoted',
+      JSON.stringify(list.data?.stats));
+
+    // An appointment marked done, with what came of it.
+    if (apptId) {
+      const done = await call(advisor, 'PUT', `/api/appointments/${apptId}`,
+        { done: true, outcome: 'Went over the plan for Alaska' });
+      check(done.status === 200 && done.data?.appointment?.doneAt
+          && done.data.appointment.outcome === 'Went over the plan for Alaska',
+        'an appointment can be marked completed with what came of it', JSON.stringify(done.data));
+      const grid = await call(advisor, 'GET', `/api/calendar?from=${isoDay(-1)}&to=${isoDay(40)}`);
+      const on = (grid.data?.events || []).find((e) => e.id === apptId);
+      check(on && on.done === true && on.outcome === 'Went over the plan for Alaska',
+        'and the calendar shows it done', JSON.stringify(on && [on.done, on.outcome]));
+      const edited = await call(advisor, 'PUT', `/api/appointments/${apptId}`,
+        { title: on?.title || 'Smoke appointment', onDate: on?.date, startTime: on?.time || '14:00' });
+      check(edited.status === 200 && edited.data?.appointment?.outcome === 'Went over the plan for Alaska',
+        'an edit that says nothing about the outcome leaves it', `status ${edited.status}`);
+      await call(advisor, 'PUT', `/api/appointments/${apptId}`, { done: false, outcome: '' });
+    }
   }
 
   // The window is clamped rather than obeyed. A request for five years would
@@ -5544,7 +5623,7 @@ async function main() {
 
   const chaseTrip = await call(advisor, 'POST', '/api/bookings', {
     clientName: `Chase Client ${stamp}`, supplier: 'Cunard', status: 'booked',
-    departDate: isoDay(90), gross: '6000', deposit: '600',
+    departDate: isoDay(90), gross: '6000', deposit: '600', depositRefundable: 'refundable',
     depositDue: isoDay(5), finalPaymentDue: isoDay(45),
   });
   const chaseId = chaseTrip.data?.booking?.id;
@@ -7080,7 +7159,7 @@ async function main() {
   const quoted = await call(advisor, 'POST', '/api/bookings', {
     clientName: `Statement ${stamp}`, supplier: 'Princess Cruises', status: 'quoted',
     productName: 'Mexican Riviera', departDate: isoDay(220), returnDate: isoDay(227),
-    gross: '3200', deposit: '500', depositDue: isoDay(20),
+    gross: '3200', deposit: '500', depositRefundable: 'refundable', depositDue: isoDay(20),
   });
   const quotedId = quoted.data?.booking?.id;
   if (quotedId) cleanup('the quoted reservation',
@@ -7715,6 +7794,44 @@ async function main() {
     const anon = await fetch(`${BASE}/api/documents/${doc.id}`);
     check(anon.status === 401, 'and nobody without a session gets it', `status ${anon.status}`);
 
+    // Named properly after the fact, without deleting it and attaching it again.
+    const renamed = await call(advisor, 'PUT', `/api/documents/${doc.id}`,
+      { filename: 'Final Confirmation', category: 'invoice' });
+    check(renamed.status === 200 && renamed.data?.filename === 'Final Confirmation.txt'
+        && renamed.data?.category === 'invoice',
+      'a document can be renamed and refiled, keeping its extension',
+      JSON.stringify(renamed.data));
+    const again = await call(advisor, 'GET', `/api/bookings/${paperId}/record`);
+    check((again.data?.documents || []).some((d) => d.id === doc.id && d.filename === 'Final Confirmation.txt'),
+      'and the new name is what comes back on the record');
+    const blank = await call(advisor, 'PUT', `/api/documents/${doc.id}`, { filename: '   ' });
+    check(blank.status === 400, 'though it cannot be given no name', `status ${blank.status}`);
+
+    // A PDF or a picture opens in the browser. Anything else, and anything that could
+    // run in the page, still downloads.
+    const put = async (name, type, content) => {
+      const f = new FormData();
+      f.append('file', new Blob([content], { type }), name);
+      const r = await fetch(`${BASE}/api/bookings/${paperId}/documents`,
+        { method: 'POST', headers: { cookie: advisor.header() }, body: f });
+      return (await r.json().catch(() => ({}))).id;
+    };
+    const pdfId = await put('note.pdf', 'application/pdf', '%PDF-1.4 test');
+    const htmlId = await put('page.html', 'text/html', '<script>1</script>');
+    if (pdfId && htmlId) {
+      const shown = await fetch(`${BASE}/api/documents/${pdfId}`, { headers: { cookie: advisor.header() } });
+      check(/^inline/.test(shown.headers.get('content-disposition') || ''),
+        'a PDF opens in the browser', shown.headers.get('content-disposition'));
+      const saved = await fetch(`${BASE}/api/documents/${pdfId}?download=1`, { headers: { cookie: advisor.header() } });
+      check(/^attachment/.test(saved.headers.get('content-disposition') || ''),
+        'and still downloads when asked to');
+      const page = await fetch(`${BASE}/api/documents/${htmlId}`, { headers: { cookie: advisor.header() } });
+      check(/^attachment/.test(page.headers.get('content-disposition') || ''),
+        'while a web page is never rendered from here', page.headers.get('content-disposition'));
+      await call(advisor, 'DELETE', `/api/documents/${pdfId}`);
+      await call(advisor, 'DELETE', `/api/documents/${htmlId}`);
+    }
+
     const dropped = await call(advisor, 'DELETE', `/api/documents/${doc.id}`);
     check(dropped.status === 200, 'a document can be removed');
     const after = await fetch(`${BASE}/api/documents/${doc.id}`, { headers: { cookie: advisor.header() } });
@@ -7772,6 +7889,37 @@ async function main() {
   // The advisor is confirming what was read, not trusting it.
   check(read.data?.from?.gross === 'Grand Total: $1,996.00',
     'every field says which line it came from', read.data?.from?.gross);
+
+  // Norwegian prints its own way: a column of labels with the values beneath, dates as
+  // 25-Oct-2026, guests surname first, and a table with a total and then a column each.
+  {
+    const ncl = ['CONFIRMATION', 'INVOICE DATE:', '6-Oct-2026', 'BOOKING DATE:', '5-Jun-2026', 'RESERVATION:',
+      '65387883', 'SHIP: NORWEGIAN PRIMA', 'SAILING: 25-Oct-2026 to 1-Nov-2026',
+      'CATEGORY / STATEROOM: BF / 9806', 'ITINERARY: 7-DAY CARIBBEAN ROUND-TRIP ORLANDO',
+      'GUESTS', '1 MITCHENER LORA CHRISTINE NO', '2 SCHULZ SARAH JONES NO',
+      'BOOKING COMPONENTS PER GUEST IN USD', 'Total Guest 1 Guest 2',
+      'Guest Fare 3,616.00 1,808.00 1,808.00', 'Taxes/Fees/Port Exp 400.00 200.00 200.00',
+      'Savings -1,858.00 -929.00 -929.00', 'Specialty Dining Srv Charge 120.00 60.00 60.00',
+      'Open Bar Service Charge 399.00 199.50 199.50', 'Gross Total 2,677.00 1,338.50 1,338.50',
+      'FIRST DEPOSIT due on 8-Jun-2026 11:59 pm Eastern Time',
+      'FINAL PAYMENT due on 27-Jun-2026 11:59 pm Eastern Time'].join('\n');
+    const nr = await call(advisor, 'POST', '/api/import/confirmation', { text: ncl });
+    const nf = nr.data?.fields || {};
+    check(nf.confirmationNumber === '65387883' && nf.supplier === 'Norwegian Cruise Line'
+        && nf.productType === 'cruise' && nf.productName === 'NORWEGIAN PRIMA',
+      'a Norwegian confirmation is recognised as a cruise, with its number and ship',
+      JSON.stringify(nf));
+    check(nf.departDate === '2026-10-25' && nf.returnDate === '2026-11-01'
+        && nf.depositDue === '2026-06-08' && nf.finalPaymentDue === '2026-06-27',
+      'and its dates, written 25-Oct-2026, and its payment dates', JSON.stringify(nf));
+    check(nf.cabin === '9806' && nf.cabinCategory === 'BF' && nf.clientName === 'Lora Christine Mitchener'
+        && nf.travellers === 2,
+      'the cabin, its category and the guests, turned the right way round', JSON.stringify(nf));
+    const np = nr.data?.pricing;
+    check(np && np.balanced === true && np.guests?.length === 2 && np.guests[0].fare === '879.00'
+        && np.guests[0].taxes === '200.00' && np.guests[0].gratuities === '259.50',
+      'and the price, guest by guest, adds up to the total it states', JSON.stringify(np && np.guests));
+  }
 
   const nonsense = await call(advisor, 'POST', '/api/import/confirmation',
     { text: 'Dear client, we look forward to welcoming you aboard next spring. Kind regards.' });
@@ -7980,7 +8128,7 @@ async function main() {
   const opt = await call(advisor, 'POST', '/api/bookings', {
     clientName: `Choices ${stamp}`, supplier: 'Holland America', status: 'quoted',
     productName: 'Alaska Inside Passage', departDate: isoDay(250), returnDate: isoDay(257),
-    deposit: '600', depositDue: isoDay(30),
+    deposit: '600', depositRefundable: 'refundable', depositDue: isoDay(30),
   });
   const optId = opt.data?.booking?.id;
   if (optId) cleanup('the options reservation', () => dropBooking(optId));

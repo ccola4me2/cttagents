@@ -44,6 +44,7 @@
 import { api, mountShell, esc, dateFmt, showError, onSubmit } from '/js/app.js';
 import { mountSupplierPicker } from '/js/supplier-picker.js';
 import { mountClientSuggest } from '/js/client-suggest.js';
+import { confirmNewClient } from '/js/new-client.js';
 await mountShell();
 
 const err = document.getElementById('err');
@@ -167,6 +168,12 @@ document.getElementById('fields').innerHTML = [
           ${groups.map((g) => `<option value="${esc(g.id)}">${
             esc([g.group_code, g.name].filter(Boolean).join(' / '))}</option>`).join('')}</select></div>`
       : '',
+  // A group the agency does not run itself, such as a TLN group: the name and number
+  // off the paperwork, with no group to set up first.
+  row(text('groupLabel', 'Group name', 'maxlength="80" placeholder="TLN"'),
+      text('groupNumber', 'Group number', 'maxlength="60" placeholder="123456"')),
+  `<p class="field-hint" style="margin:-.35rem 0 1.1rem;">Only for a group booked through
+    somebody else. Leave both empty for an ordinary reservation.</p>`,
 
   group('Travel'),
   row(date('departDate', 'Departing'), date('returnDate', 'Returning')),
@@ -206,11 +213,29 @@ document.getElementById('fields').innerHTML = [
         'What holds it. Inside ninety days of departure there is usually no deposit and '
         + 'this is the whole trip cost.')),
 
+  `<div class="field" id="deposit-kind-field"><label for="f-depositRefundable">Deposit is</label>
+     <select id="f-depositRefundable" name="depositRefundable">
+       <option value="">Choose one</option>
+       <option value="refundable">Refundable</option>
+       <option value="nonrefundable">Non refundable</option>
+     </select>
+     <p class="field-hint">Required when there is a deposit, so nobody has to guess later
+       whether it comes back.</p></div>`,
+
   group('Notes'),
   '<div class="field"><textarea id="f-notes" name="notes" maxlength="2000"></textarea></div>',
 ].join('');
 
 suggestClients(form.elements.clientName);
+
+// Asked for only when there is a deposit to describe.
+const syncDepositKind = () => {
+  const has = Number(String(form.elements.deposit.value).replace(/[^0-9.]/g, '')) > 0;
+  form.elements.depositRefundable.required = has;
+  document.getElementById('deposit-kind-field').style.opacity = has ? '1' : '.6';
+};
+form.elements.deposit.addEventListener('input', syncDepositKind);
+syncDepositKind();
 
 // Ten days in front of the vendor's date, filled in the moment that date is set
 // and only while the box is untouched. Somebody who wants a different day types
@@ -472,6 +497,9 @@ onSubmit(form, async (values) => {
   // talking to rather than to a new record with the same name on it.
   const known = crmByName.get(values.clientName?.trim());
   if (known?.contactId) values.ghlContactId = known.contactId;
+
+  // A name that is not on the books is asked about before the reservation is made.
+  if (!(await confirmNewClient(values.clientName, { known: (n) => crmByName.has(n) }))) return;
 
   const res = await api('/api/bookings', { method: 'POST', body: values });
   const id = res.booking.id;

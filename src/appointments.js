@@ -68,6 +68,9 @@ function parse(body) {
       location: clean(body.location, 200) || null,
       kind: oneOf(body.kind, KINDS) || null,
       notes: cleanText(body.notes, 2000) || null,
+      // Only written when the request carries it, so a save that is about something else
+      // leaves what was recorded about the meeting alone.
+      outcome: body.outcome === undefined ? undefined : (cleanText(body.outcome, 4000) || null),
     },
   };
 }
@@ -89,6 +92,7 @@ function shape(r) {
     notes: r.notes || '',
     cancelledAt: r.cancelled_at || null,
     doneAt: r.done_at || null,
+    outcome: r.outcome || '',
   };
 }
 
@@ -208,11 +212,13 @@ export async function handleUpdateAppointment(request, env, id) {
       `UPDATE appointments
           SET cancelled_at = CASE WHEN ? IS NULL THEN cancelled_at ELSE ? END,
               done_at = CASE WHEN ? IS NULL THEN done_at ELSE ? END,
+              outcome = CASE WHEN ? = 1 THEN ? ELSE outcome END,
               updated_at = ?
         WHERE id = ? AND user_id = ?`
     ).bind(
       body.cancelled === undefined ? null : 1, body.cancelled ? now() : null,
       body.done === undefined ? null : 1, body.done ? now() : null,
+      body.outcome === undefined ? 0 : 1, cleanText(body.outcome, 4000) || null,
       now(), id, user.id
     ).run();
     const after = await env.DB.prepare(`${SELECT} WHERE a.id = ? AND a.user_id = ?`)
@@ -231,10 +237,13 @@ export async function handleUpdateAppointment(request, env, id) {
   await env.DB.prepare(
     `UPDATE appointments
         SET title = ?, client_id = ?, booking_id = ?, on_date = ?, start_time = ?,
-            end_time = ?, location = ?, kind = ?, notes = ?, updated_at = ?
+            end_time = ?, location = ?, kind = ?, notes = ?,
+            outcome = CASE WHEN ? = 1 THEN ? ELSE outcome END, updated_at = ?
       WHERE id = ? AND user_id = ?`
   ).bind(fields.title, who.id, trip.id, fields.onDate, fields.startTime, fields.endTime,
-         fields.location, fields.kind, fields.notes, now(), id, user.id).run();
+         fields.location, fields.kind, fields.notes,
+         fields.outcome === undefined ? 0 : 1, fields.outcome || null,
+         now(), id, user.id).run();
 
   const after = await env.DB.prepare(`${SELECT} WHERE a.id = ? AND a.user_id = ?`)
     .bind(id, user.id).first();

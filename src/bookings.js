@@ -57,6 +57,10 @@ const BOOKING_METHODS = ['direct', 'portal', 'phone', 'group', 'other'];
 // asked is the honest default. Recording a decline is a deliberate act.
 const INSURANCE_STATUS = ['unknown', 'purchased', 'declined', 'covered_elsewhere', 'purchased_outside'];
 
+// Whether a deposit comes back if the trip is cancelled. A deposit has to say which.
+const DEPOSIT_KINDS = ['refundable', 'nonrefundable'];
+const DEPOSIT_UNSAID = 'Choose whether the deposit is refundable or non refundable.';
+
 // Handed to every page that offers these as a choice. One list, so a form and
 // the validator behind it cannot disagree about what a status may be.
 const FIELD_OPTIONS = {
@@ -65,6 +69,7 @@ const FIELD_OPTIONS = {
   commissionStatuses: COMMISSION_STATUSES,
   bookingMethods: BOOKING_METHODS,
   insuranceStatuses: INSURANCE_STATUS,
+  depositKinds: DEPOSIT_KINDS,
 };
 
 /** Shared parse and validate for create and update. */
@@ -113,6 +118,12 @@ function parseBooking(body) {
       ghlContactId: clean(body.ghlContactId, 64) || null,
       ghlOpportunityId: clean(body.ghlOpportunityId, 64) || null,
       groupId: clean(body.groupId, 64) || null,
+      // A group the agency does not run itself: the name and number off the vendor's
+      // or TLN's paperwork, kept on the reservation and nowhere else.
+      groupLabel: clean(body.groupLabel, 80) || null,
+      groupNumber: clean(body.groupNumber, 60) || null,
+      // Chosen, never assumed. Null is "nobody has said", which is every older record.
+      depositRefundable: DEPOSIT_KINDS.includes(body.depositRefundable) ? body.depositRefundable : null,
       clientName,
       supplier: clean(body.supplier, 120),
       productType: oneOf(body.productType, PRODUCT_TYPES),
@@ -178,6 +189,9 @@ const KEEP_IF_ABSENT = [
   ['ghlContactId', 'ghlContactId', 'ghl_contact_id'],
   ['ghlOpportunityId', 'ghlOpportunityId', 'ghl_opportunity_id'],
   ['groupId', 'groupId', 'group_id'],
+  ['groupLabel', 'groupLabel', 'group_label'],
+  ['groupNumber', 'groupNumber', 'group_number'],
+  ['depositRefundable', 'depositRefundable', 'deposit_refundable'],
   ['clientName', 'clientName', 'client_name'],
   ['supplier', 'supplier', 'supplier'],
   ['productType', 'productType', 'product_type'],
@@ -217,6 +231,71 @@ function keepWhatWasNotSent(fields, body, before) {
     fields[field] = before[column];
   }
   return fields;
+}
+
+/**
+ * A copy of a reservation, for the next family on the same sailing.
+ *
+ * What comes across is what the two bookings share: the vendor, the ship, the dates,
+ * the itinerary, the category, the group and the deadlines. What does not is what
+ * belongs to one booking: the confirmation number, the cabin, the price, the deposit,
+ * the commission, the travellers and the payments. The copy is a quote until somebody
+ * has put those in, so it is not counted as sold volume in the meantime.
+ *
+ * The client is the same one, because a reservation has to have somebody. Changing it
+ * is the first thing to do and the page says so.
+ *
+ * No automations fire and no standard tasks are made: nothing has been taken yet, and
+ * a "welcome" email about a trip nobody has booked would be a client reading about a
+ * holiday they did not buy.
+ */
+export async function handleDuplicateBooking(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const owner = await db.writerForBooking(env, user, id);
+  if (!owner) return notFound('Reservation not found.');
+  const src = await db.getBooking(env, id, owner.id);
+  if (!src) return notFound('Reservation not found.');
+
+  const fields = {
+    ghlContactId: src.ghl_contact_id,
+    ghlOpportunityId: null,
+    groupId: src.group_id,
+    groupLabel: src.group_label,
+    groupNumber: src.group_number,
+    clientName: src.client_name,
+    clientId: src.client_id,
+    vendorId: src.vendor_id,
+    supplier: src.supplier,
+    productType: src.product_type,
+    productName: src.product_name,
+    destination: src.destination,
+    itinerary: src.itinerary,
+    cabinCategory: src.cabin_category,
+    bookingMethod: src.booking_method,
+    personal: src.personal,
+    departDate: src.depart_date,
+    returnDate: src.return_date,
+    depositDue: src.deposit_due,
+    finalPaymentDue: src.final_payment_due,
+    insuranceStatus: 'unknown',
+    confirmationNumber: null,
+    cabin: null,
+    travellers: 1,
+    grossCents: 0,
+    depositCents: 0,
+    depositRefundable: null,
+    commissionCents: 0,
+    commissionStatus: COMMISSION_STATUSES[0],
+    status: 'quoted',
+    notes: null,
+    advisorSplitPct: null,
+  };
+  const copy = await db.createBooking(env, owner.id, fields);
+  await db.logActivity(env, owner.id, 'booking.duplicate',
+    db.byHand(`Copied ${src.client_name}'s reservation`, user, owner), { id: copy.id, from: id });
+  return json({ ok: true, booking: copy }, 201);
 }
 
 export async function handleListBookings(request, env) {
@@ -662,6 +741,7 @@ export async function handleCreateBooking(request, env) {
   const raw = await readJson(request);
   const { fields, error } = parseBooking(raw);
   if (error) return badRequest(error);
+  if (fields.depositCents > 0 && !fields.depositRefundable) return badRequest(DEPOSIT_UNSAID);
 
   // A new reservation follows the standing agreement, whatever was posted.
   // Accepting a share here would let an advisor set their own by filing the
@@ -893,6 +973,7 @@ export async function handleUpdateBooking(request, env, id) {
   // and the trip total and the commission were two more that nothing had
   // noticed yet.
   keepWhatWasNotSent(fields, raw, before);
+  if (fields.depositCents > 0 && !fields.depositRefundable) return badRequest(DEPOSIT_UNSAID);
   // Saving the page back with a status it already had is fine; moving a trip to
   // received is the agency recording money, and an advisor does not.
   if (fields.commissionStatus === COMMISSION_RECEIVED

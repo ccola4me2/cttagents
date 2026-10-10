@@ -101,6 +101,14 @@
       </div>
       <div class="field"><label for="notes">Notes</label>
         <textarea id="notes" name="notes" maxlength="2000" rows="3"></textarea></div>
+      <div class="field" id="done-field" hidden style="border-top:1px solid var(--navy-100);padding-top:.9rem;">
+        <label style="display:flex;gap:.5rem;align-items:center;font-weight:600;">
+          <input type="checkbox" id="doneBox" style="width:auto;flex:none;"> Completed</label>
+        <label for="outcome" style="margin-top:.6rem;">What came of it</label>
+        <textarea id="outcome" name="outcome" maxlength="4000" rows="4"
+          placeholder="What you went over, what was decided, what happens next"></textarea>
+        <p class="field-hint">Kept with the appointment, so a run of meetings can be looked
+          back over later.</p></div>
     </div>
     <div class="card-foot">
       <button class="btn btn-ghost" type="button" id="drop" hidden>Delete</button>
@@ -292,7 +300,8 @@ function showDay(day) {
   document.getElementById('day-body').innerHTML = list.length
     ? `<ul class="rows">${list.map((e) => `<li>
         <div>
-          <span class="badge badge-navy">${esc(KIND_LABEL[e.kind] || e.kind)}</span>
+          <span class="badge badge-navy">${esc(KIND_LABEL[e.kind] || e.kind)}</span>${
+            e.kind === 'appointment' && e.done ? ' <span class="badge badge-green">Completed</span>' : ''}
           <span class="name" style="margin-left:.45rem;">${
             e.time ? `${esc(e.time)}${e.endTime ? ` to ${esc(e.endTime)}` : ''} &middot; ` : ''}${
             // The row opens the thing it names. A departure should reach the
@@ -303,9 +312,11 @@ function showDay(day) {
               : `<a href="${esc(e.href)}" class="row-open">${esc(e.title)}</a>`}</span>
           <div class="muted where">${[esc(e.who), linkBits(e.where), linkBits(e.note)]
             .filter(Boolean).join('  &middot;  ')}</div>
+          ${e.kind === 'appointment' && e.outcome
+            ? `<div class="where" style="white-space:pre-wrap;margin-top:.25rem;">${esc(e.outcome)}</div>` : ''}
         </div>
         <div>${e.kind === 'appointment'
-          ? `<button class="btn btn-ghost btn-sm" data-edit="${esc(e.id)}">Edit</button>`
+          ? `${e.done ? '' : `<button class="btn btn-ghost btn-sm" data-complete="${esc(e.id)}">Complete</button> `}<button class="btn btn-ghost btn-sm" data-edit="${esc(e.id)}">Edit</button>`
           : `<a class="btn btn-ghost btn-sm" href="${esc(e.href)}">Open</a>`}</div>
       </li>`).join('')}</ul>${add}`
     : `<div class="empty"><p>Nothing on this day.</p></div>${add}`;
@@ -324,6 +335,8 @@ function showDay(day) {
 
   document.getElementById('day-body').querySelectorAll('[data-edit]').forEach((b) =>
     b.addEventListener('click', () => openAppt(b.dataset.edit)));
+  document.getElementById('day-body').querySelectorAll('[data-complete]').forEach((b) =>
+    b.addEventListener('click', () => openAppt(b.dataset.complete, { complete: true })));
   dayCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
@@ -370,14 +383,19 @@ function matchPerson() {
 }
 clientName.addEventListener('input', matchPerson);
 
-async function openAppt(id) {
+let wasDone = false;
+async function openAppt(id, { complete = false } = {}) {
   editing = id || null;
+  wasDone = false;
   form.reset();
   form.querySelector('.notice-error').hidden = true;
   clientId.value = '';
   whoHint.textContent = REST_HINT;
   document.getElementById('dlg-title').textContent = id ? 'Edit appointment' : 'Add an appointment';
   document.getElementById('drop').hidden = !id;
+  // Only an appointment that exists can be said to have happened.
+  document.getElementById('done-field').hidden = !id;
+  document.getElementById('doneBox').checked = false;
 
   // Yours, not the agency's: an appointment is written against your own book,
   // and a colleague's client would be refused on save.
@@ -400,12 +418,16 @@ async function openAppt(id) {
       form.elements.notes.value = one.notes;
       clientName.value = one.clientName;
       clientId.value = one.clientId || '';
+      form.elements.outcome.value = one.outcome || '';
+      wasDone = Boolean(one.doneAt);
+      document.getElementById('doneBox').checked = wasDone || complete;
       matchPerson();
     }
   } else {
     form.elements.onDate.value = openDay || today;
   }
   dlg.showModal();
+  if (complete && id) form.elements.outcome.focus();
 }
 
 document.getElementById('add').addEventListener('click', () => openAppt(null));
@@ -422,8 +444,14 @@ onSubmit(form, async () => {
     location: form.elements.location.value,
     notes: form.elements.notes.value,
   };
+  if (editing) body.outcome = form.elements.outcome.value;
   await api(editing ? `/api/appointments/${encodeURIComponent(editing)}` : '/api/appointments',
     { method: editing ? 'PUT' : 'POST', body });
+  // Said separately, because marking something done is its own act and not an edit.
+  const nowDone = document.getElementById('doneBox').checked;
+  if (editing && nowDone !== wasDone) {
+    await api(`/api/appointments/${encodeURIComponent(editing)}`, { method: 'PUT', body: { done: nowDone } });
+  }
   dlg.close();
   await load();
 });
