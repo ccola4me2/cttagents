@@ -220,7 +220,10 @@ export async function handleListCommissions(request, env) {
     }
   }
 
-  return json({
+  // The agency's side goes only to an owner. For an advisor it is not in the
+  // answer at all, so it cannot be read off the page or the network.
+  const ownerView = isAdmin(user) && !user.acting_as;
+  const payload = {
     rows,
     buckets: BUCKETS,
     settlementStates: SETTLEMENT_STATES,
@@ -282,7 +285,16 @@ export async function handleListCommissions(request, env) {
     payoutMethods: PAYOUT_METHODS,
     mayPay: isAdmin(user) && !user.acting_as,
     payDates: payDatesFrom(today, 12),
-  });
+  };
+  if (!ownerView) {
+    for (const row of payload.rows) {
+      delete row.agency_cents;
+      delete row.agency_received_cents;
+    }
+    delete payload.totals.owedAgencyCents;
+    delete payload.totals.agencyReceivedCents;
+  }
+  return json(payload);
 }
 
 /**

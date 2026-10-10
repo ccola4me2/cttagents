@@ -196,10 +196,10 @@ function render() {
     <div class="stat"><p class="label">Paid short</p>
       <p class="value" style="color:var(--red-600);">${money(t.shortCents)}</p>
       <p class="meta">${t.shortCount} reservation${t.shortCount === 1 ? '' : 's'} the vendor underpaid</p></div>` : ''}
-    <div class="stat"><p class="label">Taken</p>
+    ${t.agencyReceivedCents === undefined ? '' : `<div class="stat"><p class="label">Taken</p>
       <p class="value">${money(t.agencyReceivedCents)}</p>
       <p class="meta">${d.anySplit ? 'The agency\'s share of the money that is in'
-    : 'No split is recorded, so the agency takes nothing'}</p></div>
+    : 'No split is recorded, so the agency takes nothing'}</p></div>`}
     <div class="stat"><p class="label">Paid out</p>
       <p class="value">${money(t.paidOutCents)}</p>
       <p class="meta">Already handed to the advisors</p></div>
@@ -211,9 +211,9 @@ function render() {
     <div class="stat"><p class="label">Advisors' share to come</p>
       <p class="value">${money(t.owedAdvisorCents)}</p>
       <p class="meta">Of what is still owed</p></div>
-    <div class="stat"><p class="label">Agency's share to come</p>
+    ${t.owedAgencyCents === undefined ? '' : `<div class="stat"><p class="label">Agency's share to come</p>
       <p class="value">${money(t.owedAgencyCents)}</p>
-      <p class="meta">The rest of what is still owed</p></div>` : ''}`;
+      <p class="meta">The rest of what is still owed</p></div>`}` : ''}`;
 
   document.getElementById('ageing').innerHTML = d.buckets.map((b) => {
     const a = d.ageing[b.key] || { cents: 0, count: 0 };
@@ -249,12 +249,15 @@ function render() {
     : pick ? r.settlement === pick
     : r.outstanding_cents > 0));
 
+  // Only an owner is sent the agency's side; for anybody else the column is not
+  // drawn at all rather than drawn empty.
+  const agencyCol = rows.length > 0 && rows[0].agency_received_cents !== undefined;
   document.getElementById('rows').innerHTML = rows.length
     ? `<div class="table-wrap"><table>
         <thead><tr><th style="width:2rem;"></th><th>Client</th><th>Vendor</th><th>Home</th>
           <th>Settlement</th><th class="num">Expected</th><th class="num">Received</th>
           <th class="num">Still out</th><th class="num">Difference</th>
-          <th class="num">Taken</th><th class="num">Paid out</th>
+          ${agencyCol ? '<th class="num">Taken</th>' : ''}<th class="num">Paid out</th>
           <th class="num">To be paid</th><th></th></tr></thead>
         <tbody>${rows.map((r) => `<tr>
           <td>${mayTouch(r)
@@ -279,7 +282,7 @@ function render() {
             ? `<strong style="color:var(--${r.variance_cents < 0 ? 'red' : 'amber'}-600);">${
                 money(r.variance_cents)}</strong>`
             : '<span class="muted">-</span>'}</td>
-          <td class="num">${money(r.agency_received_cents)}</td>
+          ${agencyCol ? `<td class="num">${money(r.agency_received_cents)}</td>` : ''}
           <td class="num">${money(r.paid_out_cents)}
             ${r.last_paid_out_on
     ? `<div class="muted" style="font-size:.72rem;">${esc(short(r.last_paid_out_on))}</div>` : ''}</td>
@@ -293,7 +296,7 @@ function render() {
         </tr>
         ${recording === r.id ? `<tr class="record-row"><td></td>
           <!-- Every column after the tick box. -->
-          <td colspan="12">
+          <td colspan="${agencyCol ? 12 : 11}">
             <form data-receipt="${esc(r.id)}" class="row-between" style="gap:.6rem;flex-wrap:wrap;">
               <div class="field" style="margin:0;"><label>Amount arrived</label>
                 <input name="amount" inputmode="decimal" required

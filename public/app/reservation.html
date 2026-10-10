@@ -853,8 +853,8 @@ function drawDetail() {
        ${d.split && d.split.earns !== false && d.split.pct !== 100 ? `<dt>You keep</dt><dd><strong>${money(d.split.advisorCents)}</strong>
          <span class="muted" style="display:block;margin-top:.15rem;">${
            esc(String(d.split.pct))}% ${d.split.overridden
-           ? 'set on this trip' : 'by the agreement this trip was taken under'}; the agency keeps ${
-           money(d.split.agencyCents)}${d.split.unsplitCents
+           ? 'set on this trip' : 'by the agreement this trip was taken under'}${d.split.agencyCents === undefined
+             ? '' : `; the agency keeps ${money(d.split.agencyCents)}`}${d.split.unsplitCents
              ? `. ${money(d.split.unsplitCents)} of it is TC or bonus and is yours in full,
                 so the split applies to the rest` : ''}</span></dd>` : ''}
        <dt>Created</dt><dd>${esc(timeAgo(b.created_at))}</dd>
@@ -997,7 +997,7 @@ function drawCommission() {
         ${figure('Expected', c.expectedCents, 'What the vendor owes')}
         ${figure('Received', c.receivedCents, `<span class="badge ${s.tone}">${esc(s.label)}</span>${
       c.outstandingCents ? ` &middot; ${money(c.outstandingCents)} still out` : ''}`)}
-        ${figure('Taken', c.agencyCents, c.personal ? 'Your own travel, so nothing'
+        ${c.agencyCents === undefined ? '' : figure('Taken', c.agencyCents, c.personal ? 'Your own travel, so nothing'
       : c.pct === 100 ? 'No split recorded, so nothing'
         : `The agency's ${esc(String(100 - c.pct))}%`)}
         ${figure('Paid out', c.payoutCents,

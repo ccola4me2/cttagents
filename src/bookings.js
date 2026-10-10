@@ -523,6 +523,16 @@ export async function handleBookingRecord(request, env, id) {
     };
   })();
 
+
+  // What the agency keeps is the agency's figure. An advisor is told what they
+  // keep and not the other half, so it is left out of what is sent rather than
+  // hidden by the page. Not while acting as somebody either: that seat is theirs.
+  const ownerView = isAdmin(user) && !user.acting_as;
+  const forReader = (o) => {
+    if (ownerView) return o;
+    const { agencyCents, ...rest } = o;
+    return rest;
+  };
   return json({
     booking,
     // The choices offered, and which one was taken. Empty for most
@@ -588,11 +598,11 @@ export async function handleBookingRecord(request, env, id) {
       scheduledCents: scheduled,
       unscheduledCents: Math.max(0, (booking.gross_cents || 0) - paid - scheduled),
     },
-    split,
+    split: forReader(split),
     // What the vendor owes on this trip, what has actually arrived, and what
     // the advisor is owed out of what arrived. Its own block rather than more
     // fields on split, because split is an agreement and this is money.
-    commission,
+    commission: forReader(commission),
     // Who this trip could be handed to, for the one reader who may hand it
     // over. Empty for everybody else, so the control is absent rather than
     // present and refused. Not while acting as somebody: moving a reservation

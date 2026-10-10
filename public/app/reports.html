@@ -205,21 +205,24 @@ function render(data) {
     // Only shown when somebody is actually on a split. An agency of one would
     // otherwise get two identical columns and a question about which is which.
     const split = rows.some((r) => (r.advisor_share_cents || 0) !== (r.commission_cents || 0));
+    // Only an owner is sent the agency's side. Everybody else gets the advisor's
+    // half and no empty column where the other would be.
+    const agency = rows.some((x) => x.agency_share_cents !== undefined);
     // A totals line, because the first question anybody asks of a table of
     // people is what it comes to.
     const sum = (k) => rows.reduce((n, r) => n + (Number(r[k]) || 0), 0);
 
     advisorReport = {
       columns: ['Advisor', 'Clients', 'New this year', 'Reservations', 'Volume',
-        'Commission billed', ...(split ? ['They keep', 'Agency keeps'] : []),
+        'Commission billed', ...(split ? ['They keep', ...(agency ? ['Agency keeps'] : [])] : []),
         'Received from vendors', 'Paid out', 'Still to pay'],
       rows: rows.map((r) => [r.advisor_name, r.clients || 0, r.new_clients || 0, r.bookings,
         money(r.gross_cents), money(r.commission_cents),
-        ...(split ? [money(r.advisor_share_cents), money(r.agency_share_cents)] : []),
+        ...(split ? [money(r.advisor_share_cents), ...(agency ? [money(r.agency_share_cents)] : [])] : []),
         money(r.commission_paid_cents), money(r.paid_out_cents), money(r.due_cents)]),
       total: ['All advisors', sum('clients'), sum('new_clients'), sum('bookings'),
         money(sum('gross_cents')), money(sum('commission_cents')),
-        ...(split ? [money(sum('advisor_share_cents')), money(sum('agency_share_cents'))] : []),
+        ...(split ? [money(sum('advisor_share_cents')), ...(agency ? [money(sum('agency_share_cents'))] : [])] : []),
         money(sum('commission_paid_cents')), money(sum('paid_out_cents')), money(sum('due_cents'))],
     };
 
@@ -227,7 +230,7 @@ function render(data) {
       <thead><tr><th>Advisor</th><th class="num">Clients</th><th class="num" title="Clients whose first trip departs this year, or who have no trip yet and were added this year. The book an advisor brought with them when they joined is not counted as new.">New this year</th>
         <th class="num">Reservations</th><th class="num">Volume</th>
         <th class="num">Commission billed</th>${split
-          ? '<th class="num">They keep</th><th class="num">Agency keeps</th>' : ''}
+          ? `<th class="num">They keep</th>${agency ? '<th class="num">Agency keeps</th>' : ''}` : ''}
         <th class="num">Received</th><th class="num">Paid out</th>
         <th class="num">Still to pay</th><th>Share</th></tr></thead>
       <tbody>${rows.map((r) => `<tr>
@@ -240,7 +243,7 @@ function render(data) {
         ${split ? `<td class="num">${money(r.advisor_share_cents)}${
           r.default_split_pct === null || r.default_split_pct === undefined ? ''
             : `<div class="muted" style="font-size:.72rem;">${esc(String(r.default_split_pct))}%</div>`}</td>
-          <td class="num">${money(r.agency_share_cents)}</td>` : ''}
+          ${agency ? `<td class="num">${money(r.agency_share_cents)}</td>` : ''}` : ''}
         <td class="num">${money(r.commission_paid_cents)}</td>
         <td class="num">${money(r.paid_out_cents)}${r.last_paid_on
           ? `<div class="muted" style="font-size:.72rem;">${esc(r.last_paid_on)}</div>` : ''}</td>
@@ -256,7 +259,7 @@ function render(data) {
           <th class="num">${money(sum('gross_cents'))}</th>
           <th class="num">${money(sum('commission_cents'))}</th>
           ${split ? `<th class="num">${money(sum('advisor_share_cents'))}</th>
-            <th class="num">${money(sum('agency_share_cents'))}</th>` : ''}
+            ${agency ? `<th class="num">${money(sum('agency_share_cents'))}</th>` : ''}` : ''}
           <th class="num">${money(sum('commission_paid_cents'))}</th>
           <th class="num">${money(sum('paid_out_cents'))}</th>
           <th class="num">${money(sum('due_cents'))}</th>

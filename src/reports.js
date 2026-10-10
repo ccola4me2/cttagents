@@ -12,7 +12,7 @@ import { owedByAdvisor, paidByAdvisor } from './payouts.js';
 import { COMMISSION_RECEIVED, NO_COMMISSION } from './split.js';
 import { statusShown } from './paydates.js';
 import { tenantFor } from './tenant.js';
-import { requireUser } from './auth.js';
+import { requireUser, isAdmin } from './auth.js';
 import * as db from './db.js';
 import { readLayout, PANELS } from './prefs.js';
 import { dueLeads } from './tasks.js';
@@ -295,6 +295,10 @@ export async function handleProduction(request, env) {
   const books = byId(clientCounts);
   const paid = byId(paidOut);
   const owed = byId(stillOwed);
+  // What the agency keeps is for an owner. An advisor's row carries their own half.
+  if (!(isAdmin(user) && !user.acting_as)) {
+    for (const row of byAdvisor) delete row.agency_share_cents;
+  }
   for (const row of byAdvisor) {
     const b = books.get(row.user_id) || {};
     row.clients = b.clients || 0;
