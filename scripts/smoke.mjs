@@ -1483,6 +1483,20 @@ async function main() {
       }
     }
 
+    // Paragraphs in an automation email survive the save. They used to be
+    // flattened into one line, so every automatic email read as a wall of text.
+    {
+      const text = 'First paragraph.\n\nSecond paragraph.\nSigned, Brent';
+      const made = await call(advisor, 'POST', '/api/automations', { name: `Paragraphs ${stamp}`,
+        triggerType: 'form.submitted', active: false,
+        steps: [{ action: 'send_email', subject: 'Line breaks', body: text, marketing: true }] });
+      const madeId = made.data?.automation?.id;
+      const kept = made.data?.automation?.steps?.[0]?.body;
+      check(made.status === 200 && kept === text, 'an automation email keeps its paragraphs when it is saved',
+        JSON.stringify(kept));
+      if (madeId) await call(advisor, 'DELETE', `/api/automations/${madeId}`);
+    }
+
     // The counts behind the status list.
     const list = await call(advisor, 'GET', '/api/bookings');
     check(typeof list.data?.stats?.cancelled === 'number' && typeof list.data?.stats?.travelled === 'number',

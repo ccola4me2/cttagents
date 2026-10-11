@@ -19,7 +19,7 @@
 //   fired the trigger, a form submission say, must not be slowed down or made
 //   to fail by an automation that is misconfigured.
 
-import { uid, now, clean, oneOf, PermanentError } from './util.js';
+import { uid, now, clean, cleanText, oneOf, PermanentError } from './util.js';
 import { tenantFor } from './tenant.js';
 import { sendAutomationEmail } from './email.js';
 import { isSuppressed, unsubscribeToken, marketingFooter } from './suppression.js';
@@ -92,7 +92,10 @@ export function parseSteps(raw) {
       step.minutes = Math.max(1, Math.min(Number(s.minutes) || 60, 60 * 24 * 90));
     } else if (action === 'send_email') {
       step.subject = clean(s.subject, 200);
-      step.body = clean(s.body, 6000);
+      // Paragraphs kept. clean() turns every run of whitespace into one space,
+      // which is right for a subject line and made every email an automation
+      // sent read as a single wall of text.
+      step.body = cleanText(s.body, 6000);
       if (!step.subject || !step.body) continue;
       // Stated rather than guessed. A note about somebody's own booking is
       // transactional and always sends; anything they could reasonably not
@@ -106,7 +109,7 @@ export function parseSteps(raw) {
       if (!step.title) continue;
     } else if (action === 'notify_team') {
       step.subject = clean(s.subject, 200) || 'Automation notification';
-      step.body = clean(s.body, 4000);
+      step.body = cleanText(s.body, 4000);
       if (!step.body) continue;
     }
     out.push(step);
