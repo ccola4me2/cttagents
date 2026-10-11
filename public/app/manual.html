@@ -875,7 +875,11 @@ for (const [n, d] of docs.entries()) {
 }
 
 function show(id) {
-  const i = Math.max(0, docs.findIndex((d) => d.id === id));
+  // A link to a sub heading, such as #copy-reservation, opens the section that holds it and
+  // goes to the heading. Only a section id used to work, and any other left the first one open.
+  const target = id ? document.getElementById(id) : null;
+  const holder = target ? target.closest('.doc') : null;
+  const i = Math.max(0, docs.findIndex((d) => d.id === (holder ? holder.id : id)));
   docs.forEach((d, n) => d.classList.toggle('on', n === i));
   [...tocBox.children].forEach((a, n) => a.classList.toggle('on', n === i));
   jump.value = docs[i].id;
@@ -887,7 +891,11 @@ function show(id) {
 
   // Only when the reader moved, never on first paint: scrolling somebody to
   // the top of a page they just opened is a jump they did not ask for.
-  if (window.__manualReady) manual.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  if (holder && target !== holder) {
+    target.scrollIntoView({ block: 'start', behavior: window.__manualReady ? 'smooth' : 'auto' });
+  } else if (window.__manualReady) {
+    manual.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
   window.__manualReady = true;
 }
 
