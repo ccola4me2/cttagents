@@ -159,6 +159,9 @@
     never have to remember to do it.</li>
   <li><strong>Cancelled</strong> keeps the record and takes it out of every total.</li>
 </ul>
+<p>The box at the top of Reservations counts every status, for example 26 reservations:
+  25 booked, 0 quoted, 1 travelled, 0 cancelled, and the status filter shows how many sit
+  behind each choice. <strong>All statuses</strong> lists all of them.</p>
 
 <h3>Travellers and passports</h3>
 <p>Start typing a traveller's name and the portal finds anybody already on your books and
@@ -224,6 +227,54 @@
   you type a date into a form you do not need to tab across it: once the year is in, the
   cursor moves to the next date field on its own. Correcting a month or a day does not make it
   jump, only finishing the year does.</p>
+<p>Dates are always written month, day, year, as in 05/12/2028, whatever they came from: a
+  confirmation, a spreadsheet or an email. Type them the same way.</p>
+
+<h3 id="group-deposit">A group name and number, and a deposit that says whether it comes back</h3>
+<p><strong>Sold from a group</strong> is for a block of space the agency runs itself, set up
+  under Group space. Most group bookings are on a group somebody else runs, such as a TLN
+  group, and there is nothing to set up for those: type the <strong>Group name</strong>
+  (TLN) and the <strong>Group number</strong> (123456) in the Vendor part of the reservation.
+  Both are optional and sit on the reservation and nowhere else.</p>
+<p>Beside the deposit amount, <strong>Deposit is</strong> says whether it comes back:
+  <strong>Refundable</strong> or <strong>Non refundable</strong>. It has to be chosen whenever
+  there is a deposit, and the save says so if it was not. A reservation taken before this
+  existed asks the next time it is saved. A trip with no deposit needs no answer.</p>
+<p>On a reservation's amenities, <strong>Paid for by</strong> now offers <strong>TLN</strong>
+  beside the vendor, the agency and the client. Most onboard credit is TLN's.</p>
+
+<h3 id="copy-reservation">A copy for the next family</h3>
+<p><strong>Duplicate</strong> at the top of a reservation makes another one for the same sailing:
+  the vendor, ship, dates, itinerary, category, group name and number and the deadlines come
+  across. The confirmation number, cabin, price, deposit, commission, travellers, payments and
+  documents do not, because they belong to one booking. The copy starts as a quote under the
+  same client, so change the client first. It sends nothing and creates no tasks, and it does
+  not count as sold until you mark it booked.</p>
+
+<h3 id="new-client">A client who is not on your books yet</h3>
+<p>Taking a reservation for somebody the portal does not know now stops and asks, on the new
+  reservation page and on Import reservations: <strong>Add this person as a client?</strong>
+  with their email and mobile. <strong>Add client and continue</strong> saves them and files the
+  reservation under them. <strong>Just use the name</strong> carries on as before, and
+  <strong>Cancel</strong> goes back to the form. A name you picked from the suggestions is
+  already on your books and is not asked about.</p>
+
+<h3 id="read-confirmation">Starting a reservation from a vendor confirmation</h3>
+<p><strong>Reservation, then Import reservations.</strong> Upload the vendor's PDF, which is read
+  in your browser and never uploaded, or paste its text, and press <strong>Read it</strong>.
+  It fills in the number, the vendor, the ship, the dates, the cabin and its category, the
+  guests, the payment dates and the price. Where the confirmation prices each guest, each guest
+  is added to the reservation and priced on their own, with taxes and fees and gratuities on
+  their own lines. The lines have to add up to the trip total before it will save, and each
+  field shows the line it came from so you are checking and not trusting.</p>
+<ul>
+  <li>Margaritaville at Sea agent copies and Norwegian confirmations have been read from real
+    ones. Any other line is read by its labels and may need more correcting.</li>
+  <li>A guest copy shows no commission, so none is filled in. Add it on the Pricing tab.</li>
+  <li>The confirmation never says whether the deposit comes back, so choose that before you
+    create the reservation.</li>
+  <li><strong>Create the reservation</strong> takes you straight to it.</li>
+</ul>
 
 <h3>Group space, started from the cruise line's proposal</h3>
 <p>On <a href="/app/groups">Group space</a>, a new group can start from the cruise line's own
@@ -320,12 +371,13 @@
   reservation is <strong>pending</strong> until the money is in and <strong>received</strong>
   once it is, and that is the whole list: there is no step in the middle for having sent the
   invoice, because it was a claim about paperwork that nobody kept up to date.</p>
-<p>Four figures, on the page and on the trip itself. <strong>Expected</strong> is what the
-  vendor owes. <strong>Received</strong> is what has actually arrived. <strong>Taken</strong>
-  is the agency's share of what arrived and <strong>Paid out</strong> is yours, which is what
-  you are paid and is not the same number as your share of what is expected until the vendor
-  has settled in full. Where no split has been agreed the agency takes nothing and all of it
-  is yours, and the page says so rather than leaving you to notice.</p>
+<p>Three figures, on the page and on the trip itself. <strong>Expected</strong> is what the
+  vendor owes. <strong>Received</strong> is what has actually arrived. <strong>Paid out</strong>
+  is yours, which is what you are paid and is not the same number as your share of what is
+  expected until the vendor has settled in full. What the agency keeps is the agency's own
+  figure and is not shown to advisors anywhere: not on the dashboard, the commissions page,
+  the reservation or the reports. Where no split has been agreed all of it is yours, and the
+  page says so rather than leaving you to notice.</p>
 <h3>Being paid</h3>
 <p>Two different things, and the page keeps them apart. <strong>Paid out</strong> is what the
   agency has actually handed you. <strong>Still to pay</strong> is your share of money that
@@ -418,8 +470,24 @@
   on the record. It carries the itinerary day by day, who is travelling, what the trip costs
   with the payment schedule and what is still outstanding, any documents you have shared, the
   choices you offered with a way for them to pick one, and a box to send you a question that
-  arrives in the portal, with your answers appearing in the same thread. It installs on a phone like an app. You can see whether they have
-  opened it and how often.</p>
+  arrives in the portal, with your answers appearing in the same thread. It installs on a phone like an app.</p>
+<p><strong>Who opened it.</strong> The reservation lists every visit with its date and time and the
+  link they came from: the invoice, the quote, your reply or the page itself. Mail scanners and
+  link previews are not counted, nor is your own <strong>Open it</strong> link or a browser you
+  are signed in on, and coming back within half an hour is the same visit. The first time
+  anybody opens the page, and the first time they use the link in an invoice or quote you sent,
+  you get one email and a line in your activity. After that there is only the list. An invoice or
+  quote carries a button to the page, <strong>See your trip and documents</strong>, whenever the
+  page exists. Sending an invoice never makes the page; whether a client has one is your choice.</p>
+
+<h3 id="documents">Documents, and what the client sees of them</h3>
+<p>A document attached to a reservation is private until you tick <strong>Shared with
+  client</strong> on its row. Ticked, it is listed under <strong>Your documents</strong> on their
+  page, and unticking takes it away again. The agent copy of a confirmation has the commission
+  on it, so it is never shared by default. Where a document sits you can <strong>Rename</strong>
+  it and change what kind it is, so a wrongly named file no longer has to be deleted and attached
+  again. A PDF or a picture opens in the browser, with a <strong>Download</strong> link beside it.
+  Anything else downloads.</p>
 
 <h3>Everything you hold for them</h3>
 <p><strong>Their own page</strong> on a client record does the same thing one level up: one
@@ -493,6 +561,12 @@
   on the record, your notes, and any other client. Treat the links themselves the same way: the
   address is the whole of the permission, so a client link forwarded on reaches everything you
   hold for that person.</p>
+
+<h3 id="privacy">The privacy policy</h3>
+<p>A plain language privacy policy is at <a href="/privacy">cttagents.com/privacy</a>. It is linked
+  from the sign in page and from the foot of every page a client sees. It says what the portal
+  keeps, who can see it and how to ask for something to be corrected or removed. If a client asks,
+  send them the link.</p>
 </section>
 
 <section class="doc" id="daily" data-title="The day's work">
@@ -508,6 +582,11 @@
     Credits about to expire, passports about to, clients home from a trip, birthdays and
     anniversaries coming round, and people who have travelled with you and have nothing
     booked.</li>
+  <li><a href="/app/calendar">Calendar</a>: your appointments and everything else that lands on a
+    day. Weeks run Sunday to Saturday and it opens on your own diary; whoever runs the agency has
+    a list at the top for everybody or one advisor. After an appointment has happened, open it,
+    tick <strong>Completed</strong> and write <strong>What came of it</strong>. That stays with the
+    appointment and shows on the day, so a run of team meetings can be looked back over.</li>
   <li><a href="/app/complete">Fill in the gaps</a>: reservations missing a cost, a
     commission figure or a vendor deadline. A trip with no deadline cannot be chased and a
     trip with no cost is missing from every total, so this is the shortest list worth
@@ -671,10 +750,13 @@
   <li><a href="/app/formbuilder">Forms</a>: a hosted form on its own address. A submission
     becomes a client record on your own book, marked as a prospect until they book.</li>
   <li><a href="/app/automations">Automations</a>: when something happens, do something. A
-    form submitted, a reservation made, a final payment coming up, somebody home from a
-    trip, a client choosing an option on a quote. The action can be an email, a task, a
-    note, a tag, or handing the contact to a campaign you have already built in CTT
-    Tools.</li>
+    form submitted, a reservation made, a final payment coming up, a trip a set number of days
+    from sailing, somebody home from a trip, a client choosing an option on a quote. The action
+    can be an email to the client, a task for you or a note to the team. <strong>Start from the
+    check-in reminder</strong> shows one end to end: it emails the lead guest once when a booked
+    trip comes within 45 days of sailing, with an unsubscribe link, and replies come to you.
+    Every automation has an <strong>On</strong> switch. One that is off is kept and does
+    nothing.</li>
 </ul>
 </section>
 
@@ -725,6 +807,11 @@
   something you can see or fix from here. Ask your agency owner to check the admin page.
   Nothing is lost while it is sorted out: a send with no mail key waits rather than marking
   everybody as failed, so it goes out once the setup is right.</p>
+
+<h3>"It will not save and tells me to choose whether the deposit is refundable"</h3>
+<p>A deposit has to say whether it comes back. Choose <strong>Refundable</strong> or <strong>Non
+  refundable</strong> beside the deposit amount and save again. A reservation taken before this
+  rule asks the next time anybody saves it.</p>
 
 <p class="aside" id="owner-note" hidden>You run this agency, so there is a second half to
   this manual: <a href="/admin/manual">running the agency</a> covers advisors, splits, the

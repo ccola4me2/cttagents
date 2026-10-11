@@ -66,7 +66,7 @@ export const LESSONS = [
     why: 'This is the job. Everything else in the portal is either leading up to a reservation or following one.',
     manual: 'reservations',
     page: '/app/new',
-    doing: 'Take a real one, or a rehearsal you delete afterwards. Pick the client you just added rather than typing the name again.',
+    doing: 'Take a real one, or a rehearsal you delete afterwards. Pick the client you just added rather than typing the name again. If there is a deposit, say whether it is refundable, and for a TLN group type the group name and number.',
   },
   {
     key: 'first-pricing',
@@ -103,6 +103,24 @@ export const LESSONS = [
     manual: 'reservations',
     page: '/app/reservations',
     doing: 'Open one and walk every panel: travellers, pricing, payments, documents, the client\'s own page.',
+  },
+  {
+    key: 'copy-reservation',
+    section: 'reservation',
+    title: 'A copy for the next family',
+    why: 'Four families on one sailing are four reservations with the same vendor, ship and dates. Retyping them is where a wrong sail date gets in.',
+    manual: 'reservations',
+    page: '/app/reservations',
+    doing: 'Open a reservation and press Duplicate. Change the client, then add the confirmation number, cabin and price. It starts as a quote until you mark it booked.',
+  },
+  {
+    key: 'import-confirmation',
+    section: 'reservation',
+    title: 'Starting from a confirmation',
+    why: 'The vendor already sent the number, dates, guests and price. Reading them into a new reservation saves the retyping, and every field shows the line it came from so you check rather than trust.',
+    manual: 'reservations',
+    page: '/app/import',
+    doing: 'Upload a Margaritaville at Sea or Norwegian confirmation PDF, read it, check each field and the price for each guest, choose whether the deposit is refundable, then create the reservation.',
   },
   {
     key: 'trips',
@@ -264,7 +282,7 @@ export const LESSONS = [
     why: 'Your appointments and everything else that lands on a day: departures, deadlines, tasks. It syncs with Google and Outlook.',
     manual: 'daily',
     page: '/app/calendar',
-    doing: 'Put one appointment on it and see it appear in tomorrow morning\'s email.',
+    doing: 'Put one appointment on it and see it appear in tomorrow morning\'s email. After it has happened, open it, tick Completed and write what came of it.',
   },
   {
     key: 'tasks',
@@ -354,7 +372,7 @@ export const LESSONS = [
     why: 'When something happens, do these things, on its own. This is the part that works while you are asleep, and the part worth setting up slowly.',
     manual: 'selling',
     page: '/app/automations',
-    doing: 'Read an existing one end to end before you build your own.',
+    doing: 'Read the check-in reminder end to end before you build your own: one email to the lead guest, once, when a booked trip is 45 days from sailing.',
   },
   {
     key: 'production',
