@@ -931,12 +931,18 @@ export function linkify(escaped) {
 }
 
 export async function sendAutomationEmail(env, to, subject, body,
-  { footer, replyTo, fromName, unsubscribeUrl } = {}) {
+  { footer, replyTo, fromName, unsubscribeUrl, internal = false } = {}) {
   // Neither of these improves by waiting five minutes and asking again.
   if (!env.RESEND_API_KEY) {
     throw new PermanentError('Email is not configured: the RESEND_API_KEY secret is not set on the Worker.');
   }
   if (!to) throw new PermanentError('No recipient address.');
+  // A message to a client carries its way out, and this is where that is made certain
+  // rather than left to each caller to remember. Only a note to the team's own address,
+  // which says so with internal, may go without one.
+  if (!internal && !(footer && unsubscribeUrl)) {
+    throw new PermanentError('An email to a client has to carry its way out. Pass the footer and the unsubscribe address, or mark it internal.');
+  }
 
   const html = layout(env, {
     heading: subject,

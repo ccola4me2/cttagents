@@ -309,7 +309,8 @@ async function runStep(env, run, step, context) {
     case 'notify_team': {
       const to = env.NOTIFY_EMAIL;
       if (!to) return { status: 'skipped', detail: 'NOTIFY_EMAIL is not set' };
-      await sendAutomationEmail(env, to, fill(step.subject, context), fill(step.body, context));
+      // To the team's own address, so there is nobody to unsubscribe.
+      await sendAutomationEmail(env, to, fill(step.subject, context), fill(step.body, context), { internal: true });
       return { status: 'ok', detail: `notified ${to}` };
     }
     default:

@@ -122,6 +122,7 @@ globalThis.fetch = async (url, init) => {
 const live = { ...env, RESEND_API_KEY: 'test', UNSUBSCRIBE_SECRET: 'check-email', MAIL_FROM: 'Test <t@example.test>' };
 const to = 'client@example.com';
 
+let refusedBare = false;
 try {
   await sendPaymentReminder(live, { to, clientName: 'Ed', advisorName: 'Pat', agencyName: 'Test Travel', agencyId: 'ag1',
     amountCents: 190000, dueDate: '2026-09-26', hard: true, kind: 'final', tripName: 'Alaska' });
@@ -142,6 +143,9 @@ try {
     footer: marketingFooter({ agencyName: 'Test Travel', unsubscribeUrl: url }), unsubscribeUrl: url,
     unsubscribe: { agencyId: 'ag1', agencyName: 'Test Travel' },
   });
+  // An automatic email to a client cannot be sent without its way out, whoever forgot it.
+  // Refused before anything is sent, so it adds nothing to the list above.
+  try { await sendAutomationEmail(live, to, 'Hello', 'Body', {}); } catch (e) { refusedBare = /way out/i.test(String(e && e.message)); }
 } finally {
   globalThis.fetch = realFetch;
 }
@@ -158,6 +162,7 @@ sent.forEach((m, i) => {
       && (m.headers || {})['List-Unsubscribe-Post'] === 'List-Unsubscribe=One-Click']);
 });
 checks.push(['every one of the seven was sent', sent.length === names.length]);
+checks.push(['an automatic email with no way out is refused rather than sent', refusedBare]);
 checks.push(['a message that already carries a link does not get a second', (() => {
   const once = withUnsubscribe('<body>x <a href="https://example.test/u/abc.def">Unsubscribe</a></body>',
     { block: '<p>MORE</p>' });
