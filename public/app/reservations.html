@@ -394,7 +394,10 @@ const quoteSum = () => {
   document.getElementById('quote-words-hint').textContent = one
     ? 'Your words go in the one email. An opening message replaces the standard opening, and the note goes at the end.'
     : 'Your words go in every email, at the top and at the end, with each quote below. Leave them empty to send the standard wording.';
-  document.querySelectorAll('[data-qto]').forEach((el) => { el.disabled = one; });
+  // In one email the address on each row is not used, so it is replaced by a plain note instead of a box
+  // that looks editable and is not.
+  document.querySelectorAll('[data-qto]').forEach((el) => { el.style.display = one ? 'none' : ''; });
+  document.querySelectorAll('[data-qone]').forEach((el) => { el.hidden = !one; });
   const go = document.getElementById('quote-go');
   go.disabled = n === 0 || (one && n < 2);
   go.textContent = !n ? 'Send' : one ? `Send ${n} quotes in one email` : `Send ${n} quote${n === 1 ? '' : 's'}`;
@@ -449,7 +452,16 @@ document.getElementById('quote-look').addEventListener('click', async (e) => {
   } catch (ex) { errBox.textContent = ex.message || 'That could not be previewed.'; errBox.hidden = false; }
   e.target.disabled = false;
 });
-document.getElementById('quote-combine').addEventListener('change', quoteSum);
+document.getElementById('quote-combine').addEventListener('change', () => {
+  // Together they all go to the one address, so a row with no address of its own is just as sendable.
+  if (document.getElementById('quote-combine').checked) {
+    document.querySelectorAll('[data-qsend]:not(:disabled)').forEach((b) => {
+      const addr = document.querySelector(`[data-qto="${b.dataset.qsend}"]`);
+      if (addr && !addr.value.trim()) b.checked = true;
+    });
+  }
+  quoteSum();
+});
 document.getElementById('pick-quote').addEventListener('click', async () => {
   quoteDefaults = null;
   ['quote-subject', 'quote-intro', 'quote-note'].forEach((x) => { document.getElementById(x).value = ''; });
@@ -482,7 +494,8 @@ document.getElementById('pick-quote').addEventListener('click', async () => {
         <td><input type="checkbox" data-qsend="${esc(r.id)}" ${can ? '' : 'disabled'}${can && r.to && !r.alreadySent ? ' checked' : ''}></td>
         <td><strong>${esc(r.client || (cache.find((b) => b.id === r.id) || {}).client_name || '')}</strong></td>
         <td>${can ? `<input type="email" data-qto="${esc(r.id)}" value="${esc(r.to || '')}" maxlength="160"
-          placeholder="no email on file, type one" style="min-width:15rem;">` : '<span class="muted">-</span>'}</td>
+          placeholder="no email on file, type one" style="min-width:15rem;">
+          <span class="muted" data-qone hidden>goes in the one email</span>` : '<span class="muted">-</span>'}</td>
         <td class="num">${money(r.tripCents)}</td>
         <td class="num">${r.depositCents ? money(r.depositCents) : '<span class="muted">-</span>'}</td>
         <td>${r.depositDue ? esc(dateFmt(r.depositDue)) : '<span class="muted">-</span>'}</td>
@@ -493,6 +506,11 @@ document.getElementById('pick-quote').addEventListener('click', async () => {
   quoteRows.forEach((r) => { if (r.to) seen[r.to] = (seen[r.to] || 0) + 1; });
   document.getElementById('quote-one-to').value = Object.entries(seen).sort((a, b) => b[1] - a[1]).map(([a]) => a)[0] || '';
   document.querySelectorAll('[data-qsend]').forEach((b) => b.addEventListener('change', quoteSum));
+  // Typing an address into a row that had none is a yes to sending it.
+  document.querySelectorAll('[data-qto]').forEach((el) => el.addEventListener('input', () => {
+    const box = document.querySelector(`[data-qsend="${el.dataset.qto}"]`);
+    if (box && !box.disabled && !box.checked && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(el.value.trim())) { box.checked = true; quoteSum(); }
+  }));
   // One quote, as it would go on its own, with the words typed above and the address in its row.
   document.querySelectorAll('[data-qlook]').forEach((b) => b.addEventListener('click', async () => {
     const errBox = document.getElementById('quote-error');
