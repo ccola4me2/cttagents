@@ -45,8 +45,8 @@
           <div class="field">
             <label for="paste">Or paste the rows</label>
             <textarea id="paste" rows="9" spellcheck="false"
-              placeholder="Name&#9;Email&#9;Phone&#9;City&#9;State&#10;Manuel Montoro&#9;manuel@example.com&#9;555 0134&#9;Tampa&#9;FL"></textarea>
-            <p class="field-hint">Up to 500 rows at a time. A heading row is recognised and skipped.</p>
+              placeholder="Name&#9;Email&#9;Phone&#9;Date of birth&#9;City&#9;State&#10;Manuel Montoro&#9;manuel@example.com&#9;8135550134&#9;03/11/1970&#9;Tampa&#9;FL"></textarea>
+            <p class="field-hint">Up to 500 rows at a time. A heading row is recognised and skipped. Only a name is needed: anything else that is missing, or cannot be read, is left blank and the client is still added. A ten digit phone number is tidied to (813) 555-0134.</p>
           </div>
 
           <div class="toolbar" style="padding:0;">
@@ -174,15 +174,17 @@ function drawPreview(d) {
   document.getElementById('preview-card').hidden = false;
   const s = d.summary;
   document.getElementById('summary').textContent =
-    `${s.ready} new · ${s.duplicates} to fill in · ${s.problems} with a problem`;
+    `${s.ready} new · ${s.duplicates} to fill in · ${s.problems} with a problem${
+      s.blanked ? ` · ${s.blanked} with something left blank` : ''}`;
 
   document.getElementById('rows').innerHTML = `<div class="table-wrap"><table>
     <thead><tr><th></th><th>Name</th><th>Email</th><th>Phone</th><th>Where</th>
       <th>Birthday</th><th>Source</th></tr></thead>
     <tbody>${d.rows.map((r) => {
-      const tone = r.problems.length ? 'badge-red' : r.duplicate ? 'badge-amber' : 'badge-green';
+      const warned = (r.warnings || []).length;
+      const tone = r.problems.length ? 'badge-red' : (r.duplicate || warned) ? 'badge-amber' : 'badge-green';
       const label = r.problems.length ? r.problems.join(', ')
-        : r.duplicate ? 'already here, will fill in' : 'new';
+        : `${r.duplicate ? 'already here, will fill in' : 'new'}${warned ? `: ${r.warnings.join('; ')}` : ''}`;
       return `<tr>
         <td><span class="badge ${tone}">${esc(label)}</span></td>
         <td><span class="name">${esc(r.name || '-')}</span>${

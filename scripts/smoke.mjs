@@ -8291,6 +8291,33 @@ async function main() {
     for (const c of [c1, c2]) if (c.id) await call(advisor, 'DELETE', `/api/clients/${c.id}`);
   }
 
+  // A client list needs a name and nothing else. A ten digit phone is tidied, "Date of birth" is a
+  // heading, and anything missing or unreadable is left blank without stopping the client.
+  {
+    const a = `Sheet Full ${stamp}`;
+    const b = `Sheet Bare ${stamp}`;
+    const c = `Sheet Messy ${stamp}`;
+    const text = ['Name\tEmail\tPhone\tDate of birth',
+      `${a}\tsheet-full-${stamp}@test.dev\t8135550134\t03/11/70`,
+      `${b}\t\t\t`,
+      `${c}\tnot-an-email\t1-813-555-0199\tunknown`].join('\n');
+    const pv = await call(advisor, 'POST', '/api/import/clients/preview', { text });
+    const rows = pv.data?.rows || [];
+    check(pv.status === 200 && rows.length === 3 && rows.every((r) => r.problems.length === 0) && pv.data.summary.ready === 3,
+      'a row with only a name is a client, and so is one with details that cannot be read', JSON.stringify(pv.data?.summary));
+    check(rows[0]?.phone === '(813) 555-0134' && rows[0]?.birthday === '1970-03-11' && rows[2]?.phone === '(813) 555-0199',
+      'a ten digit phone is tidied and "Date of birth" is read as the birthday', JSON.stringify([rows[0]?.phone, rows[0]?.birthday, rows[2]?.phone]));
+    check(rows[2]?.warnings?.length === 2 && rows[2].email === '' && !rows[2].birthday,
+      'what cannot be read is named and left blank', JSON.stringify(rows[2]?.warnings));
+    const run = await call(advisor, 'POST', '/api/import/clients', { text });
+    check(run.status === 200 && run.data?.created === 3 && run.data?.skipped === 0,
+      'all three are added', JSON.stringify(run.data));
+    for (const name of [a, b, c]) {
+      const got = ((await call(advisor, 'GET', `/api/clients?q=${encodeURIComponent(name)}`)).data?.clients || []).find((x) => x.name === name);
+      if (got && got.id) await call(advisor, 'DELETE', `/api/clients/${got.id}`);
+    }
+  }
+
   // Confirmations forwarded by email wait on the Import page. Mail cannot be delivered to a test
   // Worker, so what is checked here is the advisor's side: the list, the address, and the fence.
   {

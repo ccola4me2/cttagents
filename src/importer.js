@@ -115,7 +115,7 @@ export function splitVendor(raw) {
 }
 
 /** m/d/yy, m/d/yyyy, yyyy-mm-dd and d Mon yyyy, or nothing. */
-export function anyDate(raw) {
+export function anyDate(raw, { past = false } = {}) {
   const value = String(raw || '').trim();
   if (!value) return null;
 
@@ -128,7 +128,9 @@ export function anyDate(raw) {
     // A two digit year is this century. A travel agency's records do not run
     // back to the 1900s, and guessing 1927 for a 2027 sailing is worse than
     // refusing the row.
-    const year = y.length === 2 ? 2000 + Number(y) : Number(y);
+    let year = y.length === 2 ? 2000 + Number(y) : Number(y);
+    // A birthday or an anniversary has already happened, so 3/4/70 is 1970 and not 2070.
+    if (past && y.length === 2 && year > new Date().getUTCFullYear()) year -= 100;
     const out = `${year}-${String(Number(m)).padStart(2, '0')}-${String(Number(d)).padStart(2, '0')}`;
     return cleanDate(out);
   }
@@ -397,7 +399,7 @@ const CLIENT_HEADINGS = [
   // sheets that carry only one and call it something else.
   [/^(mobile|cell)/i, 'phone'],
   [/^(home\s*phone|phone|tel)/i, 'homePhone'],
-  [/^(birth|dob|d\.o\.b)/i, 'birthday'],
+  [/^(birth|dob|d\.o\.b|date\s*of\s*birth)/i, 'birthday'],
   [/^(anniv)/i, 'anniversary'],
   [/^(gender|sex)$/i, 'gender'],
   // The qualified address parts first, so none of them is read as the street.
@@ -416,6 +418,21 @@ const CLIENT_HEADINGS = [
   [/^(note|comment|remark)/i, 'notes'],
   [/^(client|passenger|guest|full.?name|name|contact)/i, 'name'],
 ];
+
+/**
+ * A phone number as people read it. Ten digits, or eleven with a leading 1, become (813) 555-0134;
+ * anything else (an extension, an international number, text) is kept as it was written.
+ */
+export function tidyPhone(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+  // Only digits and the punctuation people put in a number. Anything else is not for tidying.
+  if (!/^[+\d\s().-]+$/.test(text)) return text;
+  let digits = text.replace(/\D/g, '');
+  if (digits.length === 11 && digits[0] === '1') digits = digits.slice(1);
+  if (digits.length !== 10) return text;
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
 
 /** The client half of parsePaste. Same splitting, different columns. */
 export function parseClientPaste(text, mapping) {
@@ -459,9 +476,9 @@ export function parseClientPaste(text, mapping) {
       email: clean(raw.email, 160),
       // A mobile if there is one, otherwise whatever other number the sheet
       // carries. Both columns are common and only one field holds a number.
-      phone: clean(raw.phone, 40) || clean(raw.homePhone, 40),
-      birthday: anyDate(raw.birthday),
-      anniversary: anyDate(raw.anniversary),
+      phone: tidyPhone(clean(raw.phone, 40)) || tidyPhone(clean(raw.homePhone, 40)),
+      birthday: anyDate(raw.birthday, { past: true }),
+      anniversary: anyDate(raw.anniversary, { past: true }),
       address1: clean(raw.address1, 160),
       address2: clean(raw.address2, 160),
       city: clean(raw.city, 80),
@@ -480,19 +497,23 @@ export function parseClientPaste(text, mapping) {
       source: clean(raw.source, 80),
       notes: clean(raw.notes, 4000),
       problems: [],
+      warnings: [],
     };
 
+    // Only a missing name stops a row. Everything else about a person is optional, so a value that is
+    // missing or cannot be read is left blank and the client is still added.
     if (!row.name) row.problems.push('no name');
     // Said rather than silently dropped, because a column mapped to the wrong
     // field is the usual cause and it is invisible otherwise.
     if (raw.email && !row.email.includes('@')) {
-      row.problems.push(`"${String(raw.email).slice(0, 40)}" is not an email address`);
+      row.warnings.push(`"${String(raw.email).slice(0, 40)}" is not an email address, left blank`);
+      row.email = '';
     }
     if (raw.birthday && !row.birthday) {
-      row.problems.push(`could not read the birthday "${String(raw.birthday).slice(0, 20)}"`);
+      row.warnings.push(`could not read the birthday "${String(raw.birthday).slice(0, 20)}", left blank`);
     }
     if (raw.passportExpiry && !row.passportExpiry) {
-      row.problems.push(`could not read the passport expiry "${String(raw.passportExpiry).slice(0, 20)}"`);
+      row.warnings.push(`could not read the passport expiry "${String(raw.passportExpiry).slice(0, 20)}", left blank`);
     }
     rows.push(row);
   }
@@ -534,6 +555,7 @@ export async function handlePreviewClientImport(request, env) {
       ready: rows.filter((r) => !r.problems.length && !r.duplicate).length,
       duplicates: rows.filter((r) => r.duplicate && !r.problems.length).length,
       problems: rows.filter((r) => r.problems.length).length,
+      blanked: rows.filter((r) => !r.problems.length && r.warnings.length).length,
     },
   });
 }
