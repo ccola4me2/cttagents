@@ -53,18 +53,16 @@ bucket_name = "cttagents-docs"
 [vars]
 # Where forwarded meeting invites are received.
 #
-# Its own subdomain, because this zone's ordinary mail is somewhere else and
-# Email Routing takes over the MX of whatever it is enabled on. Nothing about
-# the agency's real mail is touched by pointing a subdomain here.
+# Its own domain, cttinbox.com, and not anything under cttagents.com: that zone's ordinary
+# mail is Microsoft 365, and Email Routing takes over the MX of whatever it is enabled on, so
+# enabling it there would stop every advisor's mailbox receiving. cttinbox.com carries no other
+# mail. Its Email Routing catch-all sends everything to this Worker, which accepts only
+# addresses that carry an advisor's token (conf- for confirmations, appt- for meeting invites)
+# and refuses the rest with the reason.
 #
-# Commented out on purpose until the DNS and the Email Routing rule exist. The
-# Settings card reads this: absent, it says forwarding is not set up, which is
-# true. Present with nothing behind it, it would hand advisors an address that
-# silently swallows everything they forward to it.
-#
-# Uncomment when: cal.cttagents.com has an MX pointing at Cloudflare Email Routing, and a rule
-# there sends that address to this Worker.
-# INVITE_DOMAIN = "cal.cttagents.com"
+# Removing this line turns the feature off and the Import and Calendar pages say so, which is
+# the right failure: absent, forwarding reads as not set up and no address is handed out.
+INVITE_DOMAIN = "cttinbox.com"
 # The host people are sent to from outside the portal: client trip pages,
 # quote and statement emails, public form and specials links, password resets,
 # and the unsubscribe link in the footer of every marketing email.

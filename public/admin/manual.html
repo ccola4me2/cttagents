@@ -223,8 +223,15 @@
 <h2 id="inbound-mail">Forwarding email to the portal</h2>
 <p>Advisors can forward a vendor confirmation to a private address and review it on Import
   reservations, and forward meeting invites to a second one for the calendar. Both use one address
-  each per advisor, made on request, on a subdomain you point at the portal. Until that is done the
+  each per advisor, made on request, on a domain you point at the portal. Until that is done the
   pages say forwarding is not set up, and nothing is lost: pasting the text works the same way.</p>
+<p><strong>On this portal it is set up.</strong> It runs on <code>cttinbox.com</code>, a domain of its
+  own, and not on cttagents.com. This agency's ordinary mail is Microsoft 365, and Cloudflare Email
+  Routing takes over the mail of whatever domain it is switched on for, so switching it on for
+  cttagents.com would have stopped every advisor's mailbox receiving. Everything arriving at
+  cttinbox.com goes to this portal, which accepts an address only if it carries an advisor's token
+  and refuses the rest with the reason.</p>
+<p>The steps below are for setting it up on another domain.</p>
 <ol>
   <li>Choose a subdomain that carries no other mail, for example <code>inbox.cttagents.com</code>.</li>
   <li>In Cloudflare, open the domain, then Email, then Email Routing. Turn it on and add the

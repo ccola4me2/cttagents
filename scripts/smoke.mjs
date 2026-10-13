@@ -8164,6 +8164,13 @@ async function main() {
     if (inbox.data?.ready === false) {
       const made = await call(advisor, 'POST', '/api/inbox/address', {});
       check(made.status === 400, 'an address is not made where forwarding is not set up', `status ${made.status}`);
+    } else if (inbox.data?.ready === true) {
+      // The same token the meeting invites use, with the other door's prefix.
+      const made = await call(advisor, 'POST', '/api/inbox/address', {});
+      check(made.status === 200 && /^conf-[a-f0-9]{32}@[a-z0-9.-]+$/.test(made.data?.address || ''),
+        'an advisor can have an address of their own for confirmations', JSON.stringify(made.data));
+      const again = await call(advisor, 'GET', '/api/inbox');
+      check(again.data?.address === made.data?.address, 'and it is the same one every time they ask', JSON.stringify(again.data?.address));
     }
   }
 
