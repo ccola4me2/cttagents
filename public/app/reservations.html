@@ -58,6 +58,12 @@
               <div class="field" id="quote-one" style="margin:.2rem 0 0 1.4rem;max-width:26rem;" hidden>
                 <label for="quote-one-to">Send it to</label>
                 <input id="quote-one-to" type="email" maxlength="160" autocomplete="off" placeholder="name@example.com">
+                <div class="field" style="margin-top:.8rem;"><label for="quote-subject">Subject</label>
+                  <input id="quote-subject" maxlength="200" autocomplete="off" placeholder="Your quotes"></div>
+                <div class="field"><label for="quote-intro">Opening message</label>
+                  <textarea id="quote-intro" rows="4" maxlength="4000" placeholder="Press Preview the email to see the standard wording here, then change it."></textarea></div>
+                <div class="field"><label for="quote-note">A note at the end</label>
+                  <textarea id="quote-note" rows="3" maxlength="4000" placeholder="Anything you want to add"></textarea></div>
                 <button class="btn btn-ghost btn-sm" type="button" id="quote-look" style="margin-top:.5rem;">Preview the email</button>
                 <button class="btn btn-ghost btn-sm" type="button" id="quote-test" style="margin-top:.5rem;">Send me a test</button>
               </div>
@@ -357,6 +363,16 @@ onSubmit(bulkForm, async (values) => {
 // changeable per row, or all in one email to one address with one deposit.
 const quoteDlg = document.getElementById('quote-dlg');
 let quoteRows = [];
+// What the advisor changed. Only differences from the standard wording are sent, so what was left alone
+// keeps following the reservations.
+let quoteDefaults = null;
+const quoteCustom = () => {
+  const subject = document.getElementById('quote-subject').value.trim();
+  const intro = document.getElementById('quote-intro').value.trim();
+  const note = document.getElementById('quote-note').value.trim();
+  const d = quoteDefaults || { subject: '', intro: '' };
+  return { subject: subject !== d.subject ? subject : '', intro: intro !== d.intro.trim() ? intro : '', note };
+};
 const qMode = () => (document.getElementById('quote-combine').checked ? 'one' : 'each');
 const qTicked = () => [...document.querySelectorAll('[data-qsend]:checked')].map((b) => b.dataset.qsend);
 const quoteSum = () => {
@@ -389,7 +405,7 @@ document.getElementById('quote-test').addEventListener('click', async (e) => {
   try {
     const me = (await api('/api/auth/me')).user.email;
     if (!confirm(`Send a test of this combined quote to ${me}? Nothing is recorded as sent to the clients.`)) { e.target.disabled = false; return; }
-    const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids, send: true, test: true, combine: { to: me } } });
+    const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids, send: true, test: true, combine: { to: me }, custom: quoteCustom() } });
     errBox.className = 'notice notice-ok';
     errBox.textContent = `Test sent to ${me}. Subject: ${res.combined.subject}. Nothing was recorded as sent to the clients.`;
     errBox.hidden = false;
@@ -406,7 +422,13 @@ document.getElementById('quote-look').addEventListener('click', async (e) => {
   if (!to) { errBox.textContent = 'Type the address the combined quote goes to.'; errBox.hidden = false; return; }
   e.target.disabled = true;
   try {
-    const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids, send: false, combine: { to } } });
+    const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids, send: false, combine: { to }, custom: quoteCustom() } });
+    // The first time, start the editor from the words that would go out.
+    if (!quoteDefaults || quoteDefaults.count !== res.combined.count) {
+      quoteDefaults = { ...res.combined.defaults, count: res.combined.count };
+      if (!document.getElementById('quote-subject').value.trim()) document.getElementById('quote-subject').value = res.combined.defaults.subject;
+      if (!document.getElementById('quote-intro').value.trim()) document.getElementById('quote-intro').value = res.combined.defaults.intro;
+    }
     document.getElementById('look-frame').srcdoc = res.combined.html;
     document.getElementById('look-note').textContent = `To ${to}. Subject: ${res.combined.subject}. Each trip's link opens its own page, which is created when this is sent.`;
     document.getElementById('look-dlg').showModal();
@@ -415,6 +437,8 @@ document.getElementById('quote-look').addEventListener('click', async (e) => {
 });
 document.getElementById('quote-combine').addEventListener('change', quoteSum);
 document.getElementById('pick-quote').addEventListener('click', async () => {
+  quoteDefaults = null;
+  ['quote-subject', 'quote-intro', 'quote-note'].forEach((x) => { document.getElementById(x).value = ''; });
   const ids = cache.filter((b) => picked.has(b.id) && b.status === 'quoted').map((b) => b.id);
   document.getElementById('quote-error').hidden = true;
   document.getElementById('quote-title').textContent = `Send ${ids.length} quote${ids.length === 1 ? '' : 's'}`;
@@ -469,7 +493,7 @@ onSubmit(document.getElementById('quote-form'), async () => {
     if (ids.length < 2) throw new Error('Tick at least two to send them together.');
     if (ids.length > 25) throw new Error('A combined quote holds at most 25 reservations.');
     if (!confirm(`Email ${ids.length} quotes as one message to ${to} now? It cannot be recalled.`)) return;
-    const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids, send: true, combine: { to } } });
+    const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids, send: true, combine: { to }, custom: quoteCustom() } });
     results.push(...res.results);
     combined = res.combined;
   } else {

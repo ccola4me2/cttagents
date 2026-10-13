@@ -252,7 +252,25 @@ function cardBlock(url, { heading, button, amountCents, dueIso, confirmation, sc
     </div>`;
 }
 
-export function renderStatement(env, s) {
+/** What the advisor may change before it goes: the subject, the opening message and a closing note. */
+export function cleanCustom(raw) {
+  const c = raw && typeof raw === 'object' ? raw : {};
+  const text = (v, max) => String(v === undefined || v === null ? '' : v).replace(/\r\n/g, '\n').trim().slice(0, max);
+  return { subject: text(c.subject, 200).replace(/\s+/g, ' '), intro: text(c.intro, 4000), note: text(c.note, 4000) };
+}
+
+/** Typed text as paragraphs: a blank line starts a new one and a single line break is kept. */
+const paragraphs = (text) => String(text || '').split(/\n{2,}/).map((x) => x.trim()).filter(Boolean)
+  .map((x) => `<p style="margin:0 0 14px;">${escapeHtml(x).replace(/\n/g, '<br>')}</p>`).join('');
+
+/** The opening paragraph as it is written when nobody has changed it, so the editor can start from it. */
+export function defaultIntro(quote) {
+  return quote
+    ? 'Here is what I have put together. Anything you would change, reply to this and I will rework it.'
+    : 'Here is where your trip stands. Anything that looks wrong, reply to this and I will sort it out.';
+}
+
+export function renderStatement(env, s, custom = {}) {
   const heading = [s.tripName, s.vendor].filter(Boolean).join(' with ')
     || (s.mode === 'quote' ? 'Your quote' : 'Your trip');
 
@@ -329,11 +347,7 @@ export function renderStatement(env, s) {
             ? ` &middot; ${escapeHtml(usDate(new Date(s.invoiceIssuedAt * 1000).toISOString().slice(0, 10)))}` : ''}</p>`
       : '',
     `<p style="margin:0 0 14px;">Hello ${escapeHtml(s.clientName || 'there')},</p>`,
-    quote
-      ? '<p style="margin:0 0 14px;">Here is what I have put together. Anything you would '
-        + 'change, reply to this and I will rework it.</p>'
-      : '<p style="margin:0 0 14px;">Here is where your trip stands. Anything that looks wrong, '
-        + 'reply to this and I will sort it out.</p>',
+    paragraphs(custom.intro || defaultIntro(quote)),
     block(quote ? 'The trip' : 'Your trip', facts.map(([k, v]) => `<tr>
       <td style="padding:6px 0;color:#5c7286;width:38%;">${escapeHtml(k)}</td>
       <td style="padding:6px 0;color:#2f4459;">${escapeHtml(v)}</td></tr>`).join('')),
@@ -379,6 +393,7 @@ export function renderStatement(env, s) {
            font-weight:600;color:#12315e;">${escapeHtml(s.standing)}</p>`
       : '',
     !quote && s.due.length ? cardForm(s.due[0].amountCents, s.due[0].date) : '',
+    custom.note ? `<div style="margin:18px 0 0;">${paragraphs(custom.note)}</div>` : '',
     s.notes
       ? `<p style="margin:18px 0 0;white-space:pre-wrap;">${escapeHtml(s.notes)}</p>` : '',
     s.amenities.length
@@ -408,9 +423,9 @@ export function renderStatement(env, s) {
   ].filter(Boolean).join(' &middot; ');
 
   return {
-    subject: s.mode === 'quote'
+    subject: custom.subject || (s.mode === 'quote'
       ? `Your quote: ${heading}`
-      : `Invoice${s.invoiceNo ? ` ${s.invoiceNo}` : ''}: ${heading}`,
+      : `Invoice${s.invoiceNo ? ` ${s.invoiceNo}` : ''}: ${heading}`),
     // A quote gets a button to the page it is about, where the client can
     // pick an option, say yes, say no or ask a question. Without it the email
     // ends at a total and the only way to answer is to compose a reply, which
@@ -471,7 +486,10 @@ async function nextInvoiceNo(env, userId, year) {
  *
  * Built from the statements the single quote is built from, so a trip reads here as it would alone.
  */
-export function renderCombinedQuote(env, statements, { paymentFormUrl = '' } = {}) {
+/** The opening paragraph of a combined quote as written when nobody has changed it. */
+export const combinedIntro = (n) => `Here are the ${n} quotes I have put together. Each trip below has its price, its dates and its cabin, and the link under it opens a page with everything else. Anything you would change, reply to this and I will rework it.`;
+
+export function renderCombinedQuote(env, statements, { paymentFormUrl = '', custom = {} } = {}) {
   const first = statements[0];
   const tripTotal = statements.reduce((n, s) => n + (s.tripCents || 0), 0);
   const deposits = statements.filter((s) => s.depositCents);
@@ -531,14 +549,13 @@ export function renderCombinedQuote(env, statements, { paymentFormUrl = '' } = {
 
   const body = [
     '<p style="margin:0 0 14px;">Hello,</p>',
-    `<p style="margin:0 0 14px;">Here are the ${statements.length} quotes I have put together. Each trip below `
-      + 'has its price, its dates and its cabin, and the link under it opens a page with everything else. '
-      + 'Anything you would change, reply to this and I will rework it.</p>',
+    paragraphs(custom.intro || combinedIntro(statements.length)),
     statements.map(trip).join(''),
     `<p style="margin:22px 0 0;padding:12px 16px;background:#f2f7fb;border-radius:8px;color:#12315e;">
        All together: <strong>${money(tripTotal)}</strong>. ${hold}</p>`,
     `<p style="margin:14px 0 0;">Prices and space are not held until they are booked.</p>`,
     card,
+    custom.note ? `<div style="margin:18px 0 0;">${paragraphs(custom.note)}</div>` : '',
     `<p style="margin:24px 0 0;">${escapeHtml(first.advisorName)}${
       first.agencyName ? `<br><span style="color:#5c7286;">${escapeHtml(first.agencyName)}</span>` : ''}</p>`,
   ].filter(Boolean).join('');
@@ -553,7 +570,7 @@ export function renderCombinedQuote(env, statements, { paymentFormUrl = '' } = {
   ].filter(Boolean).join(' &middot; ');
 
   return {
-    subject: `Your quotes: ${statements.length} reservations`,
+    subject: custom.subject || `Your quotes: ${statements.length} reservations`,
     html: layout(env, { heading: `Your ${statements.length} quotes`, body, footer, cta: null }),
     tripCents: tripTotal, depositCents: depositTotal, depositDue: due,
   };
@@ -634,7 +651,7 @@ export async function handleBulkQuote(request, env) {
     results.push({ ...row, ok: sent.ok, error: sent.ok ? null : (out.error || `Not sent (${sent.status}).`) });
   }
 
-  if (body.combine) return combinedQuote(request, env, user, { results, statements, ids, combineTo, send, test: body.test === true });
+  if (body.combine) return combinedQuote(request, env, user, { results, statements, ids, combineTo, send, test: body.test === true, custom: cleanCustom(body.custom) });
 
   if (send) {
     const n = results.filter((r) => r.ok).length;
@@ -651,7 +668,7 @@ export async function handleBulkQuote(request, env) {
  * given its page first, so the link beside it goes somewhere, and each is then recorded as sent exactly
  * as it would have been on its own.
  */
-async function combinedQuote(request, env, user, { results, statements, ids, combineTo, send, test }) {
+async function combinedQuote(request, env, user, { results, statements, ids, combineTo, send, test, custom }) {
   const bad = results.find((r) => !r.ok);
   if (bad) return badRequest(`${bad.client || 'One of them'}: ${bad.error}`);
   if (new Set(statements.map(({ s }) => s.advisorEmail)).size > 1) {
@@ -668,9 +685,12 @@ async function combinedQuote(request, env, user, { results, statements, ids, com
   if (!owner) return notFound('Reservation not found.');
 
   let built = statements.map(({ s }) => s);
-  const rendered = (list) => renderCombinedQuote(env, list, { paymentFormUrl: list[0].paymentFormUrl || '' });
+  const rendered = (list) => renderCombinedQuote(env, list, { paymentFormUrl: list[0].paymentFormUrl || '', custom });
   let out = rendered(built);
+  const plain = renderCombinedQuote(env, built, { paymentFormUrl: built[0].paymentFormUrl || '' });
   const summary = {
+    // What it says when nothing is changed, so the editor can start from the real words.
+    defaults: { subject: plain.subject, intro: combinedIntro(built.length) },
     to: combineTo, count: built.length, subject: out.subject,
     tripCents: out.tripCents, depositCents: out.depositCents, depositDue: out.depositDue,
   };
@@ -765,6 +785,7 @@ export async function handleStatement(request, env, id) {
   const issuing = booking.status === 'booked' || booking.status === 'travelled';
   // Sent somewhere other than the address on the client's record: a family on one email, a group's
   // organiser. Used for this send only, and the record is left as it was.
+  const custom = cleanCustom(body.custom);
   const toOverride = String(body.to || '').trim();
   if (toOverride && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toOverride)) {
     return badRequest(`"${toOverride.slice(0, 60)}" does not look like an email address.`);
@@ -782,7 +803,7 @@ export async function handleStatement(request, env, id) {
   });
 
   let statement = build();
-  let rendered = renderStatement(env, statement);
+  let rendered = renderStatement(env, statement, custom);
 
   if (body.preview) {
     return json({
@@ -811,6 +832,8 @@ export async function handleStatement(request, env, id) {
       // So the page can say so rather than showing a gap where a number goes.
       willNumber: issuing && !booking.invoice_no,
       subject: rendered.subject,
+      // What it says when nothing is changed, so the editor can start from the real words.
+      defaults: { subject: renderStatement(env, statement).subject, intro: defaultIntro(statement.mode === 'quote') },
       statement,
       html: rendered.html,
     });
@@ -838,7 +861,7 @@ export async function handleStatement(request, env, id) {
     booking.share_code = code;
     booking.shared_at = booking.shared_at || ts;
     statement = build();
-    rendered = renderStatement(env, statement);
+    rendered = renderStatement(env, statement, custom);
   }
 
   // Numbered here and nowhere earlier: after the preview has returned, after
@@ -855,7 +878,7 @@ export async function handleStatement(request, env, id) {
     booking.invoice_no = no;
     booking.invoice_issued_at = now();
     statement = build();
-    rendered = renderStatement(env, statement);
+    rendered = renderStatement(env, statement, custom);
   }
 
   try {

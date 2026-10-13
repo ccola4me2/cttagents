@@ -341,7 +341,7 @@
   </form>
 </dialog>
 
-<dialog id="statement-dlg" style="max-width:720px;">
+<dialog id="statement-dlg" style="max-width:1080px;width:96vw;">
   <div class="card-head"><h2>Invoice to the client</h2>
     <button class="btn btn-ghost btn-sm" type="button" id="statement-close">Close</button></div>
   <div class="card-pad" id="statement-body"></div>
@@ -2483,18 +2483,69 @@ async function statement() {
       digits and your own reminder dates are not in this.${s.mode === 'quote'
         ? ' A quote carries no payment history and no balance, because there is none yet.'
         : " Only the vendor's dates are."}</p>
-    <iframe title="Statement preview" style="width:100%;height:26rem;border:1px solid var(--navy-100);
-      border-radius:.6rem;background:#fff;"></iframe>`;
+    <div style="display:grid;grid-template-columns:minmax(15rem,20rem) 1fr;gap:1rem;align-items:start;">
+      <div id="st-edit">
+        <p class="muted" style="font-size:.8rem;margin:0 0 .6rem;">Change the words, then update the preview. What
+          you see on the right is what is sent. Prices, dates and the cabin come from this reservation, so
+          change those on the reservation and press update.</p>
+        <div class="field"><label for="st-to">Send to</label>
+          <input id="st-to" type="email" maxlength="160" autocomplete="off"></div>
+        <div class="field"><label for="st-subject">Subject</label>
+          <input id="st-subject" maxlength="200" autocomplete="off"></div>
+        <div class="field"><label for="st-intro">Opening message</label>
+          <textarea id="st-intro" rows="5" maxlength="4000"></textarea></div>
+        <div class="field"><label for="st-note">A note at the end</label>
+          <textarea id="st-note" rows="4" maxlength="4000" placeholder="Anything you want to add for this client"></textarea></div>
+        <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-sm" type="button" id="st-update">Update the preview</button>
+          <button class="btn btn-ghost btn-sm" type="button" id="st-reset">Back to the standard wording</button>
+        </div>
+      </div>
+      <iframe title="Statement preview" style="width:100%;height:36rem;border:1px solid var(--navy-100);
+        border-radius:.6rem;background:#fff;"></iframe>
+    </div>`;
   // srcdoc as a property, never as markup: the email is HTML, and building it
   // into an attribute is how it would escape into this page.
-  body.querySelector('iframe').srcdoc = p.html;
+  const frame = body.querySelector('iframe');
+  frame.srcdoc = p.html;
+  const fTo = document.getElementById('st-to');
+  const fSubject = document.getElementById('st-subject');
+  const fIntro = document.getElementById('st-intro');
+  const fNote = document.getElementById('st-note');
+  const def = p.defaults || { subject: p.subject, intro: '' };
+  fTo.value = p.to || '';
+  fSubject.value = p.subject;
+  fIntro.value = def.intro;
+  // Only what was changed is sent. The standard wording stays the standard wording, so it keeps following
+  // the reservation rather than being frozen the first time somebody opens this.
+  const customOf = () => ({
+    subject: fSubject.value.trim() !== def.subject ? fSubject.value.trim() : '',
+    intro: fIntro.value.trim() !== def.intro.trim() ? fIntro.value.trim() : '',
+    note: fNote.value.trim(),
+  });
+  // The address on the client's record is left alone: a different one is for this send only.
+  const toOf = () => (fTo.value.trim() && fTo.value.trim() !== (p.to || '') ? { to: fTo.value.trim() } : {});
+  const update = async () => {
+    const btn = document.getElementById('st-update');
+    btn.disabled = true;
+    try {
+      const again = await api(`/api/bookings/${encodeURIComponent(id)}/statement`,
+        { method: 'POST', body: { preview: true, custom: customOf(), ...toOf() } });
+      frame.srcdoc = again.html;
+    } catch (e) { err.innerHTML = `<div class="notice notice-error">${esc(e.message)}</div>`; }
+    btn.disabled = false;
+  };
+  document.getElementById('st-update').addEventListener('click', update);
+  document.getElementById('st-reset').addEventListener('click', () => {
+    fTo.value = p.to || ''; fSubject.value = def.subject; fIntro.value = def.intro; fNote.value = ''; update();
+  });
 
   send.hidden = false;
   send.onclick = async () => {
     send.disabled = true;
     try {
       const res = await api(`/api/bookings/${encodeURIComponent(id)}/statement`,
-        { method: 'POST', body: {} });
+        { method: 'POST', body: { custom: customOf(), ...toOf() } });
       dlg.close();
       err.innerHTML = `<div class="notice notice-ok">Sent to ${esc(res.sentTo)}.</div>`;
     } catch (e) {
