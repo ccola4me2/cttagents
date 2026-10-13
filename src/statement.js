@@ -621,8 +621,13 @@ export async function handleBulkQuote(request, env) {
   if (body.combine && !EMAIL.test(combineTo)) return badRequest('Say which address the combined quote goes to.');
   if (body.combine && ids.length < 2) return badRequest('Combining needs at least two reservations.');
 
+  // Words the advisor added, for each email when they go one at a time. The subject is left to each: a
+  // single subject over eight different trips would be wrong for most of them.
+  const typed = cleanCustom(body.custom);
+  const eachCustom = { intro: typed.intro, note: typed.note, subject: '' };
   const ask = (id, preview, to) => handleStatement(new Request(request.url, {
-    method: 'POST', headers: request.headers, body: JSON.stringify(to ? { preview, to } : { preview }),
+    method: 'POST', headers: request.headers,
+    body: JSON.stringify({ preview, ...(to ? { to } : {}), custom: eachCustom }),
   }), env, id);
 
   const results = [];

@@ -60,12 +60,16 @@
                 <input id="quote-one-to" type="email" maxlength="160" autocomplete="off" placeholder="name@example.com">
                 <div class="field" style="margin-top:.8rem;"><label for="quote-subject">Subject</label>
                   <input id="quote-subject" maxlength="200" autocomplete="off" placeholder="Your quotes"></div>
+                                <button class="btn btn-ghost btn-sm" type="button" id="quote-look" style="margin-top:.5rem;">Preview the email</button>
+                <button class="btn btn-ghost btn-sm" type="button" id="quote-test" style="margin-top:.5rem;">Send me a test</button>
+              </div>
+              <div id="quote-words" style="margin:.4rem 0 0 1.4rem;max-width:40rem;">
+                <p class="field-hint" id="quote-words-hint" style="margin:0 0 .4rem;">Add your own words. They are put in every email, at the top and the end,
+                  with the quote below. Leave them empty to send the standard wording.</p>
                 <div class="field"><label for="quote-intro">Opening message</label>
                   <textarea id="quote-intro" rows="4" maxlength="4000" placeholder="Press Preview the email to see the standard wording here, then change it."></textarea></div>
                 <div class="field"><label for="quote-note">A note at the end</label>
                   <textarea id="quote-note" rows="3" maxlength="4000" placeholder="Anything you want to add"></textarea></div>
-                <button class="btn btn-ghost btn-sm" type="button" id="quote-look" style="margin-top:.5rem;">Preview the email</button>
-                <button class="btn btn-ghost btn-sm" type="button" id="quote-test" style="margin-top:.5rem;">Send me a test</button>
               </div>
             </div>
             <div class="notice notice-error" id="quote-error" hidden></div>
@@ -370,8 +374,15 @@ const quoteCustom = () => {
   const subject = document.getElementById('quote-subject').value.trim();
   const intro = document.getElementById('quote-intro').value.trim();
   const note = document.getElementById('quote-note').value.trim();
-  const d = quoteDefaults || { subject: '', intro: '' };
-  return { subject: subject !== d.subject ? subject : '', intro: intro !== d.intro.trim() ? intro : '', note };
+  const combined = document.getElementById('quote-combine').checked;
+  // Whatever was filled in from the standard wording is not a change. One at a time, the combined opening
+  // that a preview filled in is not meant for each of them either.
+  const standard = quoteDefaults ? quoteDefaults.intro.trim() : '';
+  return {
+    subject: combined && quoteDefaults && subject !== quoteDefaults.subject ? subject : (combined && !quoteDefaults ? subject : ''),
+    intro: intro === standard ? '' : intro,
+    note,
+  };
 };
 const qMode = () => (document.getElementById('quote-combine').checked ? 'one' : 'each');
 const qTicked = () => [...document.querySelectorAll('[data-qsend]:checked')].map((b) => b.dataset.qsend);
@@ -380,6 +391,9 @@ const quoteSum = () => {
   const n = ids.length;
   const one = qMode() === 'one';
   document.getElementById('quote-one').hidden = !one;
+  document.getElementById('quote-words-hint').textContent = one
+    ? 'Your words go in the one email. An opening message replaces the standard opening, and the note goes at the end.'
+    : 'Your words go in every email, at the top and at the end, with each quote below. Leave them empty to send the standard wording.';
   document.querySelectorAll('[data-qto]').forEach((el) => { el.disabled = one; });
   const go = document.getElementById('quote-go');
   go.disabled = n === 0 || (one && n < 2);
@@ -472,13 +486,30 @@ document.getElementById('pick-quote').addEventListener('click', async () => {
         <td class="num">${money(r.tripCents)}</td>
         <td class="num">${r.depositCents ? money(r.depositCents) : '<span class="muted">-</span>'}</td>
         <td>${r.depositDue ? esc(dateFmt(r.depositDue)) : '<span class="muted">-</span>'}</td>
-        <td>${note}</td></tr>`;
+        <td>${note}${can ? ` <button class="btn btn-ghost btn-sm" type="button" data-qlook="${esc(r.id)}">Preview</button>` : ''}</td></tr>`;
     }).join('')}</tbody></table></div>`;
   // The one address a combined email goes to, offered as the most common one on the list.
   const seen = {};
   quoteRows.forEach((r) => { if (r.to) seen[r.to] = (seen[r.to] || 0) + 1; });
   document.getElementById('quote-one-to').value = Object.entries(seen).sort((a, b) => b[1] - a[1]).map(([a]) => a)[0] || '';
   document.querySelectorAll('[data-qsend]').forEach((b) => b.addEventListener('change', quoteSum));
+  // One quote, as it would go on its own, with the words typed above and the address in its row.
+  document.querySelectorAll('[data-qlook]').forEach((b) => b.addEventListener('click', async () => {
+    const errBox = document.getElementById('quote-error');
+    errBox.className = 'notice notice-error';
+    errBox.hidden = true;
+    b.disabled = true;
+    try {
+      const to = (document.querySelector(`[data-qto="${b.dataset.qlook}"]`) || {}).value || '';
+      const words = quoteCustom();
+      const res = await api(`/api/bookings/${encodeURIComponent(b.dataset.qlook)}/statement`, { method: 'POST',
+        body: { preview: true, ...(to.trim() ? { to: to.trim() } : {}), custom: { intro: words.intro, note: words.note } } });
+      document.getElementById('look-frame').srcdoc = res.html;
+      document.getElementById('look-note').textContent = `To ${res.to || 'no address yet'}. Subject: ${res.subject}`;
+      document.getElementById('look-dlg').showModal();
+    } catch (ex) { errBox.textContent = ex.message || 'That could not be previewed.'; errBox.hidden = false; }
+    b.disabled = false;
+  }));
   quoteSum();
 });
 onSubmit(document.getElementById('quote-form'), async () => {

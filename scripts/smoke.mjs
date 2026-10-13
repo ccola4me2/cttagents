@@ -8249,6 +8249,9 @@ async function main() {
       const other = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid], to: { [qid]: `elsewhere-${stamp}@test.dev` } });
       check(other.data?.results?.[0]?.to === `elsewhere-${stamp}@test.dev`,
         'a quote can be sent to an address other than the one on the client', JSON.stringify(other.data?.results?.[0]?.to));
+      const worded = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid], custom: { intro: `Hello ${stamp}`, note: `Note ${stamp}`, subject: 'ignored one at a time' } });
+      check(worded.status === 200 && worded.data?.results?.[0]?.ok === true,
+        'words added to each of several quotes are accepted', JSON.stringify(worded.data?.results?.[0]));
       const junk = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid], to: { [qid]: 'not an address' } });
       check(junk.status === 400, 'and an address that is not one is refused', `status ${junk.status}`);
       const lone = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid], combine: { to: `one-${stamp}@test.dev` } });
