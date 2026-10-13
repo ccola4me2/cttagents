@@ -1093,9 +1093,9 @@ export async function sendPaymentReminder(env, {
   const cardParagraph = formUrl
     ? `<p style="margin:0 0 14px;">To pay by card, authorize it on the agency's secure form:
         <a href="${escapeHtml(formUrl)}" style="color:#12315e;font-weight:600;">Authorize your payment</a>.
-        It asks for the amount (<strong>${money(amountCents)}</strong>)${hard
-          ? `, the date to charge it on or after (<strong>${escapeHtml(when)}</strong>)` : ''}${confirmation
-          ? ` and your trip confirmation number (<strong>${escapeHtml(confirmation)}</strong>)` : ''}.
+        It asks for the amount, <strong>${money(amountCents)}</strong>${hard
+          ? `; the date to charge it on or after, <strong>${escapeHtml(when)}</strong>` : ''}${confirmation
+          ? `; and your trip confirmation number, <strong>${escapeHtml(confirmation)}</strong>` : ''}.
         Your card is not charged before that date.</p>` : '';
   const paragraphs = lines.map((p) => `<p style="margin:0 0 14px;">${escapeHtml(p).replace(/\n/g, '<br>')}</p>`);
   // Before the sign off, which is the last line.

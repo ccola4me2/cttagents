@@ -334,9 +334,9 @@ export function renderStatement(env, s) {
   const cardForm = (amountCents, dueIso) => (s.paymentFormUrl && amountCents > 0
     ? `<p style="margin:14px 0 0;">To pay by card, authorize it on the agency's secure form:
         <a href="${escapeHtml(s.paymentFormUrl)}" style="color:#12315e;font-weight:600;">Authorize your payment</a>.
-        It asks for the amount (<strong>${money(amountCents)}</strong>)${dueIso
-          ? `, the date to charge it on or after (<strong>${escapeHtml(day(dueIso))}</strong>)` : ''}${s.confirmationNumber
-          ? ` and your trip confirmation number (<strong>${escapeHtml(s.confirmationNumber)}</strong>)` : ''}.
+        It asks for the amount, <strong>${money(amountCents)}</strong>${dueIso
+          ? `; the date to charge it on or after, <strong>${escapeHtml(day(dueIso))}</strong>` : ''}${s.confirmationNumber
+          ? `; and your trip confirmation number, <strong>${escapeHtml(s.confirmationNumber)}</strong>` : ''}.
         Your card is not charged before that date.</p>` : '');
 
   const hold = quote

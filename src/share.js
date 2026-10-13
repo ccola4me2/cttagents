@@ -822,7 +822,7 @@ export async function renderTripPage(request, env, code) {
       ${owed > 0 && trip.paymentFormUrl ? `<p class="small"><a class="paybtn" href="${esc(trip.paymentFormUrl)}"
           target="_blank" rel="noopener">Authorize a card payment</a></p>
         <p class="dim small">The form asks for the amount, the date to charge on or after, and your
-        confirmation number${b.confirmation_number ? ` (${esc(b.confirmation_number)})` : ''}.
+        confirmation number${b.confirmation_number ? `, ${esc(b.confirmation_number)}` : ''}.
         Your card is not charged before the date you give.</p>` : ''}
       <p class="dim small">Payments go to ${esc(b.supplier || 'the supplier')}.
         ${esc(advisor)} takes care of each one with you as it falls due, and records it here,
