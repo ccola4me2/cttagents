@@ -809,7 +809,10 @@ function cvGuests(lines) {
   if (start < 0) return [];
   const out = [];
   for (const raw of lines.slice(start + 1)) {
-    const line = raw.split('\t')[0].trim();
+    // The first cell, and without the loyalty tier that follows the name when the cells have been
+    // run together by a plain text version of the email: "Biggs, Darbi GOLD".
+    const line = raw.split('\t')[0].trim()
+      .replace(/\s+(?:RED|BLUE|GOLD|PLATINUM|DIAMOND|SAPPHIRE|EMERALD)\b.*$/i, '');
     if (/^day\s+date\b/i.test(raw.trim())) break;
     const m = /^([A-Za-z][A-Za-z'.-]*(?: [A-Za-z'.-]+)*),\s*([A-Za-z][A-Za-z'.-]*(?: [A-Za-z'.-]+)*)$/.exec(line);
     if (m) out.push({ name: `${m[2].trim()} ${m[1].trim()}`, line });

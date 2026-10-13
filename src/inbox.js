@@ -58,7 +58,10 @@ export async function bestReading(raw) {
   for (const c of candidates) {
     const text = c.text.slice(0, MAX_TEXT_CHARS);
     const read = parseConfirmation(text);
-    if (!best || score(read) > score(best.read)) best = { ...c, text, read };
+    // The HTML wins a tie. Its tables keep a row's cells apart, and a plain text version made from the
+    // same email usually runs them together, which reads the same figures with less certainty.
+    const points = score(read) + (c.source === 'html' ? 1 : 0);
+    if (!best || points > best.points) best = { ...c, text, read, points };
   }
   return { best, headers: parts.headers };
 }

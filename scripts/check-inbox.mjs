@@ -80,6 +80,20 @@ const qp = (s) => unescape(encodeURIComponent(s)).replace(/=/g, '=3D').replace(/
   is('and the price adds up to the total it states', best.read.pricing && best.read.pricing.balanced, true);
 }
 
+// ----------------------------------- the same email as run together text ---
+{
+  // What a plain text version made from the same HTML looks like: the cells of a row on one line with
+  // spaces between them, and a guest's loyalty tier stuck on the end of the name.
+  const flat = ROWS.map((r) => r.filter(Boolean).join(' ')).join('\n');
+  const raw = message(['From: a@example.test', 'Subject: Fwd', 'Content-Type: text/plain; charset=utf-8'], flat);
+  const { best } = await bestReading(raw);
+  is('a plain text version with the cells run together still gives the number, ship and money',
+    [best.read.fields.confirmationNumber, best.read.fields.productName, best.read.fields.gross],
+    ['VJ40F6', 'Carnival Paradise', '896.00']);
+  is('and the guests, without the loyalty tier after their names', best.read.guests, ['Alex Sample', 'Bea Example']);
+  is('and the cabin and its view', [best.read.fields.cabin, best.read.fields.cabinCategory], ['U65', 'Ocean View']);
+}
+
 // -------------------------------------------------------- encodings ---
 {
   const raw = alt([part('text/html', b64(html), 'base64')]);
