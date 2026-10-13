@@ -229,7 +229,7 @@ async function load() {
     const params = new URLSearchParams();
     if (search.value.trim()) params.set('q', search.value.trim());
     if (statusFilter.value) params.set('status', statusFilter.value);
-    if (advisorParam()) params.set('advisor', new URLSearchParams(location.search).get('advisor'));
+    if (advisorParam()) params.set('advisor', new URLSearchParams(advisorParam()).get('advisor'));
     const data = await api(`/api/bookings${params.toString() ? '?' + params : ''}`);
     // Trips are a convenience on this page. If they cannot be read the list is
     // still worth showing, so a failure here is not allowed to blank it.
