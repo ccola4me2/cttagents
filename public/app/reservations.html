@@ -48,9 +48,20 @@
           <div class="card-head"><h2 id="quote-title">Send quotes</h2>
             <button class="btn btn-ghost btn-sm" type="button" id="quote-close">Close</button></div>
           <div class="card-pad">
-            <p class="field-hint" style="margin-top:0;">Each client is sent their own quote by email, over the
-              advisor's name, with a link to their page. Where a deposit is set it says how much and by when.
-              Untick any you do not want to send.</p>
+            <p class="field-hint" style="margin-top:0;">Sent by email over the advisor's name, with a link to each
+              trip's page. Where a deposit is set it says how much and by when. Untick any you do not want to send.</p>
+            <div style="display:grid;gap:.5rem;margin:0 0 1rem;">
+              <label style="font-weight:400;"><input type="radio" name="qmode" value="each" checked>
+                <strong>Each on its own.</strong> Every reservation is its own email with its own deposit. Change the
+                address on any row to send it somewhere else.</label>
+              <label style="font-weight:400;"><input type="radio" name="qmode" value="one">
+                <strong>One email, one deposit.</strong> For a family or a group paying together: every trip in a single
+                message to one address, with one deposit that holds them all.</label>
+              <div class="field" id="quote-one" style="margin:.2rem 0 0 1.4rem;max-width:26rem;" hidden>
+                <label for="quote-one-to">Send it to</label>
+                <input id="quote-one-to" type="email" maxlength="160" autocomplete="off" placeholder="name@example.com">
+              </div>
+            </div>
             <div class="notice notice-error" id="quote-error" hidden></div>
             <div id="quote-rows"><p class="spinner">Reading each one...</p></div>
           </div>
@@ -334,22 +345,39 @@ onSubmit(bulkForm, async (values) => {
   await load();
 });
 
-// Quotes to several clients, previewed first and then sent.
+// Quotes to several clients, previewed first and then sent. Each on its own email, with the address
+// changeable per row, or all in one email to one address with one deposit.
 const quoteDlg = document.getElementById('quote-dlg');
 let quoteRows = [];
+const qMode = () => (document.querySelector('[name="qmode"]:checked') || {}).value || 'each';
+const qTicked = () => [...document.querySelectorAll('[data-qsend]:checked')].map((b) => b.dataset.qsend);
 const quoteSum = () => {
-  const n = [...document.querySelectorAll('[data-qsend]:checked')].length;
-  document.getElementById('quote-go').disabled = n === 0;
-  document.getElementById('quote-go').textContent = n ? `Send ${n} quote${n === 1 ? '' : 's'}` : 'Send';
-  document.getElementById('quote-sum').textContent = n ? '' : 'Nothing is ticked to send.';
+  const ids = qTicked();
+  const n = ids.length;
+  const one = qMode() === 'one';
+  document.getElementById('quote-one').hidden = !one;
+  document.querySelectorAll('[data-qto]').forEach((el) => { el.disabled = one; });
+  const go = document.getElementById('quote-go');
+  go.disabled = n === 0 || (one && n < 2);
+  go.textContent = !n ? 'Send' : one ? `Send ${n} quotes in one email` : `Send ${n} quote${n === 1 ? '' : 's'}`;
+  const rows = quoteRows.filter((r) => ids.includes(r.id));
+  const deposit = rows.reduce((t, r) => t + (r.depositCents || 0), 0);
+  const dues = rows.map((r) => r.depositDue).filter(Boolean).sort();
+  document.getElementById('quote-sum').textContent = !n ? 'Nothing is ticked to send.'
+    : one && n < 2 ? 'Tick at least two to send them together.'
+    : one ? `One deposit of ${money(deposit)}${dues[0] ? `, due ${dateFmt(dues[0])}` : ''}, for ${money(rows.reduce((t, r) => t + (r.tripCents || 0), 0))} of trips.`
+    : '';
 };
 document.getElementById('quote-close').addEventListener('click', () => quoteDlg.close());
+document.querySelectorAll('[name="qmode"]').forEach((el) => el.addEventListener('change', quoteSum));
 document.getElementById('pick-quote').addEventListener('click', async () => {
   const ids = cache.filter((b) => picked.has(b.id) && b.status === 'quoted').map((b) => b.id);
   document.getElementById('quote-error').hidden = true;
   document.getElementById('quote-title').textContent = `Send ${ids.length} quote${ids.length === 1 ? '' : 's'}`;
   document.getElementById('quote-rows').innerHTML = '<p class="spinner">Reading each one...</p>';
   document.getElementById('quote-go').disabled = true;
+  document.querySelector('[name="qmode"][value="each"]').checked = true;
+  document.getElementById('quote-one').hidden = true;
   quoteDlg.showModal();
   quoteRows = [];
   try {
@@ -358,39 +386,68 @@ document.getElementById('pick-quote').addEventListener('click', async () => {
       quoteRows.push(...res.results);
     }
   } catch (e) { showError(document.getElementById('quote-error'), e); return; }
+  // A row can go out when it can be read and only lacks an address, because one can be typed here.
+  const sendable = (r) => r.ok || Boolean(r.problem && /email address/i.test(r.problem));
   document.getElementById('quote-rows').innerHTML = `<div class="table-wrap"><table>
     <thead><tr><th style="width:1.5rem;"></th><th>Client</th><th>Sent to</th><th class="num">Trip</th>
       <th class="num">Deposit</th><th>Deposit due</th><th></th></tr></thead>
     <tbody>${quoteRows.map((r) => {
-      const can = r.ok;
+      const can = sendable(r);
       const note = !can ? esc(r.error)
         : r.alreadySent ? `<span class="badge badge-amber">sent ${r.sentCount || 1} time${(r.sentCount || 1) === 1 ? '' : 's'} before</span>`
         : !r.depositCents ? '<span class="badge badge-amber">no deposit set, so it will not ask for one</span>' : '';
       return `<tr>
-        <td><input type="checkbox" data-qsend="${esc(r.id)}" ${can ? '' : 'disabled'}${can && !r.alreadySent ? ' checked' : ''}></td>
+        <td><input type="checkbox" data-qsend="${esc(r.id)}" ${can ? '' : 'disabled'}${can && r.to && !r.alreadySent ? ' checked' : ''}></td>
         <td><strong>${esc(r.client || (cache.find((b) => b.id === r.id) || {}).client_name || '')}</strong></td>
-        <td>${r.to ? esc(r.to) : '<span class="muted">no email on file</span>'}</td>
+        <td>${can ? `<input type="email" data-qto="${esc(r.id)}" value="${esc(r.to || '')}" maxlength="160"
+          placeholder="no email on file, type one" style="min-width:15rem;">` : '<span class="muted">-</span>'}</td>
         <td class="num">${money(r.tripCents)}</td>
         <td class="num">${r.depositCents ? money(r.depositCents) : '<span class="muted">-</span>'}</td>
         <td>${r.depositDue ? esc(dateFmt(r.depositDue)) : '<span class="muted">-</span>'}</td>
         <td>${note}</td></tr>`;
     }).join('')}</tbody></table></div>`;
+  // The one address a combined email goes to, offered as the most common one on the list.
+  const seen = {};
+  quoteRows.forEach((r) => { if (r.to) seen[r.to] = (seen[r.to] || 0) + 1; });
+  document.getElementById('quote-one-to').value = Object.entries(seen).sort((a, b) => b[1] - a[1]).map(([a]) => a)[0] || '';
   document.querySelectorAll('[data-qsend]').forEach((b) => b.addEventListener('change', quoteSum));
   quoteSum();
 });
 onSubmit(document.getElementById('quote-form'), async () => {
-  const ids = [...document.querySelectorAll('[data-qsend]:checked')].map((b) => b.dataset.qsend);
+  const ids = qTicked();
   if (!ids.length) throw new Error('Nothing is ticked to send.');
-  if (!confirm(`Email ${ids.length} client${ids.length === 1 ? '' : 's'} their quote now? It cannot be recalled.`)) return;
+  const one = qMode() === 'one';
   const results = [];
-  for (let i = 0; i < ids.length; i += 25) {
-    const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids: ids.slice(i, i + 25), send: true } });
+  let combined = null;
+  if (one) {
+    const to = document.getElementById('quote-one-to').value.trim();
+    if (!to) throw new Error('Type the address the combined quote goes to.');
+    if (ids.length < 2) throw new Error('Tick at least two to send them together.');
+    if (ids.length > 25) throw new Error('A combined quote holds at most 25 reservations.');
+    if (!confirm(`Email ${ids.length} quotes as one message to ${to} now? It cannot be recalled.`)) return;
+    const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids, send: true, combine: { to } } });
     results.push(...res.results);
+    combined = res.combined;
+  } else {
+    const to = {};
+    document.querySelectorAll('[data-qto]').forEach((el) => {
+      if (ids.includes(el.dataset.qto) && el.value.trim()) to[el.dataset.qto] = el.value.trim();
+    });
+    const missing = ids.filter((id) => !to[id]);
+    if (missing.length) throw new Error('Type an email address for every quote that is ticked.');
+    if (!confirm(`Email ${ids.length} quote${ids.length === 1 ? '' : 's'} now? Each is its own message and cannot be recalled.`)) return;
+    for (let i = 0; i < ids.length; i += 25) {
+      const part = ids.slice(i, i + 25);
+      const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids: part, send: true,
+        to: Object.fromEntries(part.map((id) => [id, to[id]])) } });
+      results.push(...res.results);
+    }
   }
   const failed = results.filter((r) => !r.ok);
   const sent = results.length - failed.length;
   document.getElementById('quote-rows').innerHTML = `<div class="notice ${failed.length ? 'notice-warn' : 'notice-ok'}">
-    ${sent} quote${sent === 1 ? '' : 's'} sent.${failed.length ? ` ${failed.length} could not be sent:
+    ${combined ? `${sent} quotes sent as one email to ${esc(combined.to)}${combined.depositCents ? `, with one deposit of ${money(combined.depositCents)}` : ''}.`
+      : `${sent} quote${sent === 1 ? '' : 's'} sent.`}${failed.length ? ` ${failed.length} could not be sent:
     <ul class="plain" style="margin:.4rem 0 0;">${failed.map((r) => `<li>${esc(r.client || 'A reservation')}: ${esc(r.error)}</li>`).join('')}</ul>` : ''}</div>`;
   document.getElementById('quote-go').disabled = true;
   document.getElementById('quote-sum').textContent = '';

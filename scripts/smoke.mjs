@@ -8242,6 +8242,32 @@ async function main() {
         'a send that cannot go is not recorded as sent', JSON.stringify([sent.data?.results?.[0], after.quote_sent_at]));
       const many = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: Array.from({ length: 26 }, (_, i) => `q${i}`) });
       check(many.status === 400, 'and not too many at once', `status ${many.status}`);
+
+      // Sent somewhere else, or combined into one email with one deposit.
+      const other = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid], to: { [qid]: `elsewhere-${stamp}@test.dev` } });
+      check(other.data?.results?.[0]?.to === `elsewhere-${stamp}@test.dev`,
+        'a quote can be sent to an address other than the one on the client', JSON.stringify(other.data?.results?.[0]?.to));
+      const junk = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid], to: { [qid]: 'not an address' } });
+      check(junk.status === 400, 'and an address that is not one is refused', `status ${junk.status}`);
+      const lone = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid], combine: { to: `one-${stamp}@test.dev` } });
+      check(lone.status === 400, 'one quote is not a combined quote', `status ${lone.status}`);
+      const q2 = (await mkq('quoted')).data?.booking?.id;
+      if (q2) {
+        await call(advisor, 'POST', `/api/bookings/${q2}/quick`, { deposit: '300', depositDue: isoDay(5) });
+        const joined = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid, q2], combine: { to: `one-${stamp}@test.dev` } });
+        const cb = joined.data?.combined || {};
+        check(joined.status === 200 && cb.count === 2 && cb.depositCents === 80000 && cb.depositDue === isoDay(5)
+            && cb.to === `one-${stamp}@test.dev`,
+          'two quotes combine into one email with one deposit, due on the earliest date', JSON.stringify(cb));
+        const mixed = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid, bid], combine: { to: `one-${stamp}@test.dev` } });
+        check(mixed.status === 400, 'a booked reservation cannot be part of a combined quote', `status ${mixed.status}`);
+        const gone = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid, q2], send: true, combine: { to: `one-${stamp}@test.dev` } });
+        const a1 = (await call(advisor, 'GET', `/api/bookings/${qid}/record`)).data?.booking || {};
+        const a2 = (await call(advisor, 'GET', `/api/bookings/${q2}/record`)).data?.booking || {};
+        check(gone.status === 200 || (!a1.quote_sent_at && !a2.quote_sent_at),
+          'a combined send that cannot go is not recorded as sent on either', JSON.stringify([gone.status, a1.quote_sent_at, a2.quote_sent_at]));
+        await dropBooking(q2);
+      }
     }
     if (qid) await dropBooking(qid);
     if (bid) await dropBooking(bid);

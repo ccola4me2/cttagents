@@ -492,6 +492,84 @@ async function nextInvoiceNo(env, userId, year) {
 }
 
 /**
+ * Several quotes in one email, with one deposit.
+ *
+ * For a family or a group travelling on separate reservations that one person pays for: one message to
+ * one address, each trip listed with its own price and its own link, and a single deposit that holds
+ * all of them. When every reservation needs its own deposit they are sent one at a time instead.
+ *
+ * Built from the statements the single quote is built from, so a trip reads here as it would alone.
+ */
+export function renderCombinedQuote(env, statements, { paymentFormUrl = '' } = {}) {
+  const first = statements[0];
+  const tripTotal = statements.reduce((n, s) => n + (s.tripCents || 0), 0);
+  const deposits = statements.filter((s) => s.depositCents);
+  const depositTotal = deposits.reduce((n, s) => n + s.depositCents, 0);
+  const dueDates = deposits.map((s) => s.depositDue).filter(Boolean).sort();
+  const due = dueDates[0] || '';
+
+  const trip = (s) => {
+    const name = [s.tripName, s.vendor].filter(Boolean).join(' with ') || 'Your trip';
+    const facts = [
+      ['Departing', day(s.departDate)],
+      ['Returning', day(s.returnDate)],
+      ['Travelling', s.travellers.join(', ')],
+    ].filter(([, v]) => v);
+    return `<p style="margin:22px 0 4px;font-size:16px;font-weight:600;color:#12315e;">
+        ${escapeHtml(s.clientName ? `${s.clientName}: ${name}` : name)}</p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:15px;border-collapse:collapse;">
+        ${facts.map(([k, v]) => `<tr><td style="padding:4px 0;color:#5c7286;width:34%;">${escapeHtml(k)}</td>
+          <td style="padding:4px 0;color:#2f4459;">${escapeHtml(v)}</td></tr>`).join('')}
+        <tr><td style="padding:6px 0;color:#12315e;font-weight:600;border-top:1px solid #e2ebf4;">Trip total</td>
+          <td style="padding:6px 0;text-align:right;color:#12315e;font-weight:600;border-top:1px solid #e2ebf4;">${money(s.tripCents)}</td></tr>
+        ${s.depositCents ? `<tr><td style="padding:2px 0;color:#5c7286;">Deposit share</td>
+          <td style="padding:2px 0;text-align:right;color:#5c7286;">${money(s.depositCents)}</td></tr>` : ''}
+      </table>
+      ${s.shareCode ? `<p style="margin:8px 0 0;"><a href="${escapeHtml(`${appUrl(env)}/t/${s.shareCode}?s=quote`)}"
+        style="color:#12315e;font-weight:600;">See it and answer</a></p>` : ''}`;
+  };
+
+  const hold = depositTotal
+    ? `A single deposit of <strong>${money(depositTotal)}</strong> holds all ${statements.length} of these${
+        due ? ` and is due by ${escapeHtml(day(due))}` : ''}.`
+    : 'Say the word and I will hold them.';
+  const card = paymentFormUrl && depositTotal > 0
+    ? `<p style="margin:14px 0 0;">To pay by card, authorize it on the agency's secure form:
+        <a href="${escapeHtml(paymentFormUrl)}" style="color:#12315e;font-weight:600;">Authorize your payment</a>.
+        It asks for the amount, <strong>${money(depositTotal)}</strong>${due
+          ? `; the date to charge it on or after, <strong>${escapeHtml(day(due))}</strong>` : ''}.
+        Your card is not charged before that date.</p>` : '';
+
+  const body = [
+    '<p style="margin:0 0 14px;">Hello,</p>',
+    `<p style="margin:0 0 14px;">Here are the ${statements.length} quotes I have put together. Anything you would `
+      + 'change, reply to this and I will rework it.</p>',
+    statements.map(trip).join(''),
+    `<p style="margin:22px 0 0;padding:12px 16px;background:#f2f7fb;border-radius:8px;color:#12315e;">
+       All together: <strong>${money(tripTotal)}</strong>. ${hold}</p>`,
+    `<p style="margin:14px 0 0;">Prices and space are not held until they are booked.</p>`,
+    card,
+    `<p style="margin:24px 0 0;">${escapeHtml(first.advisorName)}${
+      first.agencyName ? `<br><span style="color:#5c7286;">${escapeHtml(first.agencyName)}</span>` : ''}</p>`,
+  ].filter(Boolean).join('');
+
+  const footer = [
+    escapeHtml(first.advisorName),
+    first.agencyName ? escapeHtml(first.agencyName) : '',
+    first.agencyAddress ? escapeHtml(first.agencyAddress) : '',
+    first.advisorPhone ? escapeHtml(first.advisorPhone) : '',
+    `<a href="mailto:${escapeHtml(first.advisorEmail)}" style="color:#12315e;">${escapeHtml(first.advisorEmail)}</a>`,
+    first.sellerOfTravel ? escapeHtml(first.sellerOfTravel) : '',
+  ].filter(Boolean).join(' &middot; ');
+
+  return {
+    subject: `Your quotes: ${statements.length} reservations`,
+    html: layout(env, { heading: `Your ${statements.length} quotes`, body, footer, cta: null }),
+    tripCents: tripTotal, depositCents: depositTotal, depositDue: due,
+  };
+}
+
+/**
  * Preview first, send second, as two separate requests.
  *
  * The same rule the payment chaser follows, for the same reason: an email to a
@@ -511,6 +589,8 @@ async function nextInvoiceNo(env, userId, year) {
  */
 const BULK_QUOTE_MAX = 25;
 
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export async function handleBulkQuote(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
@@ -521,13 +601,27 @@ export async function handleBulkQuote(request, env) {
   if (ids.length > BULK_QUOTE_MAX) return badRequest(`Send at most ${BULK_QUOTE_MAX} at a time.`);
   const send = body.send === true;
 
-  const ask = (id, preview) => handleStatement(new Request(request.url, {
-    method: 'POST', headers: request.headers, body: JSON.stringify({ preview }),
+  // Where each one goes when it is not the address on the client's record: a family on one parent's
+  // email, a group's organiser. Checked here so a mistyped address is refused before anything is sent.
+  const sendTo = {};
+  for (const [key, value] of Object.entries(body.to && typeof body.to === 'object' ? body.to : {})) {
+    const address = String(value || '').trim();
+    if (!address) continue;
+    if (!EMAIL.test(address)) return badRequest(`"${address.slice(0, 60)}" does not look like an email address.`);
+    sendTo[key] = address;
+  }
+  const combineTo = body.combine && typeof body.combine === 'object' ? String(body.combine.to || '').trim() : '';
+  if (body.combine && !EMAIL.test(combineTo)) return badRequest('Say which address the combined quote goes to.');
+  if (body.combine && ids.length < 2) return badRequest('Combining needs at least two reservations.');
+
+  const ask = (id, preview, to) => handleStatement(new Request(request.url, {
+    method: 'POST', headers: request.headers, body: JSON.stringify(to ? { preview, to } : { preview }),
   }), env, id);
 
   const results = [];
+  const statements = [];
   for (const id of ids) {
-    const looked = await ask(id, true);
+    const looked = await ask(id, true, sendTo[id] || (combineTo || ''));
     const data = await looked.json().catch(() => ({}));
     if (!looked.ok) { results.push({ id, ok: false, error: data.error || `Not found (${looked.status}).` }); continue; }
     const s = data.statement || {};
@@ -541,18 +635,91 @@ export async function handleBulkQuote(request, env) {
       results.push({ ...row, ok: false, error: 'Only a quoted reservation is sent a quote.' });
       continue;
     }
-    if (data.problem) { results.push({ ...row, ok: false, error: data.problem }); continue; }
+    if (data.problem && !body.combine) { results.push({ ...row, ok: false, error: data.problem }); continue; }
+    if (body.combine) { results.push({ ...row, ok: true }); statements.push({ id, s }); continue; }
     if (!send) { results.push({ ...row, ok: true }); continue; }
 
-    const sent = await ask(id, false);
+    const sent = await ask(id, false, sendTo[id] || '');
     const out = await sent.json().catch(() => ({}));
     results.push({ ...row, ok: sent.ok, error: sent.ok ? null : (out.error || `Not sent (${sent.status}).`) });
   }
+
+  if (body.combine) return combinedQuote(request, env, user, { results, statements, ids, combineTo, send });
+
   if (send) {
     const n = results.filter((r) => r.ok).length;
     await db.logActivity(env, user.id, 'quote.bulk', `Sent ${n} quote${n === 1 ? '' : 's'} at once`, { count: n });
   }
   return json({ ok: true, sent: send, results });
+}
+
+/**
+ * One email, one deposit, for several reservations.
+ *
+ * Every reservation has to be a quote with the same advisor, and none may have failed to read: sending
+ * a combined message that quietly leaves one out is worse than not sending it. On send each trip is
+ * given its page first, so the link beside it goes somewhere, and each is then recorded as sent exactly
+ * as it would have been on its own.
+ */
+async function combinedQuote(request, env, user, { results, statements, ids, combineTo, send }) {
+  const bad = results.find((r) => !r.ok);
+  if (bad) return badRequest(`${bad.client || 'One of them'}: ${bad.error}`);
+  if (new Set(statements.map(({ s }) => s.advisorEmail)).size > 1) {
+    return badRequest('A combined quote can only hold one advisor\'s reservations.');
+  }
+
+  const owner = await db.writerForBooking(env, user, ids[0]);
+  if (!owner) return notFound('Reservation not found.');
+
+  let built = statements.map(({ s }) => s);
+  const rendered = (list) => renderCombinedQuote(env, list, { paymentFormUrl: list[0].paymentFormUrl || '' });
+  let out = rendered(built);
+  const summary = {
+    to: combineTo, count: built.length, subject: out.subject,
+    tripCents: out.tripCents, depositCents: out.depositCents, depositDue: out.depositDue,
+  };
+  if (!send) return json({ ok: true, sent: false, results, combined: summary });
+
+  // Each trip gets its page when it is sent, as a single quote's does.
+  for (const { id, s } of statements) {
+    if (s.shareCode) continue;
+    const code = shareCode();
+    const ts = now();
+    await env.DB.prepare(
+      `UPDATE bookings SET share_code = ?, shared_at = COALESCE(shared_at, ?), updated_at = ?
+        WHERE id = ? AND user_id = ? AND share_code IS NULL`
+    ).bind(code, ts, ts, id, owner.id).run();
+  }
+  built = [];
+  for (const { id } of statements) {
+    const again = await handleStatement(new Request(request.url, {
+      method: 'POST', headers: request.headers, body: JSON.stringify({ preview: true, to: combineTo }),
+    }), env, id);
+    built.push((await again.json().catch(() => ({}))).statement);
+  }
+  if (built.some((s) => !s)) return badRequest('One of the reservations could not be read again. Nothing was sent.');
+  out = rendered(built);
+
+  try {
+    await sendHtml(env, {
+      to: combineTo, replyTo: owner.email, subject: out.subject, html: out.html,
+      unsubscribe: { agencyId: owner.agency_id, agencyName: owner.agency_name },
+    });
+  } catch (e) {
+    return badRequest(String((e && e.message) || e).slice(0, 300));
+  }
+
+  // Recorded only after the send returns, one by one, the way a single quote is.
+  for (let i = 0; i < statements.length; i += 1) {
+    const fingerprint = await statementFingerprint(built[i]);
+    await env.DB.prepare(
+      `UPDATE bookings SET quote_sent_at = ?, quote_sent_count = quote_sent_count + 1,
+              statement_hash = ?, updated_at = ? WHERE id = ? AND user_id = ?`
+    ).bind(now(), fingerprint, now(), statements[i].id, owner.id).run();
+  }
+  await db.logActivity(env, owner.id, 'quote.combined',
+    db.byHand(`Sent ${built.length} quotes as one email`, user, owner), { count: built.length });
+  return json({ ok: true, sent: true, results, combined: { ...summary, subject: out.subject } });
 }
 
 export async function handleStatement(request, env, id) {
@@ -594,6 +761,12 @@ export async function handleStatement(request, env, id) {
   // number will be assigned rather than showing a blank where one will be.
   const body = await readJson(request);
   const issuing = booking.status === 'booked' || booking.status === 'travelled';
+  // Sent somewhere other than the address on the client's record: a family on one email, a group's
+  // organiser. Used for this send only, and the record is left as it was.
+  const toOverride = String(body.to || '').trim();
+  if (toOverride && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toOverride)) {
+    return badRequest(`"${toOverride.slice(0, 60)}" does not look like an email address.`);
+  }
 
   // `user:` written out rather than shorthand. buildStatement destructures a
   // property of that name, so the shorthand was a key as much as a value, and
@@ -601,7 +774,9 @@ export async function handleStatement(request, env, id) {
   // 500 that read as a variable rename.
   const paymentFormUrl = await paymentFormFor(env, owner.agency_id);
   const build = () => buildStatement({
-    booking, pricing, travellers, amenities, payments, options, client, user: owner, paymentFormUrl,
+    booking, pricing, travellers, amenities, payments, options,
+    client: toOverride ? { ...(client || {}), email: toOverride } : client,
+    user: owner, paymentFormUrl,
   });
 
   let statement = build();
