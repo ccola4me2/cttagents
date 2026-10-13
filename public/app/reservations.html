@@ -51,12 +51,10 @@
             <p class="field-hint" style="margin-top:0;">Sent by email over the advisor's name, with a link to each
               trip's page. Where a deposit is set it says how much and by when. Untick any you do not want to send.</p>
             <div style="display:grid;gap:.5rem;margin:0 0 1rem;">
-              <label style="font-weight:400;"><input type="radio" name="qmode" value="each" checked>
-                <strong>Each on its own.</strong> Every reservation is its own email with its own deposit. Change the
-                address on any row to send it somewhere else.</label>
-              <label style="font-weight:400;"><input type="radio" name="qmode" value="one">
-                <strong>One email, one deposit.</strong> For a family or a group paying together: every trip in a single
-                message to one address, with one deposit that holds them all.</label>
+              <label style="font-weight:400;"><input type="checkbox" id="quote-combine">
+                <strong>Send them as one email with one deposit.</strong> For a family or a group paying together:
+                every trip in a single message to one address, with one deposit that holds them all. Left unticked,
+                each reservation is its own email with its own deposit, and you can change the address on any row.</label>
               <div class="field" id="quote-one" style="margin:.2rem 0 0 1.4rem;max-width:26rem;" hidden>
                 <label for="quote-one-to">Send it to</label>
                 <input id="quote-one-to" type="email" maxlength="160" autocomplete="off" placeholder="name@example.com">
@@ -349,7 +347,7 @@ onSubmit(bulkForm, async (values) => {
 // changeable per row, or all in one email to one address with one deposit.
 const quoteDlg = document.getElementById('quote-dlg');
 let quoteRows = [];
-const qMode = () => (document.querySelector('[name="qmode"]:checked') || {}).value || 'each';
+const qMode = () => (document.getElementById('quote-combine').checked ? 'one' : 'each');
 const qTicked = () => [...document.querySelectorAll('[data-qsend]:checked')].map((b) => b.dataset.qsend);
 const quoteSum = () => {
   const ids = qTicked();
@@ -369,14 +367,14 @@ const quoteSum = () => {
     : '';
 };
 document.getElementById('quote-close').addEventListener('click', () => quoteDlg.close());
-document.querySelectorAll('[name="qmode"]').forEach((el) => el.addEventListener('change', quoteSum));
+document.getElementById('quote-combine').addEventListener('change', quoteSum);
 document.getElementById('pick-quote').addEventListener('click', async () => {
   const ids = cache.filter((b) => picked.has(b.id) && b.status === 'quoted').map((b) => b.id);
   document.getElementById('quote-error').hidden = true;
   document.getElementById('quote-title').textContent = `Send ${ids.length} quote${ids.length === 1 ? '' : 's'}`;
   document.getElementById('quote-rows').innerHTML = '<p class="spinner">Reading each one...</p>';
   document.getElementById('quote-go').disabled = true;
-  document.querySelector('[name="qmode"][value="each"]').checked = true;
+  document.getElementById('quote-combine').checked = false;
   document.getElementById('quote-one').hidden = true;
   quoteDlg.showModal();
   quoteRows = [];
