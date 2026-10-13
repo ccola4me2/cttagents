@@ -634,7 +634,7 @@ export async function handleBulkQuote(request, env) {
     results.push({ ...row, ok: sent.ok, error: sent.ok ? null : (out.error || `Not sent (${sent.status}).`) });
   }
 
-  if (body.combine) return combinedQuote(request, env, user, { results, statements, ids, combineTo, send });
+  if (body.combine) return combinedQuote(request, env, user, { results, statements, ids, combineTo, send, test: body.test === true });
 
   if (send) {
     const n = results.filter((r) => r.ok).length;
@@ -651,11 +651,17 @@ export async function handleBulkQuote(request, env) {
  * given its page first, so the link beside it goes somewhere, and each is then recorded as sent exactly
  * as it would have been on its own.
  */
-async function combinedQuote(request, env, user, { results, statements, ids, combineTo, send }) {
+async function combinedQuote(request, env, user, { results, statements, ids, combineTo, send, test }) {
   const bad = results.find((r) => !r.ok);
   if (bad) return badRequest(`${bad.client || 'One of them'}: ${bad.error}`);
   if (new Set(statements.map(({ s }) => s.advisorEmail)).size > 1) {
     return badRequest('A combined quote can only hold one advisor\'s reservations.');
+  }
+
+  // A test goes to the signed in person and nowhere else, and records nothing against the clients: the
+  // point is to read the email as they will, so it must not make a quote look sent that was not.
+  if (test && combineTo.toLowerCase() !== String(user.email || '').toLowerCase()) {
+    return badRequest(`A test can only be sent to your own address, ${user.email || 'the one you signed in with'}.`);
   }
 
   const owner = await db.writerForBooking(env, user, ids[0]);
@@ -693,11 +699,16 @@ async function combinedQuote(request, env, user, { results, statements, ids, com
 
   try {
     await sendHtml(env, {
-      to: combineTo, replyTo: owner.email, subject: out.subject, html: out.html,
+      to: combineTo, replyTo: owner.email, subject: test ? `TEST: ${out.subject}` : out.subject, html: out.html,
       unsubscribe: { agencyId: owner.agency_id, agencyName: owner.agency_name },
     });
   } catch (e) {
     return badRequest(String((e && e.message) || e).slice(0, 300));
+  }
+
+  if (test) {
+    await db.logActivity(env, user.id, 'quote.test', `Sent a test of ${built.length} quotes to myself`, { count: built.length });
+    return json({ ok: true, sent: true, test: true, results, combined: { ...summary, subject: `TEST: ${out.subject}` } });
   }
 
   // Recorded only after the send returns, one by one, the way a single quote is.

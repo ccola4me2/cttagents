@@ -8278,6 +8278,12 @@ async function main() {
         const lone1 = await call(advisor, 'POST', `/api/bookings/${qid}/statement`, { preview: true });
         check(/Cabin category/.test(lone1.data?.html || '') && /8D/.test(lone1.data?.html || ''),
           'and so does a single quote', String(lone1.data?.html || '').length);
+        const elsewhere = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid, q2], send: true, test: true, combine: { to: `someone-${stamp}@test.dev` } });
+        check(elsewhere.status === 400, 'a test goes only to your own address', `status ${elsewhere.status}`);
+        const mine = await call(advisor, 'GET', '/api/auth/me');
+        const own = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid, q2], send: true, test: true, combine: { to: mine.data?.user?.email } });
+        const t1 = (await call(advisor, 'GET', `/api/bookings/${qid}/record`)).data?.booking || {};
+        check(!t1.quote_sent_at, 'and a test records nothing as sent to the client', JSON.stringify([own.status, t1.quote_sent_at]));
         const mixed = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid, bid], combine: { to: `one-${stamp}@test.dev` } });
         check(mixed.status === 400, 'a booked reservation cannot be part of a combined quote', `status ${mixed.status}`);
         const gone = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid, q2], send: true, combine: { to: `one-${stamp}@test.dev` } });

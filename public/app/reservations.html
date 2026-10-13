@@ -59,6 +59,7 @@
                 <label for="quote-one-to">Send it to</label>
                 <input id="quote-one-to" type="email" maxlength="160" autocomplete="off" placeholder="name@example.com">
                 <button class="btn btn-ghost btn-sm" type="button" id="quote-look" style="margin-top:.5rem;">Preview the email</button>
+                <button class="btn btn-ghost btn-sm" type="button" id="quote-test" style="margin-top:.5rem;">Send me a test</button>
               </div>
             </div>
             <div class="notice notice-error" id="quote-error" hidden></div>
@@ -377,10 +378,29 @@ const quoteSum = () => {
 };
 document.getElementById('quote-close').addEventListener('click', () => quoteDlg.close());
 document.getElementById('look-close').addEventListener('click', () => document.getElementById('look-dlg').close());
+// The real email, to the signed in person only, with nothing recorded against the clients.
+document.getElementById('quote-test').addEventListener('click', async (e) => {
+  const ids = qTicked();
+  const errBox = document.getElementById('quote-error');
+  errBox.className = 'notice notice-error';
+  errBox.hidden = true;
+  if (ids.length < 2) { errBox.textContent = 'Tick at least two to send a test of them together.'; errBox.hidden = false; return; }
+  e.target.disabled = true;
+  try {
+    const me = (await api('/api/auth/me')).user.email;
+    if (!confirm(`Send a test of this combined quote to ${me}? Nothing is recorded as sent to the clients.`)) { e.target.disabled = false; return; }
+    const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids, send: true, test: true, combine: { to: me } } });
+    errBox.className = 'notice notice-ok';
+    errBox.textContent = `Test sent to ${me}. Subject: ${res.combined.subject}. Nothing was recorded as sent to the clients.`;
+    errBox.hidden = false;
+  } catch (ex) { errBox.className = 'notice notice-error'; errBox.textContent = ex.message || 'The test could not be sent.'; errBox.hidden = false; }
+  e.target.disabled = false;
+});
 document.getElementById('quote-look').addEventListener('click', async (e) => {
   const ids = qTicked();
   const to = document.getElementById('quote-one-to').value.trim();
   const errBox = document.getElementById('quote-error');
+  errBox.className = 'notice notice-error';
   errBox.hidden = true;
   if (ids.length < 2) { errBox.textContent = 'Tick at least two to preview them together.'; errBox.hidden = false; return; }
   if (!to) { errBox.textContent = 'Type the address the combined quote goes to.'; errBox.hidden = false; return; }
