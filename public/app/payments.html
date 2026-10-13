@@ -285,7 +285,11 @@ function render(d) {
 
     panel.querySelectorAll('[data-paid]').forEach((b) => b.addEventListener('click', async () => {
       b.disabled = true;
-      try { await api(`/api/payments/${encodeURIComponent(b.dataset.paid)}/paid`, { method: 'POST', body: {} }); await load(); }
+      try {
+        const res = await api(`/api/payments/${encodeURIComponent(b.dataset.paid)}/paid`, { method: 'POST', body: {} });
+        await load();
+        if (res && res.booked) alert('That reservation was a quote. With this payment posted it is now marked booked.');
+      }
       catch (err) { alert(err.message); b.disabled = false; }
     }));
     panel.querySelectorAll('[data-edit]').forEach((b) =>

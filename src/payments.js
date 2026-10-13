@@ -325,7 +325,8 @@ export async function handleCreatePayment(request, env) {
       user, owner),
     { bookingId: fields.bookingId });
   await resizeAutoFinal(env, owner, fields.bookingId);
-  return json({ ok: true, payment }, 201);
+  const booked = await bookIfQuoted(env, user, owner, fields.bookingId, payment);
+  return json({ ok: true, payment, booked }, 201);
 }
 
 export async function handleUpdatePayment(request, env, id) {
@@ -395,7 +396,8 @@ export async function handleUpdatePayment(request, env, id) {
   await db.logActivity(env, owner.id, 'payment.update',
     db.byHand('Updated a payment', user, owner), { id });
   await resizeAutoFinal(env, owner, fields.bookingId);
-  return json({ ok: true, payment });
+  const booked = await bookIfQuoted(env, user, owner, fields.bookingId, payment);
+  return json({ ok: true, payment, booked });
 }
 
 /** The one-click action: this money arrived today. */
@@ -559,7 +561,8 @@ export async function handleMarkPaid(request, env, id) {
       : 'Marked a payment received', user, owner),
     { id, received, remainder });
   await resizeAutoFinal(env, owner, existing.booking_id);
-  return json({ ok: true, payment, remainder: rest });
+  const booked = await bookIfQuoted(env, user, owner, existing.booking_id, payment);
+  return json({ ok: true, payment, remainder: rest, booked });
 }
 
 export async function handleDeletePayment(request, env, id) {
@@ -865,21 +868,16 @@ export async function handleGenerateSchedule(request, env, bookingId) {
 }
 
 
-export async function handleSetBookingStatus(request, env, bookingId) {
-  const { user, response } = await requireUser(request, env);
-  if (response) return response;
-
-  // Whose record this is: see db.writerFor.
-  const owner = await db.writerForBooking(env, user, bookingId);
-  if (!owner) return notFound('Booking not found.');
-
-  const body = await readJson(request);
-  const status = oneOf(body.status, ['booked', 'quoted', 'travelled', 'cancelled']);
-
-  const booking = await db.getBooking(env, bookingId, owner.id);
-  if (!booking) return notFound('Booking not found.');
-
-  const updated = await db.updateBooking(env, bookingId, owner.id, {
+/**
+ * Write a reservation's status and nothing else about it.
+ *
+ * This save writes every column, so everything the row holds is carried across: a field left out here is
+ * a field cleared, which is how a status change once took the cabin, the group link and the client link
+ * with it. One place, so a status changed by hand and one changed by a payment cannot differ.
+ */
+async function saveStatus(env, ownerId, booking, status) {
+  const bookingId = booking.id;
+  return await db.updateBooking(env, bookingId, ownerId, {
     ghlContactId: booking.ghl_contact_id,
     ghlOpportunityId: booking.ghl_opportunity_id,
     clientName: booking.client_name,
@@ -917,6 +915,40 @@ export async function handleSetBookingStatus(request, env, bookingId) {
     groupNumber: booking.group_number,
     depositRefundable: booking.deposit_refundable,
   });
+}
+
+/**
+ * A payment posted against a quoted reservation is the client saying yes, so it becomes booked.
+ *
+ * Only money that has arrived counts: a payment with a paid date, for something, that is not a refund.
+ * Returns whether the status changed, so the page can say so rather than leaving the advisor to notice.
+ */
+export async function bookIfQuoted(env, user, owner, bookingId, payment) {
+  if (!payment || !payment.paid_date || payment.kind === 'refund' || !((payment.amount_cents || 0) > 0)) return false;
+  const booking = await db.getBooking(env, bookingId, owner.id);
+  if (!booking || booking.status !== 'quoted') return false;
+  await saveStatus(env, owner.id, booking, 'booked');
+  await db.logActivity(env, owner.id, 'booking.status',
+    db.byHand(`Marked ${booking.client_name} booked because a payment was posted`, user, owner),
+    { bookingId, status: 'booked' });
+  return true;
+}
+
+export async function handleSetBookingStatus(request, env, bookingId) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerForBooking(env, user, bookingId);
+  if (!owner) return notFound('Booking not found.');
+
+  const body = await readJson(request);
+  const status = oneOf(body.status, ['booked', 'quoted', 'travelled', 'cancelled']);
+
+  const booking = await db.getBooking(env, bookingId, owner.id);
+  if (!booking) return notFound('Booking not found.');
+
+  const updated = await saveStatus(env, owner.id, booking, status);
 
   await db.logActivity(env, owner.id, 'booking.status',
     db.byHand(`Marked ${booking.client_name} ${status}`, user, owner), { bookingId, status });

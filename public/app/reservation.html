@@ -3290,29 +3290,34 @@ postForm.elements.paymentType.addEventListener('change', postFields);
 document.querySelector('[data-close-post]').addEventListener('click', () => postDlg.close());
 onSubmit(postForm, async (values) => {
   values.cardLast4 = last4(values.cardLast4);
+  let saved = null;
   if (editing) {
     // The whole row back, including the two the dialog does not ask about.
     // This endpoint saves every column, so a due date or a class left out
     // would be written as nothing: the same rule that emptied a trip total
     // for ten days, in a place where it would empty a vendor deadline.
-    await api(`/api/payments/${encodeURIComponent(editing.id)}`, { method: 'PUT', body: {
+    saved = await api(`/api/payments/${encodeURIComponent(editing.id)}`, { method: 'PUT', body: {
       ...values,
       bookingId: id,
       paymentClass: editing.payment_class,
       dueDate: editing.due_date,
     } });
   } else if (posting) {
-    await api(`/api/payments/${encodeURIComponent(posting)}/paid`, { method: 'POST', body: values });
+    saved = await api(`/api/payments/${encodeURIComponent(posting)}/paid`, { method: 'POST', body: values });
   } else {
     // A payment that was never scheduled. Due on the day it arrived, because
     // it did: a paid row with no due date falls out of every total that reads
     // a schedule by date.
-    await api('/api/payments', { method: 'POST', body: {
+    saved = await api('/api/payments', { method: 'POST', body: {
       ...values, bookingId: id, paymentClass: 'hard', dueDate: values.paidDate,
     } });
   }
   postDlg.close();
   await load();
+  // A payment on a quote is the client saying yes. Said, so the status moving is never a surprise.
+  if (saved && saved.booked) {
+    err.innerHTML = '<div class="notice notice-ok">This was a quote, and money has been posted against it, so it is now marked booked.</div>';
+  }
 });
 
 // Passengers the new-reservation form could not save.

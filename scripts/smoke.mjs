@@ -8309,6 +8309,32 @@ async function main() {
     if (person.data?.client?.id) await call(advisor, 'DELETE', `/api/clients/${person.data.client.id}`);
   }
 
+  // Money posted against a quote is the client saying yes: the reservation becomes booked.
+  {
+    const mk = () => call(advisor, 'POST', '/api/bookings', { clientName: `Pay Books ${stamp}`, supplier: 'Royal Caribbean',
+      productType: 'cruise', departDate: isoDay(300), gross: '2000', status: 'quoted' });
+    const statusOf = async (id) => (await call(advisor, 'GET', `/api/bookings/${id}/record`)).data?.booking?.status;
+    const pid = (await mk()).data?.booking?.id;
+    if (pid) {
+      const planned = await call(advisor, 'POST', '/api/payments', { bookingId: pid, kind: 'deposit', amount: '500', dueDate: isoDay(20), paymentClass: 'hard' });
+      check(planned.status === 201 && !planned.data?.booked && await statusOf(pid) === 'quoted',
+        'a payment that is only scheduled leaves the quote a quote', JSON.stringify(planned.data?.booked));
+      const posted = await call(advisor, 'POST', `/api/payments/${planned.data?.payment?.id}/paid`, {});
+      check(posted.status === 200 && posted.data?.booked === true && await statusOf(pid) === 'booked',
+        'posting it makes the reservation booked, and says so', JSON.stringify([posted.status, posted.data?.booked]));
+      await dropBooking(pid);
+    }
+    const rid = (await mk()).data?.booking?.id;
+    if (rid) {
+      const refund = await call(advisor, 'POST', '/api/payments', { bookingId: rid, kind: 'refund', amount: '50', paidDate: isoDay(0), dueDate: isoDay(0), paymentClass: 'hard' });
+      check(!refund.data?.booked && await statusOf(rid) === 'quoted', 'a refund does not book a quote', JSON.stringify(refund.data?.booked));
+      const direct = await call(advisor, 'POST', '/api/payments', { bookingId: rid, kind: 'deposit', amount: '500', paidDate: isoDay(0), dueDate: isoDay(0), paymentClass: 'hard' });
+      check(direct.status === 201 && direct.data?.booked === true && await statusOf(rid) === 'booked',
+        'a deposit posted straight away books it too', JSON.stringify([direct.status, direct.data?.booked]));
+      await dropBooking(rid);
+    }
+  }
+
   // Everyone on a confirmation becomes a client, the party a household, and nobody already on the
   // books is changed without being asked.
   {
