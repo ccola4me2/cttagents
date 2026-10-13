@@ -8261,6 +8261,8 @@ async function main() {
         check(joined.status === 200 && cb.count === 2 && cb.depositCents === 80000 && cb.depositDue === isoDay(5)
             && cb.to === `one-${stamp}@test.dev`,
           'two quotes combine into one email with one deposit, due on the earliest date', JSON.stringify(cb));
+        check(/A single deposit of <strong>\$800\.00<\/strong> holds all 2 of these/.test(cb.html || ''),
+          'the preview carries the email itself, with the one deposit in it', String(cb.html || '').length);
         const mixed = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid, bid], combine: { to: `one-${stamp}@test.dev` } });
         check(mixed.status === 400, 'a booked reservation cannot be part of a combined quote', `status ${mixed.status}`);
         const gone = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid, q2], send: true, combine: { to: `one-${stamp}@test.dev` } });

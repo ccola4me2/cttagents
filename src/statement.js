@@ -678,7 +678,8 @@ async function combinedQuote(request, env, user, { results, statements, ids, com
     to: combineTo, count: built.length, subject: out.subject,
     tripCents: out.tripCents, depositCents: out.depositCents, depositDue: out.depositDue,
   };
-  if (!send) return json({ ok: true, sent: false, results, combined: summary });
+  // The message itself on a preview, so the advisor can read exactly what would go before it does.
+  if (!send) return json({ ok: true, sent: false, results, combined: { ...summary, html: out.html } });
 
   // Each trip gets its page when it is sent, as a single quote's does.
   for (const { id, s } of statements) {

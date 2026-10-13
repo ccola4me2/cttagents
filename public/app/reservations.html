@@ -58,6 +58,7 @@
               <div class="field" id="quote-one" style="margin:.2rem 0 0 1.4rem;max-width:26rem;" hidden>
                 <label for="quote-one-to">Send it to</label>
                 <input id="quote-one-to" type="email" maxlength="160" autocomplete="off" placeholder="name@example.com">
+                <button class="btn btn-ghost btn-sm" type="button" id="quote-look" style="margin-top:.5rem;">Preview the email</button>
               </div>
             </div>
             <div class="notice notice-error" id="quote-error" hidden></div>
@@ -68,6 +69,14 @@
             <button class="btn btn-primary" type="submit" id="quote-go" disabled>Send</button>
           </div>
         </form>
+      </dialog>
+      <dialog id="look-dlg" style="max-width:48rem;width:96vw;">
+        <div class="card-head"><h2>The email, as it would be sent</h2>
+          <button class="btn btn-ghost btn-sm" type="button" id="look-close">Close</button></div>
+        <div class="card-pad">
+          <p class="field-hint" id="look-note" style="margin-top:0;"></p>
+          <iframe id="look-frame" title="The combined quote email" sandbox="" style="width:100%;height:60vh;border:1px solid var(--navy-100);border-radius:8px;background:#fff;"></iframe>
+        </div>
       </dialog>
       <dialog id="bulk-dlg">
         <form id="bulk-form" method="dialog">
@@ -367,6 +376,23 @@ const quoteSum = () => {
     : '';
 };
 document.getElementById('quote-close').addEventListener('click', () => quoteDlg.close());
+document.getElementById('look-close').addEventListener('click', () => document.getElementById('look-dlg').close());
+document.getElementById('quote-look').addEventListener('click', async (e) => {
+  const ids = qTicked();
+  const to = document.getElementById('quote-one-to').value.trim();
+  const errBox = document.getElementById('quote-error');
+  errBox.hidden = true;
+  if (ids.length < 2) { errBox.textContent = 'Tick at least two to preview them together.'; errBox.hidden = false; return; }
+  if (!to) { errBox.textContent = 'Type the address the combined quote goes to.'; errBox.hidden = false; return; }
+  e.target.disabled = true;
+  try {
+    const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids, send: false, combine: { to } } });
+    document.getElementById('look-frame').srcdoc = res.combined.html;
+    document.getElementById('look-note').textContent = `To ${to}. Subject: ${res.combined.subject}`;
+    document.getElementById('look-dlg').showModal();
+  } catch (ex) { errBox.textContent = ex.message || 'That could not be previewed.'; errBox.hidden = false; }
+  e.target.disabled = false;
+});
 document.getElementById('quote-combine').addEventListener('change', quoteSum);
 document.getElementById('pick-quote').addEventListener('click', async () => {
   const ids = cache.filter((b) => picked.has(b.id) && b.status === 'quoted').map((b) => b.id);
