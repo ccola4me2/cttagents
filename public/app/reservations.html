@@ -36,12 +36,30 @@
         <div class="notice notice-ok" style="display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;">
           <strong id="pick-count"></strong>
           <button class="btn btn-primary btn-sm" id="pick-change" type="button">Change them</button>
+          <button class="btn btn-secondary btn-sm" id="pick-quote" type="button" hidden>Send quotes for the deposit</button>
           <input id="pick-name" maxlength="120" placeholder="Trip name (optional)" style="min-width:200px;">
           <button class="btn btn-ghost btn-sm" id="pick-go" type="button">Put together as one trip</button>
           <button class="btn btn-ghost btn-sm" id="pick-clear" type="button">Clear</button>
           <span class="notice-error" id="pick-err" hidden></span>
         </div>
       </div>
+      <dialog id="quote-dlg" style="max-width:62rem;width:96vw;">
+        <form id="quote-form" method="dialog">
+          <div class="card-head"><h2 id="quote-title">Send quotes</h2>
+            <button class="btn btn-ghost btn-sm" type="button" id="quote-close">Close</button></div>
+          <div class="card-pad">
+            <p class="field-hint" style="margin-top:0;">Each client is sent their own quote by email, over the
+              advisor's name, with a link to their page. Where a deposit is set it says how much and by when.
+              Untick any you do not want to send.</p>
+            <div class="notice notice-error" id="quote-error" hidden></div>
+            <div id="quote-rows"><p class="spinner">Reading each one...</p></div>
+          </div>
+          <div class="card-foot">
+            <span class="muted" id="quote-sum" style="flex:1;"></span>
+            <button class="btn btn-primary" type="submit" id="quote-go" disabled>Send</button>
+          </div>
+        </form>
+      </dialog>
       <dialog id="bulk-dlg">
         <form id="bulk-form" method="dialog">
           <div class="card-head"><h2 id="bulk-title">Change reservations</h2>
@@ -69,6 +87,10 @@
               <div class="field"><label for="bulk-gnumber">Group number</label>
                 <input id="bulk-gnumber" name="groupNumber" maxlength="60" placeholder="123456"></div>
             </div>
+            <div class="field"><label for="bulk-deposit-amount">Deposit amount</label>
+              <input id="bulk-deposit-amount" name="deposit" class="money" inputmode="decimal" placeholder="1000.00">
+              <p class="field-hint">The same amount on every reservation ticked. A quote asks for the deposit
+                only where one is set.</p></div>
             <div class="field-row">
               <div class="field"><label for="bulk-final">Final payment due</label>
                 <input id="bulk-final" name="finalPaymentDue" type="date"></div>
@@ -248,6 +270,7 @@ function drawPickBar() {
   const go = document.getElementById('pick-go');
   go.disabled = !tripOk;
   go.title = tripOk ? '' : 'A trip needs two or more booked or travelled reservations that are not in one already.';
+  document.getElementById('pick-quote').hidden = !rows.some((b) => b.status === 'quoted');
   const all = document.getElementById('pick-all');
   if (all) all.checked = cache.length > 0 && cache.every((b) => picked.has(b.id));
 }
@@ -290,7 +313,7 @@ onSubmit(bulkForm, async (values) => {
   const changes = {};
   for (const [k, v] of Object.entries(values)) if (v !== '') changes[k] = v;
   if (!Object.keys(changes).length) throw new Error('Choose something to change.');
-  const names = { status: 'status', depositRefundable: 'deposit kind', groupLabel: 'group name',
+  const names = { status: 'status', deposit: 'deposit amount', depositRefundable: 'deposit kind', groupLabel: 'group name',
     groupNumber: 'group number', finalPaymentDue: 'final payment date', depositDue: 'deposit date' };
   const what = Object.keys(changes).map((k) => names[k] || k).join(', ');
   if (!confirm(`Change the ${what} on ${picked.size} reservation${picked.size === 1 ? '' : 's'}?`)) return;
@@ -308,6 +331,70 @@ onSubmit(bulkForm, async (values) => {
     <ul class="plain" style="margin:.4rem 0 0;">${failed.map((r) => `<li>${esc(nameOf(r.id))}: ${esc(r.error)}</li>`).join('')}</ul></div>`;
   // The ones that went through are no longer ticked, so a second press is only for the rest.
   res.results.filter((r) => r.ok).forEach((r) => picked.delete(r.id));
+  await load();
+});
+
+// Quotes to several clients, previewed first and then sent.
+const quoteDlg = document.getElementById('quote-dlg');
+let quoteRows = [];
+const quoteSum = () => {
+  const n = [...document.querySelectorAll('[data-qsend]:checked')].length;
+  document.getElementById('quote-go').disabled = n === 0;
+  document.getElementById('quote-go').textContent = n ? `Send ${n} quote${n === 1 ? '' : 's'}` : 'Send';
+  document.getElementById('quote-sum').textContent = n ? '' : 'Nothing is ticked to send.';
+};
+document.getElementById('quote-close').addEventListener('click', () => quoteDlg.close());
+document.getElementById('pick-quote').addEventListener('click', async () => {
+  const ids = cache.filter((b) => picked.has(b.id) && b.status === 'quoted').map((b) => b.id);
+  document.getElementById('quote-error').hidden = true;
+  document.getElementById('quote-title').textContent = `Send ${ids.length} quote${ids.length === 1 ? '' : 's'}`;
+  document.getElementById('quote-rows').innerHTML = '<p class="spinner">Reading each one...</p>';
+  document.getElementById('quote-go').disabled = true;
+  quoteDlg.showModal();
+  quoteRows = [];
+  try {
+    for (let i = 0; i < ids.length; i += 25) {
+      const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids: ids.slice(i, i + 25), send: false } });
+      quoteRows.push(...res.results);
+    }
+  } catch (e) { showError(document.getElementById('quote-error'), e); return; }
+  document.getElementById('quote-rows').innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th style="width:1.5rem;"></th><th>Client</th><th>Sent to</th><th class="num">Trip</th>
+      <th class="num">Deposit</th><th>Deposit due</th><th></th></tr></thead>
+    <tbody>${quoteRows.map((r) => {
+      const can = r.ok;
+      const note = !can ? esc(r.error)
+        : r.alreadySent ? `<span class="badge badge-amber">sent ${r.sentCount || 1} time${(r.sentCount || 1) === 1 ? '' : 's'} before</span>`
+        : !r.depositCents ? '<span class="badge badge-amber">no deposit set, so it will not ask for one</span>' : '';
+      return `<tr>
+        <td><input type="checkbox" data-qsend="${esc(r.id)}" ${can ? '' : 'disabled'}${can && !r.alreadySent ? ' checked' : ''}></td>
+        <td><strong>${esc(r.client || (cache.find((b) => b.id === r.id) || {}).client_name || '')}</strong></td>
+        <td>${r.to ? esc(r.to) : '<span class="muted">no email on file</span>'}</td>
+        <td class="num">${money(r.tripCents)}</td>
+        <td class="num">${r.depositCents ? money(r.depositCents) : '<span class="muted">-</span>'}</td>
+        <td>${r.depositDue ? esc(dateFmt(r.depositDue)) : '<span class="muted">-</span>'}</td>
+        <td>${note}</td></tr>`;
+    }).join('')}</tbody></table></div>`;
+  document.querySelectorAll('[data-qsend]').forEach((b) => b.addEventListener('change', quoteSum));
+  quoteSum();
+});
+onSubmit(document.getElementById('quote-form'), async () => {
+  const ids = [...document.querySelectorAll('[data-qsend]:checked')].map((b) => b.dataset.qsend);
+  if (!ids.length) throw new Error('Nothing is ticked to send.');
+  if (!confirm(`Email ${ids.length} client${ids.length === 1 ? '' : 's'} their quote now? It cannot be recalled.`)) return;
+  const results = [];
+  for (let i = 0; i < ids.length; i += 25) {
+    const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids: ids.slice(i, i + 25), send: true } });
+    results.push(...res.results);
+  }
+  const failed = results.filter((r) => !r.ok);
+  const sent = results.length - failed.length;
+  document.getElementById('quote-rows').innerHTML = `<div class="notice ${failed.length ? 'notice-warn' : 'notice-ok'}">
+    ${sent} quote${sent === 1 ? '' : 's'} sent.${failed.length ? ` ${failed.length} could not be sent:
+    <ul class="plain" style="margin:.4rem 0 0;">${failed.map((r) => `<li>${esc(r.client || 'A reservation')}: ${esc(r.error)}</li>`).join('')}</ul>` : ''}</div>`;
+  document.getElementById('quote-go').disabled = true;
+  document.getElementById('quote-sum').textContent = '';
+  results.filter((r) => r.ok).forEach((r) => picked.delete(r.id));
   await load();
 });
 

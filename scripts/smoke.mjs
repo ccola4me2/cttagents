@@ -8182,6 +8182,37 @@ async function main() {
     if (b) await dropBooking(b);
   }
 
+  // Quotes to several clients at once: previewed first, only quoted ones, and a failed send is not recorded.
+  {
+    const email = `bulkq-${stamp}@test.dev`;
+    const person = await call(advisor, 'POST', '/api/clients', { name: `Bulk Quote ${stamp}`, email });
+    const mkq = (status) => call(advisor, 'POST', '/api/bookings', { clientName: `Bulk Quote ${stamp}`, supplier: 'Royal Caribbean',
+      productType: 'cruise', departDate: isoDay(280), gross: '2000', status });
+    const qid = (await mkq('quoted')).data?.booking?.id;
+    const bid = (await mkq('booked')).data?.booking?.id;
+    if (check(Boolean(qid && bid), 'a quoted and a booked reservation for one client')) {
+      await call(advisor, 'POST', `/api/bookings/${qid}/quick`, { deposit: '500', depositDue: isoDay(10) });
+      const look = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid, bid, 'not-a-real-id'] });
+      const rq = look.data?.results?.find((r) => r.id === qid);
+      check(look.status === 200 && rq?.ok === true && rq.to === email && rq.depositCents === 50000 && rq.depositDue === isoDay(10),
+        'a quote is previewed with who it goes to and the deposit it asks for', JSON.stringify(rq));
+      check(look.data?.results?.find((r) => r.id === bid)?.ok === false
+          && /quoted/i.test(look.data.results.find((r) => r.id === bid).error || ''),
+        'a booked reservation is refused rather than sent an invoice by mistake', JSON.stringify(look.data?.results));
+      check(look.data?.results?.find((r) => r.id === 'not-a-real-id')?.ok === false,
+        'and one that is not there is named');
+      const sent = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid], send: true });
+      const after = (await call(advisor, 'GET', `/api/bookings/${qid}/record`)).data?.booking || {};
+      check(sent.status === 200 && (sent.data?.results?.[0]?.ok === true || !after.quote_sent_at),
+        'a send that cannot go is not recorded as sent', JSON.stringify([sent.data?.results?.[0], after.quote_sent_at]));
+      const many = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: Array.from({ length: 26 }, (_, i) => `q${i}`) });
+      check(many.status === 400, 'and not too many at once', `status ${many.status}`);
+    }
+    if (qid) await dropBooking(qid);
+    if (bid) await dropBooking(bid);
+    if (person.data?.client?.id) await call(advisor, 'DELETE', `/api/clients/${person.data.client.id}`);
+  }
+
   // Confirmations forwarded by email wait on the Import page. Mail cannot be delivered to a test
   // Worker, so what is checked here is the advisor's side: the list, the address, and the fence.
   {

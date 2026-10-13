@@ -857,7 +857,7 @@ const QUICK_FIELDS = {
 // reservation is, so every check that route makes (a date that is not a date, a commission
 // above the cost, an advisor marking commission received) applies to every one of them.
 const BULK_FIELDS = ['status', 'groupLabel', 'groupNumber', 'depositRefundable', 'finalPaymentDue',
-  'depositDue', 'insuranceStatus'];
+  'depositDue', 'deposit', 'insuranceStatus'];
 const BULK_MAX = 60;
 
 /**

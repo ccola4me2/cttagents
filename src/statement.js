@@ -483,6 +483,63 @@ async function nextInvoiceNo(env, userId, year) {
  * client cannot be recalled, and the preview returns exactly what would be
  * sent, from the same code that sends it.
  */
+/**
+ * Quotes for several reservations at once, previewed and then sent.
+ *
+ * Each goes through handleStatement, the one route a quote goes out by, so a client gets exactly
+ * what one-at-a-time would have sent: the same email, the same page, the same record that it was
+ * sent. This only asks the same question of each reservation and collects the answers.
+ *
+ * Previewed before it is sent, as a separate request, because an email cannot be recalled. Only a
+ * quoted reservation is sent a quote: a booked one would be sent an invoice, which is a different
+ * thing to say to a client, so it is refused here whatever was asked for.
+ */
+const BULK_QUOTE_MAX = 25;
+
+export async function handleBulkQuote(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const body = await readJson(request);
+  const ids = [...new Set(Array.isArray(body.ids) ? body.ids.map((x) => String(x || '').slice(0, 64)).filter(Boolean) : [])];
+  if (!ids.length) return badRequest('Pick the reservations to send quotes for.');
+  if (ids.length > BULK_QUOTE_MAX) return badRequest(`Send at most ${BULK_QUOTE_MAX} at a time.`);
+  const send = body.send === true;
+
+  const ask = (id, preview) => handleStatement(new Request(request.url, {
+    method: 'POST', headers: request.headers, body: JSON.stringify({ preview }),
+  }), env, id);
+
+  const results = [];
+  for (const id of ids) {
+    const looked = await ask(id, true);
+    const data = await looked.json().catch(() => ({}));
+    if (!looked.ok) { results.push({ id, ok: false, error: data.error || `Not found (${looked.status}).` }); continue; }
+    const s = data.statement || {};
+    const row = {
+      id, client: s.clientName || '', to: data.to || null, problem: data.problem || null,
+      alreadySent: data.alreadySent || null, sentCount: data.sentCount || 0,
+      depositCents: s.depositCents || 0, depositDue: s.depositDue || '', tripCents: s.tripCents || 0,
+      mode: s.mode,
+    };
+    if (s.mode !== 'quote') {
+      results.push({ ...row, ok: false, error: 'Only a quoted reservation is sent a quote.' });
+      continue;
+    }
+    if (data.problem) { results.push({ ...row, ok: false, error: data.problem }); continue; }
+    if (!send) { results.push({ ...row, ok: true }); continue; }
+
+    const sent = await ask(id, false);
+    const out = await sent.json().catch(() => ({}));
+    results.push({ ...row, ok: sent.ok, error: sent.ok ? null : (out.error || `Not sent (${sent.status}).`) });
+  }
+  if (send) {
+    const n = results.filter((r) => r.ok).length;
+    await db.logActivity(env, user.id, 'quote.bulk', `Sent ${n} quote${n === 1 ? '' : 's'} at once`, { count: n });
+  }
+  return json({ ok: true, sent: send, results });
+}
+
 export async function handleStatement(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;

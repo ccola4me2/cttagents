@@ -125,6 +125,7 @@ import {
 } from './documents.js';
 import {
   handleStatement,
+  handleBulkQuote,
 } from './statement.js';
 import {
   handleAddOption,
@@ -806,6 +807,7 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/bookings' && method === 'GET') return handleListBookings(request, env);
   if (path === '/api/bookings' && method === 'POST') return handleCreateBooking(request, env);
   if (path === '/api/bookings/bulk' && method === 'POST') return handleBulkUpdate(request, env);
+  if (path === '/api/bookings/bulk-quote' && method === 'POST') return handleBulkQuote(request, env);
   if (recordMatch && method === 'GET') return handleBookingRecord(request, env, recordMatch[1]);
   if (quickMatch && method === 'POST') return handleQuickUpdate(request, env, quickMatch[1]);
   if (duplicateMatch && method === 'POST') return handleDuplicateBooking(request, env, duplicateMatch[1]);
