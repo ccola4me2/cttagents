@@ -362,6 +362,7 @@
 <script type="module">
 import { api, mountShell, esc, money, dateFmt, daysUntil, timeAgo, showError, onSubmit } from '/js/app.js';
 import { mountClientSuggest } from '/js/client-suggest.js';
+import { mountSupplierPicker } from '/js/supplier-picker.js';
 import { mountThread } from '/js/chat-thread.js';
 const me = await mountShell();
 
@@ -804,6 +805,10 @@ function drawDetail() {
        </select></div>`,
 
     group('Vendor'),
+    // The same pickers as the new reservation form: choose a cruise line, then the ship, then the
+    // departure, and the vendor, ship, itinerary and dates are filled in. Left out when the page is
+    // read only, because there is nothing to choose.
+    ro ? '' : '<div id="vendor-pick-field"></div>',
     row(text('supplier', 'Vendor', b.supplier),
         text('productName', 'Ship, hotel or product', b.product_name)),
     row(text('confirmationNumber', 'Confirmation number', b.confirmation_number),
@@ -926,6 +931,35 @@ function drawDetail() {
       mineOnly: me.id,
       emptyText: 'Nobody by that name yet. Keep typing to book for somebody new.',
     });
+  }
+  // The sailing picker, the one the new reservation form has. Mounted on every draw, because the form
+  // is rebuilt each time and the host with it. Only what a pick decides is written: the vendor, the
+  // ship, the itinerary, the destination and the dates, and the type when a cruise is chosen. All of it
+  // can still be typed over, since a charter or a private group will not be in the catalog.
+  const pickHost = document.getElementById('vendor-pick-field');
+  if (!ro && pickHost) {
+    const editForm = document.getElementById('detail-form');
+    mountSupplierPicker(pickHost, {
+      typeOf: () => editForm.elements.productType.value,
+      set(field, value) {
+        if (field === 'supplier' && editForm.elements.supplier) editForm.elements.supplier.value = value;
+        if (field === 'vendor' && editForm.elements.bookingMethod && !editForm.elements.bookingMethod.value) {
+          editForm.elements.bookingMethod.value = 'direct';
+        }
+      },
+      onSailing(sailing) {
+        const put = (n, v) => { const el = editForm.elements[n]; if (el && v) el.value = v; };
+        put('supplier', sailing.cruise_line);
+        put('productName', sailing.ship);
+        put('itinerary', sailing.name);
+        put('destination', sailing.destination);
+        put('departDate', sailing.depart_date);
+        put('returnDate', sailing.return_date);
+        put('productType', 'cruise');
+      },
+    }).then((picker) => {
+      editForm.elements.productType.addEventListener('change', () => picker.refresh());
+    }).catch(() => { /* the fields can be typed, which is how this form worked before */ });
   }
   // Handing the reservation over. Named in the question, because "move this
   // reservation?" against a list of four advisors does not say which one.
