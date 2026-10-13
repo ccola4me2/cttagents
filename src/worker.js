@@ -46,6 +46,8 @@ import { handleProposals, handleMarkBooked, handleSetDeclined } from './proposal
 } from './catalogmirror.js'; import {
   remindTasks,
 } from './taskmail.js'; import {
+  nudgeQuotes,
+} from './quotenudge.js'; import {
   remindDuePayments,
 } from './payremind.js'; import {
   sendCallLists,
@@ -610,6 +612,8 @@ export default {
     // and for any task already told about, so running it every five minutes
     // costs one query on almost every tick.
     job('task reminders', () => remindTasks(env));
+    // A quote that has gone three days without an answer becomes a follow-up on the advisor's list.
+    job('quote follow-ups', () => nudgeQuotes(env));
 
     // And the same thing for anybody who asked to be told on their phone.
     // Timeliness is the only reason this exists, so it runs on the ordinary

@@ -9223,7 +9223,7 @@ async function main() {
     check(jobs?.ok === true && byName.size > 0,
       'the cron writes down what each job did',
       jobs?.error || `${byName.size} jobs recorded`);
-    for (const name of ['broadcasts', 'task reminders', 'payment reminders',
+    for (const name of ['broadcasts', 'task reminders', 'payment reminders', 'quote follow-ups',
       'mark trips travelled', 'purge sessions']) {
       check(byName.has(name), `and ${name} is one of them`,
         [...byName.keys()].join(', '));
@@ -9233,6 +9233,9 @@ async function main() {
     check(byName.get('broadcasts')?.last_ok_at,
       'a job that did its work without throwing records that it worked',
       JSON.stringify(byName.get('broadcasts')));
+    // The query behind the follow-up on an unanswered quote ran against the real schema without throwing.
+    check(byName.get('quote follow-ups')?.last_ok_at,
+      'the follow-up on unanswered quotes ran without throwing', JSON.stringify(byName.get('quote follow-ups')));
   }
 
   const stop = await call(advisor, 'POST', `/api/broadcasts/${castId}/cancel`);

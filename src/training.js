@@ -84,7 +84,7 @@ export const LESSONS = [
     why: 'The client gets a page of their own with the costs on it and a yes or no. Their answer comes back to you by email. Nothing is booked and nothing is paid by their pressing yes.',
     manual: 'clientpages',
     page: '/app/reservations',
-    doing: 'Press Send quote on a reservation and read it as the client will: the cabin category and number (GTY until the cruise line assigns one), the price by line, the deposit and the card authorization button. Change the opening message or the note if you want your own words, and press Update the preview. Send it, then open the client link yourself. If they write a note on the page it arrives by email and on the reservation; answer from the reservation page and the reply appears under their note and is emailed to them.',
+    doing: 'Press Send quote on a reservation and read it as the client will: the cabin category and number (GTY until the cruise line assigns one), the price by line, the deposit and the card authorization button. Change the opening message or the note if you want your own words, and press Update the preview. Send it, then open the client link yourself. Three days after a quote with no answer, a Follow up task appears on your To do list by itself. If they write a note on the page it arrives by email and on the reservation; answer from the reservation page and the reply appears under their note and is emailed to them.',
   },
   {
     key: 'combined-quote',
