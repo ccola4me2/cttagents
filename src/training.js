@@ -123,6 +123,15 @@ export const LESSONS = [
     doing: 'Upload a Margaritaville at Sea, Norwegian, Royal Caribbean or Celebrity confirmation PDF, or paste a Carnival confirmation email (or forward it to your own confirmation address at the top of the page), read it, check each field and the price for each guest, choose whether the deposit is refundable, then create the reservation.',
   },
   {
+    key: 'forward-confirmation',
+    section: 'reservation',
+    title: 'Forward a confirmation by email',
+    why: 'The confirmation is already an email. Forwarding it to your own address means it is waiting for you to check, with nothing to download, upload or paste, and nothing created until you have looked.',
+    manual: 'reservations',
+    page: '/app/import',
+    doing: 'Copy your confirmation address from the top of Import reservations and save it in your contacts as CTT Confirmations. Forward a vendor confirmation to it, then press Review when it appears under Waiting for you, check each field and create the reservation, or Dismiss it.',
+  },
+  {
     key: 'trips',
     section: 'reservation',
     title: 'One holiday, several reservations',
