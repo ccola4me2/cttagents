@@ -8343,6 +8343,36 @@ async function main() {
     }
   }
 
+  // Correcting a client's name corrects it everywhere they are: the reservations they booked, and the ones
+  // they are a guest on.
+  {
+    const before = `Rename Before ${stamp}`;
+    const after = `Rename After ${stamp}`;
+    const cl = await call(advisor, 'POST', '/api/clients', { name: before, email: `rename-${stamp}@test.dev` });
+    const clId = cl.data?.client?.id;
+    const own = await call(advisor, 'POST', '/api/bookings', { clientName: before, supplier: 'Royal Caribbean',
+      productType: 'cruise', departDate: isoDay(300), gross: '1000', status: 'booked' });
+    const ownId = own.data?.booking?.id;
+    const other = await call(advisor, 'POST', '/api/bookings', { clientName: `Rename Host ${stamp}`, supplier: 'Royal Caribbean',
+      productType: 'cruise', departDate: isoDay(301), gross: '1000', status: 'booked' });
+    const otherId = other.data?.booking?.id;
+    if (clId && ownId && otherId) {
+      await call(advisor, 'POST', `/api/bookings/${otherId}/travellers`, { name: before });
+      const renamed = await call(advisor, 'PUT', `/api/clients/${clId}`, { name: after, email: `rename-${stamp}@test.dev` });
+      check(renamed.status === 200, 'a client can be renamed', `status ${renamed.status}`);
+      const a = await call(advisor, 'GET', `/api/bookings/${ownId}/record`);
+      const b = await call(advisor, 'GET', `/api/bookings/${otherId}/record`);
+      check(a.data?.booking?.client_name === after, 'the reservation they booked carries the new name', String(a.data?.booking?.client_name));
+      check((b.data?.travellers || []).some((t) => t.name === after) && !(b.data?.travellers || []).some((t) => t.name === before),
+        'and so does the one they are a guest on', JSON.stringify((b.data?.travellers || []).map((t) => t.name)));
+    }
+    if (ownId) await dropBooking(ownId);
+    if (otherId) await dropBooking(otherId);
+    const hostC = ((await call(advisor, 'GET', `/api/clients?q=${encodeURIComponent(`Rename Host ${stamp}`)}`)).data?.clients || [])[0];
+    if (hostC && hostC.id) await call(advisor, 'DELETE', `/api/clients/${hostC.id}`);
+    if (clId) await call(advisor, 'DELETE', `/api/clients/${clId}`);
+  }
+
   // A misspelt client corrected onto a name that is already on the book is the same person twice: the
   // rename says so in words, and the merge carries their trips as a guest along with them.
   {
