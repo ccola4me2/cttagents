@@ -98,3 +98,72 @@ export async function confirmNewClient(rawName, { known } = {}) {
     $('#nc-email').focus();
   });
 }
+
+const FIELD_WORD = { birthday: 'Birthday', email: 'Email', phone: 'Phone' };
+
+/**
+ * Everyone named on a confirmation, before the reservation is made.
+ *
+ * Asks the server what filing the guests would do. New people are simply added. For somebody
+ * already on the books, anything that would fill a blank or replace what is there is listed with
+ * a box: blanks are ticked, replacements are not, so nothing is overwritten that was not agreed.
+ * Resolves with what to send back, or null if the person cancelled. When nothing is already on
+ * file that would change, there is nothing to ask and it carries on.
+ */
+export async function reviewGuests(guests) {
+  let plan;
+  try {
+    plan = await api('/api/import/guests', { method: 'POST', body: { guests, preview: true } });
+  } catch {
+    // Not a reason to stop somebody taking a booking. The reservation is made without it.
+    return { accept: [], household: false, skipped: true };
+  }
+  const people = (plan.people || []).filter((p) => p.changes.length);
+  const action = plan.household && plan.household.action;
+  const group = action === 'new' || action === 'join';
+  if (!people.length) return { accept: [], household: group };
+
+  return new Promise((resolve) => {
+    const dlg = document.createElement('dialog');
+    dlg.innerHTML = `
+      <form method="dialog" id="rg-form">
+        <div class="card-head"><h2>Update what is on file?</h2></div>
+        <div class="card-pad">
+          <p class="field-hint" style="margin-top:0;">These people are already on your books. The
+            confirmation has details that are missing or different. Tick the ones to save; what is
+            not ticked stays as it is.</p>
+          ${people.map((p) => `<div style="margin:.8rem 0;">
+            <strong>${esc(p.clientName || p.name)}</strong>
+            ${p.changes.map((c) => `<label style="display:block;margin:.3rem 0;font-weight:400;">
+              <input type="checkbox" data-accept="${p.index}:${esc(c.field)}"${c.kind === 'add' ? ' checked' : ''}>
+              ${esc(FIELD_WORD[c.field] || c.field)}:
+              ${c.kind === 'add'
+                ? `add <strong>${esc(c.incoming)}</strong>`
+                : `replace <strong>${esc(c.current)}</strong> with <strong>${esc(c.incoming)}</strong>`}
+            </label>`).join('')}
+          </div>`).join('')}
+          ${group ? `<label style="display:block;margin:.8rem 0 0;font-weight:400;">
+            <input type="checkbox" id="rg-house" checked>
+            ${action === 'join' ? 'Add the others to the household they share' : 'Put everyone on this confirmation in one household'}
+          </label>` : ''}
+        </div>
+        <div class="card-foot" style="gap:.5rem;flex-wrap:wrap;">
+          <button class="btn btn-ghost" type="button" id="rg-cancel">Cancel</button>
+          <span style="flex:1;"></span>
+          <button class="btn btn-primary" type="submit" id="rg-go">Save and continue</button>
+        </div>
+      </form>`;
+    document.body.appendChild(dlg);
+    const done = (value) => { dlg.close(); dlg.remove(); resolve(value); };
+    dlg.querySelector('#rg-cancel').addEventListener('click', () => done(null));
+    dlg.addEventListener('cancel', (e) => { e.preventDefault(); done(null); });
+    dlg.querySelector('#rg-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const accept = [...dlg.querySelectorAll('[data-accept]')].filter((el) => el.checked)
+        .map((el) => el.dataset.accept);
+      const house = dlg.querySelector('#rg-house');
+      done({ accept, household: house ? house.checked : false });
+    });
+    dlg.showModal();
+  });
+}

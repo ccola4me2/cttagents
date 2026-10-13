@@ -119,7 +119,7 @@ Guest 1: COLE/DEBORAH"></textarea>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script type="module">
 import { api, mountShell, esc, money, dateFmt, showError } from '/js/app.js';
-import { confirmNewClient } from '/js/new-client.js';
+import { confirmNewClient, reviewGuests } from '/js/new-client.js';
 await mountShell();
 
 /**
@@ -240,6 +240,24 @@ function checkPricing() {
 }
 
 /** The guests to add, in column order, when the price is split by guest. */
+/** Every guest read off the confirmation, the client first, with what is known about each. */
+function guestsToFile(clientName, edited) {
+  const read = (lastRead && lastRead.pricing && lastRead.pricing.guests) || [];
+  const names = (edited && edited.length) ? edited.map((g) => ({ name: g.name, dob: g.dob }))
+    : ((lastRead && lastRead.guests) || []).map((n, i) => ({ name: n, dob: (read[i] || {}).dob || null }));
+  const contact = (lastRead && lastRead.client) || {};
+  const lead = String(clientName || '').trim().toLowerCase();
+  const list = names.filter((g) => g.name);
+  // The client named on the form is the lead even when the confirmation lists somebody else first.
+  const at = list.findIndex((g) => g.name.trim().toLowerCase() === lead);
+  if (at > 0) list.unshift(list.splice(at, 1)[0]);
+  if (!list.length && lead) list.push({ name: String(clientName).trim(), dob: contact.birthday || null });
+  return list.map((g, i) => ({
+    name: g.name, birthday: g.dob || (i === 0 ? contact.birthday : null) || null,
+    email: i === 0 ? contact.email || null : null, phone: i === 0 ? contact.phone || null : null,
+  }));
+}
+
 function guestList() {
   return [...document.querySelectorAll('[data-gname]')].map((el, i) => ({
     name: el.value.trim(), dob: (lastRead.pricing.guests[i] || {}).dob || null,
@@ -492,9 +510,16 @@ document.getElementById('conf-create').addEventListener('click', async () => {
   }
   // A name that is not on the books is asked about before the reservation is made.
   if (!(await confirmNewClient(body.clientName))) return;
+  // Everyone on the confirmation, the client first. Each becomes a client record and a traveller,
+  // and the party a household. Somebody already on the books is asked about before anything on
+  // their record is changed.
+  const filing = guestsToFile(body.clientName, people);
+  const review = filing.length ? await reviewGuests(filing) : { accept: [], household: false };
+  if (!review) return;
   btn.disabled = true;
   try {
     const res = await api('/api/bookings', { method: 'POST', body });
+    let travellersMade = false;
     if (hasLines) {
       // The reservation exists by now, so a failure here is said and not hidden, and the
       // person is left on a way to it rather than with nothing.
@@ -507,11 +532,32 @@ document.getElementById('conf-create').addEventListener('click', async () => {
               { method: 'POST', body: { name: people[i].name, dob: people[i].dob, isLead: i === 0 } });
             ids.push(made.id);
           }
+          travellersMade = true;
         }
         await api(`/api/bookings/${encodeURIComponent(res.booking.id)}/pricing`, { method: 'PUT', body: pricingBody(ids) });
       } catch (e3) {
         createErr.innerHTML = `The reservation was created, but its pricing was not saved (${esc(e3.message)}).
           <a href="/app/reservation?id=${encodeURIComponent(res.booking.id)}">Open the reservation</a> and enter it on the Pricing tab.`;
+        createErr.hidden = false;
+        return;
+      }
+    }
+    // The guests as travellers, when the pricing step above did not already make them.
+    if (!travellersMade) {
+      for (let i = 0; i < filing.length; i += 1) {
+        try {
+          await api(`/api/bookings/${encodeURIComponent(res.booking.id)}/travellers`, { method: 'POST',
+            body: { name: filing[i].name, dob: filing[i].birthday, email: filing[i].email, phone: filing[i].phone, isLead: i === 0 } });
+        } catch { /* the reservation stands; they can be added on its Travellers tab */ }
+      }
+    }
+    if (filing.length) {
+      try {
+        await api('/api/import/guests', { method: 'POST',
+          body: { guests: filing, preview: false, accept: review.accept, household: review.household } });
+      } catch (e4) {
+        createErr.innerHTML = `The reservation was created, but the guests were not filed as clients (${esc(e4.message)}).
+          <a href="/app/reservation?id=${encodeURIComponent(res.booking.id)}">Open the reservation</a>.`;
         createErr.hidden = false;
         return;
       }

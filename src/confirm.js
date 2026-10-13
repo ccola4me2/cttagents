@@ -916,6 +916,26 @@ function readCarnival(lines, text, fields, from) {
   fields.productType = 'cruise'; from.productType = 'a Carnival advisor copy';
 }
 
+// Words that mark a contact line as somebody else's: the agent's own, the vendor's, a hotel's.
+const NOT_THE_GUEST = /^(?:travel\s+)?(?:advisor|agent|agency|consultant|supplier|vendor|hotel|resort|support|customer\s+service|reservations?|sales)\b/i;
+
+/** The guest's own email and phone, where the confirmation prints them under a plain label. */
+export function readClientContact(lines) {
+  const out = {};
+  const who = '(?:(?:primary|lead|main)?\\s*(?:guest|passenger|client|customer|booker|contact)\\s+)?';
+  const mail = new RegExp(`^${who}e-?mail(?:\\s+address)?\\s*[:\\-]\\s*([^\\s@<>]+@[^\\s@<>]+\\.[A-Za-z]{2,})`, 'i');
+  const tel = new RegExp(`^${who}(?:phone|mobile|cell|telephone|tel)(?:\\s*(?:number|no\\.?))?\\s*[:\\-]\\s*(\\+?[\\d(][\\d\\s().+-]{6,24}\\d)`, 'i');
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (NOT_THE_GUEST.test(line)) continue;
+    let m = !out.email && mail.exec(line);
+    if (m) out.email = m[1].toLowerCase();
+    m = !out.phone && tel.exec(line);
+    if (m) out.phone = m[1].trim();
+  }
+  return out;
+}
+
 export function parseConfirmation(text) {
   const lines = stackLabels(String(text || '').split(/\r?\n/).slice(0, 400))
     .flatMap(splitColumns)
@@ -1044,10 +1064,17 @@ export function parseConfirmation(text) {
     from.productType = fields.productName ? `a ship, ${fields.productName}` : 'cruise wording';
   }
 
+  // What the document says about the lead guest as a person, for their client record. Only what is
+  // printed: a confirmation that gives no email comes back with none.
+  const client = readClientContact(lines);
+  const lead = pricing && Array.isArray(pricing.guests) ? pricing.guests[0] : null;
+  if (lead && lead.dob) client.birthday = lead.dob;
+
   return {
     fields,
     from,
     pricing,
+    client,
     guests: people.map((g) => g.name),
     // Named so the page can say what it did not find rather than leaving the
     // advisor to notice the blanks.

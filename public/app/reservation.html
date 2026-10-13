@@ -2110,7 +2110,7 @@ function render() {
   const copyForm = document.getElementById('copy-card-form');
   if (copyForm) copyForm.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(d.paymentFormUrl); copyForm.textContent = 'Copied'; }
-    catch { window.prompt('Copy this link', d.paymentFormUrl); }
+    catch { copyForm.textContent = d.paymentFormUrl; }
   });
   // Money that arrived without being scheduled. A client who sends the balance
   // early, or a deposit taken before anybody built a schedule, had nowhere to

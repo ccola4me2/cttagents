@@ -6426,6 +6426,12 @@ async function main() {
     { text: 'Booking ID: 12345\nTotal Booking Amount: $ 1,976.80\nFare Commission: $80.93' });
   check(plain.data?.pricing === null, 'a confirmation with no breakdown offers none', JSON.stringify(plain.data?.pricing));
 
+  // The guest's own contact details are read when printed, and the agent's are never taken for them.
+  const contactRead = await call(advisor, 'POST', '/api/import/confirmation',
+    { text: 'Booking ID: 12345\nAdvisor Email: agent@agency.test\nAdvisor Phone: 555-000-1111\nGuest Email: Pat.Guest@Example.test\nGuest Phone: (555) 123-4567' });
+  check(contactRead.data?.client?.email === 'pat.guest@example.test' && contactRead.data?.client?.phone === '(555) 123-4567',
+    'the guest\'s email and phone are read, and the advisor\'s are not taken for them', JSON.stringify(contactRead.data?.client));
+
   // -------------------------------------------- a group that takes names --
   step('Putting your name down for a group trip');
 
@@ -8240,6 +8246,49 @@ async function main() {
     if (qid) await dropBooking(qid);
     if (bid) await dropBooking(bid);
     if (person.data?.client?.id) await call(advisor, 'DELETE', `/api/clients/${person.data.client.id}`);
+  }
+
+  // Everyone on a confirmation becomes a client, the party a household, and nobody already on the
+  // books is changed without being asked.
+  {
+    const one = `Guest One ${stamp}`;
+    const two = `Guest Two ${stamp}`;
+    const party = [{ name: one, birthday: '1970-03-04', email: `guest-one-${stamp}@test.dev` }, { name: two, birthday: '1972-05-06' }];
+    const none = await call(advisor, 'POST', '/api/import/guests', { guests: [] });
+    check(none.status === 400, 'filing no guests is refused', `status ${none.status}`);
+    const look = await call(advisor, 'POST', '/api/import/guests', { guests: party, preview: true });
+    check(look.status === 200 && look.data?.people?.length === 2 && look.data.people.every((p) => p.existing === false)
+        && look.data.household?.action === 'new',
+      'new guests are previewed as new, with a household to make', JSON.stringify(look.data));
+    const made = await call(advisor, 'POST', '/api/import/guests', { guests: party, preview: false, household: true });
+    check(made.status === 200 && made.data?.added?.length === 2 && made.data?.household?.id,
+      'filing them adds each as a client and puts the party in a household', JSON.stringify(made.data));
+    const read = async (name) => ((await call(advisor, 'GET', `/api/clients?q=${encodeURIComponent(name)}`)).data?.clients || [])
+      .find((c) => c.name === name) || {};
+    const c1 = await read(one);
+    const c2 = await read(two);
+    check(String(c1.birthday || '').slice(0, 10) === '1970-03-04' && c1.email === `guest-one-${stamp}@test.dev`
+        && String(c2.birthday || '').slice(0, 10) === '1972-05-06',
+      'with the birthdays and the email that were read', JSON.stringify([c1.birthday, c1.email, c2.birthday]));
+    check(Boolean(c1.household_id) && c1.household_id === c2.household_id,
+      'and both in the same household', JSON.stringify([c1.household_id, c2.household_id]));
+
+    // Already on the books: a blank is offered, a difference is offered, neither is applied unasked.
+    const again = [{ name: one, birthday: '1971-01-01', phone: '555-0101' }, { name: two, birthday: '1972-05-06' }];
+    const ask = await call(advisor, 'POST', '/api/import/guests', { guests: again, preview: true });
+    const ch = (ask.data?.people?.[0]?.changes) || [];
+    check(ch.some((c) => c.field === 'birthday' && c.kind === 'change') && ch.some((c) => c.field === 'phone' && c.kind === 'add')
+        && (ask.data?.people?.[1]?.changes || []).length === 0 && ask.data?.household?.action === 'already',
+      'a guest already on file is asked about: the new phone, the different birthday, and nothing else',
+      JSON.stringify(ask.data));
+    await call(advisor, 'POST', '/api/import/guests', { guests: again, preview: false, accept: ['0:phone'], household: true });
+    const after = await read(one);
+    check(String(after.birthday || '').slice(0, 10) === '1970-03-04' && after.phone === '555-0101',
+      'only what was ticked is written: the phone, not the birthday', JSON.stringify([after.birthday, after.phone]));
+    await call(advisor, 'POST', '/api/import/guests', { guests: again, preview: false, accept: ['0:birthday'] });
+    const fixed = await read(one);
+    check(String(fixed.birthday || '').slice(0, 10) === '1971-01-01', 'and a replacement is made when it is ticked', `${fixed.birthday}`);
+    for (const c of [c1, c2]) if (c.id) await call(advisor, 'DELETE', `/api/clients/${c.id}`);
   }
 
   // Confirmations forwarded by email wait on the Import page. Mail cannot be delivered to a test
