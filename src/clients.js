@@ -414,7 +414,9 @@ export async function upsertClient(env, user, body) {
   // record, whatever they called themselves this time. Their name is left
   // alone: what the advisor filed them under is not a form's to overwrite.
   const email = clean(body.email, 160);
-  let before = email
+  // An import turns this off: two people on one sheet may share an address or a number, a couple on one
+  // email being the usual case, and each is their own client. The name is still the key.
+  let before = email && body.matchEmail !== false
     ? await env.DB.prepare(
       `SELECT ${db.CLIENT_COLUMNS} FROM clients c
         WHERE c.user_id = ? AND LOWER(TRIM(c.email)) = LOWER(TRIM(?)) LIMIT 1`

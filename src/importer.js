@@ -578,7 +578,7 @@ export async function handleRunClientImport(request, env) {
   for (const row of parsed.rows) {
     if (row.problems.length) { skipped += 1; continue; }
     try {
-      const out = await upsertClient(env, user, row);
+      const out = await upsertClient(env, user, { ...row, matchEmail: false });
       if (out.error) {
         failures.push({ line: row.line, client: row.name, error: out.error });
         continue;

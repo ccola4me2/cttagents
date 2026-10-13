@@ -8318,6 +8318,23 @@ async function main() {
     }
   }
 
+  // Two clients on one sheet may share an email and a phone number: both are added, neither merged.
+  {
+    const a = `Shared Contact A ${stamp}`;
+    const b = `Shared Contact B ${stamp}`;
+    const text = ['Name\tEmail\tPhone',
+      `${a}\tshared-${stamp}@test.dev\t8135550100`,
+      `${b}\tshared-${stamp}@test.dev\t8135550100`].join('\n');
+    const run = await call(advisor, 'POST', '/api/import/clients', { text });
+    check(run.status === 200 && run.data?.created === 2 && run.data?.updated === 0,
+      'two people with the same email and phone are two clients', JSON.stringify(run.data));
+    for (const name of [a, b]) {
+      const got = ((await call(advisor, 'GET', `/api/clients?q=${encodeURIComponent(name)}`)).data?.clients || []).find((x) => x.name === name);
+      check(Boolean(got && got.email === `shared-${stamp}@test.dev`), `${name} is on the books with the shared email`, JSON.stringify(got && got.email));
+      if (got && got.id) await call(advisor, 'DELETE', `/api/clients/${got.id}`);
+    }
+  }
+
   // Confirmations forwarded by email wait on the Import page. Mail cannot be delivered to a test
   // Worker, so what is checked here is the advisor's side: the list, the address, and the fence.
   {
