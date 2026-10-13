@@ -831,6 +831,11 @@ const QUICK_FIELDS = {
   productType: ['product_type', (v) => oneOf(v, PRODUCT_TYPES)],
   commissionStatus: ['commission_status', (v) => oneOf(v, COMMISSION_STATUSES)],
   invoiceNotes: ['invoice_notes', (v) => clean(v, 1000)],
+  // A group the agency does not run, and whether the deposit comes back. Beside the rest so a
+  // set of reservations can be changed at once by the same route as one.
+  groupLabel: ['group_label', (v) => clean(v, 80) || null],
+  groupNumber: ['group_number', (v) => clean(v, 60) || null],
+  depositRefundable: ['deposit_refundable', (v) => (DEPOSIT_KINDS.includes(v) ? v : null)],
   personal: ['personal', (v) => (v ? 1 : 0)],
 };
 
@@ -847,6 +852,58 @@ const QUICK_FIELDS = {
 // an advisor, so the guard refused them too. The fields ended up settable by
 // nobody. They live on handleSetBookingSplit in admin.js now, which is
 // reachable by the person actually allowed to decide it.
+
+// What a set of reservations may be changed to at once. Each is applied by the same route one
+// reservation is, so every check that route makes (a date that is not a date, a commission
+// above the cost, an advisor marking commission received) applies to every one of them.
+const BULK_FIELDS = ['status', 'groupLabel', 'groupNumber', 'depositRefundable', 'finalPaymentDue',
+  'depositDue', 'insuranceStatus'];
+const BULK_MAX = 60;
+
+/**
+ * Change the same things on several reservations at once.
+ *
+ * Done one at a time through handleQuickUpdate, and not by one statement over all of them: each
+ * reservation has its own owner, its own checks and its own schedule that follows its dates, and a
+ * set of rows updated together would skip every one of those. A reservation that cannot be changed
+ * is named with the reason and the rest still go through, so one bad row does not undo ten.
+ */
+export async function handleBulkUpdate(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const body = await readJson(request);
+  const ids = [...new Set(Array.isArray(body.ids) ? body.ids.map((x) => clean(x, 64)).filter(Boolean) : [])];
+  if (!ids.length) return badRequest('Pick the reservations to change.');
+  if (ids.length > BULK_MAX) return badRequest(`Change at most ${BULK_MAX} at a time.`);
+
+  const changes = {};
+  for (const key of BULK_FIELDS) {
+    if (body.changes && Object.prototype.hasOwnProperty.call(body.changes, key)
+        && body.changes[key] !== '' && body.changes[key] !== null && body.changes[key] !== undefined) {
+      changes[key] = body.changes[key];
+    }
+  }
+  if (!Object.keys(changes).length) return badRequest('Choose something to change.');
+
+  const results = [];
+  for (const id of ids) {
+    const one = new Request(request.url, {
+      method: 'POST', headers: request.headers, body: JSON.stringify(changes),
+    });
+    const res = await handleQuickUpdate(one, env, id);
+    let error = null;
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      error = detail.error || `Not changed (${res.status}).`;
+    }
+    results.push({ id, ok: res.ok, error });
+  }
+  const done = results.filter((r) => r.ok).length;
+  await db.logActivity(env, user.id, 'booking.bulk',
+    `Changed ${done} reservation${done === 1 ? '' : 's'} at once`, { fields: Object.keys(changes), count: done });
+  return json({ ok: true, changed: done, results });
+}
 
 export async function handleQuickUpdate(request, env, id) {
   const { user, response } = await requireUser(request, env);

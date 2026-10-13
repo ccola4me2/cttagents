@@ -35,12 +35,53 @@
       <div id="pick-bar" hidden>
         <div class="notice notice-ok" style="display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;">
           <strong id="pick-count"></strong>
-          <input id="pick-name" maxlength="120" placeholder="Trip name (optional)" style="min-width:220px;">
-          <button class="btn btn-primary btn-sm" id="pick-go" type="button">Put together as one trip</button>
+          <button class="btn btn-primary btn-sm" id="pick-change" type="button">Change them</button>
+          <input id="pick-name" maxlength="120" placeholder="Trip name (optional)" style="min-width:200px;">
+          <button class="btn btn-ghost btn-sm" id="pick-go" type="button">Put together as one trip</button>
           <button class="btn btn-ghost btn-sm" id="pick-clear" type="button">Clear</button>
           <span class="notice-error" id="pick-err" hidden></span>
         </div>
       </div>
+      <dialog id="bulk-dlg">
+        <form id="bulk-form" method="dialog">
+          <div class="card-head"><h2 id="bulk-title">Change reservations</h2>
+            <button class="btn btn-ghost btn-sm" type="button" id="bulk-close">Close</button></div>
+          <div class="card-pad">
+            <p class="field-hint" style="margin-top:0;">Fill in only what should change. Anything left
+              as it is stays as it is on every reservation ticked.</p>
+            <div class="notice notice-error" id="bulk-error" hidden></div>
+            <div class="field"><label for="bulk-status">Status</label>
+              <select id="bulk-status" name="status">
+                <option value="">Leave as it is</option>
+                <option value="quoted">Quoted</option>
+                <option value="booked">Booked</option>
+                <option value="cancelled">Cancelled</option>
+              </select></div>
+            <div class="field"><label for="bulk-deposit">Deposit is</label>
+              <select id="bulk-deposit" name="depositRefundable">
+                <option value="">Leave as it is</option>
+                <option value="refundable">Refundable</option>
+                <option value="nonrefundable">Non refundable</option>
+              </select></div>
+            <div class="field-row">
+              <div class="field"><label for="bulk-glabel">Group name</label>
+                <input id="bulk-glabel" name="groupLabel" maxlength="80" placeholder="TLN"></div>
+              <div class="field"><label for="bulk-gnumber">Group number</label>
+                <input id="bulk-gnumber" name="groupNumber" maxlength="60" placeholder="123456"></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label for="bulk-final">Final payment due</label>
+                <input id="bulk-final" name="finalPaymentDue" type="date"></div>
+              <div class="field"><label for="bulk-depdue">Deposit due</label>
+                <input id="bulk-depdue" name="depositDue" type="date"></div>
+            </div>
+            <div id="bulk-result" style="margin-top:.8rem;"></div>
+          </div>
+          <div class="card-foot">
+            <button class="btn btn-primary" type="submit" id="bulk-go">Change them</button>
+          </div>
+        </form>
+      </dialog>
       <section class="card" id="panel"><p class="spinner">Loading reservations...</p></section>
     </div>
   </div>
@@ -97,7 +138,7 @@ function render(bookings, stats, scope, d = {}) {
   panel.innerHTML = `
     ${d.truncated ? `<div class="notice notice-warn">Showing the first ${d.cap} only.
       Search to narrow it down; filtering what is on screen will not reach the rest.</div>` : ''}<div class="table-wrap"><table>
-    <thead><tr><th style="width:1.5rem;"></th><th>Client</th>${showAdvisor ? '<th>Advisor</th>' : ''}<th>Vendor</th><th>Conf #</th>
+    <thead><tr><th style="width:1.5rem;"><input type="checkbox" id="pick-all" aria-label="Tick every reservation shown"></th><th>Client</th>${showAdvisor ? '<th>Advisor</th>' : ''}<th>Vendor</th><th>Conf #</th>
       <th>Trip</th><th>Departing</th><th>Final payment</th>
       <th class="num">Gross</th><th class="num">Commission</th><th></th></tr></thead>
     <tbody>${bookings.map((b) => {
@@ -124,8 +165,8 @@ function render(bookings, stats, scope, d = {}) {
       const pickable = (b.status === 'booked' || b.status === 'travelled') && !b.trip_id;
       const inTrip = b.trip_id && tripNames.has(b.trip_id);
       return `<tr>
-        <td>${pickable ? `<input type="checkbox" data-pick="${esc(b.id)}" aria-label="Pick for a trip"${
-          picked.has(b.id) ? ' checked' : ''}>` : ''}</td>
+        <td><input type="checkbox" data-pick="${esc(b.id)}" aria-label="Tick ${esc(b.client_name)}"${
+          picked.has(b.id) ? ' checked' : ''}></td>
         <td><a class="name" href="/app/reservation?id=${esc(b.id)}">${esc(b.client_name)}</a>
           <div><span class="badge ${STATUS_TONE[b.status] || 'badge-navy'}">${esc(b.status)}</span>${
             inTrip ? ` <a class="badge badge-navy" href="/app/trip?id=${esc(b.trip_id)}">${esc(tripNames.get(b.trip_id))}</a>` : ''}</div></td>
@@ -198,8 +239,17 @@ function drawPickBar() {
   for (const id of [...picked]) if (!cache.some((b) => b.id === id)) picked.delete(id);
   document.getElementById('pick-bar').hidden = picked.size === 0;
   document.getElementById('pick-count').textContent = picked.size === 1
-    ? '1 reservation ticked. Tick at least one more.' : `${picked.size} reservations ticked`;
-  document.getElementById('pick-go').disabled = picked.size < 2;
+    ? '1 reservation ticked' : `${picked.size} reservations ticked`;
+  // A trip is two or more booked or travelled reservations that are not in one already, so the
+  // button says so rather than refusing afterwards. Changing them has no such condition.
+  const rows = cache.filter((b) => picked.has(b.id));
+  const tripOk = rows.length >= 2
+    && rows.every((b) => (b.status === 'booked' || b.status === 'travelled') && !b.trip_id);
+  const go = document.getElementById('pick-go');
+  go.disabled = !tripOk;
+  go.title = tripOk ? '' : 'A trip needs two or more booked or travelled reservations that are not in one already.';
+  const all = document.getElementById('pick-all');
+  if (all) all.checked = cache.length > 0 && cache.every((b) => picked.has(b.id));
 }
 
 panel.addEventListener('change', (e) => {
@@ -213,6 +263,52 @@ document.getElementById('pick-clear').addEventListener('click', () => {
   picked.clear();
   panel.querySelectorAll('[data-pick]').forEach((b) => { b.checked = false; });
   drawPickBar();
+});
+
+// Every reservation on screen, and none again.
+panel.addEventListener('change', (e) => {
+  if (e.target.id !== 'pick-all') return;
+  cache.forEach((b) => { if (e.target.checked) picked.add(b.id); else picked.delete(b.id); });
+  panel.querySelectorAll('[data-pick]').forEach((box) => { box.checked = e.target.checked; });
+  drawPickBar();
+});
+
+// Changing the ticked reservations all at once.
+const bulkDlg = document.getElementById('bulk-dlg');
+const bulkForm = document.getElementById('bulk-form');
+document.getElementById('pick-change').addEventListener('click', () => {
+  bulkForm.reset();
+  document.getElementById('bulk-error').hidden = true;
+  document.getElementById('bulk-result').innerHTML = '';
+  document.getElementById('bulk-title').textContent =
+    `Change ${picked.size} reservation${picked.size === 1 ? '' : 's'}`;
+  document.getElementById('bulk-go').disabled = false;
+  bulkDlg.showModal();
+});
+document.getElementById('bulk-close').addEventListener('click', () => bulkDlg.close());
+onSubmit(bulkForm, async (values) => {
+  const changes = {};
+  for (const [k, v] of Object.entries(values)) if (v !== '') changes[k] = v;
+  if (!Object.keys(changes).length) throw new Error('Choose something to change.');
+  const names = { status: 'status', depositRefundable: 'deposit kind', groupLabel: 'group name',
+    groupNumber: 'group number', finalPaymentDue: 'final payment date', depositDue: 'deposit date' };
+  const what = Object.keys(changes).map((k) => names[k] || k).join(', ');
+  if (!confirm(`Change the ${what} on ${picked.size} reservation${picked.size === 1 ? '' : 's'}?`)) return;
+  const res = await api('/api/bookings/bulk', { method: 'POST', body: { ids: [...picked], changes } });
+  const failed = res.results.filter((r) => !r.ok);
+  if (!failed.length) {
+    bulkDlg.close();
+    picked.clear();
+    await load();
+    return;
+  }
+  const nameOf = (id) => (cache.find((b) => b.id === id) || {}).client_name || 'A reservation';
+  document.getElementById('bulk-result').innerHTML = `<div class="notice notice-warn">
+    ${res.changed} changed. ${failed.length} could not be:
+    <ul class="plain" style="margin:.4rem 0 0;">${failed.map((r) => `<li>${esc(nameOf(r.id))}: ${esc(r.error)}</li>`).join('')}</ul></div>`;
+  // The ones that went through are no longer ticked, so a second press is only for the rest.
+  res.results.filter((r) => r.ok).forEach((r) => picked.delete(r.id));
+  await load();
 });
 
 document.getElementById('pick-go').addEventListener('click', async (e) => {

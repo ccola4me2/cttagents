@@ -8149,6 +8149,39 @@ async function main() {
       'and the price as fare, taxes and gratuities adding up to the total it states', JSON.stringify(vp && vp.lines));
   }
 
+  // Changing several reservations at once, quoted ones included.
+  {
+    const mk = (n) => call(advisor, 'POST', '/api/bookings', { clientName: `Bulk ${n} ${stamp}`, supplier: 'Royal Caribbean',
+      productType: 'cruise', departDate: isoDay(300), status: 'quoted' });
+    const a = (await mk('A')).data?.booking?.id;
+    const b = (await mk('B')).data?.booking?.id;
+    if (check(Boolean(a && b), 'two quoted reservations to change together')) {
+      const done = await call(advisor, 'POST', '/api/bookings/bulk', { ids: [a, b, 'not-a-real-id'],
+        changes: { status: 'booked', groupLabel: 'TLN', groupNumber: '9988', depositRefundable: 'nonrefundable' } });
+      check(done.status === 200 && done.data?.changed === 2
+          && done.data.results.find((r) => r.id === 'not-a-real-id')?.ok === false,
+        'several reservations change at once, and one that is not there is named and does not stop the rest',
+        JSON.stringify(done.data));
+      const ra = (await call(advisor, 'GET', `/api/bookings/${a}/record`)).data?.booking || {};
+      check(ra.status === 'booked' && ra.group_label === 'TLN' && ra.group_number === '9988'
+          && ra.deposit_refundable === 'nonrefundable',
+        'a quoted reservation takes the status, the group and the deposit kind',
+        JSON.stringify([ra.status, ra.group_label, ra.group_number, ra.deposit_refundable]));
+      const bad = await call(advisor, 'POST', '/api/bookings/bulk', { ids: [a, b], changes: { finalPaymentDue: '0206-09-09' } });
+      check(bad.status === 200 && bad.data?.changed === 0 && bad.data.results.every((r) => r.error),
+        'and a date that is not a date is refused on every one, with the reason', JSON.stringify(bad.data));
+      const none = await call(advisor, 'POST', '/api/bookings/bulk', { ids: [a], changes: {} });
+      check(none.status === 400, 'a change with nothing in it is refused', `status ${none.status}`);
+      const many = await call(advisor, 'POST', '/api/bookings/bulk', { ids: Array.from({ length: 61 }, (_, i) => `x${i}`), changes: { status: 'booked' } });
+      check(many.status === 400, 'and so are too many at once', `status ${many.status}`);
+      const rival = await call(admin, 'POST', '/api/bookings/bulk', { ids: [a], changes: { groupLabel: 'X' } });
+      check(rival.status !== 200 || rival.data?.results?.[0]?.ok === true || rival.data?.changed === 0,
+        'an owner reaches only what they are allowed to', JSON.stringify(rival.data));
+    }
+    if (a) await dropBooking(a);
+    if (b) await dropBooking(b);
+  }
+
   // Confirmations forwarded by email wait on the Import page. Mail cannot be delivered to a test
   // Worker, so what is checked here is the advisor's side: the list, the address, and the fence.
   {
