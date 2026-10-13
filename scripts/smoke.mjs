@@ -8201,6 +8201,35 @@ async function main() {
         'a booked reservation is refused rather than sent an invoice by mistake', JSON.stringify(look.data?.results));
       check(look.data?.results?.find((r) => r.id === 'not-a-real-id')?.ok === false,
         'and one that is not there is named');
+
+      // The agency's card authorization form rides along with a quote that asks for a deposit.
+      {
+        const mine = await call(admin, 'GET', '/api/agencies');
+        const ag = (mine.data?.agencies || []).find((x) => x.id === mine.data?.myAgencyId) || {};
+        const keep = { name: ag.name, address: ag.address, phone: ag.phone, email: ag.email,
+          website: ag.website, sellerOfTravel: ag.seller_of_travel, logoUrl: ag.logo_url,
+          brandColor: ag.brand_color, tagline: ag.tagline, joinOpen: ag.join_open !== 0 };
+        const FORM = 'https://forms.example.test/card-authorization';
+        const put = (extra) => call(admin, 'PUT', `/api/agencies/${ag.id}`, { ...keep, ...extra });
+        const bad = await put({ paymentFormUrl: 'http://forms.example.test/x' });
+        check(bad.status === 400, 'a card form address that is not https is refused', `status ${bad.status}`);
+        const spaced = await put({ paymentFormUrl: 'https://forms.example.test/a b' });
+        check(spaced.status === 400, 'and so is one with a space in it', `status ${spaced.status}`);
+        const set = await put({ paymentFormUrl: FORM });
+        check(set.status === 200 && set.data?.agency?.payment_form_url === FORM,
+          'an agency can save the address of its card authorization form', JSON.stringify(set.data?.agency?.payment_form_url));
+        const prev = await call(advisor, 'POST', `/api/bookings/${qid}/statement`, { preview: true });
+        check(prev.data?.statement?.paymentFormUrl === FORM,
+          'a quote that asks for a deposit carries the form', JSON.stringify(prev.data?.statement?.paymentFormUrl));
+        const rec = await call(advisor, 'GET', `/api/bookings/${qid}/record`);
+        check(rec.data?.paymentFormUrl === FORM, 'and the reservation offers it to the advisor', JSON.stringify(rec.data?.paymentFormUrl));
+        const keepIt = await put({});
+        check(keepIt.status === 200 && keepIt.data?.agency?.payment_form_url === FORM,
+          'a save that does not mention the form leaves it alone', JSON.stringify(keepIt.data?.agency?.payment_form_url));
+        const cleared = await put({ paymentFormUrl: '' });
+        check(cleared.status === 200 && !cleared.data?.agency?.payment_form_url,
+          'and an empty one takes it down', JSON.stringify(cleared.data?.agency?.payment_form_url));
+      }
       const sent = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid], send: true });
       const after = (await call(advisor, 'GET', `/api/bookings/${qid}/record`)).data?.booking || {};
       check(sent.status === 200 && (sent.data?.results?.[0]?.ok === true || !after.quote_sent_at),

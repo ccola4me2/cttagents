@@ -10,6 +10,7 @@ import {
 } from './util.js';
 import { requireUser, isAdmin } from './auth.js';
 import { tenantFor } from './tenant.js';
+import { paymentFormFor } from './brand.js';
 import * as db from './db.js';
 import { fireTrigger } from './automations.js';
 import { applyTemplates } from './tasktemplates.js';
@@ -631,6 +632,8 @@ export async function handleBookingRecord(request, env, id) {
     messages: await tripMessages(env, booking.id, booking.user_id),
     // Who opened the page and from which link, so "did they see the invoice" has an answer.
     views: await tripViews(env, booking.id, booking.user_id),
+    // The agency's card authorization form, when it has one, so the schedule can offer it.
+    paymentFormUrl: await paymentFormFor(env, booking.agency_id || user.agency_id),
     // Whether the invoice or quote the client is holding still matches this
     // reservation. Answered here so the page can say "changed since you sent
     // it" without the advisor having to open the preview and compare by eye.

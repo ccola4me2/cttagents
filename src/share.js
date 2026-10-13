@@ -28,7 +28,7 @@
 
 import { json, badRequest, notFound, clean, cleanText, oneOf, uid, now, sha256Hex, readJson,
   escapeHtml as esc, usDate } from './util.js';
-import { brandForUser, DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand.js';
+import { brandForUser, DEFAULT_BRAND, HEX_COLOR, readableOnWhite, paymentFormFor } from './brand.js';
 import { currentClient } from './clientauth.js';
 import { requireUser, borrowedSeat, SESSION_COOKIE } from './auth.js';
 import { tenantFor } from './tenant.js';
@@ -307,6 +307,7 @@ async function loadTrip(env, code) {
 
   return {
     booking,
+    paymentFormUrl: await paymentFormFor(env, booking.agency_id),
     travellers: travellers.results || [],
     components: components.results || [],
     options: options.results || [],
@@ -818,6 +819,11 @@ export async function renderTripPage(request, env, code) {
             <td class="r">${esc(money(p.amount_cents))}</td>
           </tr>`;
         }).join('')}</tbody></table>` : ''}
+      ${owed > 0 && trip.paymentFormUrl ? `<p class="small"><a class="paybtn" href="${esc(trip.paymentFormUrl)}"
+          target="_blank" rel="noopener">Authorize a card payment</a></p>
+        <p class="dim small">The form asks for the amount, the date to charge on or after, and your
+        confirmation number${b.confirmation_number ? ` (${esc(b.confirmation_number)})` : ''}.
+        Your card is not charged before the date you give.</p>` : ''}
       <p class="dim small">Payments go to ${esc(b.supplier || 'the supplier')}.
         ${esc(advisor)} takes care of each one with you as it falls due, and records it here,
         so this is where to look for what has been paid and what is still outstanding.</p>
@@ -1736,6 +1742,8 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
     -webkit-font-smoothing:antialiased;padding:2rem 1rem 4rem}
   .wrap{max-width:720px;margin:0 auto}
   .backlink{margin:0 0 .9rem}
+  .paybtn{display:inline-block;background:var(--navy);color:#fff;text-decoration:none;
+    padding:.55rem 1.1rem;border-radius:8px;font-weight:600;font-size:.95rem}
   .backlink a{color:var(--dim);text-decoration:none;font-size:.9rem}
   .backlink a:hover{color:var(--navy)}
   .brand{display:flex;align-items:center;gap:.6rem;margin-bottom:2rem}

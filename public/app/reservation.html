@@ -2101,9 +2101,17 @@ function render() {
     : '';
 
   document.getElementById('schedule-actions').innerHTML = d.editable
-    ? `<button class="btn btn-secondary btn-sm" id="post-new">Post a payment</button>
+    ? `${d.paymentFormUrl ? `<a class="btn btn-ghost btn-sm" href="${esc(d.paymentFormUrl)}"
+          target="_blank" rel="noopener" title="Opens the agency's card authorization form">Card form</a>
+       <button class="btn btn-ghost btn-sm" id="copy-card-form">Copy card form link</button>` : ''}
+       <button class="btn btn-secondary btn-sm" id="post-new">Post a payment</button>
        <button class="btn btn-ghost btn-sm" id="build">Build schedule</button>`
     : '';
+  const copyForm = document.getElementById('copy-card-form');
+  if (copyForm) copyForm.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(d.paymentFormUrl); copyForm.textContent = 'Copied'; }
+    catch { window.prompt('Copy this link', d.paymentFormUrl); }
+  });
   // Money that arrived without being scheduled. A client who sends the balance
   // early, or a deposit taken before anybody built a schedule, had nowhere to
   // be recorded from this page: the only way in was a row that already existed.

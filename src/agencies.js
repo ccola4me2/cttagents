@@ -56,9 +56,17 @@ function parse(body) {
     return { error: 'A logo address has to start with https://.' };
   }
 
+  // The address of a form that takes card details somewhere that is built to hold them. It goes in a
+  // link a client is sent, so it has to be a plain https address: no other scheme, no spaces.
+  const formUrl = clean(body.paymentFormUrl, 500);
+  if (formUrl && !/^https:\/\/[^\s"'<>]+$/i.test(formUrl)) {
+    return { error: 'A card authorization form address has to start with https:// and have no spaces.' };
+  }
+
   return {
     fields: {
       name,
+      paymentFormUrl: formUrl || null,
       address: cleanText(body.address, 300),
       phone: clean(body.phone, 40),
       email: clean(body.email, 254),
@@ -91,7 +99,7 @@ export async function handleListAgencies(request, env) {
   const { results } = await env.DB.prepare(
     `SELECT a.id, a.name, a.slug, a.address, a.phone, a.email,
             a.website, a.seller_of_travel, a.logo_url, a.brand_color, a.tagline,
-            a.join_open, a.created_at, a.updated_at,
+            a.join_open, a.created_at, a.updated_at, a.payment_form_url,
             ${HEADCOUNT}, ${ACTIVE}, ${WAITING}
        FROM agencies a WHERE ${where} ORDER BY a.name ASC LIMIT 200`
   ).bind(...binds).all();
@@ -119,11 +127,12 @@ export async function handleCreateAgency(request, env) {
   const ts = now();
   await env.DB.prepare(
     `INSERT INTO agencies (id, name, slug, address, phone, email, website,
-       seller_of_travel, logo_url, brand_color, tagline, join_open, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       seller_of_travel, logo_url, brand_color, tagline, join_open, created_at, updated_at,
+       payment_form_url)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(id, fields.name, slug, fields.address, fields.phone,
          fields.email, fields.website, fields.sellerOfTravel, fields.logoUrl,
-         fields.brandColor, fields.tagline, fields.joinOpen, ts, ts).run();
+         fields.brandColor, fields.tagline, fields.joinOpen, ts, ts, fields.paymentFormUrl).run();
 
   await db.logActivity(env, user.id, 'agency.create', `Added agency ${fields.name}`, { id, slug });
   return json({ ok: true, agency: await getAgency(env, id) }, 201);
@@ -137,11 +146,18 @@ export async function handleUpdateAgency(request, env, id) {
     return json({ error: 'That is not your agency.' }, 403);
   }
 
-  const { fields, error } = parse(await readJson(request));
+  const body = await readJson(request);
+  const { fields, error } = parse(body);
   if (error) return badRequest(error);
 
   const before = await getAgency(env, id);
   if (!before) return notFound('Agency not found.');
+
+  // A save that does not mention the form leaves it as it was. This writes every column, so one
+  // that said nothing about it would clear the link the agency's quotes are pointing at.
+  if (!Object.prototype.hasOwnProperty.call(body, 'paymentFormUrl')) {
+    fields.paymentFormUrl = before.payment_form_url || null;
+  }
 
   // The slug is the join link. It follows a rename, because a link with the
   // old name in it is the confusing half of a rebrand, and the old one stops
@@ -151,11 +167,11 @@ export async function handleUpdateAgency(request, env, id) {
   await env.DB.prepare(
     `UPDATE agencies SET name = ?, slug = ?, address = ?, phone = ?,
        email = ?, website = ?, seller_of_travel = ?, logo_url = ?, brand_color = ?,
-       tagline = ?, join_open = ?, updated_at = ?
+       tagline = ?, join_open = ?, payment_form_url = ?, updated_at = ?
      WHERE id = ?`
   ).bind(fields.name, slug, fields.address, fields.phone,
          fields.email, fields.website, fields.sellerOfTravel, fields.logoUrl,
-         fields.brandColor, fields.tagline, fields.joinOpen, now(), id).run();
+         fields.brandColor, fields.tagline, fields.joinOpen, fields.paymentFormUrl, now(), id).run();
 
   await db.logActivity(env, user.id, 'agency.update', `Updated agency ${fields.name}`, { id });
   return json({ ok: true, agency: await getAgency(env, id) });

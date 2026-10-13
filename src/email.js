@@ -11,7 +11,7 @@
 import { PermanentError, escapeHtml, usDate } from './util.js';
 import { unsubscribeToken } from './unsubtoken.js';
 
-import { DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand.js';
+import { DEFAULT_BRAND, HEX_COLOR, readableOnWhite, paymentFormFor } from './brand.js';
 
 const BRAND_NAVY = '#12315e';
 const BRAND_TEAL = '#1a8fa3';
@@ -1087,9 +1087,23 @@ export async function sendPaymentReminder(env, {
     `Thank you,\n${advisorName || 'Your travel advisor'}${agencyName ? `\n${agencyName}` : ''}`,
   ].filter(Boolean);
 
+  // The agency's own form for authorizing a card, with the amount and the date to put in it. Only where
+  // the agency has one: this portal takes no card, so the link goes to somewhere that does.
+  const formUrl = await paymentFormFor(env, agencyId);
+  const cardParagraph = formUrl
+    ? `<p style="margin:0 0 14px;">To pay by card, authorize it on the agency's secure form:
+        <a href="${escapeHtml(formUrl)}" style="color:#12315e;font-weight:600;">Authorize your payment</a>.
+        It asks for the amount (<strong>${money(amountCents)}</strong>)${hard
+          ? `, the date to charge it on or after (<strong>${escapeHtml(when)}</strong>)` : ''}${confirmation
+          ? ` and your trip confirmation number (<strong>${escapeHtml(confirmation)}</strong>)` : ''}.
+        Your card is not charged before that date.</p>` : '';
+  const paragraphs = lines.map((p) => `<p style="margin:0 0 14px;">${escapeHtml(p).replace(/\n/g, '<br>')}</p>`);
+  // Before the sign off, which is the last line.
+  paragraphs.splice(Math.max(paragraphs.length - 1, 0), 0, cardParagraph);
+
   const html = layout(env, {
     heading: hard ? 'Payment due' : 'A gentle reminder',
-    body: lines.map((p) => `<p style="margin:0 0 14px;">${escapeHtml(p).replace(/\n/g, '<br>')}</p>`).join(''),
+    body: paragraphs.join(''),
     // Somewhere to go and look, rather than a number to take on trust. This
     // message quotes one amount and one date out of a schedule the client has
     // never seen in full, and the reply it invites costs the advisor an email

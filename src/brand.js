@@ -12,8 +12,27 @@
 export const AGENCY_COLUMNS = `
   id, name, slug, address, phone, email, website,
   seller_of_travel, logo_url, brand_color, tagline, join_open,
-  created_at, updated_at
+  created_at, updated_at, payment_form_url
 `;
+
+/**
+ * The agency's card authorization form, or null.
+ *
+ * A leaf read for the places that only want the address: a quote, a payment reminder, a client's
+ * page. Nothing on the portal takes a card, so this is a link to somewhere that does.
+ */
+export async function paymentFormFor(env, agencyId) {
+  // No database in a message rendered for a test, and a lookup that fails is a reminder with no card link,
+  // which is how it was before. It is never a reminder that does not go.
+  if (!agencyId || !env || !env.DB) return null;
+  try {
+    const row = await env.DB.prepare('SELECT payment_form_url FROM agencies WHERE id = ?')
+      .bind(agencyId).first();
+    return (row && row.payment_form_url) || null;
+  } catch {
+    return null;
+  }
+}
 
 // What a page looks like when nobody has said otherwise: the portal's own
 // colours, so an agency that fills in nothing still gets a finished page

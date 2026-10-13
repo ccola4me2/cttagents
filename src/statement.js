@@ -20,6 +20,7 @@ import { appUrl, shareCode } from './share.js';
 import { listOptions } from './options.js';
 import { listTravellers, listAmenities } from './travellers.js';
 import * as db from './db.js';
+import { paymentFormFor } from './brand.js';
 
 // What a price line is called when a client reads it. "Non-commissionable
 // fare" is a fact about the agency's pay, not about the client's holiday, and
@@ -54,7 +55,7 @@ const sum = (rows) => rows.reduce((n, r) => n + (r.amountCents || 0), 0);
  * Assembles what the client is told. Pure, so the boundary can be tested
  * without a database or an inbox.
  */
-export function buildStatement({ booking, pricing, travellers, payments, amenities, options, client, user }) {
+export function buildStatement({ booking, pricing, travellers, payments, amenities, options, client, user, paymentFormUrl = null }) {
   // The page this document is about, where the client can answer it. Null when
   // the trip has never been shared, and then nothing is offered rather than a
   // link to a page that would say "not available".
@@ -245,6 +246,9 @@ export function buildStatement({ booking, pricing, travellers, payments, ameniti
     // Required on a client document in several states. Empty rather than
     // invented: an omitted registration is a gap, a made up one is a lie.
     sellerOfTravel: user.seller_of_travel || '',
+    // Where the agency takes a card authorization, if it has one. Not this portal: it takes none.
+    paymentFormUrl: paymentFormUrl || '',
+    confirmationNumber: booking.confirmation_number || '',
   };
 }
 
@@ -325,13 +329,23 @@ export function renderStatement(env, s) {
   const answerHere = s.shareCode
     ? ' You can answer on the page below, or reply to this and I will pick it up.'
     : '';
+  // The agency's own form for authorizing a card, and exactly what to put in it, so a client is not left
+  // to work out the amount and the date. Only where the agency has set one and there is something to pay.
+  const cardForm = (amountCents, dueIso) => (s.paymentFormUrl && amountCents > 0
+    ? `<p style="margin:14px 0 0;">To pay by card, authorize it on the agency's secure form:
+        <a href="${escapeHtml(s.paymentFormUrl)}" style="color:#12315e;font-weight:600;">Authorize your payment</a>.
+        It asks for the amount (<strong>${money(amountCents)}</strong>)${dueIso
+          ? `, the date to charge it on or after (<strong>${escapeHtml(day(dueIso))}</strong>)` : ''}${s.confirmationNumber
+          ? ` and your trip confirmation number (<strong>${escapeHtml(s.confirmationNumber)}</strong>)` : ''}.
+        Your card is not charged before that date.</p>` : '');
+
   const hold = quote
     ? `<p style="margin:22px 0 0;">${s.options.length && !s.options.some((o) => o.chosen)
         ? 'Tell me which one and I will hold it. ' : ''}${s.depositCents
         ? `A deposit of <strong>${money(s.depositCents)}</strong> holds this${
             s.depositDue ? ` and is due by ${escapeHtml(day(s.depositDue))}` : ''}.`
         : 'Say the word and I will hold it.'
-      } Prices and space are not held until it is booked.${answerHere}</p>`
+      } Prices and space are not held until it is booked.${answerHere}</p>${cardForm(s.depositCents, s.depositDue)}`
     : '';
 
   const body = [
@@ -393,6 +407,7 @@ export function renderStatement(env, s) {
       ? `<p style="margin:20px 0 0;padding:12px 16px;background:#f2f7fb;border-radius:8px;
            font-weight:600;color:#12315e;">${escapeHtml(s.standing)}</p>`
       : '',
+    !quote && s.due.length ? cardForm(s.due[0].amountCents, s.due[0].date) : '',
     s.notes
       ? `<p style="margin:18px 0 0;white-space:pre-wrap;">${escapeHtml(s.notes)}</p>` : '',
     s.amenities.length
@@ -584,8 +599,9 @@ export async function handleStatement(request, env, id) {
   // property of that name, so the shorthand was a key as much as a value, and
   // renaming the variable silently renamed the key: every statement became a
   // 500 that read as a variable rename.
+  const paymentFormUrl = await paymentFormFor(env, owner.agency_id);
   const build = () => buildStatement({
-    booking, pricing, travellers, amenities, payments, options, client, user: owner,
+    booking, pricing, travellers, amenities, payments, options, client, user: owner, paymentFormUrl,
   });
 
   let statement = build();
