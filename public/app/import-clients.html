@@ -27,19 +27,18 @@
         <div class="card-head"><h2>Your list</h2></div>
         <div class="card-pad">
           <p class="field-hint" style="margin:0 0 .9rem;">
-            Choose a CSV file, or select the rows in Excel or Google Sheets and paste them below.
+            Choose an Excel or CSV file, or select the rows in Excel or Google Sheets and paste them below.
             Both work: a spreadsheet copies as tab separated text, which this reads the same way.
             A Cruise Planners client export imports as it comes, headings and all.
             Nothing is saved until you have checked the preview.
           </p>
 
           <div class="field">
-            <label for="file">A CSV file</label>
-            <input id="file" type="file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values">
+            <label for="file">An Excel or CSV file</label>
+            <input id="file" type="file" accept=".xlsx,.xls,.csv,.tsv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,text/tab-separated-values">
             <p class="field-hint" id="file-note">
-              Saved from Excel as <strong>CSV</strong>, or exported from your old CRM.
-              An <code>.xlsx</code> workbook will not open here, so save it as CSV first or paste
-              the rows instead.
+              An Excel workbook (<code>.xlsx</code>), a CSV file, or an export from your old CRM.
+              A workbook is read from its first sheet.
             </p>
           </div>
 
@@ -112,20 +111,40 @@ const LABEL = {
   knownTraveler: 'Known traveler', notes: 'Notes',
 };
 
+// An Excel workbook, read in the browser and turned into the tab separated text a paste would be.
+// The reader is only fetched when somebody chooses a workbook, so the page does not carry it for
+// everyone who pastes. Dates are written year first so a cell shown as 3/4/70 cannot be read two ways.
+function loadWorkbookReader() {
+  if (window.XLSX) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const tag = document.createElement('script');
+    tag.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    tag.onload = () => resolve();
+    tag.onerror = () => reject(new Error('The Excel reader did not load. Save the sheet as CSV, or paste the rows instead.'));
+    document.head.appendChild(tag);
+  });
+}
+
+async function workbookText(chosen) {
+  await loadWorkbookReader();
+  const book = window.XLSX.read(await chosen.arrayBuffer(), { type: 'array', cellDates: true });
+  const sheet = book.Sheets[book.SheetNames[0]];
+  if (!sheet) throw new Error(`${chosen.name} has no sheets in it.`);
+  // Cell by cell rather than as quoted CSV: a note with a line break in it would otherwise be read as
+  // two rows. Breaks and tabs inside a cell become spaces.
+  const grid = window.XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, blankrows: false, defval: '', dateNF: 'yyyy-mm-dd' });
+  return grid.map((row) => row.map((cell) => String(cell).replace(/[\t\r\n]+/g, ' ').trim()).join('\t'))
+    .filter((line) => line.replace(/\t/g, '') !== '').join('\n');
+}
+
 // A chosen file becomes the same text a paste would have been, so there is one
 // parser behind both and the preview cannot disagree with the import.
 file.addEventListener('change', async () => {
   const chosen = file.files && file.files[0];
   if (!chosen) return;
-  if (/\.xlsx?$/i.test(chosen.name)) {
-    showError(err, new Error(
-      `${chosen.name} is an Excel workbook. Open it and save as CSV, or copy the rows and paste them.`));
-    file.value = '';
-    return;
-  }
   try {
     err.innerHTML = '';
-    paste.value = await chosen.text();
+    paste.value = /\.xlsx?$/i.test(chosen.name) ? await workbookText(chosen) : await chosen.text();
     mapping = null;
     await preview();
   } catch (e) { showError(err, e); }
