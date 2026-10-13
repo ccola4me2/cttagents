@@ -128,14 +128,34 @@ function loadWorkbookReader() {
 
 async function workbookText(chosen) {
   await loadWorkbookReader();
-  const book = window.XLSX.read(await chosen.arrayBuffer(), { type: 'array', cellDates: true });
+  const X = window.XLSX;
+  const book = X.read(await chosen.arrayBuffer(), { type: 'array', cellNF: true });
   const sheet = book.Sheets[book.SheetNames[0]];
-  if (!sheet) throw new Error(`${chosen.name} has no sheets in it.`);
+  if (!sheet || !sheet['!ref']) throw new Error(`${chosen.name} has no sheets in it.`);
+  const pad = (n) => String(n).padStart(2, '0');
   // Cell by cell rather than as quoted CSV: a note with a line break in it would otherwise be read as
-  // two rows. Breaks and tabs inside a cell become spaces.
-  const grid = window.XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, blankrows: false, defval: '', dateNF: 'yyyy-mm-dd' });
-  return grid.map((row) => row.map((cell) => String(cell).replace(/[\t\r\n]+/g, ' ').trim()).join('\t'))
-    .filter((line) => line.replace(/\t/g, '') !== '').join('\n');
+  // two rows, so breaks and tabs inside a cell become spaces. A date is read from the number Excel
+  // stored and written year first, because turning it into a JavaScript date shifts it by the time zone.
+  const range = X.utils.decode_range(sheet['!ref']);
+  const lines = [];
+  for (let r = range.s.r; r <= range.e.r; r += 1) {
+    const cells = [];
+    for (let c = range.s.c; c <= range.e.c; c += 1) {
+      const cell = sheet[X.utils.encode_cell({ r, c })];
+      let text = '';
+      if (cell) {
+        if (cell.t === 'n' && cell.z && X.SSF.is_date(cell.z)) {
+          const d = X.SSF.parse_date_code(cell.v);
+          text = d ? `${d.y}-${pad(d.m)}-${pad(d.d)}` : String(cell.w || cell.v);
+        } else {
+          text = String(cell.w !== undefined ? cell.w : (cell.v !== undefined ? cell.v : ''));
+        }
+      }
+      cells.push(text.replace(/[\t\r\n]+/g, ' ').trim());
+    }
+    if (cells.some(Boolean)) lines.push(cells.join('\t'));
+  }
+  return lines.join('\n');
 }
 
 // A chosen file becomes the same text a paste would have been, so there is one
