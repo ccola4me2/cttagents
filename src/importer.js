@@ -292,8 +292,6 @@ export async function handleRunImport(request, env) {
   let created = 0;
   let skipped = 0;
   const failures = [];
-  // Which rows were left out and why, so a count of six is six lines somebody can go and look at.
-  const skippedRows = [];
 
   for (const row of parsed.rows) {
     if (row.problems.length) { skipped += 1; continue; }
@@ -576,6 +574,8 @@ export async function handleRunClientImport(request, env) {
   let updated = 0;
   let skipped = 0;
   const failures = [];
+  // Which rows were left out and why, so a count of six is six lines somebody can go and look at.
+  const skippedRows = [];
 
   for (const row of parsed.rows) {
     if (row.problems.length) {

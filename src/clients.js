@@ -193,12 +193,14 @@ export async function handleClientRecord(request, env) {
               b.confirmation_number, b.depart_date, b.return_date, b.status,
               b.gross_cents, b.commission_cents, ${statusShown('b', scope.hideAfter)} AS commission_status,
               b.travellers, b.ghl_contact_id, b.user_id,
+              CASE WHEN b.client_id = ? THEN 0 ELSE 1 END AS as_traveller,
               COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''), u.email)
                 AS advisor_name
          FROM bookings b LEFT JOIN users u ON u.id = b.user_id
-        WHERE ${bScope.sql} AND b.client_id = ?
+        WHERE ${bScope.sql} AND (b.client_id = ?
+          OR EXISTS (SELECT 1 FROM travellers tv WHERE tv.booking_id = b.id AND tv.user_id = b.user_id AND LOWER(TRIM(tv.name)) = LOWER(TRIM(?))))
         ORDER BY COALESCE(b.depart_date, '9999-12-31') DESC LIMIT 200`
-    ).bind(...bScope.binds, client.id).all().catch(() => ({ results: [] })),
+    ).bind(client.id, ...bScope.binds, client.id, client.name).all().catch(() => ({ results: [] })),
 
     env.DB.prepare(
       `SELECT c.id, c.vendor, c.kind, c.amount_cents, c.expires_on, c.used_on, c.reference
@@ -271,8 +273,9 @@ export async function handleClientRecord(request, env) {
             .bind(client.referred_by_client_id, client.user_id).first()) || {}).name || ''
         : '',
       trips: counted.length,
-      lifetimeCents: counted.reduce((n, b) => n + (b.gross_cents || 0), 0),
-      commissionCents: counted.reduce((n, b) => n + (b.commission_cents || 0), 0),
+      // Only what they booked. A trip they are a guest on is somebody else's sale.
+      lifetimeCents: counted.filter((b) => !b.as_traveller).reduce((n, b) => n + (b.gross_cents || 0), 0),
+      commissionCents: counted.filter((b) => !b.as_traveller).reduce((n, b) => n + (b.commission_cents || 0), 0),
       firstTravelled: past.length ? past[past.length - 1].depart_date : null,
       lastTravelled: past.length ? (past[0].return_date || past[0].depart_date) : null,
       // The one thing an advisor wants to know before they ring: is anything

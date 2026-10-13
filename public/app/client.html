@@ -472,8 +472,9 @@ function render(d) {
           <td>${esc(b.supplier || '-')}
             <div class="muted">${esc(b.confirmation_number || '')}</div></td>
           <td>${esc(b.product_name || b.destination || '-')}</td>
-          <td><span class="badge ${STATUS_TONE[b.status] || 'badge-navy'}">${esc(b.status)}</span></td>
-          <td class="num">${money(b.gross_cents)}</td>
+          <td><span class="badge ${STATUS_TONE[b.status] || 'badge-navy'}">${esc(b.status)}</span>${
+            b.as_traveller ? `<div class="muted">travelling, booked by ${esc(b.client_name || 'someone else')}</div>` : ''}</td>
+          <td class="num">${b.as_traveller ? '<span class="muted">-</span>' : money(b.gross_cents)}</td>
         </tr>`).join('')}</tbody></table></div>`
     : '<div class="empty"><p>No reservations on file.</p></div>';
 

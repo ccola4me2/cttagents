@@ -2236,13 +2236,18 @@ export async function listClients(env, scope, { query, pinnedOnly, limit } = {})
 
   const { results } = await env.DB.prepare(
     `SELECT ${CLIENT_COLUMNS},
-            (SELECT COUNT(*) FROM bookings b WHERE b.client_id = c.id
+            -- A trip they are on counts as theirs even when somebody else made the booking, so a guest
+            -- on the confirmation does not read as having no reservations. Money stays with the booker.
+            (SELECT COUNT(*) FROM bookings b WHERE (b.client_id = c.id
+              OR EXISTS (SELECT 1 FROM travellers tv WHERE tv.booking_id = b.id AND tv.user_id = b.user_id AND LOWER(TRIM(tv.name)) = LOWER(TRIM(c.name))))
               AND b.status IN ('booked','travelled')) AS trips,
             (SELECT COALESCE(SUM(b.gross_cents), 0) FROM bookings b WHERE b.client_id = c.id
               AND b.status IN ('booked','travelled')) AS lifetime_cents,
             (SELECT MAX(COALESCE(b.return_date, b.depart_date)) FROM bookings b
-              WHERE b.client_id = c.id AND b.status IN ('booked','travelled')) AS last_date,
-            (SELECT MIN(b.depart_date) FROM bookings b WHERE b.client_id = c.id
+              WHERE (b.client_id = c.id OR EXISTS (SELECT 1 FROM travellers tv WHERE tv.booking_id = b.id AND tv.user_id = b.user_id AND LOWER(TRIM(tv.name)) = LOWER(TRIM(c.name))))
+              AND b.status IN ('booked','travelled')) AS last_date,
+            (SELECT MIN(b.depart_date) FROM bookings b WHERE (b.client_id = c.id
+              OR EXISTS (SELECT 1 FROM travellers tv WHERE tv.booking_id = b.id AND tv.user_id = b.user_id AND LOWER(TRIM(tv.name)) = LOWER(TRIM(c.name))))
               AND b.status IN ('quoted','booked') AND b.depart_date >= date('now')) AS next_date,
             (SELECT h.name FROM households h WHERE h.id = c.household_id) AS household_name
        FROM clients c

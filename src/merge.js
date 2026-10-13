@@ -60,8 +60,10 @@ export async function duplicateCandidates(env, scope, { limit = 40 } = {}) {
             a.created_at AS a_created, a.user_id AS user_id, a.household_id AS a_household,
             b.id AS b_id, b.name AS b_name, b.email AS b_email, b.phone AS b_phone,
             b.created_at AS b_created, b.household_id AS b_household,
-            (SELECT COUNT(*) FROM bookings k WHERE k.client_id = a.id) AS a_trips,
-            (SELECT COUNT(*) FROM bookings k WHERE k.client_id = b.id) AS b_trips,
+            (SELECT COUNT(*) FROM bookings k WHERE k.client_id = a.id
+              OR EXISTS (SELECT 1 FROM travellers tv WHERE tv.booking_id = k.id AND tv.user_id = k.user_id AND LOWER(TRIM(tv.name)) = LOWER(TRIM(a.name)))) AS a_trips,
+            (SELECT COUNT(*) FROM bookings k WHERE k.client_id = b.id
+              OR EXISTS (SELECT 1 FROM travellers tv WHERE tv.booking_id = k.id AND tv.user_id = k.user_id AND LOWER(TRIM(tv.name)) = LOWER(TRIM(b.name)))) AS b_trips,
             CASE
               WHEN TRIM(COALESCE(a.email, '')) != ''
                AND LOWER(TRIM(a.email)) = LOWER(TRIM(b.email)) THEN 'same email'
@@ -90,12 +92,58 @@ export async function duplicateCandidates(env, scope, { limit = 40 } = {}) {
   return results || [];
 }
 
+/**
+ * Pairs folded into groups of people who share an email, a number or a name.
+ *
+ * A couple on one email is a pair, but six people on one address is fifteen pairs, and a screen of
+ * fifteen near identical rows is not something anybody reads. The same pairs, joined wherever they
+ * share a person, make one card with the six names on it and the answer given once.
+ */
+export function groupDuplicates(pairs) {
+  const parent = new Map();
+  const find = (x) => {
+    while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); }
+    return x;
+  };
+  const people = new Map();
+  for (const p of pairs) {
+    for (const side of ['a', 'b']) {
+      const id = p[`${side}_id`];
+      if (!people.has(id)) {
+        parent.set(id, id);
+        people.set(id, { id, name: p[`${side}_name`], email: p[`${side}_email`], phone: p[`${side}_phone`],
+          trips: p[`${side}_trips`], household: p[`${side}_household`] || null });
+      }
+    }
+    parent.set(find(p.a_id), find(p.b_id));
+  }
+  const groups = new Map();
+  for (const p of pairs) {
+    const root = find(p.a_id);
+    if (!groups.has(root)) groups.set(root, { ids: new Set(), reasons: new Map(), pairs: [] });
+    const g = groups.get(root);
+    g.ids.add(p.a_id); g.ids.add(p.b_id);
+    g.reasons.set(p.why, (g.reasons.get(p.why) || 0) + 1);
+    g.pairs.push({ a: p.a_id, b: p.b_id });
+  }
+  return [...groups.values()].map((g) => {
+    const members = [...g.ids].map((id) => people.get(id)).sort((x, y) => String(x.name).localeCompare(String(y.name)));
+    const why = [...g.reasons.entries()].sort((x, y) => y[1] - x[1])[0][0];
+    const shared = why === 'same email' ? members.find((m) => m.email)?.email
+      : why === 'same phone' ? members.find((m) => m.phone)?.phone : null;
+    return { why, shared: shared || null, members, pairs: g.pairs };
+  }).sort((x, y) => y.members.length - x.members.length);
+}
+
 export async function handleDuplicates(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
   const scope = db.scopeFor(env, user, request);
+  // More pairs than the old list of forty: a few people on one email already make fifteen.
+  const pairs = await duplicateCandidates(env, scope, { limit: 200 });
   return json({
-    pairs: await duplicateCandidates(env, scope),
+    pairs,
+    groups: groupDuplicates(pairs),
     scope: db.scopeLabel(scope, user),
   });
 }

@@ -523,111 +523,108 @@ function render(d) {
 async function drawDupes() {
   const card = document.getElementById('dupe-card');
   const box = document.getElementById('dupes');
-  let pairs = [];
-  try { ({ pairs = [] } = await api(`/api/clients/duplicates${
+  let groups = [];
+  try { ({ groups = [] } = await api(`/api/clients/duplicates${
     advisorParam() ? `?${advisorParam()}` : ''}`)); }
   catch { card.hidden = true; return; }
 
-  card.hidden = !pairs.length;
-  if (!pairs.length) return;
+  card.hidden = !groups.length;
+  if (!groups.length) return;
   document.getElementById('dupe-count').textContent =
-    `${pairs.length} to look at`;
+    `${groups.length} group${groups.length === 1 ? '' : 's'} to look at`;
 
-  const side = (id, name, email, phone, trips, other) => `
-    <button class="btn btn-secondary btn-sm" data-keep="${esc(id)}" data-drop="${esc(other)}"
-      style="text-align:left;flex:1 1 15rem;white-space:normal;">
-      <span style="display:block;font-weight:650;">Keep ${esc(name)}</span>
-      <span class="muted" style="display:block;font-size:.78rem;">${
-        esc([email, phone].filter(Boolean).join(' \u00b7 ') || 'nothing on file')}</span>
-      <span class="muted" style="display:block;font-size:.78rem;">${
-        trips} reservation${trips === 1 ? '' : 's'}</span>
-    </button>`;
+  const WHY = { 'same email': 'Share an email', 'same phone': 'Share a phone number', 'same name': 'Same name' };
 
-  box.innerHTML = `<p class="field-hint" style="margin:0 0 .9rem;">Matched on a shared email
-    address, a shared phone number, or the same name. A shared number is often a family, so
-    there are three answers. <strong>Keep</strong> one if it is the same person typed twice:
-    everything on the other moves across, and nothing is lost. <strong>Same household</strong>
-    if they are family, such as a child on a parent's number or email: both stay as separate
-    clients, kept together. <strong>Different people</strong> if they are unrelated: both stay,
-    and the pair is not offered again.</p>
-    <ul class="rows">${pairs.map((p, i) => `<li style="padding-left:0;padding-right:0;">
-      <div class="muted" style="font-size:.78rem;margin-bottom:.4rem;">${esc(p.why)}</div>
-      <div style="display:flex;gap:.6rem;flex-wrap:wrap;" data-pair="${i}">
-        ${side(p.a_id, p.a_name, p.a_email, p.a_phone, p.a_trips, p.b_id)}
-        ${side(p.b_id, p.b_name, p.b_email, p.b_phone, p.b_trips, p.a_id)}
+  box.innerHTML = `<p class="field-hint" style="margin:0 0 .9rem;">People who share an email
+    address, a phone number or a name, grouped. A shared number is often a family, so there are
+    three answers. <strong>Same household</strong> keeps everyone as their own client, together.
+    <strong>Different people</strong> keeps them apart and stops the group being offered again.
+    <strong>Keep this one</strong> is for one person typed more than once: the others move into it
+    and nothing is lost.</p>
+    <ul class="rows">${groups.map((g, i) => `<li style="padding-left:0;padding-right:0;" data-group="${i}">
+      <div class="row-between" style="margin-bottom:.4rem;">
+        <span class="t">${esc(WHY[g.why] || g.why)}${g.shared ? `: ${esc(g.shared)}` : ''}</span>
+        <span class="muted" style="font-size:.78rem;">${g.members.length} people</span>
       </div>
-      <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.5rem;" data-aside="${i}">
+      <div class="table-wrap"><table>
+        <tbody>${g.members.map((m) => `<tr>
+          <td><span class="name">${esc(m.name)}</span></td>
+          <td class="muted">${esc([m.email, m.phone].filter(Boolean).join(' \u00b7 ') || 'nothing on file')}</td>
+          <td class="muted">${m.trips} reservation${m.trips === 1 ? '' : 's'}</td>
+          <td style="text-align:right;"><button class="btn btn-ghost btn-sm" type="button"
+            data-keep="${esc(m.id)}" data-group="${i}">Keep this one</button></td>
+        </tr>`).join('')}</tbody></table></div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.5rem;">
         <button class="btn btn-ghost btn-sm" data-house="${i}" type="button">Same household</button>
         <button class="btn btn-ghost btn-sm" data-different="${i}" type="button">Different people</button>
       </div></li>`).join('')}</ul>`;
 
-  // Family, not a typo: put both in one household and leave both as clients. The
-  // one who is already in a household brings the other into it, so a family of four
-  // being worked through two at a time ends as one household and not three.
+  const freeze = (row, on) => row.querySelectorAll('button').forEach((x) => { x.disabled = on; });
+
+  // Family, not a typo: one household for the lot, every one of them still their own client. Anybody
+  // already in a household brings the rest into it; two different households are left for Households.
   box.querySelectorAll('[data-house]').forEach((b) => b.addEventListener('click', async () => {
-    const p = pairs[Number(b.dataset.house)];
+    const g = groups[Number(b.dataset.house)];
     const row = b.closest('li');
-    row.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+    freeze(row, true);
     try {
-      if (p.a_household && p.b_household) {
-        throw new Error('Each of them is already in a different household. Open Households to join those two.');
-      } else if (p.a_household) {
-        await api(`/api/households/${encodeURIComponent(p.a_household)}/members`,
-          { method: 'POST', body: { clientId: p.b_id } });
-      } else if (p.b_household) {
-        await api(`/api/households/${encodeURIComponent(p.b_household)}/members`,
-          { method: 'POST', body: { clientId: p.a_id } });
+      const houses = [...new Set(g.members.map((m) => m.household).filter(Boolean))];
+      if (houses.length > 1) {
+        throw new Error('Some of them are already in different households. Open Households to join those first.');
+      } else if (houses.length === 1) {
+        for (const m of g.members.filter((x) => !x.household)) {
+          await api(`/api/households/${encodeURIComponent(houses[0])}/members`,
+            { method: 'POST', body: { clientId: m.id } });
+        }
       } else {
-        await api('/api/households', { method: 'POST', body: { clientIds: [p.a_id, p.b_id] } });
+        await api('/api/households', { method: 'POST', body: { clientIds: g.members.map((m) => m.id) } });
       }
-      err.innerHTML = `<div class="notice notice-ok">${esc(p.a_name)} and ${esc(p.b_name)} are
-        now one household. Both are still clients.</div>`;
+      err.innerHTML = `<div class="notice notice-ok">${g.members.length} people are now one household.
+        Each is still their own client.</div>`;
       await load();
       await drawDupes();
     } catch (e) {
       showError(err, e);
-      row.querySelectorAll('button').forEach((x) => { x.disabled = false; });
+      freeze(row, false);
     }
   }));
 
-  // Two people, and the list should stop asking. Reversible from the notice.
+  // Two or more people, and the list should stop asking.
   box.querySelectorAll('[data-different]').forEach((b) => b.addEventListener('click', async () => {
-    const p = pairs[Number(b.dataset.different)];
+    const g = groups[Number(b.dataset.different)];
     const row = b.closest('li');
-    row.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+    freeze(row, true);
     try {
-      await api('/api/clients/not-duplicates', { method: 'POST', body: { a: p.a_id, b: p.b_id } });
-      err.innerHTML = `<div class="notice notice-ok">${esc(p.a_name)} and ${esc(p.b_name)} are
-        marked as different people and will not be offered again.
-        <button class="btn btn-ghost btn-sm" id="undo-different" type="button">Undo</button></div>`;
-      document.getElementById('undo-different').addEventListener('click', async () => {
-        try {
-          await api('/api/clients/not-duplicates', { method: 'DELETE', body: { a: p.a_id, b: p.b_id } });
-          err.innerHTML = '';
-          await drawDupes();
-        } catch (e) { showError(err, e); }
-      });
+      for (const pair of g.pairs) {
+        await api('/api/clients/not-duplicates', { method: 'POST', body: { a: pair.a, b: pair.b } });
+      }
+      err.innerHTML = `<div class="notice notice-ok">${g.members.length} people are marked as different
+        and will not be offered again.</div>`;
       await drawDupes();
     } catch (e) {
       showError(err, e);
-      row.querySelectorAll('button').forEach((x) => { x.disabled = false; });
+      freeze(row, false);
     }
   }));
 
   box.querySelectorAll('[data-keep]').forEach((b) => b.addEventListener('click', async () => {
-    const row = b.closest('[data-pair]');
-    row.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+    const g = groups[Number(b.dataset.group)];
+    const row = b.closest('li');
+    const keep = g.members.find((m) => m.id === b.dataset.keep);
+    const others = g.members.filter((m) => m.id !== keep.id);
+    if (!confirm(`Merge ${others.map((m) => m.name).join(', ')} into ${keep.name}?\n\n`
+      + 'Their reservations, credits and tasks move across and the other records are removed.')) return;
+    freeze(row, true);
     try {
-      const out = await api('/api/clients/merge', {
-        method: 'POST', body: { keep: b.dataset.keep, drop: b.dataset.drop },
-      });
-      err.innerHTML = `<div class="notice notice-ok">${esc(out.absorbed)} is now part of
-        ${esc(out.keep.name)}.</div>`;
+      for (const other of others) {
+        await api('/api/clients/merge', { method: 'POST', body: { keep: keep.id, drop: other.id } });
+      }
+      err.innerHTML = `<div class="notice notice-ok">${others.length} merged into ${esc(keep.name)}.</div>`;
       await load();
       await drawDupes();
     } catch (e) {
       showError(err, e);
-      row.querySelectorAll('button').forEach((x) => { x.disabled = false; });
+      freeze(row, false);
     }
   }));
 }

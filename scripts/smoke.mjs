@@ -8328,6 +8328,27 @@ async function main() {
     const run = await call(advisor, 'POST', '/api/import/clients', { text });
     check(run.status === 200 && run.data?.created === 2 && run.data?.updated === 0,
       'two people with the same email and phone are two clients', JSON.stringify(run.data));
+    // Shown as one group with both names on it, and counted as having a reservation when on one.
+    const dupes = await call(advisor, 'GET', '/api/clients/duplicates');
+    const grp = (dupes.data?.groups || []).find((g) => g.members.some((m) => m.name === a) && g.members.some((m) => m.name === b));
+    check(Boolean(grp) && grp.why === 'same email' && grp.pairs.length >= 1,
+      'people sharing an email come up as one group, not a row each', JSON.stringify(grp && [grp.why, grp.members.length]));
+    const booker = await call(advisor, 'POST', '/api/bookings', { clientName: `Shared Booker ${stamp}`, supplier: 'Royal Caribbean',
+      productType: 'cruise', departDate: isoDay(300), gross: '1000', status: 'booked' });
+    const bookerId = booker.data?.booking?.id;
+    if (bookerId) {
+      await call(advisor, 'POST', `/api/bookings/${bookerId}/travellers`, { name: a });
+      const listed = ((await call(advisor, 'GET', `/api/clients?q=${encodeURIComponent(a)}`)).data?.clients || []).find((x) => x.name === a);
+      check(listed && listed.trips === 1, 'a guest on somebody else\'s reservation has a reservation', JSON.stringify(listed && listed.trips));
+      const recId = listed && listed.id;
+      const rec = await call(advisor, 'GET', `/api/client?id=${recId}`);
+      const row = (rec.data?.bookings || []).find((x) => x.id === bookerId);
+      check(row && row.as_traveller === 1 && rec.data?.client?.trips === 1 && rec.data?.client?.lifetimeCents === 0,
+        'their record shows it as a trip they travel on, with none of the money', JSON.stringify(row && [row.as_traveller, rec.data?.client?.lifetimeCents]));
+      await dropBooking(bookerId);
+      const bk = ((await call(advisor, 'GET', `/api/clients?q=${encodeURIComponent(`Shared Booker ${stamp}`)}`)).data?.clients || [])[0];
+      if (bk && bk.id) await call(advisor, 'DELETE', `/api/clients/${bk.id}`);
+    }
     const nameless = await call(advisor, 'POST', '/api/import/clients', { text: ['Name\tEmail', `\tnobody-${stamp}@test.dev`].join('\n') });
     check(nameless.status === 200 && nameless.data?.skipped === 1 && nameless.data?.skippedRows?.[0]?.reason === 'no name',
       'a row with no name is skipped and the result says which line and why', JSON.stringify(nameless.data));
