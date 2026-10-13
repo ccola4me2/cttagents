@@ -84,7 +84,16 @@ export const LESSONS = [
     why: 'The client gets a page of their own with the costs on it and a yes or no. Their answer comes back to you by email. Nothing is booked and nothing is paid by their pressing yes.',
     manual: 'clientpages',
     page: '/app/reservations',
-    doing: 'Send the quote, then open the client link yourself and read it as they will. If they write a note on the page it arrives by email and on the reservation; answer from the reservation page and the reply appears under their note and is emailed to them.',
+    doing: 'Press Send quote on a reservation and read it as the client will: the cabin category and number (GTY until the cruise line assigns one), the price by line, the deposit and the card authorization button. Change the opening message or the note if you want your own words, and press Update the preview. Send it, then open the client link yourself. If they write a note on the page it arrives by email and on the reservation; answer from the reservation page and the reply appears under their note and is emailed to them.',
+  },
+  {
+    key: 'combined-quote',
+    section: 'first',
+    title: 'Quotes for a family or a group, in one email',
+    why: 'When one person pays one deposit for a whole party, they should get one email and one card authorization form, not eight. When every reservation has its own payer, each gets their own.',
+    manual: 'reservations',
+    page: '/app/reservations',
+    doing: 'Tick several quoted reservations and press Send quotes for the deposit. Tick Send them as one email with one deposit, check Preview the email, then press Send me a test and read it in your own inbox. Nothing is recorded as sent to the clients until you press the real send.',
   },
   {
     key: 'first-schedule',
@@ -120,7 +129,7 @@ export const LESSONS = [
     why: 'The vendor already sent the number, dates, guests and price. Reading them into a new reservation saves the retyping, and every field shows the line it came from so you check rather than trust.',
     manual: 'reservations',
     page: '/app/import',
-    doing: 'Upload a Margaritaville at Sea, Norwegian, Royal Caribbean or Celebrity confirmation PDF, or paste a Carnival confirmation email (or forward it to your own confirmation address at the top of the page), read it, check each field and the price for each guest, choose whether the deposit is refundable, then create the reservation.',
+    doing: 'Upload a Margaritaville at Sea, Norwegian, Royal Caribbean or Celebrity confirmation PDF, or paste a Carnival confirmation email (or forward it to your own confirmation address at the top of the page), read it, check each field and the price for each guest, choose whether the deposit is refundable, then create the reservation. Every guest on it becomes a client with their birthday, and the party is put in one household. Anyone already on your books is asked about first: tick only what you want saved.',
   },
   {
     key: 'forward-confirmation',
@@ -183,7 +192,7 @@ export const LESSONS = [
     why: 'Every client deadline across every reservation, late at the top. Miss a vendor date and the reservation cancels, so this is the page with real consequences.',
     manual: 'money',
     page: '/app/payments',
-    doing: 'Check what is late. Read on the cheat sheet why a line can say past due when the money is in.',
+    doing: 'Check what is late. Read on the cheat sheet why a line can say past due when the money is in. Posting a deposit or payment against a quote marks the reservation booked, and the page says so.',
   },
   {
     key: 'commission-owed',
@@ -201,7 +210,7 @@ export const LESSONS = [
     why: 'An existing book of business and an existing client list can both be pasted in rather than typed one at a time.',
     manual: 'reservations',
     page: '/app/import',
-    doing: 'Only if you are new and have a book elsewhere. Otherwise just know both pages exist.',
+    doing: 'Only if you are new and have a book elsewhere. Import clients takes an Excel workbook, a CSV or pasted rows; only a name is needed, a missing phone or birthday is left blank, and people sharing an email are kept as separate clients. It lists any row it skipped and why. Otherwise just know both pages exist.',
   },
   {
     key: 'leads',
@@ -219,7 +228,7 @@ export const LESSONS = [
     why: 'The page defaults to people who have booked, so a prospect you know is in there can look missing. Search finds them, or switch the filter to Everyone.',
     manual: 'clients',
     page: '/app/clients',
-    doing: 'Switch the filter to Everyone once, so you know where it is when somebody seems to be missing.',
+    doing: 'Switch the filter to Everyone once, so you know where it is when somebody seems to be missing. Then open a guest who was on somebody else\'s reservation: the trip shows as travelling, booked by the person who booked it. The duplicates box only offers the same name twice, never a shared email.',
   },
   {
     key: 'households',

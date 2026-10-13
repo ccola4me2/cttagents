@@ -215,6 +215,13 @@
   was paid. Nothing in the portal has to learn a new idea: a paid line is paid and a
   scheduled line is due.</p>
 
+<h3 id="deposit-books">A deposit on a quote makes it a booking</h3>
+<p>When you post a payment or a deposit against a reservation that is still <strong>quoted</strong>, it is
+  marked <strong>booked</strong> for you, and the page says so. Money that has arrived is the client saying
+  yes. It applies whether you mark a scheduled deposit received, post one that was never scheduled, or edit a
+  payment to add its paid date. A payment that is only scheduled for later, and a refund, change nothing.
+  A reservation that is already booked, travelled or cancelled is left alone.</p>
+
 <h3>Reminding the client</h3>
 <p>You can send a payment reminder from the reservation whenever you like. You can also
   turn on automatic ones in <a href="/app/settings">Settings</a>, which send three weeks
@@ -257,19 +264,60 @@
 <h3 id="send-quotes">Sending several quotes at once, for the deposit</h3>
 <p>Tick the quoted reservations and press <strong>Send quotes for the deposit</strong>. The portal reads
   each one first and shows a table before anything goes: the client, the address it will go to, the
-  trip total, the deposit and when it is due. Untick any you do not want to send, then press
-  <strong>Send</strong> and confirm.</p>
+  trip total, the deposit and when it is due. Untick any you do not want to send. One tick box at the top
+  chooses how they go.</p>
 <ul>
-  <li>Each client gets their own quote by email, over the advisor's name, with the link to their page. It
-    asks for the deposit and its date only where one is set on the reservation, and the table says which
-    have none.</li>
+  <li><strong>Each on its own</strong>, with the box unticked. Every reservation is its own email, with its
+    own deposit and its own card authorization form. The <strong>Sent to</strong> column is a box you can type
+    in: change the address on any row, or type one where the client has none, and that row ticks itself.
+    Use this when each client pays their own deposit.</li>
+  <li><strong>One email, one deposit</strong>, with the box ticked. For a family or a group that one person
+    pays for. Every trip goes in a single message to one address, each with its dates, cabin, price and its
+    own link, and one deposit holds them all, due on the earliest of their dates, with one card
+    authorization form for the total. Type the address in <strong>Send it to</strong>; the most common one on
+    the list is filled in. The address on each row is not used then, and a row with none is ticked for you.
+    It needs at least two quoted reservations, all one advisor's.</li>
+</ul>
+<p><strong>Your own words.</strong> An <strong>Opening message</strong> and <strong>A note at the end</strong> are
+  filled in with a professional wording, ready to change. In each email they sit at the top and the end, with
+  the quote between. Edit either, or clear the note to send none. For one email you can change the
+  <strong>Subject</strong> too. Only what you change is sent, so wording you leave alone keeps following the
+  reservation.</p>
+<p><strong>Look before you send.</strong> <strong>Preview the email</strong> shows the one combined message
+  exactly as it will arrive, and <strong>Preview</strong> on a row shows that client's own email.
+  <strong>Send me a test</strong>, in one email mode, sends the real message only to the address you are
+  signed in with, with TEST in the subject, and records nothing as sent to the clients. Each trip's link
+  works in the test, because that is when the trip's page is made.</p>
+<ul>
   <li>One already sent is unticked and says how many times, so a quote is not sent twice by accident.</li>
-  <li>A client with no email address on file is shown and cannot be sent to. Add the address on their
-    client page.</li>
   <li>Only quoted reservations are sent a quote. A booked one would be sent an invoice, which says
     something else to a client, so it is refused here. Twenty five at a time.</li>
   <li>An email cannot be recalled, so the screen asks once more before it sends.</li>
 </ul>
+
+<h3 id="quote-contents">What a quote says</h3>
+<p>The quote has to answer everything a client would otherwise ask, so it carries the whole trip: the
+  ship or hotel and the vendor, the dates, the itinerary, the <strong>cabin category</strong> and the
+  <strong>cabin number</strong>, who is travelling, the price by line (fare, taxes and port fees,
+  gratuities, extras), what is included, the deposit with its due date and whether it is refundable, and
+  the date the final balance is due. A guaranteed cabin has a category and no number until the cruise line
+  assigns one, and it shows <strong>GTY</strong>; type the real number on the reservation and it replaces
+  GTY in the next email and on the client's page. It never carries commission, passport numbers or card
+  digits.</p>
+<p>A line that is empty on the reservation is left out rather than guessed, so fill in the cabin, the
+  itinerary and the final payment date before you send. Where your agency has a card authorization form the
+  quote ends with an <strong>Authorize your deposit</strong> button that says what the form asks for: the
+  amount, the date to charge it on or after and the confirmation number, and that the card is not charged
+  before that date. The link under each trip opens the client's own page with all of this and the same
+  button.</p>
+
+<h3 id="quote-edit">Sending one quote in your own words</h3>
+<p><strong>Send quote</strong> (or <strong>Send invoice</strong> on a booked trip) at the top of a
+  reservation opens the message beside its preview. On the left: <strong>Send to</strong> (for this send only,
+  the client's record is not changed), <strong>Subject</strong>, <strong>Opening message</strong> and
+  <strong>A note at the end</strong>, each starting from the standard wording. Press <strong>Update the
+  preview</strong> to see your change on the right, and <strong>Back to the standard wording</strong> to undo
+  it. Prices, dates and the cabin come from the reservation, so change those there and press update.</p>
 
 <h3 id="group-deposit">A group name and number, and a deposit that says whether it comes back</h3>
 <p><strong>Sold from a group</strong> is for a block of space the agency runs itself, set up
@@ -291,6 +339,13 @@
   documents do not, because they belong to one booking. The copy starts as a quote under the
   same client, so change the client first. It sends nothing and creates no tasks, and it does
   not count as sold until you mark it booked.</p>
+
+<h3 id="change-cruise">Choosing or changing the cruise on a reservation</h3>
+<p>An existing reservation has the same cruise picker as a new one. Set <strong>Type</strong> to
+  <strong>Cruise</strong>, then in the Vendor part choose the cruise line, then the ship, then the
+  departure, and the vendor, ship, itinerary, destination and dates fill in. Nothing changes until you
+  press Save, and everything it fills in can still be typed over, since a charter or a private group will
+  not be in the catalog.</p>
 
 <h3 id="new-client">A client who is not on your books yet</h3>
 <p>Taking a reservation for somebody the portal does not know now stops and asks, on the new
@@ -533,10 +588,26 @@
 <p>Future cruise credits and vendor credits with an expiry, so the one somebody is holding
   turns up on <a href="/app/hotlists">Who to call</a> before it runs out rather than after.</p>
 
-<h3>Importing</h3>
-<p><a href="/app/import-clients">Import clients</a> takes an Excel workbook (.xlsx), a CSV or pasted rows, including
-  a Cruise Planners client export as it comes. It shows you what it will do before it does
-  it. <a href="/app/import">Import reservations</a> does the same for a back-office export.</p>
+<h3 id="importing">Importing</h3>
+<p><a href="/app/import-clients">Import clients</a> takes an Excel workbook (.xlsx, its first sheet), a CSV or
+  pasted rows, including a Cruise Planners client export as it comes. It shows you what it will do before
+  it does it. <a href="/app/import">Import reservations</a> does the same for a back-office export.</p>
+<ul>
+  <li>Only a name is needed. Anything else that is missing, or cannot be read, is left blank and the client
+    is still added; the preview marks those rows and says what was left blank.</li>
+  <li>A ten digit phone is tidied to (813) 555-0134, and <strong>Date of birth</strong> is read as the
+    birthday. A year written with two digits on a birthday means the past: 3/11/70 is 1970.</li>
+  <li>People who share an email or a phone number, such as a couple, are added as separate clients. A name
+    already on your books is filled in, not repeated.</li>
+  <li>When it finishes it lists every row it skipped with the line number and the reason.</li>
+</ul>
+<h3 id="guest-clients">Guests are clients too</h3>
+<p>Everyone on a confirmation becomes a client when you create the reservation, with their birthday, and the
+  party is put in one household. A guest on someone else's reservation has a reservation: it counts on their
+  client page, marked <em>travelling, booked by</em> the person who booked it, with none of the money, which
+  stays with the booker. Anyone already on your books is asked about first, and only what you tick is
+  saved.</p>
+
 <h3>Whose clients these are</h3>
 <p>Your clients, reservations, leads and the trips under a supplier are yours. Another
   advisor cannot see them, open them or find them in a search, and you cannot see theirs. The
