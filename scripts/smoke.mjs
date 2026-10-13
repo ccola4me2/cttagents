@@ -8080,6 +8080,75 @@ async function main() {
       'and its many promotions land on the guests they applied to', JSON.stringify(cr.data?.pricing?.guests));
   }
 
+  // Carnival's advisor copy is an email: labels and figures split by tabs, one price for the booking,
+  // guests written surname first, and dates like Sep/24/2026.
+  {
+    const carnivalText = [
+      '180 DAYS \'TILL YOUR CRUISE!',
+      'BOOKING #: VJ40F6  |  SAILING DATE:',
+      'Booking Confirmed',
+      'Booked By:\tBooking #:',
+      'CRUISE PLANNERS - POLLACK\tVJ40F6',
+      'Brent Beasley | 8134157619',
+      '5006 Sanderling Ridge Drive, Lithia, FL 33547',
+      'TRAVEL ADVISOR COPY',
+      'Thanks for booking your client on their 4 Day Western Caribbean itinerary. We can\'t wait to host them on board.',
+      'Ship\tRoom View',
+      'Carnival Paradise',
+      'Sep/24/2026\tOcean View',
+      'Cabin Number\tDining',
+      'Room #U65\tEarly Dining',
+      'ITEMIZED CHARGES',
+      'Total\t$896.00 USD',
+      'Cruise Charges\t$768.00 USD',
+      'Cruise Rate\t$500.00 USD',
+      'Non-Commission Amount\t$38.00 USD',
+      'Required Cruise Fees & Expenses\t$114.64 USD',
+      'Government Taxes & Fees\t$115.36 USD',
+      'OTHER CHARGES',
+      'Pre-Paid Gratuities\t$128.00 USD',
+      'Bonus! Onboard Credit\t$25.00',
+      ' ',
+      'Payments & Credits',
+      'Total Payments & Credits\t$100.00 USD',
+      'Payments Received\t$100.00 USD',
+      'Guest Balance Due\t$796.00 USD',
+      'Net Balance Due\t$716.00 USD',
+      'Total Commission\t$80.00 USD',
+      'Payment Schedule',
+      'Final Payment Due Date\tJul/11/2026',
+      'GUEST DETAILS\tVIFP\tVacation Protection',
+      'Sample, Alex\t\tGOLD',
+      'Not Added',
+      'Example, Bea\t\tBLUE',
+      'Not Added',
+      'DAY\tDATE\tPORT OF CALL\tARRIVE\tDEPART',
+      'Thursday\tSep/24/2026\tTampa, Fl\t\t3:30 PM',
+      'Friday\tSep/25/2026\tFun Day At Sea\t\t',
+      'Saturday\tSep/26/2026\tCozumel, Mexico\t8:00 AM\t4:00 PM',
+      'Sunday\tSep/27/2026\tFun Day At Sea\t\t',
+      'Monday\tSep/28/2026\tTampa, Fl\t8:00 AM\t',
+      'Important Notes',
+      '\u2022 Cancellations made on or after Jul/11/2026 will be assessed appropriate cancellation penalties.',
+      'Guest Notes',
+      '\u2022 Applies to guests 1, 2. Deposit is non-refundable and non transferable.',
+      'Terms and Conditions: "Required Cruise Fees and Expenses", as used by us, includes all mandatory fees.'].join('\n');
+    const vr = await call(advisor, 'POST', '/api/import/confirmation', { text: carnivalText });
+    const vf = vr.data?.fields || {};
+    check(vf.confirmationNumber === 'VJ40F6' && vf.supplier === 'Carnival Cruise Line'
+        && vf.productName === 'Carnival Paradise' && vf.productType === 'cruise',
+      'a Carnival advisor copy is read as a cruise, with its booking number and ship', JSON.stringify(vf));
+    check(vf.departDate === '2026-09-24' && vf.returnDate === '2026-09-28' && vf.finalPaymentDue === '2026-07-11'
+        && vf.cabin === 'U65' && vf.cabinCategory === 'Ocean View',
+      'with its dates, written Sep/24/2026, the last day of the port table as the return, and its cabin', JSON.stringify(vf));
+    check(vf.clientName === 'Alex Sample' && vf.travellers === 2 && vf.depositRefundable === 'nonrefundable'
+        && vf.gross === '896.00' && vf.commission === '80.00',
+      'the guests turned the right way round, the deposit terms, the total and the commission', JSON.stringify(vf));
+    const vp = vr.data?.pricing;
+    check(vp && vp.balanced === true && vp.lines?.map((l) => l.amount).join() === '538.00,230.00,128.00',
+      'and the price as fare, taxes and gratuities adding up to the total it states', JSON.stringify(vp && vp.lines));
+  }
+
   const nonsense = await call(advisor, 'POST', '/api/import/confirmation',
     { text: 'Dear client, we look forward to welcoming you aboard next spring. Kind regards.' });
   check(nonsense.status === 400,

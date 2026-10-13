@@ -133,6 +133,15 @@ export function anyDate(raw) {
     return cleanDate(out);
   }
 
+  // Sep/24/2026 and September 24, 2026: the month named first.
+  const monthFirst = value.match(/^([A-Za-z]{3,9})\.?[\s/.-]+(\d{1,2})(?:st|nd|rd|th)?[\s,/.-]+(\d{4})$/);
+  if (monthFirst) {
+    const month = MONTHS.indexOf(monthFirst[1].slice(0, 3).toLowerCase());
+    if (month >= 0) {
+      return cleanDate(`${monthFirst[3]}-${String(month + 1).padStart(2, '0')}-${String(Number(monthFirst[2])).padStart(2, '0')}`);
+    }
+  }
+
   // 25-Oct-2026 and 25 October 2026, which is how Norwegian writes every date. Read by
   // hand rather than left to Date.parse, which takes a date in this shape as local time
   // and can come out a day early once it is turned back into UTC.

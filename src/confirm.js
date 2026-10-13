@@ -781,6 +781,138 @@ function readRoyal(lines, text, fields, from) {
   if (status) set('status', /^(offer|option)/i.test(status.m[1]) ? 'quoted' : (/^cancel/i.test(status.m[1]) ? 'cancelled' : 'booked'), status.line);
 }
 
+// ---------------------------------------------------------------------------
+// Carnival: the travel advisor copy of a booking confirmation email
+// ---------------------------------------------------------------------------
+
+/** Whether a document is Carnival's advisor copy. */
+function isCarnival(text) {
+  return /travel advisor copy/i.test(text) && /itemized charges/i.test(text);
+}
+
+/** One figure after a label, the label and the amount separated by a tab or spaces. */
+function cvMoney(lines, re) {
+  for (const raw of lines) {
+    const line = raw.trim();
+    const m = re.exec(line);
+    if (!m) continue;
+    const rest = line.slice(m[0].length);
+    const fig = /^\s*\$\s*([\d,]+\.\d{2})\b/.exec(rest);
+    if (fig) return { line, cents: cleanMoney(fig[1]) };
+  }
+  return null;
+}
+
+/** "Biggs, Darbi" is Darbi Biggs. Only the lines between the guest header and the port table. */
+function cvGuests(lines) {
+  const start = lines.findIndex((l) => /^guest details\b/i.test(l.trim()));
+  if (start < 0) return [];
+  const out = [];
+  for (const raw of lines.slice(start + 1)) {
+    const line = raw.split('\t')[0].trim();
+    if (/^day\s+date\b/i.test(raw.trim())) break;
+    const m = /^([A-Za-z][A-Za-z'.-]*(?: [A-Za-z'.-]+)*),\s*([A-Za-z][A-Za-z'.-]*(?: [A-Za-z'.-]+)*)$/.exec(line);
+    if (m) out.push({ name: `${m[2].trim()} ${m[1].trim()}`, line });
+  }
+  return out;
+}
+
+/**
+ * Carnival prints one set of totals for the booking and none for each guest, so the price is a single
+ * column: the cruise rate and the non commissionable amount are the fare, the required fees and the
+ * government taxes are the taxes, and the prepaid gratuities are their own line.
+ */
+function readCarnivalPricing(lines, fields) {
+  const total = cvMoney(lines, /^total\s+/i);
+  const rate = cvMoney(lines, /^cruise rate\s+/i);
+  if (!total || !rate) return null;
+  const nonComm = cvMoney(lines, /^non-?commission amount\s+/i);
+  const fees = cvMoney(lines, /^required cruise fees(?: & expenses)?\s+/i);
+  const taxes = cvMoney(lines, /^government taxes(?: & fees)?\s+/i);
+  const tips = cvMoney(lines, /^pre-?paid gratuities\s+/i);
+
+  const fare = rate.cents + (nonComm ? nonComm.cents : 0);
+  const tax = (fees ? fees.cents : 0) + (taxes ? taxes.cents : 0);
+  const gratuities = tips ? tips.cents : 0;
+  const out = [];
+  if (fare > 0) out.push({ kind: 'fare', label: 'Fare', amount: fixed(fare), from: rate.line });
+  if (tax > 0) {
+    out.push({ kind: 'taxes', label: 'Taxes and port fees', amount: fixed(tax),
+      from: [fees && fees.line, taxes && taxes.line].filter(Boolean).join(' | ') });
+  }
+  if (gratuities > 0) out.push({ kind: 'gratuities', label: 'Gratuities', amount: fixed(gratuities), from: tips.line });
+
+  const sum = fare + tax + gratuities;
+  const notes = [];
+  const net = cvMoney(lines, /^net balance due\s+/i);
+  const comm = cvMoney(lines, /^total commission\s+/i);
+  if (net && comm) {
+    notes.push(`Carnival's net balance, ${said(net.cents)}, is after your ${said(comm.cents)} commission. The trip total here is what the client pays.`);
+  }
+  if (nonComm) notes.push('The non commissionable amount is counted as part of the fare.');
+  notes.push('Carnival prints one price for the booking and none for each guest, so the price stays as one column.');
+  return {
+    lines: out, guests: null, totalCents: sum, statedCents: total.cents,
+    balanced: Math.abs(sum - total.cents) <= 1, differenceCents: total.cents - sum,
+    ratePct: null, notes,
+  };
+}
+
+/** Everything Carnival prints in its own way, applied over what the general reader found. */
+function readCarnival(lines, text, fields, from) {
+  const set = (key, value, line) => {
+    if (value === null || value === undefined || value === '') return;
+    fields[key] = value;
+    from[key] = String(line).trim().slice(0, 160);
+  };
+  const find = (re) => { for (const l of lines) { const m = re.exec(l.trim()); if (m) return { m, line: l }; } return null; };
+
+  const booking = find(/booking #\s*:\s*([A-Z0-9]+)/i);
+  if (booking) set('confirmationNumber', booking.m[1], booking.line);
+
+  // "Ship / Room View" is a header, the ship is on the next line, and the sailing date and the room
+  // view share the one after.
+  const at = lines.findIndex((l) => /^ship\b.*\broom view\b/i.test(l.trim()));
+  if (at >= 0) {
+    const ship = (lines[at + 1] || '').trim();
+    if (ship && !/\d/.test(ship)) set('productName', ship, ship);
+    const second = /^([A-Za-z]{3}\/\d{1,2}\/\d{4})\s+(.+)$/.exec((lines[at + 2] || '').trim());
+    if (second) {
+      set('departDate', anyDate(second[1]), lines[at + 2]);
+      set('cabinCategory', second[2].trim(), lines[at + 2]);
+    }
+  }
+  if (/^carnival\b/i.test(fields.productName || '') || /carnival/i.test(text.slice(0, 600))) {
+    set('supplier', 'Carnival Cruise Line', fields.productName || 'Carnival');
+  }
+
+  const room = find(/^room #\s*([A-Z0-9]+)\b/i);
+  if (room) set('cabin', room.m[1], room.line);
+
+  const trip = find(/booking your client on their\s+(\d+)\s*day\s+(.+?)\s+itinerary/i);
+  if (trip) set('destination', `${trip.m[1]} Day ${trip.m[2]}`, trip.line);
+
+  // The port table gives the first and last day.
+  const days = lines.map((l) => /^(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+([A-Za-z]{3}\/\d{1,2}\/\d{4})/i.exec(l.trim()))
+    .filter(Boolean);
+  if (days.length >= 2) {
+    set('departDate', anyDate(days[0][1]), days[0][0]);
+    set('returnDate', anyDate(days[days.length - 1][1]), days[days.length - 1][0]);
+  }
+
+  const gross = cvMoney(lines, /^total\s+/i);
+  if (gross) set('gross', fixed(gross.cents), gross.line);
+  const comm = cvMoney(lines, /^total commission\s+/i);
+  if (comm) set('commission', fixed(comm.cents), comm.line);
+  const fin = find(/^final payment due date\s+([A-Za-z]{3}\/\d{1,2}\/\d{4})/i);
+  if (fin) set('finalPaymentDue', anyDate(fin.m[1]), fin.line);
+
+  const kind = find(/deposit is\s+(non[-\s]?refundable|refundable)/i);
+  if (kind) set('depositRefundable', /non/i.test(kind.m[1]) ? 'nonrefundable' : 'refundable', kind.line);
+  if (/booking confirmed/i.test(text)) set('status', 'booked', 'Booking Confirmed');
+  fields.productType = 'cruise'; from.productType = 'a Carnival advisor copy';
+}
+
 export function parseConfirmation(text) {
   const lines = stackLabels(String(text || '').split(/\r?\n/).slice(0, 400))
     .flatMap(splitColumns)
@@ -870,7 +1002,17 @@ export function parseConfirmation(text) {
     royalPeople = rcGuests(lines, n);
   }
 
-  const people = guests(lines).length ? guests(lines) : (royalPeople.length ? royalPeople : nclPeople);
+  // Carnival's advisor copy, an email with the labels and figures separated by tabs.
+  const carnival = isCarnival(String(text || ''));
+  let carnivalPeople = [];
+  if (carnival) {
+    const rawLines = String(text || '').split(/\r?\n/);
+    readCarnival(rawLines, String(text || ''), fields, from);
+    carnivalPeople = cvGuests(rawLines);
+  }
+
+  const people = guests(lines).length ? guests(lines)
+    : (royalPeople.length ? royalPeople : (carnivalPeople.length ? carnivalPeople : nclPeople));
   if (people.length) {
     fields.travellers = people.length;
     // The lead guest is the client unless the advisor says otherwise. Named
@@ -888,7 +1030,8 @@ export function parseConfirmation(text) {
     delete from.returnDate;
   }
 
-  const pricing = (royal ? readRoyalPricing(lines, fields, people) : null)
+  const pricing = (carnival ? readCarnivalPricing(String(text || '').split(/\r?\n/), fields) : null)
+    || (royal ? readRoyalPricing(lines, fields, people) : null)
     || (/booking components per guest/i.test(text) ? readNclPricing(lines, fields, people) : null)
     || readPricing(lines, fields, people);
 
