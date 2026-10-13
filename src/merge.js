@@ -32,26 +32,18 @@ const FILLABLE = [
   'referred_by_client_id', 'ghl_contact_id', 'hub_code', 'hub_at',
 ];
 
-// Phone numbers are typed however somebody feels that day. Enough of the
-// separators to make (555) 123-4567 and 555-123-4567 the same number, done in
-// SQL because the comparison happens there.
-const DIGITS = (col) => `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(`
-  + `${col}, ' ', ''), '-', ''), '(', ''), ')', ''), '.', ''), '+', '')`;
-
 /**
  * Pairs that are probably one person.
  *
- * Three signals, strongest first. A shared email is as close to proof as this
- * gets. A shared phone is nearly as good. The same name folded to lower case
- * is weaker and catches the trailing-space pair the unique index lets through.
+ * One signal only: the same name, folded to lower case, which catches the trailing space and the
+ * capital letter that the unique index lets through. A shared email address or phone number is not
+ * one, because a family or a group travelling together shares both on purpose, and offering every
+ * member as a possible duplicate of every other buried the list in people who are all correct.
  *
- * Deliberately not fuzzy. Robert and Bob are the same person and no rule here
- * will say so; offering a guess that wrong would teach an advisor to stop
- * reading the list, and the list is only useful if every row on it is worth
- * looking at.
+ * Deliberately not fuzzy. Robert and Bob are the same person and no rule here will say so; offering a
+ * guess that wrong would teach an advisor to stop reading the list.
  *
- * b.id > a.id so each pair appears once rather than twice with the sides
- * swapped.
+ * b.id > a.id so each pair appears once rather than twice with the sides swapped.
  */
 export async function duplicateCandidates(env, scope, { limit = 40 } = {}) {
   const scoped = db.scopeWhere(scope, 'a.user_id');
@@ -64,22 +56,10 @@ export async function duplicateCandidates(env, scope, { limit = 40 } = {}) {
               OR EXISTS (SELECT 1 FROM travellers tv WHERE tv.booking_id = k.id AND tv.user_id = k.user_id AND LOWER(TRIM(tv.name)) = LOWER(TRIM(a.name)))) AS a_trips,
             (SELECT COUNT(*) FROM bookings k WHERE k.client_id = b.id
               OR EXISTS (SELECT 1 FROM travellers tv WHERE tv.booking_id = k.id AND tv.user_id = k.user_id AND LOWER(TRIM(tv.name)) = LOWER(TRIM(b.name)))) AS b_trips,
-            CASE
-              WHEN TRIM(COALESCE(a.email, '')) != ''
-               AND LOWER(TRIM(a.email)) = LOWER(TRIM(b.email)) THEN 'same email'
-              WHEN TRIM(COALESCE(a.phone, '')) != ''
-               AND ${DIGITS('a.phone')} = ${DIGITS('b.phone')} THEN 'same phone'
-              ELSE 'same name'
-            END AS why
+            'same name' AS why
        FROM clients a
        JOIN clients b ON b.user_id = a.user_id AND b.id > a.id
-        AND (
-          (TRIM(COALESCE(a.email, '')) != '' AND LOWER(TRIM(a.email)) = LOWER(TRIM(b.email)))
-          OR (TRIM(COALESCE(a.phone, '')) != ''
-              AND LENGTH(${DIGITS('a.phone')}) >= 7
-              AND ${DIGITS('a.phone')} = ${DIGITS('b.phone')})
-          OR (LOWER(TRIM(a.name)) = LOWER(TRIM(b.name)))
-        )
+        AND LOWER(TRIM(a.name)) = LOWER(TRIM(b.name))
         -- Already explained: two people in one household are family, not a typo.
         AND NOT (a.household_id IS NOT NULL AND a.household_id = b.household_id)
         -- Already looked at, and decided to be two people.

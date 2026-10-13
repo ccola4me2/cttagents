@@ -6805,7 +6805,7 @@ async function main() {
   const mergeA = await call(advisor, 'POST', '/api/clients',
     { name: `Merge Keeper${stamp}`, phone: `555${stamp}` });
   const mergeB = await call(advisor, 'POST', '/api/clients',
-    { name: `Merge Loser${stamp}`, phone: `555${stamp}`, birthday: '1979-03-04',
+    { name: `merge keeper${stamp}`, phone: `555${stamp}`, birthday: '1979-03-04',
       passportNumber: `PX${stamp}` });
   const keepId = mergeA.data?.client?.id;
   const dropId = mergeB.data?.client?.id;
@@ -6815,8 +6815,10 @@ async function main() {
     const pairs = await call(advisor, 'GET', '/api/clients/duplicates');
     const seen = (pairs.data?.pairs || []).some(
       (p) => (p.a_id === keepId && p.b_id === dropId) || (p.a_id === dropId && p.b_id === keepId));
-    check(seen, 'a shared phone number puts them on the duplicates list',
+    check(seen, 'the same name in another case puts them on the duplicates list',
       `${(pairs.data?.pairs || []).length} pair(s)`);
+    check((pairs.data?.groups || []).some((g) => g.members.some((m) => m.id === keepId) && g.members.some((m) => m.id === dropId)),
+      'as one group with both of them in it');
 
     const merged = await call(advisor, 'POST', '/api/clients/merge',
       { keep: keepId, drop: dropId });
@@ -6843,14 +6845,14 @@ async function main() {
   {
   const num = `557${stamp}`;
   const mum = await call(advisor, 'POST', '/api/clients', { name: `Family Parent${stamp}`, phone: num });
-  const kid = await call(advisor, 'POST', '/api/clients', { name: `Family Child${stamp}`, phone: num });
+  const kid = await call(advisor, 'POST', '/api/clients', { name: `family parent${stamp}`, phone: num });
   const mumId = mum.data?.client?.id;
   const kidId = kid.data?.client?.id;
   const listed = async () => {
     const d = await call(advisor, 'GET', '/api/clients/duplicates');
     return (d.data?.pairs || []).some((p) => [p.a_id, p.b_id].includes(mumId) && [p.a_id, p.b_id].includes(kidId));
   };
-  check(Boolean(mumId && kidId) && await listed(), 'two people on one number are offered as possibly the same');
+  check(Boolean(mumId && kidId) && await listed(), 'the same name twice is offered as possibly the same person');
 
   const nobody = await call(advisor, 'POST', '/api/clients/not-duplicates', { a: mumId, b: 'not-a-client' });
   check(nobody.status === 404, 'a record that is not theirs cannot be marked', `status ${nobody.status}`);
@@ -8354,11 +8356,10 @@ async function main() {
     const run = await call(advisor, 'POST', '/api/import/clients', { text });
     check(run.status === 200 && run.data?.created === 2 && run.data?.updated === 0,
       'two people with the same email and phone are two clients', JSON.stringify(run.data));
-    // Shown as one group with both names on it, and counted as having a reservation when on one.
+    // A shared email is not a duplicate, and a guest is counted as having a reservation when on one.
     const dupes = await call(advisor, 'GET', '/api/clients/duplicates');
     const grp = (dupes.data?.groups || []).find((g) => g.members.some((m) => m.name === a) && g.members.some((m) => m.name === b));
-    check(Boolean(grp) && grp.why === 'same email' && grp.pairs.length >= 1,
-      'people sharing an email come up as one group, not a row each', JSON.stringify(grp && [grp.why, grp.members.length]));
+    check(!grp, 'people who share an email and a phone are not offered as duplicates', JSON.stringify(grp && [grp.why, grp.members.length]));
     const booker = await call(advisor, 'POST', '/api/bookings', { clientName: `Shared Booker ${stamp}`, supplier: 'Royal Caribbean',
       productType: 'cruise', departDate: isoDay(300), gross: '1000', status: 'booked' });
     const bookerId = booker.data?.booking?.id;

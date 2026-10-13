@@ -533,14 +533,14 @@ async function drawDupes() {
   document.getElementById('dupe-count').textContent =
     `${groups.length} group${groups.length === 1 ? '' : 's'} to look at`;
 
-  const WHY = { 'same email': 'Share an email', 'same phone': 'Share a phone number', 'same name': 'Same name' };
+  const WHY = { 'same name': 'Same name' };
 
-  box.innerHTML = `<p class="field-hint" style="margin:0 0 .9rem;">People who share an email
-    address, a phone number or a name, grouped. A shared number is often a family, so there are
-    three answers. <strong>Same household</strong> keeps everyone as their own client, together.
-    <strong>Different people</strong> keeps them apart and stops the group being offered again.
-    <strong>Keep this one</strong> is for one person typed more than once: the others move into it
-    and nothing is lost.</p>
+  box.innerHTML = `<p class="field-hint" style="margin:0 0 .9rem;">The same name more than once, which
+    is usually one person typed twice. A shared email or phone number is not a reason to be here:
+    families and groups share those on purpose. <strong>Keep this one</strong> merges the others
+    into it, and everything on them moves across. <strong>Different people</strong> keeps them apart
+    and stops this being offered again. <strong>Same household</strong> keeps them as separate clients,
+    together.</p>
     <ul class="rows">${groups.map((g, i) => `<li style="padding-left:0;padding-right:0;" data-group="${i}">
       <div class="row-between" style="margin-bottom:.4rem;">
         <span class="t">${esc(WHY[g.why] || g.why)}${g.shared ? `: ${esc(g.shared)}` : ''}</span>
