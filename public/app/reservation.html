@@ -2495,7 +2495,7 @@ async function statement() {
         <div class="field"><label for="st-intro">Opening message</label>
           <textarea id="st-intro" rows="5" maxlength="4000"></textarea></div>
         <div class="field"><label for="st-note">A note at the end</label>
-          <textarea id="st-note" rows="4" maxlength="4000" placeholder="Anything you want to add for this client"></textarea></div>
+          <textarea id="st-note" rows="4" maxlength="4000" placeholder="Anything you want to add"></textarea></div>
         <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
           <button class="btn btn-secondary btn-sm" type="button" id="st-update">Update the preview</button>
           <button class="btn btn-ghost btn-sm" type="button" id="st-reset">Back to the standard wording</button>
@@ -2516,12 +2516,14 @@ async function statement() {
   fTo.value = p.to || '';
   fSubject.value = p.subject;
   fIntro.value = def.intro;
+  fNote.value = def.note || '';
   // Only what was changed is sent. The standard wording stays the standard wording, so it keeps following
   // the reservation rather than being frozen the first time somebody opens this.
   const customOf = () => ({
     subject: fSubject.value.trim() !== def.subject ? fSubject.value.trim() : '',
     intro: fIntro.value.trim() !== def.intro.trim() ? fIntro.value.trim() : '',
-    note: fNote.value.trim(),
+    // Empty means the advisor took it out, which is different from leaving it alone.
+    note: fNote.value.trim() !== (def.note || '').trim() ? fNote.value.trim() : undefined,
   });
   // The address on the client's record is left alone: a different one is for this send only.
   const toOf = () => (fTo.value.trim() && fTo.value.trim() !== (p.to || '') ? { to: fTo.value.trim() } : {});
@@ -2537,7 +2539,7 @@ async function statement() {
   };
   document.getElementById('st-update').addEventListener('click', update);
   document.getElementById('st-reset').addEventListener('click', () => {
-    fTo.value = p.to || ''; fSubject.value = def.subject; fIntro.value = def.intro; fNote.value = ''; update();
+    fTo.value = p.to || ''; fSubject.value = def.subject; fIntro.value = def.intro; fNote.value = def.note || ''; update();
   });
 
   send.hidden = false;

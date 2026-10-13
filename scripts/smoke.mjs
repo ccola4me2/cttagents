@@ -8281,12 +8281,17 @@ async function main() {
         const edited = await call(advisor, 'POST', `/api/bookings/${qid}/statement`,
           { preview: true, custom: { subject: `A quote for you ${stamp}`, intro: `Hello and welcome ${stamp}.\n\nSecond paragraph.`, note: `One more thing ${stamp}` } });
         check(edited.data?.subject === `A quote for you ${stamp}` && edited.data?.html?.includes(`Hello and welcome ${stamp}.`)
-            && edited.data?.html?.includes(`One more thing ${stamp}`) && edited.data?.defaults?.intro?.startsWith('Here is what I have put together'),
+            && edited.data?.html?.includes(`One more thing ${stamp}`) && edited.data?.defaults?.intro?.startsWith('Thank you for the opportunity to plan this trip'),
           'a quote can be reworded before it goes: subject, opening message and a closing note', JSON.stringify(edited.data?.defaults));
+        const plainQuote = await call(advisor, 'POST', `/api/bookings/${qid}/statement`, { preview: true });
+        check(/happy to help/.test(plainQuote.data?.html || '') && plainQuote.data?.defaults?.note && /Thank you for the opportunity/.test(plainQuote.data?.html || ''),
+          'a quote starts with a professional opening and closing', String(plainQuote.data?.defaults?.note || '').slice(0, 40));
+        const noNote = await call(advisor, 'POST', `/api/bookings/${qid}/statement`, { preview: true, custom: { note: '' } });
+        check(!/happy to help/.test(noNote.data?.html || ''), 'and the closing can be taken out', 'still there');
         const wording = await call(advisor, 'POST', '/api/bookings/bulk-quote',
           { ids: [qid, q2], combine: { to: `one-${stamp}@test.dev` }, custom: { intro: `Combined hello ${stamp}`, note: `Combined note ${stamp}` } });
         check(wording.data?.combined?.html?.includes(`Combined hello ${stamp}`) && wording.data?.combined?.html?.includes(`Combined note ${stamp}`)
-            && /quotes I have put together/.test(wording.data?.combined?.defaults?.intro || ''),
+            && /plan these trips for you/.test(wording.data?.combined?.defaults?.intro || ''),
           'and so can a combined quote', JSON.stringify(wording.data?.combined?.defaults));
         const lone1 = await call(advisor, 'POST', `/api/bookings/${qid}/statement`, { preview: true });
         check(/Cabin category/.test(lone1.data?.html || '') && /8D/.test(lone1.data?.html || ''),

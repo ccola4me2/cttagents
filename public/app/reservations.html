@@ -67,7 +67,7 @@
                 <p class="field-hint" id="quote-words-hint" style="margin:0 0 .4rem;">Add your own words. They are put in every email, at the top and the end,
                   with the quote below. Leave them empty to send the standard wording.</p>
                 <div class="field"><label for="quote-intro">Opening message</label>
-                  <textarea id="quote-intro" rows="4" maxlength="4000" placeholder="Press Preview the email to see the standard wording here, then change it."></textarea></div>
+                  <textarea id="quote-intro" rows="4" maxlength="4000" placeholder="Your opening message"></textarea></div>
                 <div class="field"><label for="quote-note">A note at the end</label>
                   <textarea id="quote-note" rows="3" maxlength="4000" placeholder="Anything you want to add"></textarea></div>
               </div>
@@ -369,19 +369,21 @@ const quoteDlg = document.getElementById('quote-dlg');
 let quoteRows = [];
 // What the advisor changed. Only differences from the standard wording are sent, so what was left alone
 // keeps following the reservations.
-let quoteDefaults = null;
+let qDefaults = null;
+let qSubjectDefault = '';
+// The words the server starts from, for one at a time or for one email. A professional opening and closing are
+// filled in, and only what the advisor changes is sent, so what is left alone keeps following the quote.
+const qDef = () => (qDefaults ? (document.getElementById('quote-combine').checked ? qDefaults.combined : qDefaults.each) : { intro: '', note: '' });
 const quoteCustom = () => {
   const subject = document.getElementById('quote-subject').value.trim();
   const intro = document.getElementById('quote-intro').value.trim();
   const note = document.getElementById('quote-note').value.trim();
-  const combined = document.getElementById('quote-combine').checked;
-  // Whatever was filled in from the standard wording is not a change. One at a time, the combined opening
-  // that a preview filled in is not meant for each of them either.
-  const standard = quoteDefaults ? quoteDefaults.intro.trim() : '';
+  const d = qDef();
   return {
-    subject: combined && quoteDefaults && subject !== quoteDefaults.subject ? subject : (combined && !quoteDefaults ? subject : ''),
-    intro: intro === standard ? '' : intro,
-    note,
+    subject: document.getElementById('quote-combine').checked && subject !== qSubjectDefault ? subject : '',
+    intro: intro === d.intro.trim() ? '' : intro,
+    // Empty means the advisor took the note out, which is different from leaving it alone.
+    note: note === d.note.trim() ? undefined : note,
   };
 };
 const qMode = () => (document.getElementById('quote-combine').checked ? 'one' : 'each');
@@ -440,12 +442,9 @@ document.getElementById('quote-look').addEventListener('click', async (e) => {
   e.target.disabled = true;
   try {
     const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids, send: false, combine: { to }, custom: quoteCustom() } });
-    // The first time, start the editor from the words that would go out.
-    if (!quoteDefaults || quoteDefaults.count !== res.combined.count) {
-      quoteDefaults = { ...res.combined.defaults, count: res.combined.count };
-      if (!document.getElementById('quote-subject').value.trim()) document.getElementById('quote-subject').value = res.combined.defaults.subject;
-      if (!document.getElementById('quote-intro').value.trim()) document.getElementById('quote-intro').value = res.combined.defaults.intro;
-    }
+    // The subject is the one thing that is only known for the combined email, so it is filled in here.
+    qSubjectDefault = res.combined.defaults.subject;
+    if (!document.getElementById('quote-subject').value.trim()) document.getElementById('quote-subject').value = qSubjectDefault;
     document.getElementById('look-frame').srcdoc = res.combined.html;
     document.getElementById('look-note').textContent = `To ${to}. Subject: ${res.combined.subject}. Each trip's link opens its own page, which is created when this is sent.`;
     document.getElementById('look-dlg').showModal();
@@ -453,6 +452,17 @@ document.getElementById('quote-look').addEventListener('click', async (e) => {
   e.target.disabled = false;
 });
 document.getElementById('quote-combine').addEventListener('change', () => {
+  // Moving between the two, the words follow: whatever is still the standard wording of the mode that was
+  // left becomes the standard wording of the mode that is opened, and anything typed is kept.
+  if (qDefaults) {
+    const into = document.getElementById('quote-combine').checked;
+    const from = into ? qDefaults.each : qDefaults.combined;
+    const to = into ? qDefaults.combined : qDefaults.each;
+    for (const [id, key] of [['quote-intro', 'intro'], ['quote-note', 'note']]) {
+      const box = document.getElementById(id);
+      if (box.value.trim() === from[key].trim()) box.value = to[key];
+    }
+  }
   // Together they all go to the one address, so a row with no address of its own is just as sendable.
   if (document.getElementById('quote-combine').checked) {
     document.querySelectorAll('[data-qsend]:not(:disabled)').forEach((b) => {
@@ -463,7 +473,8 @@ document.getElementById('quote-combine').addEventListener('change', () => {
   quoteSum();
 });
 document.getElementById('pick-quote').addEventListener('click', async () => {
-  quoteDefaults = null;
+  qDefaults = null;
+  qSubjectDefault = '';
   ['quote-subject', 'quote-intro', 'quote-note'].forEach((x) => { document.getElementById(x).value = ''; });
   const ids = cache.filter((b) => picked.has(b.id) && b.status === 'quoted').map((b) => b.id);
   document.getElementById('quote-error').hidden = true;
@@ -478,6 +489,12 @@ document.getElementById('pick-quote').addEventListener('click', async () => {
     for (let i = 0; i < ids.length; i += 25) {
       const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids: ids.slice(i, i + 25), send: false } });
       quoteRows.push(...res.results);
+      if (!qDefaults && res.defaults) qDefaults = res.defaults;
+    }
+    // Start from a professional opening and closing, ready to change.
+    if (qDefaults) {
+      document.getElementById('quote-intro').value = qDefaults.each.intro;
+      document.getElementById('quote-note').value = qDefaults.each.note;
     }
   } catch (e) { showError(document.getElementById('quote-error'), e); return; }
   // A row can go out when it can be read and only lacks an address, because one can be typed here.

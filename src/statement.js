@@ -256,7 +256,10 @@ function cardBlock(url, { heading, button, amountCents, dueIso, confirmation, sc
 export function cleanCustom(raw) {
   const c = raw && typeof raw === 'object' ? raw : {};
   const text = (v, max) => String(v === undefined || v === null ? '' : v).replace(/\r\n/g, '\n').trim().slice(0, max);
-  return { subject: text(c.subject, 200).replace(/\s+/g, ' '), intro: text(c.intro, 4000), note: text(c.note, 4000) };
+  // The note is told apart from the others: absent means the standard closing, and an empty one means the
+  // advisor took it out and wants none.
+  return { subject: text(c.subject, 200).replace(/\s+/g, ' '), intro: text(c.intro, 4000),
+    note: c.note === undefined || c.note === null ? undefined : text(c.note, 4000) };
 }
 
 /** Typed text as paragraphs: a blank line starts a new one and a single line break is kept. */
@@ -266,8 +269,26 @@ const paragraphs = (text) => String(text || '').split(/\n{2,}/).map((x) => x.tri
 /** The opening paragraph as it is written when nobody has changed it, so the editor can start from it. */
 export function defaultIntro(quote) {
   return quote
-    ? 'Here is what I have put together. Anything you would change, reply to this and I will rework it.'
-    : 'Here is where your trip stands. Anything that looks wrong, reply to this and I will sort it out.';
+    ? 'Thank you for the opportunity to plan this trip for you. I have put together everything below: your dates, your cabin, the full price and what it takes to hold it. Take a look, and if you would like anything changed, reply to this and I will rework it.'
+    : 'Thank you for booking with us. Here is where your trip stands, with what has been received and what is still due. If anything looks wrong, reply to this and I will sort it out.';
+}
+
+const HAPPY_TO_HELP = 'If you have any questions at all, call or email me and I will be happy to help.';
+
+/**
+ * The closing note as it is written when nobody has changed it. It reads as the last thing before the
+ * signature, so where the agency has a card form it points back at the form above it, and where it has
+ * not it does not mention one.
+ */
+export function defaultNote(s) {
+  if (s.mode !== 'quote') return `Thank you again for choosing us. If you have any questions about your payments or your trip, call or email me any time.`;
+  if (s.depositCents && s.paymentFormUrl) {
+    return `To hold your space, please complete the secure card authorization form above by the deposit date. Your card is not charged before the date you give. ${HAPPY_TO_HELP}`;
+  }
+  if (s.depositCents) {
+    return `To hold your space, reply to let me know you would like to go ahead and I will take care of the next steps. ${HAPPY_TO_HELP}`;
+  }
+  return `Say the word and I will hold it for you. ${HAPPY_TO_HELP}`;
 }
 
 export function renderStatement(env, s, custom = {}) {
@@ -393,7 +414,7 @@ export function renderStatement(env, s, custom = {}) {
            font-weight:600;color:#12315e;">${escapeHtml(s.standing)}</p>`
       : '',
     !quote && s.due.length ? cardForm(s.due[0].amountCents, s.due[0].date) : '',
-    custom.note ? `<div style="margin:18px 0 0;">${paragraphs(custom.note)}</div>` : '',
+    (custom.note === undefined ? defaultNote(s) : custom.note) ? `<div style="margin:18px 0 0;">${paragraphs(custom.note === undefined ? defaultNote(s) : custom.note)}</div>` : '',
     s.notes
       ? `<p style="margin:18px 0 0;white-space:pre-wrap;">${escapeHtml(s.notes)}</p>` : '',
     s.amenities.length
@@ -487,7 +508,15 @@ async function nextInvoiceNo(env, userId, year) {
  * Built from the statements the single quote is built from, so a trip reads here as it would alone.
  */
 /** The opening paragraph of a combined quote as written when nobody has changed it. */
-export const combinedIntro = (n) => `Here are the ${n} quotes I have put together. Each trip below has its price, its dates and its cabin, and the link under it opens a page with everything else. Anything you would change, reply to this and I will rework it.`;
+export const combinedIntro = (withDeposit) => 'Thank you for the opportunity to plan these trips for you. Below is each trip with its dates, cabin and price'
+  + `${withDeposit ? ', and one deposit that holds them all' : ''}. Each link opens a page with everything else about that trip. If you would like anything changed, reply to this and I will rework it.`;
+
+/** The closing note of a combined quote as written when nobody has changed it. */
+export const combinedNote = ({ withDeposit, withForm }) => (withDeposit && withForm
+  ? `To hold all of these trips, please complete the one secure card authorization form above by the deposit date. Your card is not charged before the date you give. ${HAPPY_TO_HELP}`
+  : withDeposit
+    ? `To hold all of these trips, reply to let me know you would like to go ahead and I will take care of the next steps. ${HAPPY_TO_HELP}`
+    : `Say the word and I will hold them for you. ${HAPPY_TO_HELP}`);
 
 export function renderCombinedQuote(env, statements, { paymentFormUrl = '', custom = {} } = {}) {
   const first = statements[0];
@@ -535,6 +564,8 @@ export function renderCombinedQuote(env, statements, { paymentFormUrl = '', cust
         style="color:#12315e;font-weight:600;">See everything for this trip, and answer</a></p>`;
   };
 
+  const closing = custom.note === undefined
+    ? combinedNote({ withDeposit: depositTotal > 0, withForm: Boolean(paymentFormUrl) }) : custom.note;
   const hold = depositTotal
     ? `A single deposit of <strong>${money(depositTotal)}</strong> holds all ${statements.length} of these${
         due ? ` and is due by ${escapeHtml(day(due))}` : ''}.`
@@ -549,13 +580,13 @@ export function renderCombinedQuote(env, statements, { paymentFormUrl = '', cust
 
   const body = [
     '<p style="margin:0 0 14px;">Hello,</p>',
-    paragraphs(custom.intro || combinedIntro(statements.length)),
+    paragraphs(custom.intro || combinedIntro(depositTotal > 0)),
     statements.map(trip).join(''),
     `<p style="margin:22px 0 0;padding:12px 16px;background:#f2f7fb;border-radius:8px;color:#12315e;">
        All together: <strong>${money(tripTotal)}</strong>. ${hold}</p>`,
     `<p style="margin:14px 0 0;">Prices and space are not held until they are booked.</p>`,
     card,
-    custom.note ? `<div style="margin:18px 0 0;">${paragraphs(custom.note)}</div>` : '',
+    closing ? `<div style="margin:18px 0 0;">${paragraphs(closing)}</div>` : '',
     `<p style="margin:24px 0 0;">${escapeHtml(first.advisorName)}${
       first.agencyName ? `<br><span style="color:#5c7286;">${escapeHtml(first.agencyName)}</span>` : ''}</p>`,
   ].filter(Boolean).join('');
@@ -641,7 +672,7 @@ export async function handleBulkQuote(request, env) {
       id, client: s.clientName || '', to: data.to || null, problem: data.problem || null,
       alreadySent: data.alreadySent || null, sentCount: data.sentCount || 0,
       depositCents: s.depositCents || 0, depositDue: s.depositDue || '', tripCents: s.tripCents || 0,
-      mode: s.mode,
+      mode: s.mode, sample: s,
     };
     if (s.mode !== 'quote') {
       results.push({ ...row, ok: false, error: 'Only a quoted reservation is sent a quote.' });
@@ -656,13 +687,23 @@ export async function handleBulkQuote(request, env) {
     results.push({ ...row, ok: sent.ok, error: sent.ok ? null : (out.error || `Not sent (${sent.status}).`) });
   }
 
-  if (body.combine) return combinedQuote(request, env, user, { results, statements, ids, combineTo, send, test: body.test === true, custom: cleanCustom(body.custom) });
+  if (body.combine) {
+    return combinedQuote(request, env, user, { results: results.map(({ sample: _s, ...row }) => row), statements, ids, combineTo, send, test: body.test === true, custom: cleanCustom(body.custom) });
+  }
 
   if (send) {
     const n = results.filter((r) => r.ok).length;
     await db.logActivity(env, user.id, 'quote.bulk', `Sent ${n} quote${n === 1 ? '' : 's'} at once`, { count: n });
   }
-  return json({ ok: true, sent: send, results });
+  // The starting words for the editor, for one at a time and for one email, so it can offer them before
+  // anything has been previewed.
+  const firstRead = results.find((r) => r.ok);
+  const anyDeposit = results.some((r) => r.ok && r.depositCents);
+  const sample = firstRead && firstRead.sample;
+  return json({ ok: true, sent: send, results: results.map(({ sample: _s, ...row }) => row), defaults: sample ? {
+    each: { intro: defaultIntro(true), note: defaultNote(sample) },
+    combined: { intro: combinedIntro(anyDeposit), note: combinedNote({ withDeposit: anyDeposit, withForm: Boolean(sample.paymentFormUrl) }) },
+  } : null });
 }
 
 /**
@@ -695,7 +736,7 @@ async function combinedQuote(request, env, user, { results, statements, ids, com
   const plain = renderCombinedQuote(env, built, { paymentFormUrl: built[0].paymentFormUrl || '' });
   const summary = {
     // What it says when nothing is changed, so the editor can start from the real words.
-    defaults: { subject: plain.subject, intro: combinedIntro(built.length) },
+    defaults: { subject: plain.subject, intro: combinedIntro(plain.depositCents > 0), note: combinedNote({ withDeposit: plain.depositCents > 0, withForm: Boolean(built[0].paymentFormUrl) }) },
     to: combineTo, count: built.length, subject: out.subject,
     tripCents: out.tripCents, depositCents: out.depositCents, depositDue: out.depositDue,
   };
@@ -838,7 +879,7 @@ export async function handleStatement(request, env, id) {
       willNumber: issuing && !booking.invoice_no,
       subject: rendered.subject,
       // What it says when nothing is changed, so the editor can start from the real words.
-      defaults: { subject: renderStatement(env, statement).subject, intro: defaultIntro(statement.mode === 'quote') },
+      defaults: { subject: renderStatement(env, statement).subject, intro: defaultIntro(statement.mode === 'quote'), note: defaultNote(statement) },
       statement,
       html: rendered.html,
     });
