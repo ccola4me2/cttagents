@@ -867,7 +867,30 @@ function drawContact(d) {
   onSubmit(document.getElementById('contact-form'), async (values) => {
     const body = { ...values, loyalty: loyaltyFromText(values.loyaltyText) };
     delete body.loyaltyText;
-    await api(`/api/clients/${encodeURIComponent(c.id)}`, { method: 'PUT', body });
+    try {
+      await api(`/api/clients/${encodeURIComponent(c.id)}`, { method: 'PUT', body });
+    } catch (e) {
+      // The name is already on the book: nearly always the same person typed twice, so offer to make them one.
+      if (e.code === 'name_taken' && e.data && e.data.existing) {
+        const there = e.data.existing;
+        const box = document.querySelector('#contact-form .notice');
+        box.hidden = false;
+        box.innerHTML = `${esc(e.message)}
+          <div style="margin-top:.6rem;"><button class="btn btn-primary btn-sm" type="button" id="merge-into">
+            Merge ${esc(c.name)} into ${esc(there.name)}</button></div>
+          <p class="field-hint" style="margin:.4rem 0 0;">Their reservations, credits and tasks move across, anything
+            ${esc(there.name)} is missing is filled in from this record, and this one is removed.</p>`;
+        document.getElementById('merge-into').addEventListener('click', async (ev) => {
+          ev.target.disabled = true;
+          try {
+            await api('/api/clients/merge', { method: 'POST', body: { keep: there.id, drop: c.id } });
+            window.location.href = `/app/client?id=${encodeURIComponent(there.id)}`;
+          } catch (ex) { showError(box, ex); }
+        });
+        return;
+      }
+      throw e;
+    }
     editing = false;
     await load();
   });

@@ -657,6 +657,23 @@ export async function handleUpdateClient(request, env, id) {
   const name = clean(body.name, 120);
   if (!name) return badRequest('A client needs a name.');
 
+  // Renaming onto a name that is already on the book. The unique index refuses it, and what it said was a
+  // database error. It is nearly always the same person typed twice, such as a corrected spelling, so say
+  // which client has the name and let the page offer to merge the two.
+  const before = await env.DB.prepare('SELECT name FROM clients WHERE id = ? AND user_id = ?')
+    .bind(id, owner.id).first();
+  if (!before) return notFound('Client not found.');
+  if (before.name !== name) {
+    const taken = await env.DB.prepare('SELECT id, name FROM clients WHERE user_id = ? AND name = ? AND id != ?')
+      .bind(owner.id, name, id).first();
+    if (taken) {
+      return json({
+        error: `You already have a client called ${taken.name}. If it is the same person, merge the two.`,
+        code: 'name_taken', existing: { id: taken.id, name: taken.name },
+      }, 409);
+    }
+  }
+
   // The name is the key reservations were matched on before this table
   // existed, so renaming has to carry them along or the trips would be
   // orphaned from the person who took them.
@@ -697,6 +714,12 @@ export async function handleUpdateClient(request, env, id) {
     .bind(name, id, owner.id).run();
   await env.DB.prepare('UPDATE client_credits SET client_name = ? WHERE client_id = ? AND user_id = ?')
     .bind(name, id, owner.id).run();
+  // The same person travelling on somebody else's reservation is found by name, so a corrected spelling has
+  // to reach those lines too or they stop being theirs.
+  if (before.name !== name) {
+    await env.DB.prepare('UPDATE travellers SET name = ? WHERE name = ? AND user_id = ?')
+      .bind(name, before.name, owner.id).run();
+  }
 
   return json({ ok: true, client: await db.getClient(env, db.selfScope(owner), { id }) });
 }

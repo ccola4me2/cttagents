@@ -220,6 +220,10 @@ export async function handleMergeClients(request, env) {
   await move('clients',
     'UPDATE clients SET referred_by_client_id = ? WHERE referred_by_client_id = ? AND user_id = ?',
     mine);
+  // Travelling on somebody else's reservation is recorded by name, so the absorbed spelling is carried to the
+  // kept one or those trips stop counting as theirs.
+  await move('travellers',
+    'UPDATE travellers SET name = ? WHERE name = ? AND user_id = ?', [keep.name, drop.name, owner]);
   // The submission belongs to the agency, not to an advisor, so the client id
   // is the whole of the predicate it can have.
   await move('form_submissions',

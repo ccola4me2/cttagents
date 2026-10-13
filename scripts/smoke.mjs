@@ -8343,6 +8343,39 @@ async function main() {
     }
   }
 
+  // A misspelt client corrected onto a name that is already on the book is the same person twice: the
+  // rename says so in words, and the merge carries their trips as a guest along with them.
+  {
+    const wrong = `Spelt Wrong ${stamp}`;
+    const right = `Spelt Right ${stamp}`;
+    const w = await call(advisor, 'POST', '/api/clients', { name: wrong });
+    const rt = await call(advisor, 'POST', '/api/clients', { name: right });
+    const wId = w.data?.client?.id;
+    const rId = rt.data?.client?.id;
+    if (wId && rId) {
+      const host = await call(advisor, 'POST', '/api/bookings', { clientName: `Spelt Host ${stamp}`, supplier: 'Royal Caribbean',
+        productType: 'cruise', departDate: isoDay(300), gross: '1000', status: 'booked' });
+      const hostId = host.data?.booking?.id;
+      if (hostId) await call(advisor, 'POST', `/api/bookings/${hostId}/travellers`, { name: wrong });
+      const clash = await call(advisor, 'PUT', `/api/clients/${wId}`, { name: right });
+      check(clash.status === 409 && clash.data?.code === 'name_taken' && clash.data?.existing?.id === rId
+          && /already have a client called/.test(clash.data?.error || ''),
+        'renaming onto a name already on the book says so and names the other client', JSON.stringify(clash.data));
+      const merged = await call(advisor, 'POST', '/api/clients/merge', { keep: rId, drop: wId });
+      check(merged.status === 200, 'and the two merge', `status ${merged.status}`);
+      if (hostId) {
+        const rec = await call(advisor, 'GET', `/api/bookings/${hostId}/record`);
+        const guests = (rec.data?.travellers || []).map((t) => t.name);
+        check(guests.includes(right) && !guests.includes(wrong),
+          'the trip they were a guest on carries the kept spelling', JSON.stringify(guests));
+        await dropBooking(hostId);
+      }
+      const hostClient = ((await call(advisor, 'GET', `/api/clients?q=${encodeURIComponent(`Spelt Host ${stamp}`)}`)).data?.clients || [])[0];
+      if (hostClient && hostClient.id) await call(advisor, 'DELETE', `/api/clients/${hostClient.id}`);
+      await call(advisor, 'DELETE', `/api/clients/${rId}`);
+    }
+  }
+
   // Everyone on a confirmation becomes a client, the party a household, and nobody already on the
   // books is changed without being asked.
   {
