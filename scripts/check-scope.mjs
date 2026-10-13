@@ -45,7 +45,7 @@ const OWNED = new Set([
   // Theirs to read and nobody's to write but an owner's, which the handlers
   // enforce with requireAdmin on top of these predicates.
   'advisor_payouts', 'advisor_payout_lines',
-  'group_registrations', 'task_items', 'task_templates', 'trip_messages', 'trip_views',
+  'group_registrations', 'task_items', 'task_templates', 'trip_messages', 'trip_views', 'inbox_confirmations',
   // Several reservations as one trip. The advisor's own, read on the owner screens
   // by scope and written only through db.writerFor; the public page finds it by
   // share code and every statement under it names the advisor anyway.
@@ -128,6 +128,11 @@ const EXEMPT = new Map([
 // claim that somebody checked, which is the point of writing it down instead
 // of widening the rule until nothing fails.
 const ALLOWED = [
+  // The housekeeping pass that clears confirmations nobody opened. It is not a request and has no
+  // user: it removes rows by age, from every advisor, for the same reason the session purge does.
+  ['DELETE FROM inbox_confirmations WHERE created_at < ?',
+    'the scheduled clean up of forwarded confirmations older than forty five days, which carry a '
+    + 'client\'s name and what they paid and are not kept for ever'],
   // A task template is either the agency's or the advisor's, and everybody
   // gets both. The two writes below reach a shared row, which by definition
   // belongs to somebody else: that is what shared means. The predicate in the

@@ -219,6 +219,12 @@ jobs:
       - name: The weekly specials list is read the way it was written
         run: npm run check:specialsdoc
 
+      # A confirmation forwarded by email. The ways it goes wrong are quiet: an HTML
+      # version holding the whole booking beside a text version that is one line, a
+      # forward attached whole, a body in base64 read as gibberish.
+      - name: A forwarded confirmation is read the way it was sent
+        run: npm run check:inbox
+
       # Commission is paid on the 1st and the 15th, and an advisor sees none of it
       # before its pay date. The ways it goes wrong pay somebody the wrong money on
       # the wrong day: someone back on the 31st paid on the 31st, a month that rolls

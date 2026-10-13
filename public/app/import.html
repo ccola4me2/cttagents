@@ -18,6 +18,16 @@
     </header>
     <div class="content">
       <div id="err"></div>
+      <section class="card" id="inbox-card" style="margin-bottom:1.5rem;">
+        <div class="card-head"><h2>Forward a confirmation by email</h2></div>
+        <div class="card-pad">
+          <p class="field-hint" style="margin:0 0 .8rem;">Forward the vendor's confirmation email, or one
+            with its PDF attached, to your own address below. It waits here until you open it and
+            check what was read. Nothing is made into a reservation until you press the button.</p>
+          <div id="inbox-address"></div>
+          <div id="inbox-list" style="margin-top:1rem;"></div>
+        </div>
+      </section>
       <section class="card" style="margin-bottom:1.5rem;">
         <div class="card-head"><h2>Paste one confirmation</h2></div>
         <div class="card-pad">
@@ -322,6 +332,69 @@ document.getElementById('conf-pdf').addEventListener('change', async (e) => {
   }
 });
 
+// ---- Confirmations forwarded by email ---------------------------------------------------
+
+let inboxId = null;
+
+async function loadInbox() {
+  const addr = document.getElementById('inbox-address');
+  const list = document.getElementById('inbox-list');
+  let d;
+  try { d = await api('/api/inbox'); } catch (e) { addr.textContent = e.message; list.innerHTML = ''; return; }
+
+  if (!d.ready) {
+    addr.innerHTML = `<p class="muted" style="margin:0;">${esc(d.why || 'Forwarding is not set up yet.')}
+      Until it is, paste the email's text below.</p>`;
+  } else if (d.address) {
+    addr.innerHTML = `<div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">
+        <code id="inbox-addr" style="font-size:.92rem;">${esc(d.address)}</code>
+        <button class="btn btn-ghost btn-sm" type="button" id="inbox-copy">Copy</button></div>
+      <p class="field-hint" style="margin:.5rem 0 0;">This address is yours alone. Anyone who has it can send to
+        it, so keep it to yourself.</p>`;
+    document.getElementById('inbox-copy').addEventListener('click', async (e) => {
+      try { await navigator.clipboard.writeText(d.address); e.target.textContent = 'Copied'; }
+      catch { e.target.textContent = 'Select it and copy'; }
+    });
+  } else {
+    addr.innerHTML = '<button class="btn btn-secondary btn-sm" type="button" id="inbox-make">Get my address</button>';
+    document.getElementById('inbox-make').addEventListener('click', async (e) => {
+      e.target.disabled = true;
+      try { await api('/api/inbox/address', { method: 'POST', body: {} }); await loadInbox(); }
+      catch (ex) { addr.textContent = ex.message; }
+    });
+  }
+
+  list.innerHTML = d.items.length
+    ? `<p class="label" style="margin:0 0 .4rem;">Waiting for you</p><ul class="rows">${d.items.map((it) => {
+      const s = it.summary || {};
+      const bits = [s.client, s.vendor, s.ship, s.departDate ? dateFmt(s.departDate) : '', s.number ? `#${s.number}` : '']
+        .filter(Boolean).join(' · ');
+      return `<li><div class="row-between"><span>
+          <span class="name">${esc(bits || it.subject || 'A confirmation')}</span>
+          <span class="m" style="display:block;">${esc(it.subject || '')}</span></span>
+        <span><button class="btn btn-primary btn-sm" data-review="${esc(it.id)}">Review</button>
+          <button class="btn btn-ghost btn-sm" data-dismiss="${esc(it.id)}">Dismiss</button></span></div></li>`;
+    }).join('')}</ul>`
+    : (d.ready && d.address ? '<p class="muted" style="margin:0;">Nothing waiting.</p>' : '');
+
+  list.querySelectorAll('[data-review]').forEach((b) => b.addEventListener('click', async () => {
+    b.disabled = true;
+    try {
+      const item = await api(`/api/inbox/${encodeURIComponent(b.dataset.review)}`);
+      inboxId = item.id;
+      document.getElementById('conf-text').value = item.text;
+      document.getElementById('conf-read').click();
+      document.getElementById('conf-text').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch (e) { showError(document.getElementById('err'), e); }
+    b.disabled = false;
+  }));
+  list.querySelectorAll('[data-dismiss]').forEach((b) => b.addEventListener('click', async () => {
+    if (!confirm('Dismiss this confirmation? It is deleted.')) return;
+    try { await api(`/api/inbox/${encodeURIComponent(b.dataset.dismiss)}/dismiss`, { method: 'POST', body: {} }); await loadInbox(); }
+    catch (e) { showError(document.getElementById('err'), e); }
+  }));
+}
+
 document.getElementById('conf-read').addEventListener('click', async () => {
   confErr.hidden = true;
   confResult.hidden = true;
@@ -443,6 +516,8 @@ document.getElementById('conf-create').addEventListener('click', async () => {
         return;
       }
     }
+    // A confirmation that was waiting in the inbox stops waiting once it is a reservation.
+    if (inboxId) { try { await api(`/api/inbox/${encodeURIComponent(inboxId)}/done`, { method: 'POST', body: {} }); } catch { /* it ages out */ } }
     location.href = `/app/reservation?id=${encodeURIComponent(res.booking.id)}`;
   } catch (e) { createErr.textContent = e.message; { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); } btn.disabled = false; }
 });
@@ -546,5 +621,7 @@ document.getElementById('run').addEventListener('click', async () => {
     document.getElementById('preview-card').hidden = true;
   } catch (e) { showError(err, e); btn.disabled = false; }
 });
+
+await loadInbox();
 </script>
 </body></html>

@@ -31,8 +31,16 @@ function localPartOf(address) {
  * as something rather than as line noise on a business card.
  */
 export function tokenOf(address) {
-  const local = localPartOf(address).replace(/^appt[-.]/, '');
+  const local = localPartOf(address).replace(/^(?:appt|conf)[-.]/, '');
   return /^[a-f0-9]{16,64}$/.test(local) ? local : null;
+}
+
+/**
+ * What an address is for: conf- takes vendor confirmations, anything else takes meeting invites.
+ * One token serves both, so which door it came through is what decides what the message is.
+ */
+export function addressKind(address) {
+  return /^conf[-.]/.test(localPartOf(address)) ? 'conf' : 'invite';
 }
 
 /**
@@ -43,7 +51,7 @@ export function tokenOf(address) {
  * below is the ten lines that turn one into the other.
  */
 export async function handleInboundInvite(env, { to, raw }) {
-  const token = tokenOf(to);
+  const token = addressKind(to) === 'invite' ? tokenOf(to) : null;
   if (!token) {
     return { reject: 'That address does not take meeting invites.' };
   }

@@ -220,6 +220,24 @@
   opens a trip page and which link they followed, and nothing else about them. If any of that
   changes, change the policy with it, and have somebody qualified read it.</p>
 
+<h2 id="inbound-mail">Forwarding email to the portal</h2>
+<p>Advisors can forward a vendor confirmation to a private address and review it on Import
+  reservations, and forward meeting invites to a second one for the calendar. Both use one address
+  each per advisor, made on request, on a subdomain you point at the portal. Until that is done the
+  pages say forwarding is not set up, and nothing is lost: pasting the text works the same way.</p>
+<ol>
+  <li>Choose a subdomain that carries no other mail, for example <code>inbox.cttagents.com</code>.</li>
+  <li>In Cloudflare, open the domain, then Email, then Email Routing. Turn it on and add the
+    subdomain. Cloudflare adds the records it needs.</li>
+  <li>Create a <strong>catch-all</strong> rule on that subdomain with the action <strong>Send to a
+    Worker</strong>, and choose this portal's Worker.</li>
+  <li>Give the subdomain to whoever maintains the portal, to set as <code>INVITE_DOMAIN</code>.</li>
+</ol>
+<p>A message arriving at an address that does not belong to anyone, or one that is not a booking
+  confirmation, is refused with the reason, so the sender sees it. Forwarded confirmations are held
+  for the advisor to check and are never turned into reservations without them, and a held message
+  is deleted when it is used, dismissed, or after 45 days.</p>
+
 <h2 id="running">Is it still running</h2>
 <ul>
   <li><strong>Background jobs.</strong> The portal does a dozen things on a schedule:
@@ -267,6 +285,7 @@
               <a href="#supplier-specials">Supplier specials</a>
               <a href="#automations">Automations</a>
               <a href="#privacy">The privacy policy</a>
+              <a href="#inbound-mail">Forwarding email</a>
               <a href="#running">Is it still running</a>
               <a href="#scope">What you can see</a>
             </div>

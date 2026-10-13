@@ -8149,6 +8149,24 @@ async function main() {
       'and the price as fare, taxes and gratuities adding up to the total it states', JSON.stringify(vp && vp.lines));
   }
 
+  // Confirmations forwarded by email wait on the Import page. Mail cannot be delivered to a test
+  // Worker, so what is checked here is the advisor's side: the list, the address, and the fence.
+  {
+    const inbox = await call(advisor, 'GET', '/api/inbox');
+    check(inbox.status === 200 && Array.isArray(inbox.data?.items) && typeof inbox.data?.ready === 'boolean',
+      'the inbox lists what is waiting, and says whether forwarding is set up', JSON.stringify(inbox.data));
+    const none = await call(null, 'GET', '/api/inbox');
+    check(none.status === 401, 'and nobody without a session reads it', `status ${none.status}`);
+    const missing = await call(advisor, 'GET', '/api/inbox/not-a-real-id');
+    check(missing.status === 404, 'an item that is not there is not found', `status ${missing.status}`);
+    const gone = await call(advisor, 'POST', '/api/inbox/not-a-real-id/dismiss', {});
+    check(gone.status === 404, 'and cannot be dismissed either', `status ${gone.status}`);
+    if (inbox.data?.ready === false) {
+      const made = await call(advisor, 'POST', '/api/inbox/address', {});
+      check(made.status === 400, 'an address is not made where forwarding is not set up', `status ${made.status}`);
+    }
+  }
+
   const nonsense = await call(advisor, 'POST', '/api/import/confirmation',
     { text: 'Dear client, we look forward to welcoming you aboard next spring. Kind regards.' });
   check(nonsense.status === 400,

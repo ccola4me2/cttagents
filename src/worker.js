@@ -186,7 +186,11 @@ import {
 } from './chat.js';
 import { handleCalendar } from './calendar.js';
 import { handleAlerts, handleAlertsSeen, pushWaiting } from './alerts.js';
-import { handleInboundInvite } from './inbound.js';
+import { handleInboundInvite, addressKind } from './inbound.js';
+import {
+  handleInboundConfirmation, handleListInbox, handleMakeInboxAddress, handleGetInboxItem,
+  handleResolveInbox, purgeInbox, INBOX_LIMITS,
+} from './inbox.js';
 import {
   handlePushKey, handlePushSubscribe, handlePushUnsubscribe, handlePushTest,
 } from './push.js';
@@ -538,6 +542,18 @@ export default {
    */
   async email(message, env, ctx) {
     try {
+      // A confirmation, forwarded to the advisor's conf- address. Held for them to check on the
+      // Import page, never turned into a reservation here. A PDF can make it a few megabytes.
+      if (addressKind(message.to) === 'conf') {
+        if (message.rawSize > INBOX_LIMITS.MAX_RAW_BYTES) {
+          message.setReject('That message is too large to be a confirmation.');
+          return;
+        }
+        const bytes = new Uint8Array(await new Response(message.raw).arrayBuffer());
+        const held = await handleInboundConfirmation(env, { to: message.to, raw: bytes });
+        if (held.reject) message.setReject(held.reject);
+        return;
+      }
       // A meeting invite is a few kilobytes. Anything of this size is a
       // newsletter, a photo, or somebody's mailbox pointed at us by mistake.
       if (message.rawSize > 1024 * 1024) {
@@ -570,7 +586,7 @@ export default {
     const job = (name, fn) => ctx.waitUntil(runJob(env, name, fn));
 
     job('purge sessions', () => purgeExpiredSessions(env));
-    job('purge automation runs', () => purgeOldRuns(env));
+    job('purge automation runs', async () => { await purgeOldRuns(env); await purgeInbox(env); });
 
     // The catalog import is a no-op once the current monthly snapshot is fully
     // imported, so running it on every tick costs one request a day and the
@@ -897,6 +913,13 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/appointments/invite' && method === 'POST') {
     return handleImportInvite(request, env);
   }
+  // Vendor confirmations forwarded by email, waiting for the advisor to check them.
+  const inboxMatch = path.match(/^\/api\/inbox\/([^/]+)$/);
+  const inboxActMatch = path.match(/^\/api\/inbox\/([^/]+)\/(dismiss|done)$/);
+  if (path === '/api/inbox' && method === 'GET') return handleListInbox(request, env);
+  if (path === '/api/inbox/address' && method === 'POST') return handleMakeInboxAddress(request, env);
+  if (inboxActMatch && method === 'POST') return handleResolveInbox(request, env, inboxActMatch[1], inboxActMatch[2]);
+  if (inboxMatch && method === 'GET') return handleGetInboxItem(request, env, inboxMatch[1]);
   // The address to forward invites to, and making one on request.
   if (path === '/api/appointments/address' && (method === 'GET' || method === 'POST')) {
     return handleInviteAddress(request, env, method === 'POST');
