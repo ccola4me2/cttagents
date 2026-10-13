@@ -292,6 +292,8 @@ export async function handleRunImport(request, env) {
   let created = 0;
   let skipped = 0;
   const failures = [];
+  // Which rows were left out and why, so a count of six is six lines somebody can go and look at.
+  const skippedRows = [];
 
   for (const row of parsed.rows) {
     if (row.problems.length) { skipped += 1; continue; }
@@ -576,7 +578,11 @@ export async function handleRunClientImport(request, env) {
   const failures = [];
 
   for (const row of parsed.rows) {
-    if (row.problems.length) { skipped += 1; continue; }
+    if (row.problems.length) {
+      skipped += 1;
+      skippedRows.push({ line: row.line, client: row.name, reason: row.problems.join(', ') });
+      continue;
+    }
     try {
       const out = await upsertClient(env, user, { ...row, matchEmail: false });
       if (out.error) {
@@ -599,5 +605,5 @@ export async function handleRunClientImport(request, env) {
   await db.logActivity(env, user.id, 'client.import',
     `Imported ${created} client${created === 1 ? '' : 's'}`, { created, updated, skipped });
 
-  return json({ ok: true, created, updated, skipped, failures });
+  return json({ ok: true, created, updated, skipped, skippedRows, failures });
 }

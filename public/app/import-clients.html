@@ -262,6 +262,9 @@ document.getElementById('run').addEventListener('click', async () => {
       <p><strong>${d.created}</strong> client${d.created === 1 ? '' : 's'} added${
         d.updated ? `, <strong>${d.updated}</strong> filled in` : ''}.
         ${d.skipped ? `${d.skipped} skipped for having a problem.` : ''}</p>
+      ${(d.skippedRows || []).length ? `<p class="field-hint" style="margin:.6rem 0 0;">Skipped, and why:</p><ul class="rows">${d.skippedRows.map((f) => `<li>
+        <span class="t">Line ${f.line}: ${esc(f.client || 'unnamed')}</span>
+        <span class="m">${esc(f.reason)}</span></li>`).join('')}</ul>` : ''}
       ${d.failures.length ? `<ul class="rows">${d.failures.map((f) => `<li>
         <span class="t">Line ${f.line}: ${esc(f.client || 'unnamed')}</span>
         <span class="m">${esc(f.error)}</span></li>`).join('')}</ul>` : ''}

@@ -8328,6 +8328,9 @@ async function main() {
     const run = await call(advisor, 'POST', '/api/import/clients', { text });
     check(run.status === 200 && run.data?.created === 2 && run.data?.updated === 0,
       'two people with the same email and phone are two clients', JSON.stringify(run.data));
+    const nameless = await call(advisor, 'POST', '/api/import/clients', { text: ['Name\tEmail', `\tnobody-${stamp}@test.dev`].join('\n') });
+    check(nameless.status === 200 && nameless.data?.skipped === 1 && nameless.data?.skippedRows?.[0]?.reason === 'no name',
+      'a row with no name is skipped and the result says which line and why', JSON.stringify(nameless.data));
     for (const name of [a, b]) {
       const got = ((await call(advisor, 'GET', `/api/clients?q=${encodeURIComponent(name)}`)).data?.clients || []).find((x) => x.name === name);
       check(Boolean(got && got.email === `shared-${stamp}@test.dev`), `${name} is on the books with the shared email`, JSON.stringify(got && got.email));
