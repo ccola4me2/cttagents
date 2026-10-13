@@ -134,6 +134,8 @@ const CONF_FIELDS = [
   ['gross', 'Trip total'],
   ['deposit', 'Deposit'],
   ['depositDue', 'Deposit due'],
+  ['groupLabel', 'Group name'],
+  ['groupNumber', 'Group number'],
   // The number the agency is actually working for, and it was being read off
   // the confirmation and then not shown.
   ['commission', 'Commission'],
@@ -342,13 +344,23 @@ document.getElementById('conf-read').addEventListener('click', async () => {
         : '<span style="color:var(--ink-500);">not found, fill it in if you need it</span>'}</p>
     </div>`;
   }).join('') + `<div class="field" style="margin-bottom:.7rem;">
+      <label for="cf-status">Status</label>
+      <select id="cf-status" data-conf="status">
+        <option value="booked"${read.fields.status === 'quoted' ? '' : ' selected'}>Booked</option>
+        <option value="quoted"${read.fields.status === 'quoted' ? ' selected' : ''}>Quoted</option>
+      </select>
+      <p class="field-hint" style="margin:.2rem 0 0;">${read.from.status
+    ? 'read from: ' + esc(read.from.status) : 'Booked unless you say otherwise.'}</p>
+    </div>
+    <div class="field" style="margin-bottom:.7rem;">
       <label for="cf-depositRefundable">Deposit is</label>
       <select id="cf-depositRefundable" data-conf="depositRefundable">
         <option value="">Choose one</option>
-        <option value="refundable">Refundable</option>
-        <option value="nonrefundable">Non refundable</option>
+        <option value="refundable"${read.fields.depositRefundable === 'refundable' ? ' selected' : ''}>Refundable</option>
+        <option value="nonrefundable"${read.fields.depositRefundable === 'nonrefundable' ? ' selected' : ''}>Non refundable</option>
       </select>
-      <p class="field-hint" style="margin:.2rem 0 0;">Required when there is a deposit. The confirmation does not say.</p>
+      <p class="field-hint" style="margin:.2rem 0 0;">${read.from.depositRefundable
+    ? 'read from: ' + esc(read.from.depositRefundable) : 'Required when there is a deposit. The confirmation does not say.'}</p>
     </div>`;
 
   drawPricing(read);

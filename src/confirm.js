@@ -604,6 +604,183 @@ function readNcl(lines, fields, from) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Royal Caribbean and Celebrity: "Booking Confirmation - Agent Copy"
+// ---------------------------------------------------------------------------
+
+const RC_MONEY = /-?\$?\s*\d[\d,]*\.\d{2}\b/g;
+const cleanMoney = (x) => Math.round(Number(x.replace(/[$,\s]/g, '')) * 100);
+
+/** A charges row: a label, a figure for each guest and the total, and a commission rate after. */
+function rcRow(lines, re) {
+  for (const raw of lines) {
+    const line = raw.trim();
+    const m = re.exec(line);
+    if (!m) continue;
+    const rest = line.slice(m[0].length);
+    const tokens = rest.match(RC_MONEY);
+    if (!tokens) continue;
+    const left = rest.replace(RC_MONEY, '').replace(/\d{1,3}%/g, '').replace(/[\s$]/g, '');
+    if (left) continue;
+    return { line, values: tokens.map(cleanMoney) };
+  }
+  return null;
+}
+
+const addDays = (iso, n) => new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+
+/** Whether a document is one of this family's agent copies. */
+function isRoyalFamily(text) {
+  return /booking confirmation\s*-\s*agent copy/i.test(text) && /total comm\/admin/i.test(text);
+}
+
+/** The people: a row of first names and a row of surnames, one word each, a column a guest. */
+function rcGuests(lines, n) {
+  const at = lines.findIndex((l) => /^guest name\b/i.test(l.trim()));
+  if (at < 0) return [];
+  const first = lines[at].trim().replace(/^guest name\s*/i, '').split(/\s+/).filter(Boolean);
+  const last = (lines[at + 1] || '').trim().split(/\s+/).filter(Boolean);
+  if (first.length !== n || last.length !== n) return [];
+  return first.map((f, i) => ({ name: fixCaps(`${f} ${last[i]}`), line: lines[at].trim() }));
+}
+
+/**
+ * The charges table, as the pricing the other readers return.
+ *
+ * One column a guest and a total, and every promotion on a line of its own with a figure under
+ * only the guest it applies to. Which guest that is is not on the line, so it is worked out from
+ * what is: each guest's gross charges less their fare and taxes is what promotions took off
+ * them. The commission is printed as a figure for each guest, and is read as printed rather than
+ * worked out from a rate, because a promotion can move it. Commission is paid on the fare after
+ * promotions, and the non-commissionable fare is part of the price like any other.
+ */
+function readRoyalPricing(lines, fields, listed) {
+  const fare = rcRow(lines, /^cruise fare\s+/i);
+  const gross = rcRow(lines, /^gross charges\s+/i);
+  if (!fare || !gross) return null;
+  const n = fare.values.length - 1;
+  if (n < 1 || gross.values.length !== n + 1) return null;
+
+  const nonComm = rcRow(lines, /^non comm cruise fare\s+/i);
+  const taxes = rcRow(lines, /^taxes, fees,? and port expenses\s+/i);
+  const comm = rcRow(lines, /^comm\/admin\s+/i);
+  const col = (row) => (row && row.values.length === n + 1 ? row.values.slice(0, n) : new Array(n).fill(0));
+  const f = col(fare); const nc = col(nonComm); const tx = col(taxes); const gr = col(gross); const cm = col(comm);
+
+  const netFare = f.map((x, i) => x + nc[i] + (gr[i] - x - nc[i] - tx[i]));
+  const sum = (a) => a.reduce((s, x) => s + x, 0);
+
+  // The promotions, for the note: any line between the fare and the taxes that is a name and negative figures.
+  const promos = [];
+  const from = lines.findIndex((l) => /^non comm cruise fare/i.test(l.trim()));
+  const to = lines.findIndex((l) => /^taxes, fees/i.test(l.trim()));
+  for (const raw of lines.slice(from + 1, to > from ? to : from + 1)) {
+    const m = /^(.+?)\s+(-?\d[\d,]*\.\d{2}(?:\s+-?\d[\d,]*\.\d{2})*)(?:\s+\d{1,3}%)?\s*$/.exec(raw.trim());
+    if (m) {
+      const figs = m[2].match(RC_MONEY).map(cleanMoney);
+      if (figs.some((x) => x < 0)) promos.push(`${m[1].replace(/\s+NRD$/i, '')} ${said(Math.abs(figs[figs.length - 1]))}`);
+    }
+  }
+
+  const people = listed.length === n ? listed.map((g) => ({ name: g.name, dob: null }))
+    : Array.from({ length: n }, () => ({ name: '', dob: null }));
+  const perGuest = n > 1 ? people.map((who, i) => ({
+    name: who.name, dob: who.dob,
+    fare: fixed(netFare[i]), taxes: fixed(tx[i]), insurance: '0.00', gratuities: '0.00',
+    commission: fixed(cm[i]), commissionPackage: '0.00',
+  })) : null;
+
+  const out = [];
+  if (sum(netFare) > 0) out.push({ kind: 'fare', label: 'Fare', amount: fixed(sum(netFare)), from: fare.line });
+  if (sum(tx) > 0) out.push({ kind: 'taxes', label: 'Taxes and port fees', amount: fixed(sum(tx)), from: taxes.line });
+
+  const total = sum(netFare) + sum(tx);
+  const stated = gross.values[n];
+  const notes = [];
+  if (promos.length) notes.push(`Fare is the cruise fare plus the non commissionable fare, less promotions (${promos.join(', ')}).`);
+  const net = rcRow(lines, /^net balance due\s+/i);
+  if (net) {
+    notes.push(`The cruise line's balance, ${said(net.values[0])}, is after your commission. The trip total here is what the client pays.`);
+  }
+  if (perGuest && perGuest.some((g) => !g.name)) notes.push('The guest names could not be told apart, so type each one in.');
+
+  return {
+    lines: out, guests: perGuest, totalCents: total, statedCents: stated,
+    balanced: Math.abs(total - stated) <= 1, differenceCents: stated - total,
+    ratePct: null, notes, commissionTotalCents: sum(cm),
+  };
+}
+
+/** Everything this family prints in its own way, applied over what the general reader found. */
+function readRoyal(lines, text, fields, from) {
+  const set = (key, value, line) => {
+    if (value === null || value === undefined || value === '') return;
+    fields[key] = value;
+    from[key] = String(line).trim().slice(0, 160);
+  };
+  const pickLine = (re) => { for (const l of lines) { const m = re.exec(l.trim()); if (m) return { m, line: l }; } return null; };
+
+  // Reservation ID, not the dining booking id that sits further down the page.
+  const res = pickLine(/^reservation id\s*:\s*(\d+)/i);
+  if (res) set('confirmationNumber', res.m[1], res.line);
+  const grp = /\(group id\s+(\d+)\)/i.exec(text);
+  if (grp) set('groupNumber', grp[1], `Group ID ${grp[1]}`);
+
+  const ship = pickLine(/^ship\s*:\s*(.+?)(?:\s+booking status\b.*)?$/i);
+  // HARMONY OF THE SEAS, in the case a ship is written: the small words stay small.
+  if (ship) {
+    const name = fixCaps(ship.m[1].trim()).split(/\s+/)
+      .map((w, i) => (i > 0 && ['Of', 'The', 'At', 'And'].includes(w) ? w.toLowerCase() : w)).join(' ');
+    set('productName', name, ship.line);
+  }
+  if (/celebrity/i.test(fields.productName || '')) set('supplier', 'Celebrity Cruises', fields.productName);
+  else set('supplier', 'Royal Caribbean', 'Royal Caribbean agent copy');
+  fields.supplier = fields.supplier || 'Royal Caribbean';
+
+  // "4D-11688 Ocean View Balcony" is a category and a cabin. "NQ-GTY ..." has no cabin yet:
+  // GTY and WLT mean the line has not assigned one.
+  const room = pickLine(/^stateroom\s*:\s*([A-Z0-9]{1,4})-(\d{3,5}|GTY|WLT)\b\s*(.*)$/i);
+  if (room) {
+    if (/^\d/.test(room.m[2])) {
+      fields.cabin = room.m[2];
+      set('cabinCategory', `${room.m[1]} ${fixCaps(room.m[3].trim())}`.trim(), room.line);
+      from.cabin = room.line.trim().slice(0, 160);
+    } else {
+      delete fields.cabin; delete from.cabin;
+      set('cabinCategory', `${room.m[1]}-${room.m[2]} ${room.m[3]}`.trim(), room.line);
+    }
+  }
+
+  // No return date is printed, but the length is: "7 NIGHT".
+  const nights = pickLine(/^itinerary\s*:\s*(\d+)\s*night\b/i);
+  if (nights && fields.departDate && !fields.returnDate) {
+    set('returnDate', addDays(fields.departDate, Number(nights.m[1])),
+      `${nights.line.trim()} from ${fields.departDate}`);
+  }
+
+  const dep = pickLine(/deposit of \$?\s*([\d,]+\.\d{2}) is due by\s+(\d{1,2} [A-Za-z]{3} \d{4})/i);
+  if (dep) {
+    set('deposit', fixed(cleanMoney(dep.m[1])), dep.line);
+    set('depositDue', anyDate(dep.m[2]), dep.line);
+  }
+  const fin = pickLine(/final payment is due by\s+(\d{1,2} [A-Za-z]{3} \d{4})/i);
+  if (fin) set('finalPaymentDue', anyDate(fin.m[1]), fin.line);
+
+  // Said outright, so it is read rather than asked: "the minimum deposit ... is non-refundable".
+  const kind = pickLine(/minimum deposit[^.]*?\b(non[-\s]?refundable|refundable)/i);
+  if (kind) set('depositRefundable', /non/i.test(kind.m[1]) ? 'nonrefundable' : 'refundable', kind.line);
+
+  const gross = rcRow(lines, /^gross charges\s+/i);
+  if (gross) set('gross', fixed(gross.values[gross.values.length - 1]), gross.line);
+  const comm = rcRow(lines, /^total comm\/admin\s+/i);
+  if (comm) set('commission', fixed(comm.values[0]), comm.line);
+  fields.productType = 'cruise'; from.productType = 'a cruise line agent copy';
+
+  // "Booking Status Offer" is a quote and not a booking. Said, so it is not filed as booked.
+  const status = pickLine(/booking status\s*:?\s*(offer|booked|confirmed|option|cancel)/i);
+  if (status) set('status', /^(offer|option)/i.test(status.m[1]) ? 'quoted' : (/^cancel/i.test(status.m[1]) ? 'cancelled' : 'booked'), status.line);
+}
+
 export function parseConfirmation(text) {
   const lines = stackLabels(String(text || '').split(/\r?\n/).slice(0, 400))
     .flatMap(splitColumns)
@@ -684,7 +861,16 @@ export function parseConfirmation(text) {
     ? nclGuests(lines) : [];
   readNcl(lines, fields, from);
 
-  const people = guests(lines).length ? guests(lines) : nclPeople;
+  // Royal Caribbean and Celebrity agent copies, which print the price a column a guest.
+  const royal = isRoyalFamily(String(text || ''));
+  let royalPeople = [];
+  if (royal) {
+    readRoyal(lines, String(text || ''), fields, from);
+    const n = (rcRow(lines, /^cruise fare\s+/i) || { values: [0, 0] }).values.length - 1;
+    royalPeople = rcGuests(lines, n);
+  }
+
+  const people = guests(lines).length ? guests(lines) : (royalPeople.length ? royalPeople : nclPeople);
   if (people.length) {
     fields.travellers = people.length;
     // The lead guest is the client unless the advisor says otherwise. Named
@@ -702,7 +888,8 @@ export function parseConfirmation(text) {
     delete from.returnDate;
   }
 
-  const pricing = (/booking components per guest/i.test(text) ? readNclPricing(lines, fields, people) : null)
+  const pricing = (royal ? readRoyalPricing(lines, fields, people) : null)
+    || (/booking components per guest/i.test(text) ? readNclPricing(lines, fields, people) : null)
     || readPricing(lines, fields, people);
 
   // Said once it is plain, so it does not depend on a reservation form's default.

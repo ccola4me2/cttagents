@@ -120,7 +120,7 @@ export const LESSONS = [
     why: 'The vendor already sent the number, dates, guests and price. Reading them into a new reservation saves the retyping, and every field shows the line it came from so you check rather than trust.',
     manual: 'reservations',
     page: '/app/import',
-    doing: 'Upload a Margaritaville at Sea or Norwegian confirmation PDF, read it, check each field and the price for each guest, choose whether the deposit is refundable, then create the reservation.',
+    doing: 'Upload a Margaritaville at Sea, Norwegian, Royal Caribbean or Celebrity confirmation PDF, read it, check each field and the price for each guest, choose whether the deposit is refundable, then create the reservation.',
   },
   {
     key: 'trips',

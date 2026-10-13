@@ -7971,6 +7971,115 @@ async function main() {
       'and the price, guest by guest, adds up to the total it states', JSON.stringify(np && np.guests));
   }
 
+  // Royal Caribbean and Celebrity print one agent copy: a column a guest, every promotion on a
+  // line of its own, the commission as a figure for each guest, and the deposit terms in a sentence.
+  {
+    const royalText = [
+      'Booking Confirmation - Agent Copy',
+      'Issue Date: 12 OCT 2026',
+      'Confirmation Copy #: 1',
+      'General Information',
+      'CRUISES TOURS AND TRAVEL LLC Reservation ID: 9746343 (Group ID Not Applicable) Booking Date: 12 OCT 2026',
+      'Attn:BRENT BEASLEY B Ship: HARMONY OF THE SEAS Booking Status Offer',
+      '8132786555 Departure Date: 13 MAR 2027',
+      '5006 SANDERLING RIDGE DR Itinerary: 7 NIGHT EASTERN CARIBBEAN & PERFECT DAY',
+      'LITHIA,FL-33547 Stateroom: NQ-GTY NEIGHBORHOOD BALCONY QUD GTY',
+      'UNITED STATES Stateroom Obstructed View Percentage Pending',
+      'Sailing Date: 13 MAR 2027',
+      'Promo Restrictions :',
+      'Discount',
+      'Guest Information Guest #1 Guest #2 Guest #3 Guest #4',
+      'Guest Name ALEX BEA CARL DANA',
+      'SAMPLE SAMPLE SAMPLE SAMPLE',
+      'Crown & Anchor Number',
+      'Age Range 25 - 45 25 - 45 00 - 17 00 - 17',
+      'Dining MY TIME(5:00 PM) MY TIME(5:00 PM) MY TIME(5:00 PM) MY TIME(5:00 PM)',
+      'Departure Airport Cruise Only Cruise Only Cruise Only Cruise Only',
+      'Special Services',
+      'Stateroom Dining With Booking ID: 9754154',
+      'Booking Charges Comm/',
+      'Guest #1 Guest #2 Guest #3 Guest #4 Total',
+      'Currency: USD Admin Rate',
+      'Cruise Fare 1807.00 1807.00 659.00 659.00 4932.00 10%',
+      'Non Comm Cruise Fare 245.00 245.00 245.00 245.00 980.00 0%',
+      'BOGO60 NRD -1232.00 -1232.00 10%',
+      'Savings NRD -300.00 -300.00 10%',
+      'Kicker NRD -25.00 -25.00 10%',
+      'Taxes, fees, and port expenses 129.10 129.10 129.10 129.10 516.40 0%',
+      'Gross Charges 1856.10 949.10 1033.10 1033.10 4871.40 0%',
+      'Comm/Admin 148.20 57.50 65.90 65.90 337.50',
+      'Total Comm/Admin 337.50',
+      'Net Charges 1707.90 891.60 967.20 967.20 4533.90',
+      'Amount Paid 0.00',
+      'Net Balance Due 4533.90',
+      'Deposit of $1000.00 is due by 17 OCT 2026, 8:00 PM EST Final Payment is due by 13 DEC 2026, 8:00 PM EST',
+      'THE MINIMUM DEPOSIT FOR THIS RESERVATION IS NON-REFUNDABLE. A CHANGE FEE OF $100 USD PER GUEST WILL APPLY FOR SHIP OR SAIL DATE CHANGES.'].join('\n');
+    const rr = await call(advisor, 'POST', '/api/import/confirmation', { text: royalText });
+    const rf = rr.data?.fields || {};
+    check(rf.confirmationNumber === '9746343' && rf.supplier === 'Royal Caribbean'
+        && rf.productName === 'Harmony of the Seas' && rf.productType === 'cruise',
+      'a Royal Caribbean agent copy is read as a cruise, with the reservation id and ship', JSON.stringify(rf));
+    check(rf.departDate === '2027-03-13' && rf.returnDate === '2027-03-20' && rf.depositDue === '2026-10-17'
+        && rf.finalPaymentDue === '2026-12-13' && rf.deposit === '1000.00',
+      'with its dates, the return worked out from the seven nights, and its payment dates', JSON.stringify(rf));
+    check(rf.depositRefundable === 'nonrefundable' && rf.status === 'quoted' && !rf.cabin
+        && /^NQ-GTY/.test(rf.cabinCategory || ''),
+      'the deposit terms it states, an offer read as a quote, and no cabin until one is assigned', JSON.stringify(rf));
+    const rp = rr.data?.pricing;
+    check(rp && rp.balanced === true && rp.guests?.length === 4 && rp.guests[0].name === 'Alex Sample'
+        && rp.guests[0].fare === '1727.00' && rp.guests[1].fare === '820.00' && rp.guests[0].commission === '148.20'
+        && rf.gross === '4871.40' && rf.commission === '337.50',
+      'and the price guest by guest, promotions taken off the right guest, adding up to the gross charges',
+      JSON.stringify(rp && rp.guests));
+
+    const celebText = [
+      'Booking Confirmation - Agent Copy',
+      'Issue Date: 05 OCT 2025',
+      'General Information',
+      'CRUISE PLANNERS S POLLACK Reservation ID: 7717539 (Group ID 1210522) Booking Date:',
+      'Attn: BRENT BEASLEY Ship: CELEBRITY REFLECTION Booking Status Booked',
+      '8134157619 Departure Date: 29 DEC 2025',
+      '5006 SANDERLING RIDGE DR Itinerary: 4 NIGHT KEY WEST & BAHAMAS HOLIDAY',
+      'LITHIA,FL-33547 Stateroom: C2-1017 Concierge Class',
+      'UNITED STATES Stateroom Obstructed View Percentage 0%',
+      'Sailing Date: 29 DEC 2025',
+      'Guest Information Guest #1 Guest #2 Guest #3 Guest #4',
+      'Guest Name PAT SAM',
+      'EXAMPLE EXAMPLE',
+      'Captain\'s Club Number 744641484 744824155',
+      'Age Range 55 + 55 +',
+      'Stateroom Dining With Booking ID:',
+      'Booking Charges Comm/',
+      'Guest #1 Guest #2 Guest #3 Guest #4 Total',
+      'Currency: USD Admin Rate',
+      'Cruise Fare 2342.00 2342.00 4684.00 16%',
+      'Non Comm Cruise Fare 100.00 100.00 200.00 0%',
+      'BOGO75 NRD -1757.00 -1757.00 16%',
+      'BOGO75 NRD -75.00 -75.00 0%',
+      'WEEKENDSAV NRD -100.00 -100.00 16%',
+      'BONUS SAV NRD -100.00 -100.00 -200.00 16%',
+      'NOPERK NRD 0.00 16%',
+      'Q050-C GAP 50 OFF -50.00 -50.00 16%',
+      'YNQ5-MEMSAV100 -100.00 -100.00 -200.00 16%',
+      'Taxes, fees, and port expenses 158.06 158.06 316.12 0%',
+      'Gross Charges 2250.06 568.06 2818.12 0%',
+      'Comm/Admin 318.72 61.60 380.32',
+      'Total Comm/Admin 380.32',
+      'Net Charges 1931.34 506.46 2437.80',
+      'Amount Paid 200.00',
+      'Net Balance Due 2237.80',
+      'The minimum deposit for this reservation is Non-Refundable. A change fee of $ 100 USD per guest will apply.',
+      'Deposit of $200.00 is due by 10 OCT 2025, 8:00 PM EST Final Payment is due by 15 OCT 2025, 8:00 PM EST'].join('\n');
+    const cr = await call(advisor, 'POST', '/api/import/confirmation', { text: celebText });
+    const cf = cr.data?.fields || {};
+    check(cf.supplier === 'Celebrity Cruises' && cf.cabin === '1017' && cf.cabinCategory === 'C2 Concierge Class'
+        && cf.groupNumber === '1210522' && cf.travellers === 2,
+      'a Celebrity agent copy gives its cabin and category, and the cruise line group number', JSON.stringify(cf));
+    check(cr.data?.pricing?.balanced === true && cr.data.pricing.guests?.[0].fare === '2092.00'
+        && cr.data.pricing.guests?.[1].fare === '410.00',
+      'and its many promotions land on the guests they applied to', JSON.stringify(cr.data?.pricing?.guests));
+  }
+
   const nonsense = await call(advisor, 'POST', '/api/import/confirmation',
     { text: 'Dear client, we look forward to welcoming you aboard next spring. Kind regards.' });
   check(nonsense.status === 400,
