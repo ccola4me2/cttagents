@@ -15,35 +15,12 @@
 import { json, badRequest, notFound, readJson, now, sha256Hex, usDate } from './util.js';
 import { requireUser } from './auth.js';
 import { layout, escapeHtml, sendHtml } from './email.js';
-import { listPricing, PRICE_KINDS } from './pricing.js';
+import { listPricing, clientLines } from './pricing.js';
 import { appUrl, shareCode } from './share.js';
 import { listOptions } from './options.js';
 import { listTravellers, listAmenities } from './travellers.js';
 import * as db from './db.js';
 import { paymentFormFor } from './brand.js';
-
-// What a price line is called when a client reads it. "Non-commissionable
-// fare" is a fact about the agency's pay, not about the client's holiday, and
-// putting it in front of them invites a question with no good answer.
-// What a client is told a line is called, where that differs from what the
-// advisor calls it. Overrides only: everything else takes the label from
-// PRICE_KINDS, which is the list the advisor picked the line from in the first
-// place.
-//
-// This used to be the whole list, written out a second time, and it had ten of
-// the seventeen kinds. The other seven fell through to the raw database key, so
-// a drinks package on a real quote read "beverage", in lower case, and an
-// administrative fee would have read "admin_fee". Deriving it means a kind
-// added next month is named on the client's page the day it is added instead of
-// the day somebody notices.
-const CLIENT_LABEL = {
-  ncf: 'Cruise line fees',
-  extra: 'Extras',
-  beverage: 'Drinks package',
-  admin_fee: 'Service fee',
-};
-
-const KIND_NAME = Object.fromEntries(PRICE_KINDS.map((k) => [k.kind, k.label]));
 
 const KIND_LABEL = {
   deposit: 'Deposit', installment: 'Payment', final: 'Final balance', refund: 'Refund',
@@ -60,49 +37,8 @@ export function buildStatement({ booking, pricing, travellers, payments, ameniti
   // the trip has never been shared, and then nothing is offered rather than a
   // link to a page that would say "not available".
   const shareCode = booking.share_code || null;
-  // One row per thing, not one row per traveller.
-  //
-  // Pricing lines are stored per traveller, so a cabin for two people produces
-  // two identical rows. On the advisor's own screen that is right: they are
-  // editing a line each. On the client's quote it read
-  // "Fare $1,721.40 / Fare $1,721.40", twice over for taxes, gratuities and the
-  // drinks package, and the honest reading of that page is that somebody has
-  // been charged twice.
-  //
-  // Added up under one heading with the count beside it, which is how a cruise
-  // fare is quoted everywhere else. Grouped on the label the client sees rather
-  // than on the kind, so two lines an advisor deliberately named differently
-  // stay apart, and a discount never merges into a charge.
-  const grouped = [];
-  for (const l of pricing || []) {
-    const label = l.label || CLIENT_LABEL[l.kind] || KIND_NAME[l.kind] || l.kind;
-    const deduct = l.kind === 'discount';
-    const same = grouped.find((g) => g.label === label && g.deduct === deduct);
-    if (same) {
-      same.amountCents += l.amount_cents || 0;
-      same.count += 1;
-      same.perTraveller = same.perTraveller && Boolean(l.traveller_id);
-    } else {
-      grouped.push({
-        label,
-        amountCents: l.amount_cents || 0,
-        deduct,
-        count: 1,
-        perTraveller: Boolean(l.traveller_id),
-      });
-    }
-  }
-
-  // "2 guests" only where every line that went into it belonged to a traveller.
-  // A fee charged once for the booking that happens to appear twice is not two
-  // guests, and saying so would be inventing a reason.
-  const lines = grouped.map((g) => ({
-    label: g.count > 1
-      ? `${g.label}${g.perTraveller ? ` (${g.count} guests)` : ` \u00d7 ${g.count}`}`
-      : g.label,
-    amountCents: g.amountCents,
-    deduct: g.deduct,
-  }));
+  // One row per thing, not one row per traveller: see clientLines.
+  const lines = clientLines(pricing);
 
   // A discount is stored as a positive number and subtracted, the same way it
   // is on the advisor's own screen, so the two totals cannot drift apart.
@@ -195,6 +131,15 @@ export function buildStatement({ booking, pricing, travellers, payments, ameniti
     itinerary: booking.itinerary || '',
     destination: booking.destination || '',
     cabin: [booking.cabin_category, booking.cabin].filter(Boolean).join(' · '),
+    // Said separately as well, because a client looks for the category they bought and the number of the
+    // cabin they will be in, and a joined string makes them find one inside the other.
+    cabinCategory: booking.cabin_category || '',
+    cabinNumber: booking.cabin || '',
+    groupNumber: booking.group_number || '',
+    // The two dates and the one fact about the deposit a client needs in order to decide, so that none of
+    // them has to be asked for.
+    finalDue: booking.final_payment_due || '',
+    depositRefundable: booking.deposit_refundable || '',
     // Names only. A passport number in an email is a passport number in an
     // inbox, and neither of us can get it back out.
     travellers: (travellers || []).map((t) => t.name).filter(Boolean),
@@ -285,6 +230,26 @@ export async function statementFingerprint(statement) {
   return (await sha256Hex(JSON.stringify(content))).slice(0, 32);
 }
 
+/**
+ * The card authorization, as a block a client cannot miss: what to do, what to type, and a button.
+ *
+ * The agency's own form takes the card and this portal never sees it. The block says exactly what the
+ * form asks for, so nobody is left to work out the amount or the date, and that a card is not charged
+ * before the date they give. `scope` says what one form covers when it covers more than one trip.
+ */
+function cardBlock(url, { heading, button, amountCents, dueIso, confirmation, scope = '' }) {
+  return `<div style="margin:18px 0 0;padding:16px 18px;border:1px solid #cfe0ee;border-radius:10px;background:#f7fafd;">
+      <p style="margin:0 0 8px;font-weight:600;color:#12315e;">${escapeHtml(heading)}</p>
+      <p style="margin:0 0 12px;color:#2f4459;">${scope ? `${escapeHtml(scope)} ` : ''}Fill in the agency's secure card
+        authorization form. It asks for the amount, <strong>${money(amountCents)}</strong>${dueIso
+          ? `; the date to charge it on or after, <strong>${escapeHtml(day(dueIso))}</strong>` : ''}${confirmation
+          ? `; and your trip confirmation number, <strong>${escapeHtml(confirmation)}</strong>` : ''}.
+        Your card is not charged before that date.</p>
+      <a href="${escapeHtml(url)}" style="display:inline-block;background:#12315e;color:#ffffff;text-decoration:none;
+        font-weight:600;padding:11px 22px;border-radius:8px;">${escapeHtml(button)}</a>
+    </div>`;
+}
+
 export function renderStatement(env, s) {
   const heading = [s.tripName, s.vendor].filter(Boolean).join(' with ')
     || (s.mode === 'quote' ? 'Your quote' : 'Your trip');
@@ -294,7 +259,9 @@ export function renderStatement(env, s) {
     ['Departing', day(s.departDate)],
     ['Returning', day(s.returnDate)],
     ['Itinerary', s.itinerary],
-    ['Cabin', s.cabin],
+    ['Cabin category', s.cabinCategory],
+    ['Cabin', s.cabinNumber],
+    ['Group number', s.groupNumber],
     ['Travelling', s.travellers.join(', ')],
   ].filter(([, v]) => v);
 
@@ -332,19 +299,21 @@ export function renderStatement(env, s) {
   // The agency's own form for authorizing a card, and exactly what to put in it, so a client is not left
   // to work out the amount and the date. Only where the agency has set one and there is something to pay.
   const cardForm = (amountCents, dueIso) => (s.paymentFormUrl && amountCents > 0
-    ? `<p style="margin:14px 0 0;">To pay by card, authorize it on the agency's secure form:
-        <a href="${escapeHtml(s.paymentFormUrl)}" style="color:#12315e;font-weight:600;">Authorize your payment</a>.
-        It asks for the amount, <strong>${money(amountCents)}</strong>${dueIso
-          ? `; the date to charge it on or after, <strong>${escapeHtml(day(dueIso))}</strong>` : ''}${s.confirmationNumber
-          ? `; and your trip confirmation number, <strong>${escapeHtml(s.confirmationNumber)}</strong>` : ''}.
-        Your card is not charged before that date.</p>` : '');
+    ? cardBlock(s.paymentFormUrl, {
+      heading: quote ? 'To secure it, authorize your deposit' : 'To pay by card',
+      button: quote ? 'Authorize your deposit' : 'Authorize your payment',
+      amountCents, dueIso, confirmation: s.confirmationNumber,
+    }) : '');
 
+  const depositNote = s.depositRefundable === 'refundable' ? ' The deposit is refundable.'
+    : s.depositRefundable === 'nonrefundable' ? ' The deposit is non refundable.' : '';
+  const finalNote = s.finalDue ? ` The final balance is due by ${escapeHtml(day(s.finalDue))}.` : '';
   const hold = quote
     ? `<p style="margin:22px 0 0;">${s.options.length && !s.options.some((o) => o.chosen)
         ? 'Tell me which one and I will hold it. ' : ''}${s.depositCents
         ? `A deposit of <strong>${money(s.depositCents)}</strong> holds this${
-            s.depositDue ? ` and is due by ${escapeHtml(day(s.depositDue))}` : ''}.`
-        : 'Say the word and I will hold it.'
+            s.depositDue ? ` and is due by ${escapeHtml(day(s.depositDue))}` : ''}.${depositNote}${finalNote}`
+        : `Say the word and I will hold it.${finalNote}`
       } Prices and space are not held until it is booked.${answerHere}</p>${cardForm(s.depositCents, s.depositDue)}`
     : '';
 
@@ -508,25 +477,42 @@ export function renderCombinedQuote(env, statements, { paymentFormUrl = '' } = {
   const dueDates = deposits.map((s) => s.depositDue).filter(Boolean).sort();
   const due = dueDates[0] || '';
 
+  const cell = 'padding:4px 0;';
   const trip = (s) => {
     const name = [s.tripName, s.vendor].filter(Boolean).join(' with ') || 'Your trip';
     const facts = [
       ['Departing', day(s.departDate)],
       ['Returning', day(s.returnDate)],
+      ['Itinerary', s.itinerary],
+      ['Cabin category', s.cabinCategory],
+      ['Cabin', s.cabinNumber],
+      ['Group number', s.groupNumber],
       ['Travelling', s.travellers.join(', ')],
     ].filter(([, v]) => v);
-    return `<p style="margin:22px 0 4px;font-size:16px;font-weight:600;color:#12315e;">
+    const deposit = s.depositCents ? `<tr><td style="${cell}color:#5c7286;">Deposit share</td>
+        <td style="${cell}text-align:right;color:#2f4459;">${money(s.depositCents)}</td></tr>` : '';
+    const final = s.finalDue ? `<tr><td style="${cell}color:#5c7286;">Final balance due</td>
+        <td style="${cell}text-align:right;color:#2f4459;">${escapeHtml(day(s.finalDue))}</td></tr>` : '';
+    const refund = s.depositRefundable ? `<tr><td style="${cell}color:#5c7286;">The deposit is</td>
+        <td style="${cell}text-align:right;color:#2f4459;">${s.depositRefundable === 'refundable' ? 'refundable' : 'non refundable'}</td></tr>` : '';
+    return `<p style="margin:26px 0 4px;font-size:16px;font-weight:600;color:#12315e;">
         ${escapeHtml(s.clientName ? `${s.clientName}: ${name}` : name)}</p>
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:15px;border-collapse:collapse;">
-        ${facts.map(([k, v]) => `<tr><td style="padding:4px 0;color:#5c7286;width:34%;">${escapeHtml(k)}</td>
-          <td style="padding:4px 0;color:#2f4459;">${escapeHtml(v)}</td></tr>`).join('')}
+        ${facts.map(([k, v]) => `<tr><td style="${cell}color:#5c7286;width:34%;vertical-align:top;">${escapeHtml(k)}</td>
+          <td style="${cell}color:#2f4459;">${escapeHtml(v)}</td></tr>`).join('')}
+      </table>
+      ${s.lines.length ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+        style="font-size:15px;border-collapse:collapse;margin-top:8px;border-top:1px solid #e2ebf4;">
+        ${rows(s.lines, { strike: true })}</table>` : ''}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:15px;border-collapse:collapse;">
         <tr><td style="padding:6px 0;color:#12315e;font-weight:600;border-top:1px solid #e2ebf4;">Trip total</td>
           <td style="padding:6px 0;text-align:right;color:#12315e;font-weight:600;border-top:1px solid #e2ebf4;">${money(s.tripCents)}</td></tr>
-        ${s.depositCents ? `<tr><td style="padding:2px 0;color:#5c7286;">Deposit share</td>
-          <td style="padding:2px 0;text-align:right;color:#5c7286;">${money(s.depositCents)}</td></tr>` : ''}
+        ${deposit}${refund}${final}
       </table>
-      ${s.shareCode ? `<p style="margin:8px 0 0;"><a href="${escapeHtml(`${appUrl(env)}/t/${s.shareCode}?s=quote`)}"
-        style="color:#12315e;font-weight:600;">See it and answer</a></p>` : ''}`;
+      ${s.amenities.length ? `<p style="margin:8px 0 0;font-size:14px;color:#5c7286;">Included: ${
+        escapeHtml(s.amenities.map((a) => a.description).join(', '))}</p>` : ''}
+      <p style="margin:10px 0 0;"><a href="${s.shareCode ? escapeHtml(`${appUrl(env)}/t/${s.shareCode}?s=quote`) : '#'}"
+        style="color:#12315e;font-weight:600;">See everything for this trip, and answer</a></p>`;
   };
 
   const hold = depositTotal
@@ -534,16 +520,18 @@ export function renderCombinedQuote(env, statements, { paymentFormUrl = '' } = {
         due ? ` and is due by ${escapeHtml(day(due))}` : ''}.`
     : 'Say the word and I will hold them.';
   const card = paymentFormUrl && depositTotal > 0
-    ? `<p style="margin:14px 0 0;">To pay by card, authorize it on the agency's secure form:
-        <a href="${escapeHtml(paymentFormUrl)}" style="color:#12315e;font-weight:600;">Authorize your payment</a>.
-        It asks for the amount, <strong>${money(depositTotal)}</strong>${due
-          ? `; the date to charge it on or after, <strong>${escapeHtml(day(due))}</strong>` : ''}.
-        Your card is not charged before that date.</p>` : '';
+    ? cardBlock(paymentFormUrl, {
+      heading: 'To secure all of them, authorize one deposit',
+      button: 'Authorize your deposit',
+      amountCents: depositTotal, dueIso: due,
+      scope: `One form covers all ${statements.length} trips.`,
+    }) : '';
 
   const body = [
     '<p style="margin:0 0 14px;">Hello,</p>',
-    `<p style="margin:0 0 14px;">Here are the ${statements.length} quotes I have put together. Anything you would `
-      + 'change, reply to this and I will rework it.</p>',
+    `<p style="margin:0 0 14px;">Here are the ${statements.length} quotes I have put together. Each trip below `
+      + 'has its price, its dates and its cabin, and the link under it opens a page with everything else. '
+      + 'Anything you would change, reply to this and I will rework it.</p>',
     statements.map(trip).join(''),
     `<p style="margin:22px 0 0;padding:12px 16px;background:#f2f7fb;border-radius:8px;color:#12315e;">
        All together: <strong>${money(tripTotal)}</strong>. ${hold}</p>`,

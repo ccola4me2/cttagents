@@ -8195,7 +8195,7 @@ async function main() {
     const email = `bulkq-${stamp}@test.dev`;
     const person = await call(advisor, 'POST', '/api/clients', { name: `Bulk Quote ${stamp}`, email });
     const mkq = (status) => call(advisor, 'POST', '/api/bookings', { clientName: `Bulk Quote ${stamp}`, supplier: 'Royal Caribbean',
-      productType: 'cruise', departDate: isoDay(280), gross: '2000', status });
+      productType: 'cruise', departDate: isoDay(280), gross: '2000', status, cabin: '5235', cabinCategory: '8D' });
     const qid = (await mkq('quoted')).data?.booking?.id;
     const bid = (await mkq('booked')).data?.booking?.id;
     if (check(Boolean(qid && bid), 'a quoted and a booked reservation for one client')) {
@@ -8263,6 +8263,12 @@ async function main() {
           'two quotes combine into one email with one deposit, due on the earliest date', JSON.stringify(cb));
         check(/A single deposit of <strong>\$800\.00<\/strong> holds all 2 of these/.test(cb.html || ''),
           'the preview carries the email itself, with the one deposit in it', String(cb.html || '').length);
+        check(/Cabin category/.test(cb.html || '') && /8D/.test(cb.html || '') && /5235/.test(cb.html || '')
+            && /See everything for this trip/.test(cb.html || ''),
+          'each trip in the combined email carries its cabin category and number and a link to its page', String(cb.html || '').length);
+        const lone1 = await call(advisor, 'POST', `/api/bookings/${qid}/statement`, { preview: true });
+        check(/Cabin category/.test(lone1.data?.html || '') && /8D/.test(lone1.data?.html || ''),
+          'and so does a single quote', String(lone1.data?.html || '').length);
         const mixed = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid, bid], combine: { to: `one-${stamp}@test.dev` } });
         check(mixed.status === 400, 'a booked reservation cannot be part of a combined quote', `status ${mixed.status}`);
         const gone = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [qid, q2], send: true, combine: { to: `one-${stamp}@test.dev` } });

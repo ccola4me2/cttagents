@@ -423,3 +423,49 @@ export async function reconcileBookingTotals(env, booking, summary) {
   }
   return { grossCents: gross, commissionCents: commission };
 }
+
+// What a client is told a line is called where that differs from what the advisor calls it. Overrides
+// only; everything else takes its label from PRICE_KINDS above.
+const CLIENT_NAME = {
+  ncf: 'Cruise line fees',
+  extra: 'Extras',
+  beverage: 'Drinks package',
+  admin_fee: 'Service fee',
+};
+const KIND_TITLE = Object.fromEntries(PRICE_KINDS.map((k) => [k.kind, k.label]));
+
+/**
+ * The lines of a price as the client reads them: one row per thing, not one per traveller.
+ *
+ * Pricing is stored per traveller, so a cabin for two people produces two identical rows, and a quote
+ * that read "Fare $1,721.40 / Fare $1,721.40" looked like a double charge. Added up under one heading
+ * with the count beside it, grouped on the label the client sees so two lines an advisor deliberately
+ * named differently stay apart and a discount never merges into a charge. Used by the emailed quote and
+ * by the trip page, so the two cannot disagree about what was charged.
+ */
+export function clientLines(pricing) {
+  const grouped = [];
+  for (const l of pricing || []) {
+    const label = l.label || CLIENT_NAME[l.kind] || KIND_TITLE[l.kind] || l.kind;
+    const deduct = l.kind === 'discount';
+    const same = grouped.find((g) => g.label === label && g.deduct === deduct);
+    if (same) {
+      same.amountCents += l.amount_cents || 0;
+      same.count += 1;
+      same.perTraveller = same.perTraveller && Boolean(l.traveller_id);
+    } else {
+      grouped.push({
+        label, amountCents: l.amount_cents || 0, deduct, count: 1, perTraveller: Boolean(l.traveller_id),
+      });
+    }
+  }
+  // "2 guests" only where every line that went into it belonged to a traveller. A fee charged once for
+  // the booking that happens to appear twice is not two guests, and saying so would invent a reason.
+  return grouped.map((g) => ({
+    label: g.count > 1
+      ? `${g.label}${g.perTraveller ? ` (${g.count} guests)` : ` \u00d7 ${g.count}`}`
+      : g.label,
+    amountCents: g.amountCents,
+    deduct: g.deduct,
+  }));
+}

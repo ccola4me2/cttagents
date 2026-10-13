@@ -29,6 +29,7 @@
 import { json, badRequest, notFound, clean, cleanText, oneOf, uid, now, sha256Hex, readJson,
   escapeHtml as esc, usDate } from './util.js';
 import { brandForUser, DEFAULT_BRAND, HEX_COLOR, readableOnWhite, paymentFormFor } from './brand.js';
+import { listPricing, clientLines } from './pricing.js';
 import { currentClient } from './clientauth.js';
 import { requireUser, borrowedSeat, SESSION_COOKIE } from './auth.js';
 import { tenantFor } from './tenant.js';
@@ -244,7 +245,8 @@ async function loadTrip(env, code) {
             b.itinerary, b.itinerary_shared, b.confirmation_number, b.depart_date,
             b.return_date, b.gross_cents, b.status, b.cabin, b.cabin_category,
             b.options_open, b.share_code, b.shared_at, b.travellers, b.ghl_contact_id,
-            b.client_id,
+            b.client_id, b.deposit_cents, b.deposit_due, b.deposit_refundable, b.final_payment_due,
+            b.group_number,
             u.first_name, u.last_name, u.email AS advisor_email,
             u.notify_email, u.phone AS advisor_phone, u.agency_name,
             u.seller_of_travel, u.agency_id
@@ -308,6 +310,10 @@ async function loadTrip(env, code) {
   return {
     booking,
     paymentFormUrl: await paymentFormFor(env, booking.agency_id),
+    // The price as the client reads it, for a quote that has to say what it is made of.
+    // Only what the client may read of it: a label, a kind and an amount. Never the commission columns.
+    pricing: (await listPricing(env, booking.id, db.selfScope({ id: booking.user_id })))
+      .map((l) => ({ kind: l.kind, label: l.label, amount_cents: l.amount_cents, traveller_id: l.traveller_id })),
     travellers: travellers.results || [],
     components: components.results || [],
     options: options.results || [],
@@ -703,6 +709,7 @@ export async function renderTripPage(request, env, code) {
     .reduce((n, p) => n + (p.amount_cents || 0), 0);
   const total = b.gross_cents || 0;
   const owed = Math.max(0, total - paid + refunded);
+  const quoteLines = clientLines(trip.pricing);
 
   // A quote and a booked trip are not the same page.
   //
@@ -732,7 +739,9 @@ export async function renderTripPage(request, env, code) {
     ['Returns', sayDate(b.return_date)],
     ['Nights', nn ? String(nn) : ''],
     ['Destination', b.destination],
-    ['Cabin', [b.cabin_category, b.cabin].filter(Boolean).join(' · ')],
+    ['Cabin category', b.cabin_category],
+    ['Cabin', b.cabin],
+    ['Group number', b.group_number],
     ['Confirmation', b.confirmation_number],
   ].filter(([, v]) => v);
 
@@ -831,9 +840,22 @@ export async function renderTripPage(request, env, code) {
 
     ${!booked && !choosing && total ? `<section class="card pad">
       <h2>What it costs</h2>
+      ${quoteLines.length ? `<table class="sched"><tbody>${quoteLines.map((l) => `<tr>
+          <td>${esc(l.label)}</td>
+          <td class="r">${l.deduct ? '&minus;' : ''}${esc(money(l.amountCents))}</td></tr>`).join('')}</tbody></table>` : ''}
       <div class="totals">
         <div><p class="tlabel">Price</p><p class="tvalue">${esc(money(total))}</p></div>
+        ${b.deposit_cents ? `<div><p class="tlabel">Deposit to hold it</p><p class="tvalue">${esc(money(b.deposit_cents))}</p></div>` : ''}
       </div>
+      ${b.deposit_cents ? `<p class="small">${b.deposit_due ? `The deposit is due by ${esc(sayDate(b.deposit_due))}. ` : ''}${
+        b.deposit_refundable === 'refundable' ? 'It is refundable. ' : b.deposit_refundable === 'nonrefundable' ? 'It is non refundable. ' : ''}${
+        b.final_payment_due ? `The final balance is due by ${esc(sayDate(b.final_payment_due))}.` : ''}</p>` : (b.final_payment_due
+        ? `<p class="small">The final balance is due by ${esc(sayDate(b.final_payment_due))}.</p>` : '')}
+      ${b.deposit_cents && trip.paymentFormUrl ? `<p class="small"><a class="paybtn" href="${esc(trip.paymentFormUrl)}"
+          target="_blank" rel="noopener">Authorize your deposit</a></p>
+        <p class="dim small">The agency's secure card form asks for the amount, ${esc(money(b.deposit_cents))}${
+        b.deposit_due ? `, and the date to charge it on or after, ${esc(sayDate(b.deposit_due))}` : ''}.
+        Your card is not charged before that date.</p>` : ''}
       <p class="dim small">Nothing is booked and nothing is owed yet. Prices and space are not
         held until it is.${answerable(b) && !trip.options.length ? ''
     : ` Say the word to ${esc(advisor)} and they will take it from there.`}</p>

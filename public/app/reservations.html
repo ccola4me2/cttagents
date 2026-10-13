@@ -388,7 +388,7 @@ document.getElementById('quote-look').addEventListener('click', async (e) => {
   try {
     const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids, send: false, combine: { to } } });
     document.getElementById('look-frame').srcdoc = res.combined.html;
-    document.getElementById('look-note').textContent = `To ${to}. Subject: ${res.combined.subject}`;
+    document.getElementById('look-note').textContent = `To ${to}. Subject: ${res.combined.subject}. Each trip's link opens its own page, which is created when this is sent.`;
     document.getElementById('look-dlg').showModal();
   } catch (ex) { errBox.textContent = ex.message || 'That could not be previewed.'; errBox.hidden = false; }
   e.target.disabled = false;
