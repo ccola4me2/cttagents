@@ -134,7 +134,9 @@ export function buildStatement({ booking, pricing, travellers, payments, ameniti
     // Said separately as well, because a client looks for the category they bought and the number of the
     // cabin they will be in, and a joined string makes them find one inside the other.
     cabinCategory: booking.cabin_category || '',
-    cabinNumber: booking.cabin || '',
+    // A guaranteed cabin has a category and no number until the cruise line assigns one, and a quote that
+    // leaves the number blank reads as if somebody forgot it. GTY is what the cruise lines call it.
+    cabinNumber: booking.cabin || (booking.cabin_category ? 'GTY' : ''),
     groupNumber: booking.group_number || '',
     // The two dates and the one fact about the deposit a client needs in order to decide, so that none of
     // them has to be asked for.

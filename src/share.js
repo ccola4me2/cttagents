@@ -740,7 +740,8 @@ export async function renderTripPage(request, env, code) {
     ['Nights', nn ? String(nn) : ''],
     ['Destination', b.destination],
     ['Cabin category', b.cabin_category],
-    ['Cabin', b.cabin],
+    // A guaranteed cabin has no number until the cruise line assigns one: GTY.
+    ['Cabin', b.cabin || (b.cabin_category ? 'GTY' : '')],
     ['Group number', b.group_number],
     ['Confirmation', b.confirmation_number],
   ].filter(([, v]) => v);

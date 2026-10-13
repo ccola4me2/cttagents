@@ -8266,6 +8266,15 @@ async function main() {
         check(/Cabin category/.test(cb.html || '') && /8D/.test(cb.html || '') && /5235/.test(cb.html || '')
             && /See everything for this trip/.test(cb.html || ''),
           'each trip in the combined email carries its cabin category and number and a link to its page', String(cb.html || '').length);
+        const gty = await call(advisor, 'POST', '/api/bookings', { clientName: `Bulk Quote ${stamp}`, supplier: 'Royal Caribbean',
+          productType: 'cruise', departDate: isoDay(281), gross: '1500', status: 'quoted', cabinCategory: '8D' });
+        const gtyId = gty.data?.booking?.id;
+        if (gtyId) {
+          const gv = await call(advisor, 'POST', `/api/bookings/${gtyId}/statement`, { preview: true });
+          check(/Cabin category/.test(gv.data?.html || '') && />GTY</.test(gv.data?.html || ''),
+            'a guaranteed cabin with no number is shown as GTY', String(gv.data?.html || '').length);
+          await dropBooking(gtyId);
+        }
         const lone1 = await call(advisor, 'POST', `/api/bookings/${qid}/statement`, { preview: true });
         check(/Cabin category/.test(lone1.data?.html || '') && /8D/.test(lone1.data?.html || ''),
           'and so does a single quote', String(lone1.data?.html || '').length);
