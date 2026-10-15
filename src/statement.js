@@ -118,8 +118,6 @@ export function buildStatement({ booking, pricing, travellers, payments, ameniti
     mode,
     standing,
     shareCode,
-    invoiceNo: mode === 'statement' ? (booking.invoice_no || null) : null,
-    invoiceIssuedAt: mode === 'statement' ? (booking.invoice_issued_at || null) : null,
     notes: booking.invoice_notes || '',
     clientName: (client && client.name) || booking.client_name || '',
     to: (client && client.email) || '',
@@ -222,13 +220,10 @@ function rows(items, { strike = false } = {}) {
  * commission figure or a passport number can change all day without making the
  * document in their inbox wrong.
  *
- * Three fields are left out on purpose. `to` is who it went to, not what it
- * said. `invoiceNo` and `invoiceIssuedAt` are assigned by the act of sending,
- * so including them would make every invoice differ from itself the moment it
- * was sent.
+ * `to` is left out on purpose: it is who it went to, not what it said.
  */
 export async function statementFingerprint(statement) {
-  const { to, invoiceNo, invoiceIssuedAt, ...content } = statement;
+  const { to, ...content } = statement;
   return (await sha256Hex(JSON.stringify(content))).slice(0, 32);
 }
 
@@ -359,14 +354,6 @@ export function renderStatement(env, s, custom = {}) {
     : '';
 
   const body = [
-    // The number and date first, because the thing that makes this a document
-    // a client can file rather than an email they skim is that it is
-    // identifiable eleven months later.
-    !quote && s.invoiceNo
-      ? `<p style="margin:0 0 14px;font-size:13px;color:#5c7286;">
-          Invoice ${escapeHtml(s.invoiceNo)}${s.invoiceIssuedAt
-            ? ` &middot; ${escapeHtml(usDate(new Date(s.invoiceIssuedAt * 1000).toISOString().slice(0, 10)))}` : ''}</p>`
-      : '',
     `<p style="margin:0 0 14px;">Hello ${escapeHtml(s.clientName || 'there')},</p>`,
     paragraphs(custom.intro || defaultIntro(quote)),
     block(quote ? 'The trip' : 'Your trip', facts.map(([k, v]) => `<tr>
@@ -446,7 +433,7 @@ export function renderStatement(env, s, custom = {}) {
   return {
     subject: custom.subject || (s.mode === 'quote'
       ? `Your quote: ${heading}`
-      : `Invoice${s.invoiceNo ? ` ${s.invoiceNo}` : ''}: ${heading}`),
+      : `Invoice${s.confirmation ? ` for confirmation ${s.confirmation}` : ''}: ${heading}`),
     // A quote gets a button to the page it is about, where the client can
     // pick an option, say yes, say no or ask a question. Without it the email
     // ends at a total and the only way to answer is to compose a reply, which
@@ -466,36 +453,6 @@ export function renderStatement(env, s, custom = {}) {
         : null,
     }),
   };
-}
-
-/**
- * The next invoice number for this advisor, this year.
- *
- * Assigned when an invoice is first issued rather than when the reservation is
- * created, because numbering trips nobody has invoiced leaves gaps in a
- * sequence that somebody may one day have to explain to an accountant.
- *
- * Per advisor, so two advisors in one agency do not interleave into a sequence
- * neither of them can reconcile.
- */
-async function nextInvoiceNo(env, userId, year) {
-  const prefix = `INV-${year}-`;
-  const row = await env.DB.prepare(
-    `SELECT COUNT(*) AS n FROM bookings
-      WHERE user_id = ? AND invoice_no LIKE ?`
-  ).bind(userId, `${prefix}%`).first().catch(() => ({ n: 0 }));
-
-  // Checked rather than trusted: a deleted reservation makes the count lower
-  // than the highest number issued, and reusing a number is worse than
-  // skipping one.
-  for (let i = (row?.n || 0) + 1; i < (row?.n || 0) + 50; i += 1) {
-    const candidate = `${prefix}${String(i).padStart(4, '0')}`;
-    const clash = await env.DB.prepare(
-      'SELECT id FROM bookings WHERE user_id = ? AND invoice_no = ?'
-    ).bind(userId, candidate).first();
-    if (!clash) return candidate;
-  }
-  return `${prefix}${Date.now().toString(36).toUpperCase()}`;
 }
 
 /**
@@ -828,7 +785,6 @@ export async function handleStatement(request, env, id) {
   // sequence whose whole value is that it has no gaps. The preview says a
   // number will be assigned rather than showing a blank where one will be.
   const body = await readJson(request);
-  const issuing = booking.status === 'booked' || booking.status === 'travelled';
   // Sent somewhere other than the address on the client's record: a family on one email, a group's
   // organiser. Used for this send only, and the record is left as it was.
   const custom = cleanCustom(body.custom);
@@ -876,7 +832,6 @@ export async function handleStatement(request, env, id) {
       sentFingerprint: booking.statement_hash || null,
       sentCount: statement.mode === 'quote' ? (booking.quote_sent_count || 0) : 0,
       // So the page can say so rather than showing a gap where a number goes.
-      willNumber: issuing && !booking.invoice_no,
       subject: rendered.subject,
       // What it says when nothing is changed, so the editor can start from the real words.
       defaults: { subject: renderStatement(env, statement).subject, intro: defaultIntro(statement.mode === 'quote'), note: defaultNote(statement) },
@@ -910,23 +865,6 @@ export async function handleStatement(request, env, id) {
     rendered = renderStatement(env, statement, custom);
   }
 
-  // Numbered here and nowhere earlier: after the preview has returned, after
-  // the address has been checked, immediately before the send. Every step
-  // skipped over above is a way of not sending an invoice, and each of them
-  // would otherwise have spent a number out of a sequence whose only value is
-  // having no gaps in it.
-  const assignedHere = issuing && !booking.invoice_no;
-  if (assignedHere) {
-    const no = await nextInvoiceNo(env, owner.id, new Date().getFullYear());
-    await env.DB.prepare(
-      'UPDATE bookings SET invoice_no = ?, invoice_issued_at = ?, updated_at = ? WHERE id = ? AND user_id = ?'
-    ).bind(no, now(), now(), id, owner.id).run();
-    booking.invoice_no = no;
-    booking.invoice_issued_at = now();
-    statement = build();
-    rendered = renderStatement(env, statement, custom);
-  }
-
   try {
     await sendHtml(env, {
       to: statement.to, replyTo: owner.email, subject: rendered.subject, html: rendered.html,
@@ -934,12 +872,6 @@ export async function handleStatement(request, env, id) {
       unsubscribe: { agencyId: owner.agency_id, agencyName: owner.agency_name },
     });
   } catch (e) {
-    // The number goes back. A send that failed is an invoice nobody has.
-    if (assignedHere) {
-      await env.DB.prepare(
-        'UPDATE bookings SET invoice_no = NULL, invoice_issued_at = NULL WHERE id = ? AND user_id = ?'
-      ).bind(id, owner.id).run().catch(() => null);
-    }
     return badRequest(String((e && e.message) || e).slice(0, 300));
   }
 

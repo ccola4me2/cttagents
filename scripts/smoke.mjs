@@ -7309,9 +7309,9 @@ async function main() {
     'once set, both reach the document a client keeps');
 
   const invPrev = await call(advisor, 'POST', `/api/bookings/${stId}/statement`, { preview: true });
-  check(invPrev.data?.willNumber === true && invPrev.data?.statement?.invoiceNo === null,
-    'previewing an invoice says a number is coming rather than burning one',
-    JSON.stringify({ will: invPrev.data?.willNumber, no: invPrev.data?.statement?.invoiceNo }));
+  check(invPrev.data?.willNumber === undefined && !/INV-\d{4}/.test(invPrev.data?.html || '') && !/Invoice number/i.test(invPrev.data?.html || ''),
+    'an invoice carries no invoice number: agencies work off the confirmation number',
+    JSON.stringify({ will: invPrev.data?.willNumber, subject: invPrev.data?.subject }));
 
   // Where the money stands, worked out rather than ticked. CP Maxx asks the
   // advisor which of eight notices applies; every one of them is a fact this

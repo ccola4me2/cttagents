@@ -882,8 +882,7 @@ function drawDetail() {
              payments, the documents and the commission. It counts towards their production
              from then on, and their agreement decides the split.</p>
          </div>` : ''}</dd>
-       ${b.invoice_no ? `<dt>Invoice</dt><dd>${esc(b.invoice_no)}${b.statement_sent_at
-         ? ` <span class="muted">sent ${esc(timeAgo(b.statement_sent_at))}</span>` : ''}${
+       ${b.statement_sent_at ? `<dt>Invoice sent</dt><dd>${esc(timeAgo(b.statement_sent_at))}${
          d.statementStale ? ' <span class="badge badge-amber">changed since</span>' : ''}</dd>` : ''}
        ${b.quote_sent_at ? `<dt>Quote sent</dt><dd>${esc(timeAgo(b.quote_sent_at))}${
          b.quote_sent_count > 1 ? ` &middot; ${b.quote_sent_count} times` : ''}</dd>` : ''}
@@ -2480,7 +2479,6 @@ async function statement() {
       <dt>To</dt><dd>${esc(s.clientName)} &lt;${esc(p.to)}&gt;</dd>
       <dt>Replies to</dt><dd>${esc(s.advisorEmail)}</dd>
       <dt>Subject</dt><dd>${esc(p.subject)}</dd>
-      ${p.willNumber ? '<dt>Invoice number</dt><dd class="muted">assigned when you send it</dd>' : ''}
     </dl>
     <p class="muted" style="font-size:.8rem;margin:0 0 .6rem;">Commission, passport numbers, card
       digits and your own reminder dates are not in this.${s.mode === 'quote'
