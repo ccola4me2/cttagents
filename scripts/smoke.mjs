@@ -4748,6 +4748,15 @@ async function main() {
     'and never counts as commissionable, whatever the box said',
     discounted.data?.priceSummary?.commissionableCents);
 
+  // What the client is shown: the cruise line's fees are inside the fare, not a line of their own.
+  const shown = await call(advisor, 'POST', `/api/bookings/${pricedId}/statement`, { preview: true });
+  const shownLines = shown.data?.statement?.lines || [];
+  const shownFare = shownLines.find((l) => /fare/i.test(l.label) && !l.deduct);
+  check(shownFare?.amountCents === 169800 && !shownLines.some((l) => /NCF|Cruise line fees|Non-commissionable/i.test(l.label)),
+    'a client sees the fare and the cruise line fees as one cost', JSON.stringify(shownLines.map((l) => [l.label, l.amountCents])));
+  check(shownLines.reduce((n, l) => n + (l.deduct ? -l.amountCents : l.amountCents), 0) === 189600,
+    'and the lines still add up to what they pay', JSON.stringify(shownLines.map((l) => l.amountCents)));
+
   const silly = await call(advisor, 'POST', `/api/bookings/${pricedId}/pricing`,
     { kind: 'fare', amount: '100.00', commission: '500.00' });
   check(silly.status === 400, 'commission larger than its own line is refused',

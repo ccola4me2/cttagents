@@ -444,8 +444,29 @@ const KIND_TITLE = Object.fromEntries(PRICE_KINDS.map((k) => [k.kind, k.label]))
  * by the trip page, so the two cannot disagree about what was charged.
  */
 export function clientLines(pricing) {
-  const grouped = [];
+  // The cruise line's own fees are part of the fare as far as the client is concerned. The advisor keeps
+  // them apart because they are commissioned differently, and the client has no use for the split: a quote
+  // that lists "Cruise line fees" beside the fare invites a question about a charge that is part of the
+  // price. So each person's non-commissionable fare is added to their fare, and only the sum is shown.
+  const joined = [];
+  const fareOf = new Map();
   for (const l of pricing || []) {
+    if (l.kind !== 'fare' && l.kind !== 'ncf') { joined.push(l); continue; }
+    const key = l.traveller_id || '';
+    const hit = fareOf.get(key);
+    if (hit) {
+      hit.amount_cents += l.amount_cents || 0;
+      // The fare line's own wording wins over the non-commissionable line's.
+      if (l.kind === 'fare' && l.label) hit.label = l.label;
+      continue;
+    }
+    const line = { ...l, kind: 'fare', label: l.kind === 'fare' ? l.label : '', amount_cents: l.amount_cents || 0 };
+    fareOf.set(key, line);
+    joined.push(line);
+  }
+
+  const grouped = [];
+  for (const l of joined) {
     const label = l.label || CLIENT_NAME[l.kind] || KIND_TITLE[l.kind] || l.kind;
     const deduct = l.kind === 'discount';
     const same = grouped.find((g) => g.label === label && g.deduct === deduct);
