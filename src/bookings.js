@@ -53,7 +53,7 @@ const COMMISSION_STATUSES = ['pending', COMMISSION_RECEIVED, NO_COMMISSION];
 // Said the same way on every route that refuses it.
 const RECEIVED_BY_AGENCY = 'Only the agency records that commission has arrived. '
   + 'It is marked received when the money is recorded.';
-const BOOKING_METHODS = ['direct', 'portal', 'phone', 'group', 'other'];
+const BOOKING_METHODS = ['direct', 'portal', 'phone', 'group', 'onboard', 'other'];
 // 'unknown' leads because oneOf falls back to the first entry, and not having
 // asked is the honest default. Recording a decline is a deliberate act.
 const INSURANCE_STATUS = ['unknown', 'purchased', 'declined', 'covered_elsewhere', 'purchased_outside'];

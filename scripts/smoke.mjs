@@ -8326,6 +8326,19 @@ async function main() {
     if (person.data?.client?.id) await call(advisor, 'DELETE', `/api/clients/${person.data.client.id}`);
   }
 
+  // A reservation booked onboard, which is how a cruise taken while sailing is sold.
+  {
+    const ob = await call(advisor, 'POST', '/api/bookings', { clientName: `Onboard Test ${stamp}`, supplier: 'Royal Caribbean',
+      productType: 'cruise', departDate: isoDay(300), gross: '1000', status: 'booked', bookingMethod: 'onboard' });
+    const obId = ob.data?.booking?.id;
+    const obRec = obId ? await call(advisor, 'GET', `/api/bookings/${obId}/record`) : null;
+    check(obRec?.data?.booking?.booking_method === 'onboard' && (obRec.data?.fieldOptions?.bookingMethods || []).includes('onboard'),
+      'a reservation can be booked onboard', JSON.stringify(obRec?.data?.booking?.booking_method));
+    if (obId) await dropBooking(obId);
+    const obClient = ((await call(advisor, 'GET', `/api/clients?q=${encodeURIComponent(`Onboard Test ${stamp}`)}`)).data?.clients || [])[0];
+    if (obClient && obClient.id) await call(advisor, 'DELETE', `/api/clients/${obClient.id}`);
+  }
+
   // Money posted against a quote is the client saying yes: the reservation becomes booked.
   {
     const mk = () => call(advisor, 'POST', '/api/bookings', { clientName: `Pay Books ${stamp}`, supplier: 'Royal Caribbean',
