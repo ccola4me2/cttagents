@@ -958,6 +958,9 @@ function drawDetail() {
         put('productType', 'cruise');
       },
     }).then((picker) => {
+      // Open on what the reservation already has, so the cruise does not have to be chosen again.
+      picker.showSaved({ supplier: b.supplier, ship: b.product_name, departDate: b.depart_date })
+        .catch(() => { /* the saved values are still in the fields below */ });
       editForm.elements.productType.addEventListener('change', () => picker.refresh());
     }).catch(() => { /* the fields can be typed, which is how this form worked before */ });
   }

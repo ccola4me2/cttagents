@@ -191,7 +191,7 @@ export async function mountSupplierPicker(host, { typeOf, set, onSailing }) {
     pickShip.disabled = false;
   }
 
-  pickShip.addEventListener('change', async () => {
+  async function loadDates() {
     pickDate.innerHTML = '<option value="">Departure</option>';
     pickDate.disabled = true;
     dateRows = [];
@@ -220,7 +220,8 @@ export async function mountSupplierPicker(host, { typeOf, set, onSailing }) {
       + d.dates.map((r) => `<option value="${esc(r.depart_date)}">${esc(sailingLabel(r))}</option>`)
         .join('');
     pickDate.disabled = false;
-  });
+  }
+  pickShip.addEventListener('change', loadDates);
 
   pickDate.addEventListener('change', () => {
     const r = dateRows.find((x) => x.depart_date === pickDate.value);
@@ -318,5 +319,36 @@ export async function mountSupplierPicker(host, { typeOf, set, onSailing }) {
     },
     /** Point the sailing pair at a line without going through the box. */
     useLine: loadShips,
+    /**
+     * Show what a reservation already has: its line, its ship and its departure.
+     *
+     * The picker was built for choosing, so opened on a saved reservation it stood empty and read as
+     * though the cruise had to be chosen all over again. This points each box at what is saved, and
+     * writes nothing: the fields already hold those values, and a choice made here is still the only
+     * thing that changes them. Whatever is not in the catalog is left alone.
+     */
+    async showSaved({ supplier, ship, departDate }) {
+      const same = (a, b) => norm(a) === norm(b);
+      if (typeOf() === 'cruise') {
+        const line = (catalogRows || []).map((l) => l.name).find((n) => (
+          norm(n) && norm(supplier) && (same(n, supplier)
+            || (norm(n).startsWith(norm(supplier)) && norm(supplier).length >= 6)
+            || (norm(supplier).startsWith(norm(n)) && norm(n).length >= 6))));
+        if (!line) return;
+        sel.value = `line:${line}`;
+        await loadShips(line);
+        const shipName = [...pickShip.options].map((o) => o.value).find((v) => v && ship && same(v, ship));
+        if (!shipName) return;
+        pickShip.value = shipName;
+        await loadDates();
+        if (departDate && [...pickDate.options].some((o) => o.value === departDate)) pickDate.value = departDate;
+        picked.hidden = false;
+        picked.textContent = `This reservation is on ${line}, ${shipName}${departDate ? `, departing ${dateFmt(departDate)}` : ''}. `
+          + 'Choose another to change it.';
+        return;
+      }
+      const v = offered.map((x) => x.v).find((x) => same(x.name, supplier));
+      if (v) sel.value = v.id;
+    },
   };
 }
