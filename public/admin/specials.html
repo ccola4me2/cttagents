@@ -414,7 +414,6 @@ async function commit() {
     upDlg.close();
     errEl.innerHTML = `<div class="notice notice-ok">Added ${out.added} new and updated ${out.updated}${
       out.unchanged ? ` (${out.unchanged} were already here and unchanged)` : ''}.</div>`;
-    state.status = 'live';
     await load();
   } catch (e) {
     btn.disabled = false;
