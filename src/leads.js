@@ -119,7 +119,8 @@ export async function handleLeadBoard(request, env) {
     // because overdue at least means somebody made a plan.
     untouched: open.filter((l) => l.stage === 'new' && !l.nextStepOn).length,
     converted: converted.length,
-    convertedRecent: converted.slice(0, 12),
+    // Everyone who became a client, not a sample, because the tile that counts them opens the list.
+    convertedRecent: converted,
     today,
     scope: db.scopeLabel(scope, user),
     advisors: await db.advisorOptions(env, user),
