@@ -7287,7 +7287,7 @@ async function main() {
       'a price not filled in yet reads as price to come, never zero', `status ${copyPage.status}`);
     const oldPage = await call(null, 'GET', `/gs/${origSlug}`);
     check(oldPage.raw.includes('This sailing has departed') && oldPage.raw.includes('See the next sailing')
-      && oldPage.raw.includes(`/gs/${copy?.page_slug}`),
+      && oldPage.raw.includes(`/${copy?.page_slug}"`),
       'and the page of the group that has sailed points to it', `status ${oldPage.status}`);
 
     // Deleting the group lets its names go.
