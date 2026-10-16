@@ -2536,7 +2536,9 @@ async function statement() {
         ? `<div id="st-docs">${docsList.map((f) => `<label style="display:flex;gap:.5rem;align-items:flex-start;
             font-weight:400;margin:0 0 .3rem;"><input type="checkbox" data-doc="${esc(f.id)}"${
   f.selected ? ' checked' : ''} style="margin-top:.25rem;"><span>${esc(f.filename)} <span class="muted"
-            style="font-size:.8rem;">${esc(f.category)}, ${esc(Math.max(1, Math.round(f.bytes / 1024)))} KB</span></span></label>`).join('')}</div>
+            style="font-size:.8rem;">${esc(f.category)}, ${esc(Math.max(1, Math.round(f.bytes / 1024)))} KB</span>${f.agencyCopy
+    ? '<br><span style="font-size:.8rem;color:var(--red-600);">Looks like the agency copy, which can show what '
+      + 'the agency earns. Check it before it goes to a client.</span>' : ''}</span></label>`).join('')}</div>
           <span class="muted" style="font-size:.8rem;">${files.length
     ? `${files.length} going with it.` : 'None going with it.'} Tick the files that should go with it.</span>`
         : '<strong>None.</strong> Nothing is attached. Upload the confirmation under Documents on this '

@@ -21,7 +21,7 @@ import { listOptions } from './options.js';
 import { listTravellers, listAmenities } from './travellers.js';
 import * as db from './db.js';
 import { paymentFormFor } from './brand.js';
-import { docsReady, listDocuments, chooseAttachments } from './documents.js';
+import { docsReady, listDocuments, chooseAttachments, looksLikeAgencyCopy } from './documents.js';
 
 const KIND_LABEL = {
   deposit: 'Deposit', installment: 'Payment', final: 'Final balance', refund: 'Refund',
@@ -818,7 +818,8 @@ export async function handleStatement(request, env, id) {
     // here; the files themselves are read when it is sent.
     const wanted = Array.isArray(body.attachmentIds)
       ? body.attachmentIds
-      : docs.filter((d) => statement.mode === 'statement' && d.category === 'confirmation').map((d) => d.id);
+      : docs.filter((d) => statement.mode === 'statement' && d.category === 'confirmation'
+        && !looksLikeAgencyCopy(d.filename)).map((d) => d.id);
     const picked = await chooseAttachments(env, docs, wanted);
     if (picked.error && Array.isArray(body.attachmentIds)) return badRequest(picked.error);
     const pickedFiles = picked.files || [];
@@ -840,6 +841,8 @@ export async function handleStatement(request, env, id) {
       documents: docs.map((d) => ({
         id: d.id, filename: d.filename, category: d.category, bytes: Number(d.size_bytes) || 0,
         selected: pickedFiles.some((f) => f.id === d.id),
+        // Named like the agency's own copy, which is not for a client. Never ticked for the sender.
+        agencyCopy: looksLikeAgencyCopy(d.filename),
       })),
       // The plain text version that goes with it, which some mail programs show instead.
       text: asSent ? asSent.text : null,

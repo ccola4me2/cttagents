@@ -62,6 +62,17 @@ export const MAX_EMAIL_ATTACH_BYTES = 15 * 1024 * 1024;
 const MOST_ATTACHED = 10;
 
 /**
+ * Whether a file is named like the agency's own copy of a confirmation.
+ *
+ * A cruise line sends the agency a copy meant for the agency, and what it shows is not for the
+ * client. It cannot be known from the name alone, so this only decides what is not ticked for the
+ * sender and what is flagged to them; a file they tick themselves goes.
+ */
+export function looksLikeAgencyCopy(filename) {
+  return /agency|agent|advisor|commission|internal|office[\s._-]*copy/i.test(String(filename || ''));
+}
+
+/**
  * Which of a reservation's files go with an email, from the ones the sender ticked.
  *
  * `docs` is the reservation's own list, so a file from another reservation or another advisor

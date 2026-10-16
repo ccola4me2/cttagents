@@ -7961,15 +7961,21 @@ async function main() {
   // ticked on an invoice, and nothing else is: only what is named can go.
   const confDoc = await uploadDoc(advisor, stId, `confirmation-${stamp}.txt`, 'Royal Caribbean confirmation', 'confirmation');
   const otherDoc = await uploadDoc(advisor, stId, `passport-${stamp}.txt`, 'a scan', 'passport');
-  if (confDoc && otherDoc) {
+  const agencyDoc = await uploadDoc(advisor, stId, `agency_copy-${stamp}.txt`, 'agency copy', 'confirmation');
+  if (confDoc && otherDoc && agencyDoc) {
     const offered = await call(advisor, 'POST', `/api/bookings/${stId}/statement`, { preview: true });
     const listed = offered.data?.documents || [];
     const isInvoice = offered.data?.statement?.mode === 'statement';
-    check(listed.length === 2 && listed.some((d) => d.id === confDoc.id) && listed.some((d) => d.id === otherDoc.id),
+    check(listed.length === 3 && listed.some((d) => d.id === confDoc.id) && listed.some((d) => d.id === otherDoc.id),
       'the reservation\'s own files are offered with the email', JSON.stringify(listed));
     check(listed.find((d) => d.id === confDoc.id)?.selected === isInvoice
       && listed.find((d) => d.id === otherDoc.id)?.selected === false,
       'the confirmation is ticked on an invoice, and a passport scan never is', JSON.stringify(listed));
+    check(listed.find((d) => d.id === agencyDoc.id)?.selected === false
+      && listed.find((d) => d.id === agencyDoc.id)?.agencyCopy === true
+      && listed.find((d) => d.id === confDoc.id)?.agencyCopy === false,
+      'a confirmation named like the agency\'s own copy is flagged and never ticked for them',
+      JSON.stringify(listed));
     check((offered.data?.envelope?.attachments || []).length === (isInvoice ? 1 : 0),
       'and the envelope lists what is going', JSON.stringify(offered.data?.envelope?.attachments));
     const none = await call(advisor, 'POST', `/api/bookings/${stId}/statement`, { preview: true, attachmentIds: [] });
