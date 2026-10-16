@@ -11,7 +11,7 @@
 // the advisor who owns it, and streamed. Guessing a key gets you nothing,
 // because the key is not the address.
 
-import { json, badRequest, notFound, clean, oneOf, uid, now, readJson } from './util.js';
+import { json, badRequest, notFound, clean, oneOf, uid, now, readJson, bytesToB64 } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 
@@ -54,6 +54,50 @@ export async function listDocuments(env, bookingId, scope) {
       ORDER BY created_at DESC`
   ).bind(bookingId, ...scoped.binds).all().catch(() => ({ results: [] }));
   return results || [];
+}
+
+// The most one email carries: what Resend takes is more, but mail programs refuse a message
+// much past this once the files are encoded, and a bounced invoice is worse than a trimmed one.
+export const MAX_EMAIL_ATTACH_BYTES = 15 * 1024 * 1024;
+const MOST_ATTACHED = 10;
+
+/**
+ * Which of a reservation's files go with an email, from the ones the sender ticked.
+ *
+ * `docs` is the reservation's own list, so a file from another reservation or another advisor
+ * cannot be named: an id that is not in it is refused. With `withContent` the files are read from
+ * storage and encoded, which only the send does; the preview asks for names and sizes alone.
+ * Returns { files } or { error }.
+ */
+export async function chooseAttachments(env, docs, ids, { withContent = false } = {}) {
+  const byId = new Map((docs || []).map((d) => [d.id, d]));
+  const chosen = [];
+  for (const raw of Array.isArray(ids) ? ids : []) {
+    const d = byId.get(String(raw));
+    if (!d) return { error: 'One of those files is not on this reservation.' };
+    if (!chosen.some((c) => c.id === d.id)) chosen.push(d);
+  }
+  if (chosen.length > MOST_ATTACHED) {
+    return { error: `One email carries at most ${MOST_ATTACHED} files.` };
+  }
+  const total = chosen.reduce((n, d) => n + (Number(d.size_bytes) || 0), 0);
+  if (total > MAX_EMAIL_ATTACH_BYTES) {
+    return {
+      error: `Those files come to ${(total / 1048576).toFixed(1)} MB, and one email carries at most `
+        + `${Math.round(MAX_EMAIL_ATTACH_BYTES / 1048576)} MB. Untick some.`,
+    };
+  }
+  const files = [];
+  for (const d of chosen) {
+    const file = { id: d.id, filename: d.filename, bytes: Number(d.size_bytes) || 0 };
+    if (withContent) {
+      const object = await env.DOCS.get(d.object_key);
+      if (!object) return { error: `${d.filename} is no longer in storage.` };
+      file.content = bytesToB64(new Uint8Array(await object.arrayBuffer()));
+    }
+    files.push(file);
+  }
+  return { files };
 }
 
 /** Keeps a filename readable and harmless. */

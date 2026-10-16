@@ -134,10 +134,10 @@ async function call(cookieJar, method, path, body) {
  * storage is optional, and a suite that fails without R2 is a suite nobody
  * can run locally.
  */
-async function uploadDoc(cookieJar, bookingId, filename, content) {
+async function uploadDoc(cookieJar, bookingId, filename, content, category = 'other') {
   const body = new FormData();
   body.append('file', new Blob([content], { type: 'text/plain' }), filename);
-  body.append('category', 'other');
+  body.append('category', category);
   const res = await fetch(`${BASE}/api/bookings/${bookingId}/documents`, {
     method: 'POST',
     headers: { ...(cookieJar.header() ? { cookie: cookieJar.header() } : {}) },
@@ -7956,6 +7956,42 @@ async function main() {
     'the preview carries the footer with its way out, because that is part of what is sent');
   check(typeof prev.data?.text === 'string' && prev.data.text.length > 40,
     'and the plain text version that goes with it');
+
+  // Attaching the vendor's confirmation. The reservation's own files are offered, the confirmation is
+  // ticked on an invoice, and nothing else is: only what is named can go.
+  const confDoc = await uploadDoc(advisor, stId, `confirmation-${stamp}.txt`, 'Royal Caribbean confirmation', 'confirmation');
+  const otherDoc = await uploadDoc(advisor, stId, `passport-${stamp}.txt`, 'a scan', 'passport');
+  if (confDoc && otherDoc) {
+    const offered = await call(advisor, 'POST', `/api/bookings/${stId}/statement`, { preview: true });
+    const listed = offered.data?.documents || [];
+    const isInvoice = offered.data?.statement?.mode === 'statement';
+    check(listed.length === 2 && listed.some((d) => d.id === confDoc.id) && listed.some((d) => d.id === otherDoc.id),
+      'the reservation\'s own files are offered with the email', JSON.stringify(listed));
+    check(listed.find((d) => d.id === confDoc.id)?.selected === isInvoice
+      && listed.find((d) => d.id === otherDoc.id)?.selected === false,
+      'the confirmation is ticked on an invoice, and a passport scan never is', JSON.stringify(listed));
+    check((offered.data?.envelope?.attachments || []).length === (isInvoice ? 1 : 0),
+      'and the envelope lists what is going', JSON.stringify(offered.data?.envelope?.attachments));
+    const none = await call(advisor, 'POST', `/api/bookings/${stId}/statement`, { preview: true, attachmentIds: [] });
+    check((none.data?.envelope?.attachments || []).length === 0 && none.data?.documents?.every((d) => !d.selected),
+      'unticking everything attaches nothing');
+    const both = await call(advisor, 'POST', `/api/bookings/${stId}/statement`,
+      { preview: true, attachmentIds: [otherDoc.id, confDoc.id] });
+    check((both.data?.envelope?.attachments || []).length === 2,
+      'and what is ticked is what is listed', JSON.stringify(both.data?.envelope?.attachments));
+    const stranger = await call(advisor, 'POST', `/api/bookings/${stId}/statement`,
+      { preview: true, attachmentIds: ['not-a-file-on-this-reservation'] });
+    check(stranger.status === 400, 'a file that is not on this reservation cannot be named',
+      `status ${stranger.status}`);
+    const sendStranger = await call(advisor, 'POST', `/api/bookings/${stId}/statement`,
+      { attachmentIds: ['not-a-file-on-this-reservation'] });
+    check(sendStranger.status === 400, 'on the send either', `status ${sendStranger.status}`);
+    const testQuote = await call(advisor, 'POST', `/api/bookings/${stId}/statement`, { testCopy: true });
+    check(isInvoice ? testQuote.status !== 500 : testQuote.status === 400,
+      'a test copy is for invoices only', `status ${testQuote.status}`);
+  } else {
+    skip('attaching files to an invoice', 'no document storage is bound here');
+  }
 
   // 2000 + 318.55 - 100. A discount is stored positive and subtracted, the
   // same way it is on the advisor's screen, so the two cannot drift apart.

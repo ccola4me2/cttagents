@@ -346,6 +346,8 @@
     <button class="btn btn-ghost btn-sm" type="button" id="statement-close">Close</button></div>
   <div class="card-pad" id="statement-body"></div>
   <div class="card-foot">
+    <button class="btn btn-ghost" type="button" id="statement-test" hidden>Send me a test copy</button>
+    <span style="flex:1;"></span>
     <button class="btn btn-primary" type="button" id="statement-send" hidden>Send it</button>
   </div>
 </dialog>
@@ -2434,6 +2436,8 @@ async function statement() {
   const dlg = document.getElementById('statement-dlg');
   const body = document.getElementById('statement-body');
   const send = document.getElementById('statement-send');
+  const testBtn = document.getElementById('statement-test');
+  testBtn.hidden = true;
   dlg.querySelector('h2').textContent =
     (d.booking.status === 'booked' || d.booking.status === 'travelled')
       ? 'Invoice to the client' : 'Quote to the client';
@@ -2521,16 +2525,22 @@ async function statement() {
   const drawEnvelope = (pv) => {
     const mail = pv.envelope || {};
     const files = mail.attachments || [];
+    const docsList = pv.documents || [];
     const links = (mail.links || []).filter((l) => !/^mailto:|^tel:/i.test(l.href));
     document.getElementById('st-envelope').innerHTML = `
       <dt>From</dt><dd>${esc(mail.from || '')}</dd>
       <dt>To</dt><dd>${esc(s.clientName)} &lt;${esc(pv.to || p.to)}&gt;</dd>
       <dt>Replies to</dt><dd>${esc(mail.replyTo || s.advisorEmail)}</dd>
       <dt>Subject</dt><dd>${esc(pv.subject)}</dd>
-      <dt>Attachments</dt><dd>${files.length
-        ? files.map((f) => `${esc(f.filename)} ${esc(Math.max(1, Math.round(f.bytes / 1024)))} KB`).join('<br>')
-        : '<strong>None.</strong> Nothing is attached. The invoice is the email itself, and the buttons '
-          + 'in it open pages on the web.'}</dd>
+      <dt>Attachments</dt><dd>${docsList.length
+        ? `<div id="st-docs">${docsList.map((f) => `<label style="display:flex;gap:.5rem;align-items:flex-start;
+            font-weight:400;margin:0 0 .3rem;"><input type="checkbox" data-doc="${esc(f.id)}"${
+  f.selected ? ' checked' : ''} style="margin-top:.25rem;"><span>${esc(f.filename)} <span class="muted"
+            style="font-size:.8rem;">${esc(f.category)}, ${esc(Math.max(1, Math.round(f.bytes / 1024)))} KB</span></span></label>`).join('')}</div>
+          <span class="muted" style="font-size:.8rem;">${files.length
+    ? `${files.length} going with it.` : 'None going with it.'} Tick the files that should go with it.</span>`
+        : '<strong>None.</strong> Nothing is attached. Upload the confirmation under Documents on this '
+          + 'reservation and it can be attached here.'}</dd>
       <dt>Links in it</dt><dd>${links.length ? links.map((l) =>
         `${esc(l.text)}<br><span class="muted" style="font-size:.8rem;word-break:break-all;">${
           esc(l.href)}</span>`).join('<div style="height:.4rem;"></div>') : 'None.'}</dd>`;
@@ -2573,13 +2583,17 @@ async function statement() {
     note: fNote.value.trim() !== (def.note || '').trim() ? fNote.value.trim() : undefined,
   });
   // The address on the client's record is left alone: a different one is for this send only.
+  // The files ticked in the envelope. Sent explicitly with every preview after the first and with the
+  // send, so nothing goes that was not on the screen.
+  const ticked = () => [...document.querySelectorAll('#st-docs input[data-doc]:checked')]
+    .map((box) => box.dataset.doc);
   const toOf = () => (fTo.value.trim() && fTo.value.trim() !== (p.to || '') ? { to: fTo.value.trim() } : {});
   const update = async () => {
     const btn = document.getElementById('st-update');
     btn.disabled = true;
     try {
       const again = await api(`/api/bookings/${encodeURIComponent(id)}/statement`,
-        { method: 'POST', body: { preview: true, custom: customOf(), ...toOf() } });
+        { method: 'POST', body: { preview: true, custom: customOf(), ...toOf(), attachmentIds: ticked() } });
       frame.srcdoc = again.html;
       shownHtml = again.html;
       frame.dataset.tall = '';
@@ -2590,6 +2604,10 @@ async function statement() {
     btn.disabled = false;
   };
   document.getElementById('st-update').addEventListener('click', update);
+  // Ticking a file refreshes the envelope, so what is listed is what will be sent.
+  document.getElementById('st-envelope').addEventListener('change', (e) => {
+    if (e.target.matches('[data-doc]')) update();
+  });
   document.getElementById('st-reset').addEventListener('click', () => {
     fTo.value = p.to || ''; fSubject.value = def.subject; fIntro.value = def.intro; fNote.value = def.note || ''; update();
   });
@@ -2599,12 +2617,30 @@ async function statement() {
     send.disabled = true;
     try {
       const res = await api(`/api/bookings/${encodeURIComponent(id)}/statement`,
-        { method: 'POST', body: { custom: customOf(), ...toOf() } });
+        { method: 'POST', body: { custom: customOf(), ...toOf(), attachmentIds: ticked() } });
       dlg.close();
-      err.innerHTML = `<div class="notice notice-ok">Sent to ${esc(res.sentTo)}.</div>`;
+      err.innerHTML = `<div class="notice notice-ok">Sent to ${esc(res.sentTo)}${res.attached
+        ? ` with ${res.attached} attachment${res.attached === 1 ? '' : 's'}` : ''}.</div>`;
     } catch (e) {
       body.innerHTML += `<div class="notice notice-error" style="margin-top:.8rem;">${esc(e.message)}</div>`;
     } finally { send.disabled = false; }
+  };
+
+  // A copy to the advisor's own address, with the same files, so they can open it as the client
+  // will. It records nothing: the invoice is not marked as sent. Invoices only.
+  testBtn.hidden = s.mode !== 'statement';
+  testBtn.onclick = async () => {
+    testBtn.disabled = true;
+    const was = testBtn.textContent;
+    testBtn.textContent = 'Sending...';
+    try {
+      const res = await api(`/api/bookings/${encodeURIComponent(id)}/statement`,
+        { method: 'POST', body: { custom: customOf(), ...toOf(), attachmentIds: ticked(), testCopy: true } });
+      err.innerHTML = `<div class="notice notice-ok">A test copy went to ${esc(res.sentTo)}${res.attached
+        ? ` with ${res.attached} attachment${res.attached === 1 ? '' : 's'}` : ''}. The client has not been sent anything.</div>`;
+    } catch (e) {
+      body.innerHTML += `<div class="notice notice-error" style="margin-top:.8rem;">${esc(e.message)}</div>`;
+    } finally { testBtn.disabled = false; testBtn.textContent = was; }
   };
 }
 

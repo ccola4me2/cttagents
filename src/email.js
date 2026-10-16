@@ -1047,14 +1047,14 @@ export async function messageAsSent(env, { to, replyTo, subject, html, unsubscri
  * PermanentError as not. A missing API key and a rejected address will fail
  * exactly the same way on the tenth attempt as the first.
  */
-export async function sendHtml(env, { to, replyTo, subject, html, unsubscribe }) {
+export async function sendHtml(env, { to, replyTo, subject, html, unsubscribe, attachments = [] }) {
   if (!env.RESEND_API_KEY) {
     throw new PermanentError('Email is not configured: the RESEND_API_KEY secret is not set on the Worker.');
   }
   if (!to) throw new PermanentError('There is no address to send to.');
 
   // The message exactly as it leaves, by the same function the preview reads. See messageAsSent.
-  const m = await messageAsSent(env, { to, replyTo, subject, html, unsubscribe });
+  const m = await messageAsSent(env, { to, replyTo, subject, html, unsubscribe, attachments });
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -1067,7 +1067,8 @@ export async function sendHtml(env, { to, replyTo, subject, html, unsubscribe })
       subject,
       html: m.html,
       text: m.text,
-      ...(m.attachments.length ? { attachments: m.attachments } : {}),
+      ...(m.attachments.length
+        ? { attachments: m.attachments.map((a) => ({ filename: a.filename, content: a.content })) } : {}),
     }),
   });
 

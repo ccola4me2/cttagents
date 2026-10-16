@@ -21,6 +21,7 @@ import { listOptions } from './options.js';
 import { listTravellers, listAmenities } from './travellers.js';
 import * as db from './db.js';
 import { paymentFormFor } from './brand.js';
+import { docsReady, listDocuments, chooseAttachments } from './documents.js';
 
 const KIND_LABEL = {
   deposit: 'Deposit', installment: 'Payment', final: 'Final balance', refund: 'Refund',
@@ -780,6 +781,9 @@ export async function handleStatement(request, env, id) {
     ? await db.getClient(env, scope, { id: booking.client_id })
     : await db.getClient(env, scope, { name: booking.client_name });
 
+  // The reservation's own files, which are the only things an email can carry.
+  const docs = docsReady(env) ? await listDocuments(env, id, scope) : [];
+
   // Numbered on send, not on preview. Previewing an invoice three times before
   // deciding not to send it would otherwise burn three numbers out of a
   // sequence whose whole value is that it has no gaps. The preview says a
@@ -809,6 +813,15 @@ export async function handleStatement(request, env, id) {
 
   if (body.preview) {
     // The message as it will leave, footer and all, from the same function the send uses.
+    // What is attached. Whatever the sender ticked, or when they have not been asked yet, the
+    // vendor's confirmation on an invoice and nothing on a quote. Only the names and sizes are read
+    // here; the files themselves are read when it is sent.
+    const wanted = Array.isArray(body.attachmentIds)
+      ? body.attachmentIds
+      : docs.filter((d) => statement.mode === 'statement' && d.category === 'confirmation').map((d) => d.id);
+    const picked = await chooseAttachments(env, docs, wanted);
+    if (picked.error && Array.isArray(body.attachmentIds)) return badRequest(picked.error);
+    const pickedFiles = picked.files || [];
     const asSent = statement.to ? await messageAsSent(env, {
       to: statement.to, replyTo: owner.email, subject: rendered.subject, html: rendered.html,
       unsubscribe: { agencyId: owner.agency_id, agencyName: owner.agency_name },
@@ -820,11 +833,14 @@ export async function handleStatement(request, env, id) {
       // of names and sizes only: the files themselves stay on the server.
       envelope: asSent ? {
         from: asSent.from, to: asSent.to, replyTo: asSent.replyTo, subject: asSent.subject,
-        attachments: asSent.attachments.map((a) => ({
-          filename: a.filename, bytes: Math.floor(String(a.content || '').length * 3 / 4),
-        })),
+        attachments: pickedFiles.map((f) => ({ filename: f.filename, bytes: f.bytes })),
         links: asSent.links,
       } : null,
+      // Every file on the reservation that could go with it, and which are going.
+      documents: docs.map((d) => ({
+        id: d.id, filename: d.filename, category: d.category, bytes: Number(d.size_bytes) || 0,
+        selected: pickedFiles.some((f) => f.id === d.id),
+      })),
       // The plain text version that goes with it, which some mail programs show instead.
       text: asSent ? asSent.text : null,
       // Named rather than left to fail on send: the fix is on the client
@@ -858,6 +874,18 @@ export async function handleStatement(request, env, id) {
 
   if (!statement.to) return badRequest('That client has no email address on file.');
 
+  // A test copy goes to the advisor's own address and records nothing: not that it was sent, not a
+  // number, not a page. For an invoice only, since a quote's page is made by really sending it.
+  const testCopy = body.testCopy === true;
+  if (testCopy && statement.mode !== 'statement') {
+    return badRequest('A test copy is for invoices. A quote makes the client\'s page when it is really sent.');
+  }
+
+  // What goes with it is exactly what was ticked: nothing at all unless the sender named files.
+  const toAttach = await chooseAttachments(env, docs, Array.isArray(body.attachmentIds) ? body.attachmentIds : [],
+    { withContent: true });
+  if (toAttach.error) return badRequest(toAttach.error);
+
   // A quote gets its page when it is sent, if it has not got one already.
   //
   // The button in the email needs somewhere to go, and until now a quote could
@@ -883,12 +911,19 @@ export async function handleStatement(request, env, id) {
 
   try {
     await sendHtml(env, {
-      to: statement.to, replyTo: owner.email, subject: rendered.subject, html: rendered.html,
+      to: testCopy ? owner.email : statement.to, replyTo: owner.email,
+      subject: testCopy ? `Test copy: ${rendered.subject}` : rendered.subject, html: rendered.html,
+      attachments: toAttach.files.map((f) => ({ filename: f.filename, content: f.content })),
       // Every message to a client carries its way out, a quote and an invoice included.
       unsubscribe: { agencyId: owner.agency_id, agencyName: owner.agency_name },
     });
   } catch (e) {
     return badRequest(String((e && e.message) || e).slice(0, 300));
+  }
+
+  if (testCopy) {
+    return json({ ok: true, test: true, sentTo: owner.email, subject: `Test copy: ${rendered.subject}`,
+      mode: statement.mode, attached: toAttach.files.length });
   }
 
   // Recorded only after the send returns. A failed send that still marked the
@@ -913,5 +948,6 @@ export async function handleStatement(request, env, id) {
 
   await db.logActivity(env, owner.id, `booking.${statement.mode}`,
     db.byHand(`Sent ${statement.clientName} a ${statement.mode}`, user, owner), { bookingId: id });
-  return json({ ok: true, sentTo: statement.to, subject: rendered.subject, mode: statement.mode });
+  return json({ ok: true, sentTo: statement.to, subject: rendered.subject, mode: statement.mode,
+    attached: toAttach.files.length });
 }
