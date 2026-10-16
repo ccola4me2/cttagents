@@ -467,7 +467,27 @@ function listOf(json) {
   }
 }
 
-function heroBlock(g, brand, contact, state, base, env) {
+/**
+ * The group this one was repeated as, if it is open for names. What a sailed group's page points
+ * people to, so an old link leads to the next sailing and not to a dead end.
+ */
+async function nextSailing(env, g) {
+  const row = await env.DB.prepare(
+    `SELECT name, page_slug FROM travel_groups
+      WHERE repeated_from = ? AND user_id = ? AND registration_open = 1
+        AND page_slug IS NOT NULL AND status <> 'cancelled'
+      ORDER BY depart_date ASC LIMIT 1`
+  ).bind(g.id, g.user_id).first();
+  return row || null;
+}
+
+/** Where another group's page is, from the one being read: the shared domain when there is one. */
+function pageUrlFor(env, slug) {
+  const host = String(env.GROUP_HOST || '').trim();
+  return host ? `https://${host}/${slug}` : `/gs/${slug}`;
+}
+
+function heroBlock(g, brand, contact, state, base, env, next) {
   const kind = TYPE_WORDS[g.group_type] || TYPE_WORDS.other;
   const sub = g.headline
     || [g.vendor, g.product_name, g.destination].filter(Boolean).join(' · ');
@@ -479,7 +499,10 @@ function heroBlock(g, brand, contact, state, base, env) {
     : state === 'full'
       ? `<a class="cta" href="${base}/register">Join the waitlist</a>
          <a class="ghost" href="#ask">Ask a question</a>`
-      : '<a class="ghost" href="#ask">Ask about the next sailing</a>';
+      : next
+        ? `<a class="cta" href="${esc(pageUrlFor(env, next.page_slug))}">See the next sailing</a>
+           <a class="ghost" href="#ask">Ask a question</a>`
+        : '<a class="ghost" href="#ask">Ask about the next sailing</a>';
   return `<header class="hero${hasPhoto ? ' photo' : ''}"${
     hasPhoto ? ` style="--hero:url('${esc(g.hero_image_url)}')"` : ''}>
     <div class="hero-in">
@@ -533,7 +556,9 @@ function rateCards(rates, base, state) {
       : '';
     return `<div class="rate${out ? ' gone' : ''}">
       <div class="rate-top"><b>${esc(r.room_type)}</b>
-        <span class="price">${money(r.per_guest_cents)}<span class="per"> per guest</span></span></div>
+        ${r.per_guest_cents
+    ? `<span class="price">${money(r.per_guest_cents)}<span class="per"> per guest</span></span>`
+    : '<span class="price"><span class="per">Price to come</span></span>'}</div>
       ${meta ? `<p class="meta">${meta}</p>` : ''}
       <div class="rate-foot">${tag}${action}</div>
     </div>`;
@@ -626,6 +651,7 @@ export async function renderGroupTripPage(request, env, rawRef) {
   const contact = await contactFor(env, g.user_id);
   const state = standing(g, rates);
   const canonical = canonicalOf(env, g, ref);
+  const next = state === 'departed' ? await nextSailing(env, g) : null;
 
   const notice = state === 'departed'
     ? 'This sailing has departed. Get in touch about the next one.'
@@ -636,9 +662,12 @@ export async function renderGroupTripPage(request, env, rawRef) {
         : '';
 
   const body = [
-    heroBlock(g, brand, contact, state, base, env),
+    heroBlock(g, brand, contact, state, base, env, next),
     '<main class="wrap">',
-    notice ? `<div class="note warn">${esc(notice)}</div>` : '',
+    next
+      ? `<div class="note warn">This sailing has departed. The next one is
+         <a href="${esc(pageUrlFor(env, next.page_slug))}">${esc(next.name)}</a>.</div>`
+      : notice ? `<div class="note warn">${esc(notice)}</div>` : '',
     glance(g, rates),
     g.registration_blurb ? `<div class="card blurb">${paragraphs(g.registration_blurb)}</div>` : '',
     state === 'departed' ? '' : rateCards(rates, base, state),
@@ -772,14 +801,14 @@ function ratePicker(rates, wanted = '') {
   }
   return rates.map((r) => {
     const out = r.metered && r.left === 0;
-    const perGuest = money(r.per_guest_cents);
+    const perGuest = r.per_guest_cents ? `${money(r.per_guest_cents)} per guest` : 'Price to come';
     const taxes = r.taxes_cents ? ` plus ${money(r.taxes_cents)} taxes and fees` : '';
     return `<label class="pick${out ? ' gone' : ''}">
       <input type="radio" name="rate" value="${esc(r.id)}"${out ? ' disabled' : ''}${
   !out && wanted && wanted === r.id ? ' checked' : ''}
         data-guest="${Number(r.per_guest_cents) || 0}" data-tax="${Number(r.taxes_cents) || 0}">
       <span class="pick-body"><b>${esc(r.room_type)}</b>
-        <span class="muted" style="display:block;">${perGuest} per guest${taxes}${
+        <span class="muted" style="display:block;">${perGuest}${taxes}${
   r.occupancy ? ` · ${esc(r.occupancy)} occupancy` : ''}</span>
         <span class="muted" style="display:block;">${
   out ? 'None left' : r.metered ? `${r.left} of ${r.cabins} left` : 'Ask us about availability'}</span>
@@ -901,7 +930,9 @@ form.addEventListener('change', (e) => {
   if (e.target.name !== 'rate') return;
   const guest = Number(e.target.dataset.guest) || 0;
   const tax = Number(e.target.dataset.tax) || 0;
-  tripCell.textContent = cash(guest) + (tax ? ' plus ' + cash(tax) + ' taxes and fees' : '');
+  tripCell.textContent = guest
+    ? cash(guest) + (tax ? ' plus ' + cash(tax) + ' taxes and fees' : '')
+    : 'Price to come';
 });
 
 // A cabin picked on the trip page arrives already chosen, so the total has to follow it.

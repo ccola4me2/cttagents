@@ -9,7 +9,7 @@
 // Cabins sold is counted from the reservations pointing at the group rather
 // than stored on it. Two numbers that can disagree eventually will.
 
-import { json, badRequest, notFound, clean, cleanText, cleanDate, oneOf, toCents, uid, now, readJson } from './util.js';
+import { json, badRequest, notFound, clean, cleanText, cleanDate, oneOf, toCents, uid, now, readJson, usDate } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 import { pdfRead } from './pdftext.js';
@@ -554,23 +554,23 @@ async function codeTaken(env, code, exceptId = null) {
   return Boolean(row);
 }
 
-export async function handleCreateGroup(request, env) {
-  const { user, response } = await requireUser(request, env);
-  if (response) return response;
-
-  const raw = await readJson(request);
+/**
+ * Makes a group from what a caller sent, for whoever owns it. Shared by opening a group and by
+ * repeating one, so the two cannot drift on what a group needs. Returns { error } or { id, fields }.
+ */
+async function createGroupRow(env, ownerId, raw) {
   const { fields, error } = parse(raw);
-  if (error) return badRequest(error);
+  if (error) return { error };
   if (await codeTaken(env, fields.groupCode)) {
-    return badRequest(`The code ${fields.groupCode} is already in use. Pick another.`);
+    return { error: `The code ${fields.groupCode} is already in use. Pick another.` };
   }
   // A short name asked for has to be usable. One not asked for is chosen after the group exists.
   const askedSlug = cleanSlug(raw.pageSlug);
   if (askedSlug) {
     const problem = slugProblem(askedSlug);
-    if (problem) return badRequest(problem);
-    if ((await slugState(env, askedSlug, user.id, null)).state !== 'free') {
-      return badRequest('That name is taken. Try another.');
+    if (problem) return { error: problem };
+    if ((await slugState(env, askedSlug, ownerId, null)).state !== 'free') {
+      return { error: 'That name is taken. Try another.' };
     }
   }
 
@@ -587,7 +587,7 @@ export async function handleCreateGroup(request, env) {
        created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, user.id, fields.name, fields.vendor, fields.productName, fields.destination,
+  ).bind(id, ownerId, fields.name, fields.vendor, fields.productName, fields.destination,
          fields.groupCode, fields.departDate, fields.returnDate, fields.optionDate,
          fields.cabinsHeld, fields.status, fields.notes,
          fields.groupType, fields.registrationOpen, fields.registrationBlurb,
@@ -597,20 +597,121 @@ export async function handleCreateGroup(request, env) {
          fields.faqJson, fields.terms, fields.agencyFeeCents, fields.feeTerms, fields.tripTerms,
          fields.depositPerGuestCents, fields.headline || null, fields.heroImageUrl,
          fields.perksJson, fields.itineraryJson, ts, ts).run();
-  await saveRates(env, id, user.id, raw.rates);
+  await saveRates(env, id, ownerId, raw.rates);
   // Best effort: a group that cannot be given a name yet is still a group, and the share box
   // on its page offers one.
   try {
     await assignSlug(env, {
-      userId: user.id, groupId: id, name: fields.name, departDate: fields.departDate,
+      userId: ownerId, groupId: id, name: fields.name, departDate: fields.departDate,
       preferred: askedSlug,
     });
   } catch (e) {
     console.error('group slug', e);
   }
+  return { id, fields };
+}
 
-  await db.logActivity(env, user.id, 'group.create', `Opened group ${fields.name}`, { id });
-  return json({ ok: true, group: await getGroup(env, id, user.id) }, 201);
+export async function handleCreateGroup(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const raw = await readJson(request);
+  const made = await createGroupRow(env, user.id, raw);
+  if (made.error) return badRequest(made.error);
+
+  await db.logActivity(env, user.id, 'group.create', `Opened group ${made.fields.name}`, { id: made.id });
+  return json({ ok: true, group: await getGroup(env, made.id, user.id) }, 201);
+}
+
+/** What a stored JSON list holds, or an empty list. */
+function listOf(json) {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The name for next time's group. A year or a date in the old name moves to the new one; a name
+ * with neither gets the year added, so the two do not sit in the list under one name.
+ */
+export function repeatName(name, oldDepart, newDepart) {
+  const oldYear = String(oldDepart || '').slice(0, 4);
+  const newYear = String(newDepart || '').slice(0, 4);
+  const oldDate = oldDepart ? usDate(oldDepart) : '';
+  let out = String(name || '');
+  if (oldDate && out.includes(oldDate)) out = out.split(oldDate).join(usDate(newDepart));
+  else if (oldYear && newYear !== oldYear && out.includes(oldYear)) out = out.split(oldYear).join(newYear);
+  if (out === name) out = newYear && !out.includes(newYear) ? `${out} ${newYear}` : `${out} (${usDate(newDepart)})`;
+  return out.slice(0, 160);
+}
+
+/**
+ * POST /api/groups/:id/repeat
+ *
+ * The same group again for the next sailing. What is copied is what the advisor wrote and
+ * would otherwise retype: the wording, the picture, what the group gets, the itinerary, the
+ * questions, the terms and fee, the cabin types. What is not copied is what the supplier decides
+ * each time and what would be wrong if it went live: prices, how many cabins, the option, deposit,
+ * passport and final dates, the supplier's group numbers. The sign-up page starts switched off
+ * for the same reason. The new group remembers where it came from, so the old one can point to it.
+ */
+export async function handleRepeatGroup(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'travel_groups', id);
+  if (!owner) return notFound('Group not found.');
+
+  const raw = await readJson(request);
+  const departDate = cleanDate(raw.departDate);
+  if (!departDate) return badRequest('Give the new group a sailing date.');
+
+  const src = await env.DB.prepare(
+    `SELECT ${COLUMNS} FROM travel_groups g WHERE g.id = ? AND g.user_id = ?`
+  ).bind(id, owner.id).first();
+  if (!src) return notFound('Group not found.');
+
+  // The same number of nights as the one being copied, unless they say otherwise.
+  let returnDate = cleanDate(raw.returnDate);
+  if (!returnDate && src.depart_date && src.return_date) {
+    const nights = Math.round((Date.parse(src.return_date) - Date.parse(src.depart_date)) / 86400000);
+    if (nights > 0) {
+      returnDate = new Date(Date.parse(`${departDate}T00:00:00Z`) + nights * 86400000)
+        .toISOString().slice(0, 10);
+    }
+  }
+
+  const dollars = (cents) => (cents ? (cents / 100).toFixed(2) : '');
+  const rates = (await ratesFor(env, id, owner.id)).map((r) => ({
+    roomType: r.room_type, occupancy: r.occupancy, guests: r.guests,
+    cabins: 0, perGuestCents: 0, taxesCents: 0,
+  }));
+
+  const made = await createGroupRow(env, owner.id, {
+    name: clean(raw.name, 160) || repeatName(src.name, src.depart_date, departDate),
+    vendor: src.vendor, productName: src.product_name, destination: src.destination,
+    departDate, returnDate: returnDate || '', cabinsHeld: 0, status: 'open',
+    groupType: src.group_type, registrationOpen: false,
+    registrationBlurb: src.registration_blurb, vendorContact: src.vendor_contact,
+    departurePort: src.departure_port, faq: listOf(src.faq_json), terms: src.terms,
+    agencyFee: dollars(src.agency_fee_cents), feeTerms: src.fee_terms, tripTerms: src.trip_terms,
+    headline: src.headline, heroImageUrl: src.hero_image_url,
+    perks: listOf(src.perks_json), itinerary: listOf(src.itinerary_json),
+    rates, pageSlug: raw.pageSlug,
+  });
+  if (made.error) return badRequest(made.error);
+
+  await env.DB.prepare('UPDATE travel_groups SET repeated_from = ? WHERE id = ? AND user_id = ?')
+    .bind(id, made.id, owner.id).run();
+
+  await db.logActivity(env, user.id, 'group.repeat', `Repeated group ${src.name} as ${made.fields.name}`,
+    { id: made.id, from: id });
+  return json({ ok: true, group: await getGroup(env, made.id, owner.id), from: src.name }, 201);
 }
 
 export async function handleUpdateGroup(request, env, id) {

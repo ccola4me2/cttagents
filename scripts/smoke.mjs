@@ -7215,6 +7215,81 @@ async function main() {
     });
     check(sailedReg.status === 400, 'and registering for it is refused', `status ${sailedReg.status}`);
 
+    // Repeating a group for the next sailing.
+    const oldYear = isoDay(-300).slice(0, 4);
+    const newYear = isoDay(70).slice(0, 4);
+    const orig = await call(advisor, 'POST', '/api/groups', {
+      name: `Beachcomber ${oldYear} ${stamp}`, vendor: 'Test Line', productName: 'Paradise',
+      destination: 'Caribbean', departDate: isoDay(-300), returnDate: isoDay(-296), cabinsHeld: 8,
+      registrationOpen: true, registrationBlurb: 'Four nights of sun.', headline: 'Back again',
+      heroImageUrl: 'https://example.com/beach.jpg', perks: ['Cocktail party'],
+      itinerary: [{ day: 'Day 1', port: 'Tampa', note: 'Depart 4:00 PM' }],
+      faq: [{ q: 'Passport needed?', a: 'Yes.' }], terms: 'You agree.', agencyFee: '50',
+      tripTerms: 'Supplier schedule', feeTerms: 'Non refundable', groupCode: `rp-${stamp}`,
+      groupNumber: '1234', depositDue: isoDay(-350), finalPaymentDue: isoDay(-320),
+      passportDue: isoDay(-330), optionDate: isoDay(-340), depositPerGuest: '250',
+      rates: [{ roomType: 'Interior', occupancy: 'Double', cabins: 4, guests: 2, perGuestCents: 68900, taxesCents: 17240 }],
+    });
+    const origId = orig.data?.group?.id;
+    const origSlug = orig.data?.group?.page_slug;
+    cleanup('the group to repeat', () => call(advisor, 'DELETE', `/api/groups/${origId}`));
+
+    const noDate = await call(advisor, 'POST', `/api/groups/${origId}/repeat`, {});
+    check(noDate.status === 400, 'repeating a group needs the new sailing date', `status ${noDate.status}`);
+    const clashName = await call(advisor, 'POST', `/api/groups/${origId}/repeat`, {
+      departDate: isoDay(70), pageSlug: slugB,
+    });
+    check(clashName.status === 400,
+      'and a short name that is taken is refused', `status ${clashName.status}`);
+
+    const again = await call(advisor, 'POST', `/api/groups/${origId}/repeat`, { departDate: isoDay(70) });
+    const copy = again.data?.group;
+    const copyId = copy?.id;
+    check(again.status === 201 && Boolean(copyId) && copyId !== origId,
+      'a group can be repeated', `status ${again.status} ${JSON.stringify(again.data)}`);
+    cleanup('the repeated group', () => call(advisor, 'DELETE', `/api/groups/${copyId}`));
+    check(copy?.name === `Beachcomber ${newYear} ${stamp}`,
+      'the year in its name moves on', copy?.name);
+    check(copy?.depart_date === isoDay(70) && copy?.return_date === isoDay(74),
+      'with the same number of nights', `${copy?.depart_date} ${copy?.return_date}`);
+    check(copy?.headline === 'Back again' && copy?.registration_blurb === 'Four nights of sun.'
+      && copy?.hero_image_url === 'https://example.com/beach.jpg' && copy?.terms === 'You agree.'
+      && copy?.agency_fee_cents === 5000 && copy?.trip_terms === 'Supplier schedule'
+      && copy?.fee_terms === 'Non refundable' && copy?.vendor === 'Test Line',
+      'the wording, picture, terms and fee come across', JSON.stringify(copy));
+    check((copy?.perks_json || '').includes('Cocktail party') && (copy?.itinerary_json || '').includes('Tampa')
+      && (copy?.faq_json || '').includes('Passport needed?'),
+      'and the perks, itinerary and questions');
+    check(!copy?.group_code && !copy?.group_number && !copy?.deposit_due && !copy?.final_payment_due
+      && !copy?.passport_due && !copy?.option_date && !copy?.deposit_per_guest_cents && !copy?.cabins_held,
+      'the supplier\'s numbers and dates are left blank', JSON.stringify(copy));
+    check(copy?.registration_open === 0, 'the sign-up page starts switched off', `${copy?.registration_open}`);
+    check(Boolean(copy?.page_slug) && copy.page_slug !== origSlug, 'and it has a short name of its own',
+      `${copy?.page_slug}`);
+
+    const copyFull = await call(advisor, 'GET', `/api/groups/${copyId}`);
+    const copyRate = (copyFull.data?.rates || [])[0];
+    check((copyFull.data?.rates || []).length === 1 && copyRate?.room_type === 'Interior'
+      && copyRate?.per_guest_cents === 0 && copyRate?.cabins === 0,
+      'the cabin types come across with the prices and counts blank', JSON.stringify(copyFull.data?.rates));
+    const origFull = await call(advisor, 'GET', `/api/groups/${origId}`);
+    check(origFull.data?.group?.name === `Beachcomber ${oldYear} ${stamp}`
+      && origFull.data?.rates?.[0]?.per_guest_cents === 68900 && origFull.data?.group?.group_number === '1234',
+      'and the group it came from is untouched');
+
+    // Turned on, the copy shows "price to come" rather than a price of nothing, and the old group
+    // points to it.
+    await call(advisor, 'PUT', `/api/groups/${copyId}`, {
+      name: copy?.name, departDate: isoDay(70), returnDate: isoDay(74), registrationOpen: true,
+    });
+    const copyPage = await call(null, 'GET', `/gs/${copy?.page_slug}`);
+    check(copyPage.status === 200 && copyPage.raw.includes('Price to come') && !copyPage.raw.includes('$0.00'),
+      'a price not filled in yet reads as price to come, never zero', `status ${copyPage.status}`);
+    const oldPage = await call(null, 'GET', `/gs/${origSlug}`);
+    check(oldPage.raw.includes('This sailing has departed') && oldPage.raw.includes('See the next sailing')
+      && oldPage.raw.includes(`/gs/${copy?.page_slug}`),
+      'and the page of the group that has sailed points to it', `status ${oldPage.status}`);
+
     // Deleting the group lets its names go.
     await call(advisor, 'DELETE', `/api/groups/${secondId}`);
     const gone = await call(null, 'GET', `/gs/${slugA}`);

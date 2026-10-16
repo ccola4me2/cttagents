@@ -18,12 +18,44 @@
         <h1 id="title">Open a group</h1>
         <p class="sub" id="sub">A vendor is holding cabins for you. This is where you track them.</p>
       </div>
-      <div class="toolbar" style="margin:0;" id="actions"></div>
+      <div class="toolbar" style="margin:0;" id="actions">
+        <button class="btn btn-ghost" type="button" id="repeat-btn" hidden>Repeat this group</button>
+      </div>
     </header>
     <div class="content">
       <div id="err"></div>
       <div class="notice notice-ok" id="saved-note" role="status" hidden>Group saved.</div>
       <section id="stats" class="stat-grid" hidden></section>
+
+      <div class="notice notice-ok" id="repeat-note" role="status" hidden>This is a copy of an earlier
+        group. The wording, picture, itinerary, questions, terms and cabin types came across.
+        Prices, cabin counts and the supplier's dates are blank, and the sign-up page is off.
+        Fill those in from the new proposal, then turn the page on.</div>
+
+      <section class="card" id="repeat-card" hidden style="margin-top:1.5rem;">
+        <div class="card-head"><h2>Repeat this group</h2></div>
+        <div class="card-pad">
+          <p class="field-hint" style="margin-top:0;">Makes a new group for the next sailing from this
+            one: the wording, the picture, what the group gets, the itinerary, the questions, the
+            terms and fee, and the cabin types. Prices, cabin counts and the supplier's dates are left
+            blank for you to fill in from the new proposal, and the sign-up page starts switched off.
+            This group is not changed.</p>
+          <div class="notice notice-error" id="repeat-err" hidden></div>
+          <div class="field-row">
+            <div class="field"><label for="repeat-depart">New sailing date</label>
+              <input type="date" id="repeat-depart"></div>
+            <div class="field"><label for="repeat-return">Return date</label>
+              <input type="date" id="repeat-return"></div>
+          </div>
+          <div class="field"><label for="repeat-name">Name</label>
+            <input id="repeat-name" maxlength="160" placeholder="Worked out from this name and the new date"></div>
+        </div>
+        <div class="card-foot">
+          <button class="btn btn-ghost btn-sm" type="button" id="repeat-cancel">Cancel</button>
+          <span style="flex:1;"></span>
+          <button class="btn btn-primary" type="button" id="repeat-go">Make the new group</button>
+        </div>
+      </section>
 
       <section class="card" id="link-card" hidden style="margin-top:1.5rem;">
         <div class="card-pad" id="link-body"></div>
@@ -719,6 +751,71 @@ function wireSlug(g, link) {
   });
 }
 
+// ----------------------------------------------------------- repeating --
+//
+// The same group again for the next sailing. The server copies what was written and leaves
+// blank what the supplier decides each time; this only asks for the new dates.
+
+function isoPlus(iso, years, days) {
+  if (!iso) return '';
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCFullYear(d.getUTCFullYear() + years);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function nightsOf(g) {
+  if (!g || !g.depart_date || !g.return_date) return 0;
+  return Math.round((Date.parse(g.return_date) - Date.parse(g.depart_date)) / 86400000);
+}
+
+const repeatCard = document.getElementById('repeat-card');
+const repeatDepart = document.getElementById('repeat-depart');
+const repeatReturn = document.getElementById('repeat-return');
+const repeatErr = document.getElementById('repeat-err');
+
+document.getElementById('repeat-btn').addEventListener('click', () => {
+  repeatErr.hidden = true;
+  repeatDepart.value = isoPlus(group.depart_date, 1, 0);
+  repeatReturn.value = isoPlus(group.return_date, 1, 0);
+  repeatCard.hidden = false;
+  repeatCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  repeatDepart.focus();
+});
+
+document.getElementById('repeat-cancel').addEventListener('click', () => { repeatCard.hidden = true; });
+
+// The return date follows the sailing date by the same number of nights, until it is set by hand.
+repeatDepart.addEventListener('change', () => {
+  const n = nightsOf(group);
+  if (n > 0 && repeatDepart.value) repeatReturn.value = isoPlus(repeatDepart.value, 0, n);
+});
+
+document.getElementById('repeat-go').addEventListener('click', async (e) => {
+  repeatErr.hidden = true;
+  if (!repeatDepart.value) {
+    repeatErr.textContent = 'Pick the new sailing date.';
+    repeatErr.hidden = false;
+    return;
+  }
+  e.target.disabled = true;
+  try {
+    const made = await api(`/api/groups/${encodeURIComponent(groupId)}/repeat`, {
+      method: 'POST',
+      body: {
+        departDate: repeatDepart.value,
+        returnDate: repeatReturn.value,
+        name: document.getElementById('repeat-name').value,
+      },
+    });
+    location.href = `/app/group?id=${encodeURIComponent(made.group.id)}&repeated=1`;
+  } catch (err) {
+    e.target.disabled = false;
+    repeatErr.textContent = err.message;
+    repeatErr.hidden = false;
+  }
+});
+
 // ------------------------------------------------------------- the roster --
 //
 // Loaded separately from the group itself. The roster is the heavy read, with
@@ -1045,6 +1142,9 @@ async function load() {
     loadRoster();
     renderBookings(d.bookings);
     deleteBtn.hidden = !canEdit;
+    document.getElementById('repeat-btn').hidden = !canEdit;
+    document.getElementById('repeat-note').hidden = !(canEdit
+      && new URL(location.href).searchParams.get('repeated') === '1');
 
     if (!canEdit) {
       // Somebody else's group. Readable, because an owner can see the whole

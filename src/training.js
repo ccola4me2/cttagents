@@ -183,7 +183,7 @@ export const LESSONS = [
     why: 'A vendor is holding cabins for you and there is a date they take them back. This tracks how many are sold and how long you have. It can start from the cruise line\'s own proposal: upload the PDF and the details fill in for you to check.',
     manual: 'reservations',
     page: '/app/groups',
-    doing: 'Start a group by uploading a proposal or contract, and read what it says it filled in and what it left blank. Margaritaville, Norwegian and Celebrity are read in full; any other line only where the document labels a detail clearly. Nothing saves until you press the button. Then tick the sign-up page, look at the short link in the box at the top, and open it to see what your people will see. If you run no groups yet, know it exists for when you do.',
+    doing: 'Start a group by uploading a proposal or contract, and read what it says it filled in and what it left blank. Margaritaville, Norwegian and Celebrity are read in full; any other line only where the document labels a detail clearly. Nothing saves until you press the button. Then tick the sign-up page, look at the short link in the box at the top, and open it to see what your people will see. When the same group runs again, use Repeat this group instead of starting over. If you run no groups yet, know it exists for when you do.',
   },
   {
     key: 'payments-due',
