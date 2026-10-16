@@ -127,6 +127,23 @@ function render(forms) {
     }));
 }
 
+// A submission's answers as a person reads them: the question as it was asked, and a list of travellers
+// as names and birthdays instead of "[object Object]".
+function labelOf(form, key) {
+  const f = (form.fields || []).find((x) => x.key === key);
+  return (f && f.label) || key.replace(/_/g, ' ');
+}
+function sayValue(v) {
+  if (Array.isArray(v)) return v.map(sayValue).filter(Boolean).join('; ');
+  if (v && typeof v === 'object') {
+    const { name, ...rest } = v;
+    const more = Object.entries(rest).filter(([, x]) => x)
+      .map(([k, x]) => `${k === 'dob' ? 'born' : k} ${sayValue(x)}`).join(', ');
+    return [name, more && `(${more})`].filter(Boolean).join(' ') || Object.values(v).filter(Boolean).join(', ');
+  }
+  return String(v).replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, '$2/$3/$1');
+}
+
 async function showSubs(id) {
   subsEl.hidden = false;
   subsEl.innerHTML = '<p class="spinner">Loading submissions...</p>';
@@ -169,9 +186,19 @@ async function showSubs(id) {
                    href="/app/client?id=${encodeURIComponent(s.contactId)}">Open client</a>` : ''}
               </div></div>
             <dl class="kv" style="margin-top:.7rem;">${Object.entries(s.data)
-              .map(([k, v]) => `<dt>${esc(k.replace(/_/g, ' '))}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+              .map(([k, v]) => `<dt>${esc(labelOf(d.form, k))}</dt><dd>${esc(sayValue(v))}</dd>`).join('')}</dl>
+            ${s.contactId ? `<p style="margin:.6rem 0 0;"><button class="btn btn-ghost btn-sm" type="button"
+              data-file="${esc(s.id)}">File the address and travellers on their record</button></p>` : ''}
           </li>`).join('')}</ul>`
         : '<div class="empty"><p>No submissions yet.</p></div>');
+    // For a submission that came in before the people in it were filed.
+    subsEl.querySelectorAll('[data-file]').forEach((b) => b.addEventListener('click', async () => {
+      b.disabled = true;
+      try {
+        const out = await api(`/api/myforms/submissions/${encodeURIComponent(b.dataset.file)}/file`, { method: 'POST', body: {} });
+        b.parentElement.innerHTML = `Filed. <a href="/app/client?id=${encodeURIComponent(out.clientId)}">Open their record</a>.`;
+      } catch (e) { showError(subsEl, e); b.disabled = false; }
+    }));
     subsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (err) { showError(subsEl, err); }
 }

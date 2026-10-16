@@ -206,6 +206,7 @@ import {
   renderSpecialPage,
   handleSpecialEnquiry,
 } from './publicform.js';
+import { handleFileSubmission } from './formpeople.js';
 import {
   handleSearch,
 } from './search.js';
@@ -967,6 +968,8 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/myforms' && method === 'GET') return handleListOwnForms(request, env);
   // Before the /:id match, or "report" is read as a form id.
   if (path === '/api/myforms/report' && method === 'GET') return handleFormsReport(request, env);
+  const fileSubMatch = path.match(/^\/api\/myforms\/submissions\/([^/]+)\/file$/);
+  if (fileSubMatch && method === 'POST') return handleFileSubmission(request, env, fileSubMatch[1]);
   if (leadToBookingMatch && method === 'POST') {
     return handleReservationFromLead(request, env, leadToBookingMatch[1]);
   }

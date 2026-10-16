@@ -1028,6 +1028,47 @@ async function main() {
   check(subs.some((s) => s.email === `anna-${stamp}@test.dev`),
     'and lands as a submission on the form', `${subs.length} submission(s)`);
 
+  // ------------------------------------------- the people in a submission --
+  // A form that asks where they live and who is travelling files them on the book: the address on the
+  // person who got in touch, a client for each traveller with their birthday, and one household for the party.
+  step('A form enquiry files its travellers');
+  {
+    const lead = `Form Lead ${stamp}`;
+    const mate = `Form Companion ${stamp}`;
+    const peopleForm = await call(advisor, 'POST', '/api/myforms', {
+      name: `Smoke people ${stamp}`,
+      fields: [
+        { label: 'Full name', type: 'text', required: true },
+        { label: 'Email', type: 'email', required: true },
+        { label: 'Where you live', type: 'text' },
+        { label: 'What are you thinking about', type: 'text' },
+        { label: 'Who is travelling', type: 'travellers', details: ['dob'] },
+      ],
+    });
+    const pf = peopleForm.data?.form;
+    if (check(peopleForm.status === 201 && pf?.slug, 'a form that asks who is travelling', `status ${peopleForm.status}`)) {
+      cleanup('the people form', () => call(advisor, 'DELETE', `/api/myforms/${pf.id}`));
+      const sent = await call(null, 'POST', `/api/public/forms/${pf.slug}`, {
+        full_name: lead, email: `form-lead-${stamp}@test.dev`, where_you_live: '126 Garrett Way Canyon Lake, TX 78133',
+        what_are_you_thinking_about: 'A cruise',
+        who_is_travelling: [{ name: lead, dob: '1979-06-29' }, { name: mate, dob: '1972-07-06' }],
+      });
+      check(sent.status === 200 || sent.status === 201, 'the submission is accepted', `status ${sent.status} ${JSON.stringify(sent.data)}`);
+      const find = async (name) => ((await call(advisor, 'GET', `/api/clients?q=${encodeURIComponent(name)}`)).data?.clients || []).find((c) => c.name === name) || {};
+      const a = await find(lead);
+      const b = await find(mate);
+      check(a.address1 === '126 Garrett Way Canyon Lake' && a.state === 'TX' && a.postcode === '78133',
+        'the address is filed on the person who got in touch', JSON.stringify([a.address1, a.state, a.postcode]));
+      check(String(a.birthday || '').slice(0, 10) === '1979-06-29' && String(b.birthday || '').slice(0, 10) === '1972-07-06',
+        'each traveller has their birthday', JSON.stringify([a.birthday, b.birthday]));
+      check(Boolean(b.id) && !b.lead_stage, 'and the person with them is a client, not a lead', JSON.stringify(b.lead_stage));
+      check(Boolean(a.household_id) && a.household_id === b.household_id, 'in one household', JSON.stringify([a.household_id, b.household_id]));
+      check(/A cruise/.test(a.lead_asked_about || ''), 'and what they asked about is on the lead', String(a.lead_asked_about));
+      if (b.id) await call(advisor, 'DELETE', `/api/clients/${b.id}`);
+      if (a.id) await call(advisor, 'DELETE', `/api/clients/${a.id}`);
+    }
+  }
+
   // ------------------------------------------------- sent to one person --
   //
   // The open link matches whoever answers it to the book by name, which is the

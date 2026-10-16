@@ -13,6 +13,7 @@ import * as db from './db.js';
 import { hydrateForm } from './formbuilder.js';
 import { upsertClient } from './clients.js';
 import { createHousehold } from './households.js';
+import { fileFormPeople } from './formpeople.js';
 import { fireTrigger } from './automations.js';
 import { sendSignupNoticeEmail } from './email.js';
 import { brandForUser, brandOf, DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand.js';
@@ -877,6 +878,12 @@ export async function handlePublicSubmit(request, env, slug) {
 
   // The form has carried a "notify" address since it got its settings, and
   // nothing has ever read it: a lead arrived, the row was written, and the
+  // The people in the answers, filed as clients: their address, their birthdays and who is travelling with
+  // them. Best effort, like the lead itself, since the submission is already saved.
+  if (clientId) {
+    try { await fileFormPeople(env, owner, clientId, form, data); } catch (e) { console.error('form people', e); }
+  }
+
   // person who asked to be told was not. Where no address is set the form's
   // author is told instead, which is what somebody building a form expects
   // and is the same rule the group pages follow.
@@ -902,7 +909,7 @@ export async function handlePublicSubmit(request, env, slug) {
     if (v == null || v === '') continue;
     if (f.type === 'travellers') {
       const who = (Array.isArray(v) ? v : [])
-        .map((p) => [p.name, p.dob].filter(Boolean).join(', '))
+        .map((p) => [p.name, p.dob ? usDate(p.dob) : ''].filter(Boolean).join(', '))
         .filter(Boolean);
       if (who.length) details.push({ label: f.label, value: who.join('; ') });
       continue;
