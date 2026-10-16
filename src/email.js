@@ -997,6 +997,49 @@ export async function sendAutomationEmail(env, to, subject, body,
  * "balance due 26 September" and "the cruise line will cancel your booking on
  * 26 September" get very different response rates.
  */
+/** The links in a message, with the words on them, for somebody checking what it will send people to. */
+export function linksIn(html) {
+  const out = [];
+  const seen = new Set();
+  const re = /<a\b[^>]*?href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  let m;
+  while ((m = re.exec(String(html || ''))) && out.length < 20) {
+    const href = m[1].replace(/&amp;/g, '&');
+    if (!/^(https?:|mailto:|tel:)/i.test(href) || seen.has(href)) continue;
+    seen.add(href);
+    const text = m[2].replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
+      .replace(/\s+/g, ' ').trim();
+    out.push({ text: text || href, href });
+  }
+  return out;
+}
+
+/**
+ * A message exactly as it will leave: the footer with its way out, the plain text version, the
+ * headers, and what is attached. The preview an advisor reads before pressing send and the send
+ * itself both come from here, so what is read is what goes.
+ *
+ * attachments is a list of { filename, content } with the content base64. Nothing a statement
+ * sends carries one today; it is part of the shape so that the day something does, the preview
+ * lists it, because both read this.
+ */
+export async function messageAsSent(env, { to, replyTo, subject, html, unsubscribe, attachments = [] }) {
+  // A message to a client carries its way out. See unsubscribeParts.
+  const parts = unsubscribe && to ? await unsubscribeParts(env, { to, ...unsubscribe }) : null;
+  const finalHtml = withUnsubscribe(html, parts);
+  return {
+    from: env.MAIL_FROM || 'CTT Agent Portal <noreply@cttagents.com>',
+    to: to || null,
+    replyTo: replyTo || null,
+    subject,
+    html: finalHtml,
+    text: plainText(finalHtml),
+    headers: parts ? parts.headers : null,
+    attachments,
+    links: linksIn(finalHtml),
+  };
+}
+
 /**
  * Sends an already-rendered message, and is honest about why it failed.
  *
@@ -1010,21 +1053,21 @@ export async function sendHtml(env, { to, replyTo, subject, html, unsubscribe })
   }
   if (!to) throw new PermanentError('There is no address to send to.');
 
-  // A message to a client carries its way out. See unsubscribeParts.
-  const parts = unsubscribe ? await unsubscribeParts(env, { to, ...unsubscribe }) : null;
-  const finalHtml = withUnsubscribe(html, parts);
+  // The message exactly as it leaves, by the same function the preview reads. See messageAsSent.
+  const m = await messageAsSent(env, { to, replyTo, subject, html, unsubscribe });
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      from: env.MAIL_FROM || 'CTT Agent Portal <noreply@cttagents.com>',
+      from: m.from,
       to: [to],
       ...(replyTo ? { reply_to: [replyTo] } : {}),
-      ...(parts ? { headers: parts.headers } : {}),
+      ...(m.headers ? { headers: m.headers } : {}),
       subject,
-      html: finalHtml,
-      text: plainText(finalHtml),
+      html: m.html,
+      text: m.text,
+      ...(m.attachments.length ? { attachments: m.attachments } : {}),
     }),
   });
 

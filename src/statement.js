@@ -14,7 +14,7 @@
 
 import { json, badRequest, notFound, readJson, now, sha256Hex, usDate } from './util.js';
 import { requireUser } from './auth.js';
-import { layout, escapeHtml, sendHtml } from './email.js';
+import { layout, escapeHtml, sendHtml, messageAsSent } from './email.js';
 import { listPricing, clientLines } from './pricing.js';
 import { appUrl, shareCode } from './share.js';
 import { listOptions } from './options.js';
@@ -808,9 +808,25 @@ export async function handleStatement(request, env, id) {
   let rendered = renderStatement(env, statement, custom);
 
   if (body.preview) {
+    // The message as it will leave, footer and all, from the same function the send uses.
+    const asSent = statement.to ? await messageAsSent(env, {
+      to: statement.to, replyTo: owner.email, subject: rendered.subject, html: rendered.html,
+      unsubscribe: { agencyId: owner.agency_id, agencyName: owner.agency_name },
+    }) : null;
     return json({
       preview: true,
       to: statement.to || null,
+      // Who it is from and to, what is attached, and where its links lead. Attachments are a list
+      // of names and sizes only: the files themselves stay on the server.
+      envelope: asSent ? {
+        from: asSent.from, to: asSent.to, replyTo: asSent.replyTo, subject: asSent.subject,
+        attachments: asSent.attachments.map((a) => ({
+          filename: a.filename, bytes: Math.floor(String(a.content || '').length * 3 / 4),
+        })),
+        links: asSent.links,
+      } : null,
+      // The plain text version that goes with it, which some mail programs show instead.
+      text: asSent ? asSent.text : null,
       // Named rather than left to fail on send: the fix is on the client
       // record, and saying so is more use than an error.
       problem: statement.to ? null : 'That client has no email address on file.',
@@ -836,7 +852,7 @@ export async function handleStatement(request, env, id) {
       // What it says when nothing is changed, so the editor can start from the real words.
       defaults: { subject: renderStatement(env, statement).subject, intro: defaultIntro(statement.mode === 'quote'), note: defaultNote(statement) },
       statement,
-      html: rendered.html,
+      html: asSent ? asSent.html : rendered.html,
     });
   }
 

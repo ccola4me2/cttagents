@@ -2475,11 +2475,7 @@ async function statement() {
       esc(timeAgo(p.alreadySent))}${p.sentCount > 1 ? `, ${p.sentCount} times in all` : ''}.${
       changed ? ' The reservation has changed since, so the copy they are holding is out of date.'
         : ' Nothing has changed since, so this is the same document again.'}</div>` : ''}
-    <dl class="pairs" style="margin-bottom:1rem;">
-      <dt>To</dt><dd>${esc(s.clientName)} &lt;${esc(p.to)}&gt;</dd>
-      <dt>Replies to</dt><dd>${esc(s.advisorEmail)}</dd>
-      <dt>Subject</dt><dd>${esc(p.subject)}</dd>
-    </dl>
+    <dl class="pairs" id="st-envelope" style="margin-bottom:1rem;"></dl>
     <p class="muted" style="font-size:.8rem;margin:0 0 .6rem;">Commission, passport numbers, card
       digits and your own reminder dates are not in this.${s.mode === 'quote'
         ? ' A quote carries no payment history and no balance, because there is none yet.'
@@ -2502,13 +2498,63 @@ async function statement() {
           <button class="btn btn-ghost btn-sm" type="button" id="st-reset">Back to the standard wording</button>
         </div>
       </div>
-      <iframe title="Statement preview" style="width:100%;height:36rem;border:1px solid var(--navy-100);
-        border-radius:.6rem;background:#fff;"></iframe>
+      <div>
+        <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem;">
+          <button class="btn btn-ghost btn-sm" type="button" id="st-tall">Show the whole email</button>
+          <button class="btn btn-ghost btn-sm" type="button" id="st-open">Open in a new tab</button>
+        </div>
+        <iframe title="Statement preview" style="width:100%;height:36rem;border:1px solid var(--navy-100);
+          border-radius:.6rem;background:#fff;"></iframe>
+        <details style="margin-top:.8rem;"><summary class="muted" style="cursor:pointer;">The plain text
+          version that goes with it</summary>
+          <pre id="st-text" style="white-space:pre-wrap;font-size:.8rem;margin:.5rem 0 0;"></pre></details>
+      </div>
     </div>`;
   // srcdoc as a property, never as markup: the email is HTML, and building it
   // into an attribute is how it would escape into this page.
   const frame = body.querySelector('iframe');
   frame.srcdoc = p.html;
+  let shownHtml = p.html;
+
+  // Who it is from and to, what is attached, and where its links lead, for the message as it will
+  // leave. Drawn again whenever the preview is updated, so the subject and address stay true.
+  const drawEnvelope = (pv) => {
+    const mail = pv.envelope || {};
+    const files = mail.attachments || [];
+    const links = (mail.links || []).filter((l) => !/^mailto:|^tel:/i.test(l.href));
+    document.getElementById('st-envelope').innerHTML = `
+      <dt>From</dt><dd>${esc(mail.from || '')}</dd>
+      <dt>To</dt><dd>${esc(s.clientName)} &lt;${esc(pv.to || p.to)}&gt;</dd>
+      <dt>Replies to</dt><dd>${esc(mail.replyTo || s.advisorEmail)}</dd>
+      <dt>Subject</dt><dd>${esc(pv.subject)}</dd>
+      <dt>Attachments</dt><dd>${files.length
+        ? files.map((f) => `${esc(f.filename)} ${esc(Math.max(1, Math.round(f.bytes / 1024)))} KB`).join('<br>')
+        : '<strong>None.</strong> Nothing is attached. The invoice is the email itself, and the buttons '
+          + 'in it open pages on the web.'}</dd>
+      <dt>Links in it</dt><dd>${links.length ? links.map((l) =>
+        `${esc(l.text)}<br><span class="muted" style="font-size:.8rem;word-break:break-all;">${
+          esc(l.href)}</span>`).join('<div style="height:.4rem;"></div>') : 'None.'}</dd>`;
+    document.getElementById('st-text').textContent = pv.text || '';
+  };
+  drawEnvelope(p);
+
+  document.getElementById('st-tall').addEventListener('click', (e) => {
+    const tall = frame.dataset.tall === '1';
+    if (tall) {
+      frame.style.height = '36rem';
+      frame.dataset.tall = '';
+      e.target.textContent = 'Show the whole email';
+    } else {
+      frame.style.height = `${frame.contentDocument.documentElement.scrollHeight + 24}px`;
+      frame.dataset.tall = '1';
+      e.target.textContent = 'Back to the small view';
+    }
+  });
+  document.getElementById('st-open').addEventListener('click', () => {
+    const href = URL.createObjectURL(new Blob([shownHtml], { type: 'text/html' }));
+    window.open(href, '_blank');
+    setTimeout(() => URL.revokeObjectURL(href), 120000);
+  });
   const fTo = document.getElementById('st-to');
   const fSubject = document.getElementById('st-subject');
   const fIntro = document.getElementById('st-intro');
@@ -2535,6 +2581,11 @@ async function statement() {
       const again = await api(`/api/bookings/${encodeURIComponent(id)}/statement`,
         { method: 'POST', body: { preview: true, custom: customOf(), ...toOf() } });
       frame.srcdoc = again.html;
+      shownHtml = again.html;
+      frame.dataset.tall = '';
+      frame.style.height = '36rem';
+      document.getElementById('st-tall').textContent = 'Show the whole email';
+      drawEnvelope(again);
     } catch (e) { err.innerHTML = `<div class="notice notice-error">${esc(e.message)}</div>`; }
     btn.disabled = false;
   };

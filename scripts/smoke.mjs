@@ -7943,6 +7943,20 @@ async function main() {
   check(prev.status === 200 && prev.data?.to === `ruth-${stamp}@example.com`,
     'once an address is on file the preview is ready', prev.data?.to);
 
+  // The preview is the message as it will leave: who from and to, what is attached, where its links lead.
+  const env0 = prev.data?.envelope || {};
+  check(Array.isArray(env0.attachments) && env0.attachments.length === 0,
+    'the preview says what is attached, which for a statement is nothing', JSON.stringify(env0.attachments));
+  check(Boolean(env0.from) && env0.to === `ruth-${stamp}@example.com` && Boolean(env0.replyTo)
+    && env0.subject === prev.data?.subject,
+    'and who it is from, to and replies to, and its subject', JSON.stringify(env0));
+  check((env0.links || []).length > 0 && (env0.links || []).every((l) => /^(https?:|mailto:|tel:)/.test(l.href)),
+    'and where its links lead', JSON.stringify(env0.links));
+  check((prev.data?.html || '').includes('Unsubscribe'),
+    'the preview carries the footer with its way out, because that is part of what is sent');
+  check(typeof prev.data?.text === 'string' && prev.data.text.length > 40,
+    'and the plain text version that goes with it');
+
   // 2000 + 318.55 - 100. A discount is stored positive and subtracted, the
   // same way it is on the advisor's screen, so the two cannot drift apart.
   check(sm.tripCents === 221855, 'the total is the breakdown, discount subtracted', sm.tripCents);
