@@ -917,7 +917,11 @@ export async function handlePublicSubmit(request, env, slug) {
   await notifyOwner(env, owner, {
     to: form.notifyEmail || null,
     what: form.name,
-    href: `${appUrl(env)}/app/forms`,
+    // The person who got in touch, where there is a record for them: that is what "open it in the portal"
+    // is for. The forms list is only the fallback, because it shows the form and not who filled it in.
+    href: clientId
+      ? `${appUrl(env)}/app/client?id=${encodeURIComponent(clientId)}`
+      : `${appUrl(env)}/app/forms`,
     name: name || 'Someone',
     email, phone,
     details,
