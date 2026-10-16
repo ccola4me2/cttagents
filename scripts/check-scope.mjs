@@ -195,6 +195,11 @@ const ALLOWED = [
     + 'another advisor\'s: that pair is the whole reason to merge'],
   ['DELETE FROM vendors WHERE ${flat.sql} AND id IN (${marks})',
     'the same merge removing the duplicates it just emptied'],
+  ['FROM travel_groups WHERE group_code = ? AND registration_open = 1',
+    'a group by the number that was handed out as its web address. The number is the credential and '
+    + 'is unique across every advisor; registration_open has to be 1; and the row returned names the '
+    + 'owner, which every statement after it uses. Also the redirect from that address to the short '
+    + 'name, which reads one column of the same row'],
   ['FROM specials WHERE code = ?',
     'the public page for a deal. The code is the URL somebody was given, and it is '
     + 'unique across every advisor, so this looks up one published deal by the address '
