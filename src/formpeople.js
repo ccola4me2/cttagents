@@ -1,24 +1,16 @@
-// What somebody told a form about themselves and the people travelling with them, filed as clients.
+// What somebody told a form about themselves, filed on the person who filled it in.
 //
-// A form enquiry used to make one client record from a name, an email and a phone, and leave everything
-// else sitting in the submission. The address they typed, the birthdays, and above all the people
-// travelling with them were visible only by opening the form and reading its submissions, and on that
-// screen the travellers read as "[object Object]". The advisor then retyped them.
+// Submitting a form already makes the people travelling with them into clients, with their birthdays and one
+// household. What it left on the lead was a name, an email and a phone: the address they typed, their own
+// birthday where they were listed as a traveller, and what they asked about stayed in the submission. This
+// fills those in. Only blanks, because a public form is a worse source of truth than somebody who typed it.
 //
-// This files them. The person who filled the form in keeps what the advisor already knows about them:
-// only blanks are filled, because a public form is a worse source of truth than somebody who typed it.
-// Everyone named as travelling becomes a client with their birthday, and the party is put in one
-// household so the next booking offers them together. Nobody here is put on the lead board: the person
-// who got in touch is the lead, and the people with them are the people they are bringing.
+// Also reachable by hand from a submission, for the ones that arrived before this existed.
 
 import { json, notFound, clean, cleanDate, now } from './util.js';
 import { requireUser } from './auth.js';
 import { tenantFor } from './tenant.js';
 import * as db from './db.js';
-import { createHousehold } from './households.js';
-
-// The same limit the group registration uses: more than this is a form filled in wrongly.
-const MAX_PEOPLE = 8;
 
 const ADDRESS_FIELD = /address|where you live|home/i;
 const ASKED_FIELD = /thinking about|travel type|roughly when|travel date|when|cabin|destination|interested/i;
@@ -75,48 +67,24 @@ export async function fileFormPeople(env, owner, clientId, form, data) {
     ).bind(`From the ${clean(form.name, 80)} form: ${asked}`.slice(0, 500), now(), clientId, owner).run();
   }
 
-  // The people travelling.
+  // The people travelling are already filed as clients, with their birthdays and one household, when the
+  // form is submitted. What is left is the person who filled it in: a lead created from a first name alone
+  // ("Brandi") is the same person as the traveller "Brandi Teigen", and has none of that traveller's details.
+  // Matched by the lead's whole name, or the lead's name followed by a surname, and filling only a blank.
   const listed = fields.find((f) => f && f.type === 'travellers');
   const raw = listed && Array.isArray(data[listed.key]) ? data[listed.key] : [];
-  const people = raw.slice(0, MAX_PEOPLE)
-    .map((p) => ({ name: clean(p && p.name, 120), dob: cleanDate(p && p.dob) || null }))
-    .filter((p) => p.name);
-  if (!people.length) return { filed: 0 };
-
-  const members = [{ id: lead.id, name: lead.name, household_id: lead.household_id || null }];
-  for (const p of people) {
-    let row;
-    if (p.name.toLowerCase() === String(lead.name).toLowerCase()) {
-      row = members[0];
-    } else {
-      const found = await env.DB.prepare('SELECT id, name, household_id FROM clients WHERE user_id = ? AND name = ?')
-        .bind(owner, p.name).first();
-      const id = found ? found.id : await db.resolveClient(env, owner, p.name);
-      if (!id) continue;
-      row = { id, name: p.name, household_id: found ? found.household_id || null : null };
-      if (!members.some((m) => m.id === id)) members.push(row);
-    }
-    if (p.dob) {
-      await env.DB.prepare(
-        `UPDATE clients SET birthday = COALESCE(NULLIF(birthday, ''), ?), updated_at = ? WHERE id = ? AND user_id = ?`
-      ).bind(p.dob, now(), row.id, owner).run();
-    }
+  const mine = String(lead.name).toLowerCase();
+  const me = raw.find((p) => {
+    const n = String((p && p.name) || '').trim().toLowerCase();
+    return n && (n === mine || n.startsWith(`${mine} `));
+  });
+  const dob = me ? cleanDate(me.dob) : null;
+  if (dob) {
+    await env.DB.prepare(
+      'UPDATE clients SET birthday = COALESCE(NULLIF(birthday, \'\'), ?), updated_at = ? WHERE id = ? AND user_id = ?'
+    ).bind(dob, now(), clientId, owner).run();
   }
-
-  // One household for the party, where nobody is in a different one already.
-  if (members.length >= 2) {
-    const houses = [...new Set(members.map((m) => m.household_id).filter(Boolean))];
-    if (houses.length === 0) {
-      await createHousehold(env, owner, members.map((m) => ({ id: m.id, name: m.name })), {});
-    } else if (houses.length === 1) {
-      const marks = members.map(() => '?').join(',');
-      await env.DB.prepare(
-        `UPDATE clients SET household_id = ?, updated_at = ?
-          WHERE user_id = ? AND id IN (${marks}) AND household_id IS NULL`
-      ).bind(houses[0], now(), owner, ...members.map((m) => m.id)).run();
-    }
-  }
-  return { filed: members.length };
+  return { filed: 1 };
 }
 
 /**

@@ -1051,14 +1051,16 @@ async function main() {
       const sent = await call(null, 'POST', `/api/public/forms/${pf.slug}`, {
         full_name: lead, email: `form-lead-${stamp}@test.dev`, where_you_live: '126 Garrett Way Canyon Lake, TX 78133',
         what_are_you_thinking_about: 'A cruise',
-        who_is_travelling: [{ name: lead, dob: '1979-06-29' }, { name: mate, dob: '1972-07-06' }],
+        who_is_travelling__count: 2,
+        who_is_travelling__1__name: lead, who_is_travelling__1__dob: '1979-06-29',
+        who_is_travelling__2__name: mate, who_is_travelling__2__dob: '1972-07-06',
       });
       check(sent.status === 200 || sent.status === 201, 'the submission is accepted', `status ${sent.status} ${JSON.stringify(sent.data)}`);
       const find = async (name) => ((await call(advisor, 'GET', `/api/clients?q=${encodeURIComponent(name)}`)).data?.clients || []).find((c) => c.name === name) || {};
       const a = await find(lead);
       const b = await find(mate);
       check(a.address1 === '126 Garrett Way Canyon Lake' && a.state === 'TX' && a.postcode === '78133',
-        'the address is filed on the person who got in touch', JSON.stringify([a.address1, a.state, a.postcode]));
+        'the address is filed on the person who filled the form in', JSON.stringify([a.address1, a.state, a.postcode]));
       check(String(a.birthday || '').slice(0, 10) === '1979-06-29' && String(b.birthday || '').slice(0, 10) === '1972-07-06',
         'each traveller has their birthday', JSON.stringify([a.birthday, b.birthday]));
       check(Boolean(b.id) && !b.lead_stage, 'and the person with them is a client, not a lead', JSON.stringify(b.lead_stage));
