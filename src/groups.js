@@ -36,7 +36,7 @@ const COLUMNS = `
   g.deposit_due, g.final_payment_due, g.passport_due, g.group_number,
   g.deposit_per_guest_cents, g.reminded_on,
   g.faq_json, g.terms, g.agency_fee_cents, g.fee_terms, g.trip_terms,
-  g.page_slug, g.headline, g.hero_image_url, g.perks_json, g.itinerary_json,
+  g.page_slug, g.headline, g.hero_image_url, g.perks_json, g.itinerary_json, g.repeated_from,
   g.created_at, g.updated_at
 `;
 
