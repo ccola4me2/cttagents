@@ -7124,7 +7124,9 @@ async function main() {
     check(nope.status === 404 && nope.raw.includes('could not find that group'),
       'a name nobody holds gets a plain page saying so', `status ${nope.status}`);
 
-    const rateId = (made.data?.rates || [])[0]?.id;
+    const made2 = await call(advisor, 'GET', `/api/groups/${gid}`);
+    const rateId = (made2.data?.rates || [])[0]?.id;
+    check(Boolean(rateId), 'the cabin grade made with the group is on it', JSON.stringify(made2.data?.rates));
     const reg = await call(null, 'GET', `/gs/${slugA}/register?rate=${rateId}`);
     check(reg.status === 200 && reg.raw.includes(`value="${rateId}" checked`),
       'registering opens with the cabin that was picked already chosen', `status ${reg.status}`);
