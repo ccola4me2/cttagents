@@ -125,7 +125,7 @@ async function call(cookieJar, method, path, body) {
   const raw = await res.text();
   let data = null;
   try { data = raw ? JSON.parse(raw) : null; } catch { /* not every response is JSON */ }
-  return { status: res.status, data, raw };
+  return { status: res.status, data, raw, location: res.headers.get('location') || '' };
 }
 
 /**
@@ -6494,6 +6494,7 @@ async function main() {
     registrationOpen: true, registrationBlurb: 'Seven nights. Put your name down.',
   });
   const signupGroupId = signupGroup.data?.group?.id;
+  const signupSlug = signupGroup.data?.group?.page_slug;
   check(Boolean(signupGroupId), 'a group can take names on a page of its own');
   cleanup('the group', () => call(advisor, 'DELETE', `/api/groups/${signupGroupId}`));
 
@@ -6514,7 +6515,15 @@ async function main() {
     'and the list says which codes are shared, this one with nobody',
     JSON.stringify(codeShareCheck.data.clashingCodes));
 
-  const publicPage = await call(null, 'GET', `/g/ph-${stamp}`);
+  // The old address, by the supplier's group number, goes to the group's short name.
+  const oldAddress = await call(null, 'GET', `/g/ph-${stamp}`);
+  check(oldAddress.status === 301 && (oldAddress.location || '').endsWith(`/${signupSlug}`),
+    'the old address by group number redirects to the short name', `status ${oldAddress.status}`);
+  const oldRegister = await call(null, 'GET', `/g/ph-${stamp}/register`);
+  check(oldRegister.status === 301 && (oldRegister.location || '').endsWith(`/${signupSlug}/register`),
+    'and so does registering', `status ${oldRegister.status}`);
+
+  const publicPage = await call(null, 'GET', `/gs/${signupSlug}`);
   check(publicPage.status === 200, 'the page is public, with no session at all',
     `status ${publicPage.status}`);
   // The page's own script has to arrive as a script. It was once joined with a
@@ -6604,7 +6613,7 @@ async function main() {
     check(Boolean(inside && balcony), 'both bands are stored', `${rates.length}`);
 
     // The landing page, with no session at all.
-    const landing = await call(null, 'GET', `/g/ph-${stamp}`);
+    const landing = await call(null, 'GET', `/gs/${signupSlug}`);
     check(landing.status === 200, 'the trip page is public', `status ${landing.status}`);
     check(landing.raw.includes('Inside') && landing.raw.includes('Balcony'),
       'and shows the cabin grades');
@@ -6619,7 +6628,7 @@ async function main() {
     check(!/type="?(card|cc-number)/i.test(landing.raw) && !landing.raw.includes('cardnumber'),
       'there is no card field anywhere on it');
 
-    const regPage = await call(null, 'GET', `/g/ph-${stamp}/register`);
+    const regPage = await call(null, 'GET', `/gs/${signupSlug}/register`);
     check(regPage.status === 200, 'the registration page is public too',
       `status ${regPage.status}`);
     check(regPage.raw.includes('Our fee, per guest') && regPage.raw.includes('$75.50'),
@@ -6723,7 +6732,7 @@ async function main() {
     check(tooLate.status === 400 && /Balcony/.test(tooLate.data?.error || ''),
       'and the next party is told which grade has gone', JSON.stringify(tooLate.data));
 
-    const soldOut = await call(null, 'GET', `/g/ph-${stamp}`);
+    const soldOut = await call(null, 'GET', `/gs/${signupSlug}`);
     check(soldOut.raw.includes('None left'), 'the page says so as well');
 
     // ---------------------------------------------- what the agency sees --
