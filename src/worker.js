@@ -241,6 +241,12 @@ import {
   handleUpdateGroup,
   handleDeleteGroup,
 } from './groups.js';
+import { renderRegisterPage, handleRegister } from './grouppage.js';
+import {
+  handleRoster, handleUpdateRegistration, handleUpdateGroupTraveller, handleDeleteRegistration,
+} from './grouproster.js';
+import { handleGroupList } from './groupmanifest.js';
+import { remindGroups, handleRunGroupReminders } from './groupremind.js';
 import {
   handleListCredits,
   handleCreateCredit,
@@ -630,6 +636,12 @@ export default {
     // no-op on six days in seven, so this costs one query on almost every tick.
     job('call lists', () => sendCallLists(env));
 
+    // The four group deadlines nothing else chases: the option date, the
+    // proposal expiry, the deposit date and the passport date. One digest per
+    // group per day, and nothing at all on a group with nothing to act on, so
+    // this is a single query on almost every tick.
+    job('group deadlines', () => remindGroups(env));
+
     // A broadcast is queued as rows and drained here, a batch at a time. A
     // no-op when nothing is sending, which is almost every tick.
     job('broadcasts', () => sendQueuedBroadcasts(env));
@@ -736,6 +748,10 @@ async function routeApi(request, env, path, method) {
   const templateMatch = path.match(/^\/api\/task-templates\/([^/]+)$/);
   const groupMatch = path.match(/^\/api\/groups\/([^/]+)$/);
   const groupBookMatch = path.match(/^\/api\/groups\/registrations\/([^/]+)\/book$/);
+  const rosterMatch = path.match(/^\/api\/groups\/([^/]+)\/roster$/);
+  const groupListMatch = path.match(/^\/api\/groups\/([^/]+)\/list$/);
+  const groupRegMatch = path.match(/^\/api\/group-registrations\/([^/]+)$/);
+  const groupTravMatch = path.match(/^\/api\/group-travellers\/([^/]+)$/);
   const creditMatch = path.match(/^\/api\/credits\/([^/]+)$/);
   const specialMatch = path.match(/^\/api\/specials\/([^/]+)$/);
   const supplierSpecialMatch = path.match(/^\/api\/supplier-specials\/([^/]+)$/);
@@ -1068,6 +1084,13 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/groups/quote' && method === 'POST') return handleParseQuote(request, env);
   if (path === '/api/groups' && method === 'POST') return handleCreateGroup(request, env);
   if (groupBookMatch && method === 'POST') return handleBookRegistration(request, env, groupBookMatch[1]);
+  // Who is coming on a group, and what is still missing from their record.
+  if (rosterMatch && method === 'GET') return handleRoster(request, env, rosterMatch[1]);
+  // The four lists a group gets asked for, as CSV. ?list= picks one.
+  if (groupListMatch && method === 'GET') return handleGroupList(request, env, groupListMatch[1]);
+  if (groupRegMatch && method === 'PUT') return handleUpdateRegistration(request, env, groupRegMatch[1]);
+  if (groupRegMatch && method === 'DELETE') return handleDeleteRegistration(request, env, groupRegMatch[1]);
+  if (groupTravMatch && method === 'PUT') return handleUpdateGroupTraveller(request, env, groupTravMatch[1]);
   if (groupMatch && method === 'GET') return handleGetGroup(request, env, groupMatch[1]);
   if (groupMatch && method === 'PUT') return handleUpdateGroup(request, env, groupMatch[1]);
   if (groupMatch && method === 'DELETE') return handleDeleteGroup(request, env, groupMatch[1]);
@@ -1252,6 +1275,10 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/admin/task-reminders' && method === 'POST') return handleRunTaskReminders(request, env);
   if (path === '/api/admin/payment-reminders' && method === 'POST') return handleRunPaymentReminders(request, env);
   if (path === '/api/admin/call-lists' && method === 'POST') return handleRunCallLists(request, env);
+  // The group deadline digest, now rather than in the morning.
+  if (path === '/api/admin/group-reminders' && method === 'POST') {
+    return handleRunGroupReminders(request, env);
+  }
 
   // Agencies: who is on this portal, and what each of them looks like.
   // Whether the portal can reach the agency level at all, and what it could
@@ -1408,6 +1435,17 @@ async function routePage(request, env, path) {
     return request.method === 'POST'
       ? handleGroupRegistration(request, env, code)
       : renderGroupPage(request, env, code);
+  }
+
+  // Registering, as opposed to asking. Its own address so somebody can be sent
+  // straight to it once they have decided, and so the short enquiry on the
+  // page above keeps the plain /g/<code> it has always had.
+  const groupRegister = path.match(/^\/g\/([^/]+)\/register\/?$/);
+  if (groupRegister) {
+    const code = decodeURIComponent(groupRegister[1]);
+    return request.method === 'POST'
+      ? handleRegister(request, env, code)
+      : renderRegisterPage(request, env, code);
   }
 
 

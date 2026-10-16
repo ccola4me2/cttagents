@@ -16,6 +16,8 @@ import { remindDuePayments } from './payremind.js';
 import { sendCallLists } from './calllist.js';
 import { schemaDrift } from './schema-drift.js';
 import { jobHealth } from './cronlog.js';
+import { seal, open as unseal, piiReady } from './pii.js';
+import { turnstileReady } from './turnstile.js';
 import { mirrorCatalogStep, mirrorStatus } from './catalogmirror.js';
 
 const STATUSES = ['pending', 'active', 'suspended'];
@@ -629,6 +631,39 @@ async function orphanRows(env, user) {
   return { total, tables: counts };
 }
 
+/**
+ * Does the encryption key actually work, and is Turnstile switched on?
+ *
+ * Deliberately a round trip rather than a presence check. In the dashboard a
+ * key of the wrong length and a correct one look identical, because both read
+ * "value encrypted", and the first time anybody would otherwise find out is
+ * when a traveller fills in a passport and the registration throws.
+ *
+ * It seals a fixed string and opens it again, which proves the whole path: the
+ * secret is there, it decodes to 32 bytes, WebCrypto accepts it, and what
+ * comes back is what went in. The sealed value is thrown away and nothing here
+ * touches the database.
+ */
+async function checkProtection(env) {
+  const out = {
+    pii: { configured: piiReady(env), works: false, error: null },
+    turnstile: { configured: turnstileReady(env) },
+  };
+  if (!out.pii.configured) {
+    out.pii.error = 'PII_KEY is not set. Group registrations will not ask for a passport.';
+    return out;
+  }
+  try {
+    const probe = 'ctt-health-probe';
+    const sealed = await seal(env, probe);
+    out.pii.works = (await unseal(env, sealed)) === probe;
+    if (!out.pii.works) out.pii.error = 'The key is set but a sealed value did not open again.';
+  } catch (e) {
+    out.pii.error = e && e.message ? e.message : 'The key could not be used.';
+  }
+  return out;
+}
+
 export async function handleHealth(request, env) {
   const { user, response } = await requireAdmin(request, env);
   if (response) return response;
@@ -660,6 +695,10 @@ export async function handleHealth(request, env) {
 
   const resend = wantEmail ? await checkResend(env) : null;
 
+  // Whether the two things protecting a public page are switched on, and for
+  // the encryption, whether the key works rather than merely exists.
+  const protection = await checkProtection(env);
+
   return json({
     email: {
       resendKeyPresent: Boolean(env.RESEND_API_KEY),
@@ -678,6 +717,12 @@ export async function handleHealth(request, env) {
     // Should always be zero. Anything else is a reservation that was deleted
     // and left part of itself behind.
     orphans,
+    // Passport encryption and the public-form check. Both have a mode where
+    // nothing is configured and the portal carries on deliberately: without a
+    // key the registration form leaves the passport boxes out, and without
+    // Turnstile the honeypot and the rate limit still stand. Neither of those
+    // says so anywhere a person can see, which is what this is for.
+    protection,
     appUrl: env.APP_URL || null,
     // Names of every binding and var the Worker can actually see. Values are
     // never included; this is here to catch a secret saved under the wrong

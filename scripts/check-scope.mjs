@@ -46,6 +46,10 @@ const OWNED = new Set([
   // enforce with requireAdmin on top of these predicates.
   'advisor_payouts', 'advisor_payout_lines',
   'group_registrations', 'task_items', 'task_templates', 'trip_messages', 'trip_views', 'inbox_confirmations',
+  // The people travelling on a group registration. Theirs alone, read on the
+  // agency's own screens by scope; the public page that writes them has the
+  // group code as its credential and stamps the group's owner on every row.
+  'group_travellers',
   // Several reservations as one trip. The advisor's own, read on the owner screens
   // by scope and written only through db.writerFor; the public page finds it by
   // share code and every statement under it names the advisor anyway.

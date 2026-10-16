@@ -39,6 +39,7 @@ const CLIENT_FACING = [
   'hub.js',        // the client's own page at /c/<code>
   'tripplan.js',   // one trip made of several reservations, at /i/<code>
   'publicform.js', // the public form and the group sign-up page
+  'grouppage.js',  // a group trip's own page at /g/<code> and registering for one
   'statement.js',  // the invoice and the quote a client is sent
   'reviews.js',    // the "how was it" form on the trip page
   'clientauth.js', // signing a client in at /portal

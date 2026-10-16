@@ -6519,6 +6519,495 @@ async function main() {
   check(bookedTwice.status === 400, 'booking the same name twice is refused',
     `status ${bookedTwice.status}`);
 
+  // ------------------------------------------ registering, not enquiring --
+  step('Registering for a group trip');
+  {
+    // The same group, given the things a page has to be able to show: rate
+    // bands with a block size, the supplier's dates, an FAQ, and terms.
+    const dressed = await call(advisor, 'PUT', `/api/groups/${signupGroupId}`, {
+      name: `Parrothead ${stamp}`, groupCode: `ph-${stamp}`, vendor: 'Test Cruise Line',
+      productName: 'Allure', destination: 'Caribbean', departDate: isoDay(200),
+      returnDate: isoDay(207), cabinsHeld: 20, groupType: 'cruise', status: 'open',
+      registrationOpen: true, registrationBlurb: 'Seven nights. Put your name down.',
+      depositDue: isoDay(20), finalPaymentDue: isoDay(120), passportDue: isoDay(150),
+      depositPerGuest: '100.00', groupNumber: '04589', agencyFee: '75.50',
+      tripTerms: 'Refundable until the deposit date.', feeTerms: 'Non refundable.',
+      terms: 'I have read the trip terms.',
+      faq: [{ q: 'Is airfare included?', a: 'No, the fare is cruise only.' },
+        { q: '', a: 'dropped because it has no question' }],
+      rates: [
+        { roomType: 'Inside', occupancy: '2', guests: 2, cabins: 4,
+          perGuestCents: 119900, taxesCents: 21400, totalCents: 282600 },
+        { roomType: 'Balcony', occupancy: '2', guests: 2, cabins: 1,
+          perGuestCents: 189900, taxesCents: 21400, totalCents: 422600 },
+      ],
+    });
+    check(dressed.status === 200, 'a group can carry its dates, fee, terms and rate bands',
+      `status ${dressed.status}`);
+    check(dressed.data?.group?.group_number === '04589',
+      'and a supplier number keeps its leading nought', dressed.data?.group?.group_number);
+    check(dressed.data?.group?.agency_fee_cents === 7550,
+      'and the fee is dollars in and cents stored', `${dressed.data?.group?.agency_fee_cents}`);
+    check(dressed.data?.group?.deposit_per_guest_cents === 10000,
+      'and so is the per guest deposit, which the schedule needs an amount for',
+      `${dressed.data?.group?.deposit_per_guest_cents}`);
+    const faq = JSON.parse(dressed.data?.group?.faq_json || '[]');
+    check(faq.length === 1 && faq[0].q === 'Is airfare included?',
+      'a question with no answer is dropped rather than published blank', JSON.stringify(faq));
+
+    const rates = dressed.data?.rates || [];
+    const inside = rates.find((r) => r.room_type === 'Inside');
+    const balcony = rates.find((r) => r.room_type === 'Balcony');
+    check(Boolean(inside && balcony), 'both bands are stored', `${rates.length}`);
+
+    // The landing page, with no session at all.
+    const landing = await call(null, 'GET', `/g/ph-${stamp}`);
+    check(landing.status === 200, 'the trip page is public', `status ${landing.status}`);
+    check(landing.raw.includes('Inside') && landing.raw.includes('Balcony'),
+      'and shows the cabin grades');
+    check(landing.raw.includes('$1,199.00'),
+      'with the price carrying its cents, always');
+    check(landing.raw.includes('4 of 4 left') && landing.raw.includes('1 of 1 left'),
+      'and how many of each are left');
+    check(landing.raw.includes('Is airfare included?'), 'the FAQ is on it');
+    check(landing.raw.includes('Deposit due') && landing.raw.includes('Passports in by'),
+      'and the dates somebody is held to');
+    // The one thing this page must never do.
+    check(!/type="?(card|cc-number)/i.test(landing.raw) && !landing.raw.includes('cardnumber'),
+      'there is no card field anywhere on it');
+
+    const regPage = await call(null, 'GET', `/g/ph-${stamp}/register`);
+    check(regPage.status === 200, 'the registration page is public too',
+      `status ${regPage.status}`);
+    check(regPage.raw.includes('Our fee, per guest') && regPage.raw.includes('$75.50'),
+      'the agency fee is its own line, never folded into the trip cost');
+    check(regPage.raw.includes('Nothing is charged on this page'),
+      'and the page says plainly that it takes no money');
+
+    // Registering properly.
+    //
+    // Whether the form asks for a passport depends on PII_KEY being set, and
+    // both ways round are real deployments: with a key it seals them, without
+    // one it leaves the boxes out and refuses the values rather than storing
+    // them in the clear. So the page is asked which it is, and both halves are
+    // checked. CI sets a throwaway key, so the sealing path runs there.
+    const sealing = regPage.raw.includes('Passport number');
+    const party = [
+      { name: `Pat ${stamp}`, dob: '1979-03-02', email: `pat-${stamp}@test.dev`,
+        dietary: 'No shellfish', accessibility: 'Ground floor cabin' },
+      { name: `Alex ${stamp}`, dob: '1981-07-19' },
+    ];
+    const withPassports = [
+      { ...party[0], passportNumber: 'P9988776', passportExpiry: '2031-08-14',
+        passportCountry: 'US' },
+      party[1],
+    ];
+
+    const reg = await call(null, 'POST', `/g/ph-${stamp}/register`, {
+      rate: inside.id,
+      leadName: `Pat ${stamp}`, leadEmail: `pat-${stamp}@test.dev`, leadPhone: '555-0191',
+      emergencyName: 'Jo Morgan', emergencyPhone: '555-0192', emergencyRelation: 'Sister',
+      agree: true,
+      travellers: sealing ? withPassports : party,
+    });
+    check(reg.status === 200 && reg.data?.ok, 'somebody can register a party of two',
+      `status ${reg.status} ${JSON.stringify(reg.data)}`);
+    check(regPage.raw.includes('Passport number') === sealing,
+      sealing
+        ? 'the form asks for a passport, because there is a key to seal it with'
+        : 'the form does not ask for a passport, because there is no key to seal it with');
+
+    if (!sealing) {
+      // The important half of the no-key case: a passport sent anyway is
+      // refused with a message, never dropped quietly. Somebody who typed it
+      // in deserves to know it was not kept.
+      const sneaked = await call(null, 'POST', `/g/ph-${stamp}/register`, {
+        rate: inside.id, leadName: 'Sneak', leadEmail: `sneak-${stamp}@test.dev`,
+        agree: true, travellers: withPassports,
+      });
+      check(sneaked.status === 400 && /Passport/.test(sneaked.data?.error || ''),
+        'and a passport sent anyway is refused rather than quietly dropped',
+        JSON.stringify(sneaked.data));
+    }
+
+    // Every guard, because this endpoint is open to the internet.
+    const noTerms = await call(null, 'POST', `/g/ph-${stamp}/register`, {
+      rate: inside.id, leadName: 'No Tick', leadEmail: `nt-${stamp}@test.dev`,
+      travellers: [{ name: 'No Tick' }],
+    });
+    check(noTerms.status === 400, 'terms that exist have to be ticked',
+      `status ${noTerms.status}`);
+
+    const strangeRate = await call(null, 'POST', `/g/ph-${stamp}/register`, {
+      rate: 'not-a-rate-on-this-trip', leadName: 'Poker', leadEmail: `pk-${stamp}@test.dev`,
+      agree: true, travellers: [{ name: 'Poker' }],
+    });
+    check(strangeRate.status === 400, 'a rate id from somewhere else is refused',
+      `status ${strangeRate.status}`);
+
+    const nobody = await call(null, 'POST', `/g/ph-${stamp}/register`, {
+      rate: inside.id, leadName: 'Empty', leadEmail: `em-${stamp}@test.dev`,
+      agree: true, travellers: [{ name: '   ' }],
+    });
+    check(nobody.status === 400, 'a party with nobody in it is refused',
+      `status ${nobody.status}`);
+
+    const noWay = await call(null, 'POST', `/g/ph-${stamp}/register`, {
+      rate: inside.id, leadName: 'No Email', leadEmail: '', agree: true,
+      travellers: [{ name: 'No Email' }],
+    });
+    check(noWay.status === 400, 'and so is one with no way to answer them',
+      `status ${noWay.status}`);
+
+    const trap = await call(null, 'POST', `/g/ph-${stamp}/register`, {
+      rate: inside.id, leadName: 'Bot', leadEmail: `bot-${stamp}@test.dev`,
+      agree: true, company_website: 'spam.example', travellers: [{ name: 'Bot' }],
+    });
+    check(trap.status === 200, 'a bot is thanked rather than told', `status ${trap.status}`);
+
+    // The band with one cabin in it. The first party took it, so the second is
+    // refused by name rather than by a number nobody can act on.
+    const takeLast = await call(null, 'POST', `/g/ph-${stamp}/register`, {
+      rate: balcony.id, leadName: `First ${stamp}`, leadEmail: `first-${stamp}@test.dev`,
+      agree: true, travellers: [{ name: `First ${stamp}` }],
+    });
+    check(takeLast.status === 200, 'the last balcony can be taken', `status ${takeLast.status}`);
+
+    const tooLate = await call(null, 'POST', `/g/ph-${stamp}/register`, {
+      rate: balcony.id, leadName: `Second ${stamp}`, leadEmail: `second-${stamp}@test.dev`,
+      agree: true, travellers: [{ name: `Second ${stamp}` }],
+    });
+    check(tooLate.status === 400 && /Balcony/.test(tooLate.data?.error || ''),
+      'and the next party is told which grade has gone', JSON.stringify(tooLate.data));
+
+    const soldOut = await call(null, 'GET', `/g/ph-${stamp}`);
+    check(soldOut.raw.includes('None left'), 'the page says so as well');
+
+    // ---------------------------------------------- what the agency sees --
+    const roster = await call(advisor, 'GET', `/api/groups/${signupGroupId}/roster`);
+    check(roster.status === 200, 'the agency has a roster for the group',
+      `status ${roster.status}`);
+    const patParty = (roster.data?.registrations || [])
+      .find((r) => (r.email || '').startsWith('pat-'));
+    check(Boolean(patParty), 'with the party that registered on it');
+    check(patParty?.rate_name === 'Inside', 'and which grade they asked for', patParty?.rate_name);
+    check(patParty?.travellers?.length === 2, 'and both people on it',
+      `${patParty?.travellers?.length}`);
+    check(Boolean(patParty?.terms_at), 'and that they agreed the terms, with when');
+
+    const lead = (patParty?.travellers || []).find((t) => t.is_lead);
+    const second = (patParty?.travellers || []).find((t) => !t.is_lead);
+    check(lead?.dietary === 'No shellfish', 'what the lead cannot eat is on the record',
+      lead?.dietary);
+    check(lead?.emergency_name === 'Jo Morgan',
+      'and one emergency contact for the party, on the lead', lead?.emergency_name);
+
+    if (sealing) {
+      // The whole point of masking: an advisor can tell which passport is on
+      // file without the screen handing out the number.
+      check(lead?.hasPassport === true, 'the lead has a passport on file');
+      check(/^\u2022+776$/.test(lead?.passportMasked || ''),
+        'shown as the last three and nothing else', lead?.passportMasked);
+      check(!JSON.stringify(roster.data).includes('P9988776'),
+        'the full number is nowhere in the response');
+      check(lead?.passportExpiry === '2031-08-14',
+        'the expiry comes back in full, because it is what gets checked',
+        lead?.passportExpiry);
+      check(second?.hasPassport === false, 'and the second traveller has none yet');
+      check(patParty?.missingPassport === 1, 'which the roster counts for chasing',
+        `${patParty?.missingPassport}`);
+
+      // Filling one in later, which is what actually happens: the passport is
+      // in a drawer and the cabin is going.
+      const filled = await call(advisor, 'PUT', `/api/group-travellers/${second.id}`, {
+        name: second.name, passportNumber: 'P5544332', passportExpiry: '2032-02-28',
+        passportCountry: 'US', dietary: 'Vegetarian',
+      });
+      check(filled.status === 200, 'an advisor can add a passport that arrived later',
+        `status ${filled.status}`);
+
+      const after = await call(advisor, 'GET', `/api/groups/${signupGroupId}/roster`);
+      const again = (after.data?.registrations || [])
+        .find((r) => r.id === patParty.id)?.travellers?.find((t) => t.id === second.id);
+      check(again?.hasPassport === true && /332$/.test(again?.passportMasked || ''),
+        'and it is sealed and masked like the other one', again?.passportMasked);
+      check(again?.dob === '1981-07-19',
+        'a save that did not mention the date of birth left it alone', again?.dob);
+
+      // The other half of the same rule: a box somebody emptied on purpose is
+      // not the same as a field a caller never mentioned.
+      const cleared = await call(advisor, 'PUT', `/api/group-travellers/${second.id}`, {
+        name: second.name, dob: '',
+      });
+      check(cleared.status === 200, 'and a date of birth can be cleared on purpose',
+        `status ${cleared.status}`);
+      const afterClear = await call(advisor, 'GET', `/api/groups/${signupGroupId}/roster`);
+      const clearedT = (afterClear.data?.registrations || [])
+        .find((r) => r.id === patParty.id)?.travellers?.find((t) => t.id === second.id);
+      check(clearedT?.dob === null, 'when the box is sent empty rather than left out',
+        String(clearedT?.dob));
+      await call(advisor, 'PUT', `/api/group-travellers/${second.id}`, {
+        name: second.name, dob: '1981-07-19',
+      });
+
+      // The partial-save rule, which this portal has got wrong before.
+      const quiet = await call(advisor, 'PUT', `/api/group-travellers/${second.id}`, {
+        name: second.name, dietary: 'Vegetarian, no nuts',
+      });
+      check(quiet.status === 200, 'a save with no passport box filled in is accepted',
+        `status ${quiet.status}`);
+      const kept = await call(advisor, 'GET', `/api/groups/${signupGroupId}/roster`);
+      const keptT = (kept.data?.registrations || [])
+        .find((r) => r.id === patParty.id)?.travellers?.find((t) => t.id === second.id);
+      check(keptT?.hasPassport === true && keptT?.passportExpiry === '2032-02-28',
+        'and a blank passport box means keep it, never delete it',
+        `${keptT?.hasPassport} ${keptT?.passportExpiry}`);
+      check(keptT?.passport_country === 'US',
+        'the country of issue goes with it rather than being dropped on its own',
+        String(keptT?.passport_country));
+      check(keptT?.dietary === 'Vegetarian, no nuts', 'while what did change, changed');
+    }
+
+    // ------------------------------------------- the lists people ask for --
+    const manifest = await call(advisor, 'GET',
+      `/api/groups/${signupGroupId}/list?list=manifest`);
+    check(manifest.status === 200, 'a supplier manifest comes out as CSV',
+      `status ${manifest.status}`);
+    check(manifest.raw.startsWith('Cabin grade,Party,'),
+      'with a header row', manifest.raw.slice(0, 40));
+    check(manifest.raw.includes('\r\n'), 'and CRLF line endings, which is what a spreadsheet wants');
+    if (sealing) {
+      // The one list that carries a passport in full, which is the whole
+      // reason it is a separate, deliberate request.
+      check(manifest.raw.includes('P9988776'),
+        'the manifest is the one list with the passport number on it');
+    }
+
+    const rooming = await call(advisor, 'GET',
+      `/api/groups/${signupGroupId}/list?list=rooming`);
+    check(rooming.status === 200 && rooming.raw.startsWith('Cabin grade,Occupancy,'),
+      'a rooming list is one row per cabin', rooming.raw.slice(0, 40));
+    check(!rooming.raw.includes('P9988776'), 'and carries no passport number');
+
+    const flight = await call(advisor, 'GET',
+      `/api/groups/${signupGroupId}/list?list=flight`);
+    check(flight.status === 200 && !flight.raw.includes('P9988776'),
+      'nor does the flight list');
+
+    const dining = await call(advisor, 'GET',
+      `/api/groups/${signupGroupId}/list?list=dining`);
+    check(dining.status === 200 && dining.raw.includes('No shellfish'),
+      'the dining list carries what somebody cannot eat');
+    check(!dining.raw.includes('P9988776'), 'and no passport either');
+
+    const noSuchList = await call(advisor, 'GET',
+      `/api/groups/${signupGroupId}/list?list=invented`);
+    check(noSuchList.status === 400, 'a list nobody defined is refused',
+      `status ${noSuchList.status}`);
+
+    // Is the key actually usable, rather than merely present? A key of the
+    // wrong length looks identical in the dashboard, and the first thing that
+    // would notice is a traveller's passport failing to save.
+    const health = await call(admin, 'GET', '/api/admin/health');
+    check(health.status === 200, 'the health page answers', `status ${health.status}`);
+    check(health.data?.protection?.pii?.configured === sealing,
+      'and says whether passports can be encrypted at all',
+      JSON.stringify(health.data?.protection?.pii));
+    if (sealing) {
+      check(health.data?.protection?.pii?.works === true,
+        'proved by sealing a value and opening it again, not by the key existing',
+        JSON.stringify(health.data?.protection?.pii));
+    } else {
+      check(/PII_KEY is not set/.test(health.data?.protection?.pii?.error || ''),
+        'and names the missing secret rather than failing silently',
+        health.data?.protection?.pii?.error);
+    }
+    check(typeof health.data?.protection?.turnstile?.configured === 'boolean',
+      'and whether the public forms are behind Turnstile',
+      JSON.stringify(health.data?.protection?.turnstile));
+    check(!JSON.stringify(health.data?.protection || {}).includes('ctt-health-probe'),
+      'the probe value it sealed is not in the response');
+
+    // Working the list.
+    const worked = await call(advisor, 'PUT', `/api/group-registrations/${patParty.id}`, {
+      status: 'contacted', supplierRef: 'GRP-7781',
+    });
+    check(worked.status === 200, 'a registration can be marked as worked',
+      `status ${worked.status}`);
+    const nonsense = await call(advisor, 'PUT', `/api/group-registrations/${patParty.id}`, {
+      status: 'invented-status',
+    });
+    check(nonsense.status === 200, 'a status nobody defined falls back rather than erroring',
+      `status ${nonsense.status}`);
+    const back = await call(advisor, 'GET', `/api/groups/${signupGroupId}/roster`);
+    check((back.data?.registrations || []).find((r) => r.id === patParty.id)?.status === 'new',
+      'to new, which is what an unrecognised status means');
+
+    // ------------------------------------ a sign-up becomes money owed --
+    //
+    // The whole point of Phase 2: booking a registration has to carry the
+    // price, the dates and the fee across, or the advisor retypes all of it
+    // and the schedule that chases the money never exists.
+    const booked = await call(advisor, 'POST',
+      `/api/groups/registrations/${patParty.id}/book`);
+    check(booked.status === 200 && booked.data?.bookingId,
+      'a registration becomes a reservation', `status ${booked.status}`);
+    const groupBookingId = booked.data?.bookingId;
+
+    // One request for the whole reservation. /api/bookings/:id answers with
+    // the row alone; the record endpoint is what the screen reads, and it is
+    // the only place pricing, travellers and the schedule come back together.
+    const made = await call(advisor, 'GET', `/api/bookings/${groupBookingId}/record`);
+    const b = made.data?.booking;
+    // Inside at 1199.00 per guest plus 214.00 taxes, two people named.
+    check(b?.gross_cents === (119900 + 21400) * 2,
+      'the cabin is priced from the band they picked, per guest named',
+      `${b?.gross_cents}`);
+    check(b?.travellers === 2, 'for the people on the registration, not the party size typed',
+      `${b?.travellers}`);
+    check(b?.cabin_category === 'Inside', 'and it remembers which grade', b?.cabin_category);
+    check(b?.deposit_due === isoDay(20) && b?.final_payment_due === isoDay(120),
+      'the supplier dates come off the group', `${b?.deposit_due} / ${b?.final_payment_due}`);
+
+    const fare = (made.data?.pricing || []).find((l) => l.kind === 'fare');
+    const taxes = (made.data?.pricing || []).find((l) => l.kind === 'taxes');
+    check(fare?.amount_cents === 119900 * 2 && fare?.commissionable === 1,
+      'the fare is a line of its own and it earns', JSON.stringify(fare));
+    check(taxes?.amount_cents === 21400 * 2 && taxes?.commissionable === 0,
+      'the taxes are a line of their own and they do not', JSON.stringify(taxes));
+
+    const rows = made.data?.payments || [];
+    const deposit = rows.find((x) => x.kind === 'deposit');
+    const finalHard = rows.find((x) => x.kind === 'final' && x.payment_class === 'hard');
+    const finalSoft = rows.find((x) => x.kind === 'final' && x.payment_class === 'soft');
+    check(deposit?.amount_cents === 10000 * 2,
+      'the deposit is the group amount times the people, not a guess',
+      `${deposit?.amount_cents}`);
+    check(deposit?.owed_to === 'supplier', 'and it is owed to the supplier', deposit?.owed_to);
+    check(deposit?.registration_id === patParty.id,
+      'and it names the sign-up it came from', deposit?.registration_id);
+    check(Boolean(finalHard) && Boolean(finalSoft),
+      'the balance has the vendor deadline and the reminder in front of it');
+    check(finalSoft?.due_date < finalHard?.due_date,
+      'with the reminder first', `${finalSoft?.due_date} then ${finalHard?.due_date}`);
+
+    // The fee, which is the half that is not the supplier's money.
+    const fee = rows.find((x) => x.owed_to === 'agency');
+    check(fee?.amount_cents === 7550 * 2,
+      'the agency fee is its own line, per guest', `${fee?.amount_cents}`);
+    check(fee?.registration_id === patParty.id, 'and it names the sign-up too');
+
+    // Hard rows only, like every other total here: the soft row is a reminder
+    // about the same money, not a second amount owed.
+    const supplierHard = rows.filter((x) => x.payment_class === 'hard'
+      && x.owed_to !== 'agency').reduce((n, x) => n + x.amount_cents, 0);
+    check(supplierHard === b.gross_cents,
+      'the supplier schedule adds up to the trip, with nothing counted twice',
+      `${supplierHard} vs ${b.gross_cents}`);
+
+    // And the roster says so without anybody opening the reservation.
+    const withMoney = await call(advisor, 'GET', `/api/groups/${signupGroupId}/roster`);
+    const paid = (withMoney.data?.registrations || []).find((r) => r.id === patParty.id);
+    check(paid?.money?.supplierOutstanding === b.gross_cents,
+      'the roster shows what the supplier is still waiting for',
+      `${paid?.money?.supplierOutstanding}`);
+    check(paid?.money?.agencyOutstanding === 7550 * 2,
+      'and what the agency is, separately, never added together',
+      `${paid?.money?.agencyOutstanding}`);
+    check(withMoney.data?.counts?.supplierDue === b.gross_cents,
+      'and the block totals them', `${withMoney.data?.counts?.supplierDue}`);
+
+    // Booking it twice would double the money.
+    const twice = await call(advisor, 'POST',
+      `/api/groups/registrations/${patParty.id}/book`);
+    check(twice.status === 400, 'booking the same party twice is refused',
+      `status ${twice.status}`);
+
+    // The travellers cross by name, and their passports deliberately do not:
+    // `travellers` is not an encrypted table.
+    const names = (made.data?.travellers || []).map((t) => t.name).sort();
+    check(names.length === 2, 'both people are on the reservation', JSON.stringify(names));
+    check((made.data?.travellers || []).filter((t) => t.is_lead).length === 1,
+      'one of them is the lead');
+    if (sealing) {
+      check(!JSON.stringify(made.data?.travellers || []).includes('P9988776'),
+        'and no passport was copied into the unencrypted table');
+      check(!(made.data?.travellers || []).some((t) => t.dob),
+        'nor a date of birth, for the same reason');
+    }
+
+
+    // The fence. An advisor in another agency has no business here, and the
+    // roster is the one screen in this feature that holds a passport.
+    const rivalEmail = `groster-${stamp}@test.dev`;
+    const rivalAgency = await call(admin, 'POST', '/api/agencies',
+      { name: `Roster Fence ${stamp}` });
+    // Created in the admin's agency and then moved, because this portal has no
+    // public link to join a particular agency. The same shape the vendor fence
+    // section above uses.
+    const rivalUser = await makeAdvisor(admin, rivalEmail, 'fence-test-12345',
+      { firstName: 'Other', lastName: 'Agency' });
+    check(Boolean(rivalUser), 'an advisor exists in another agency to test the fence with');
+    await call(admin, 'PUT', `/api/admin/advisors/${rivalUser.id}/agency`,
+      { agencyId: rivalAgency.data?.agency?.id, platformOwner: false, role: 'advisor' });
+    cleanup('the roster fence advisor', () => call(admin, 'PUT',
+      `/api/admin/advisors/${rivalUser.id}/status`, { status: 'suspended' }));
+    const outsider = jar();
+    await call(outsider, 'POST', '/api/auth/login',
+      { email: rivalEmail, password: 'fence-test-12345' });
+
+    const outsiderRoster = await call(outsider, 'GET', `/api/groups/${signupGroupId}/roster`);
+    check(outsiderRoster.status === 404,
+      'another agency cannot read the roster', `status ${outsiderRoster.status}`);
+    const outsiderList = await call(outsider, 'GET',
+      `/api/groups/${signupGroupId}/list?list=manifest`);
+    check(outsiderList.status === 404,
+      'nor take a manifest off it', `status ${outsiderList.status}`);
+    const outsiderEdit = await call(outsider, 'PUT',
+      `/api/group-registrations/${patParty.id}`, { status: 'cancelled' });
+    check(outsiderEdit.status === 404,
+      'and cannot work somebody else\'s registration', `status ${outsiderEdit.status}`);
+    if (lead) {
+      const outsiderTrav = await call(outsider, 'PUT',
+        `/api/group-travellers/${lead.id}`, { name: 'Changed' });
+      check(outsiderTrav.status === 404,
+        'and cannot touch a traveller on it', `status ${outsiderTrav.status}`);
+    }
+
+    // What the agency sees. Two real registrations and no bots.
+    const seen = await call(advisor, 'GET', `/api/groups/${signupGroupId}`);
+    const theirs = (seen.data?.registrations || [])
+      .filter((r) => (r.email || '').startsWith('pat-') || (r.email || '').startsWith('first-'));
+    check(theirs.length === 2, 'the agency sees both parties and neither bot',
+      `${(seen.data?.registrations || []).length} rows`);
+    const pat = theirs.find((r) => (r.email || '').startsWith('pat-'));
+    check(pat?.party_size === 2, 'the party size is counted from the people named',
+      `${pat?.party_size}`);
+
+    // ------------------------------------------- and taking it away again --
+    //
+    // Last, after every other assertion, for two reasons. The dashboard's
+    // quote panel holds twelve rows, and a reservation left sitting in the
+    // quoted state pushed the one a later section asserts on straight off it.
+    // And deleting it is the case worth testing: group_registrations hangs off
+    // the booking, so the sign-up goes with the reservation, and the people
+    // named on that sign-up hang off the registration rather than the booking.
+    // Nothing would have reached them.
+    await dropBooking(groupBookingId);
+
+    const after = await call(advisor, 'GET', `/api/groups/${signupGroupId}/roster`);
+    const left = after.data?.registrations || [];
+    check(!left.some((r) => r.id === patParty.id),
+      'deleting the reservation takes the sign-up it came from with it');
+    check(left.every((r) => r.travellers.every((t) => t.registration_id === r.id)),
+      'and leaves nobody pointing at a sign-up that has gone');
+    check(after.data?.counts?.people === left.reduce((n, r) => n + r.travellers.length, 0),
+      'the headcount matches the people still there',
+      `${after.data?.counts?.people}`);
+    check(after.data?.counts?.supplierDue === 0,
+      'and the money goes with it', `${after.data?.counts?.supplierDue}`);
+  }
+
   // ------------------------------------------------ the mirrored catalog --
   step('Sailings borrowed from CruiseShoppers');
 

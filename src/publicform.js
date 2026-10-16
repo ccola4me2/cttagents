@@ -16,6 +16,8 @@ import { createHousehold } from './households.js';
 import { fireTrigger } from './automations.js';
 import { sendSignupNoticeEmail } from './email.js';
 import { brandForUser, brandOf, DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand.js';
+import { renderGroupTripPage } from './grouppage.js';
+import { verifyTurnstile, turnstileWidget, TURNSTILE_FAILED } from './turnstile.js';
 
 /**
  * The agency behind a hosted form.
@@ -209,6 +211,7 @@ export async function renderPublicForm(request, env, slug) {
         <label for="company_website">Company website</label>
         <input type="text" id="company_website" name="company_website" tabindex="-1" autocomplete="off">
       </div>
+      ${turnstileWidget(env)}
       <button type="submit">${esc(f.submitLabel)}</button>
     </form>
     <script>
@@ -277,26 +280,6 @@ export async function renderPublicForm(request, env, slug) {
  */
 // Kept as its own constant so the closing script tag is never written inside
 // another template literal, which is how a page silently ends early.
-const GROUP_SCRIPT = '<scr' + 'ipt>\n' + [
-  "const f=document.getElementById('f');",
-  "f.addEventListener('submit', async (e) => {",
-  '  e.preventDefault();',
-  "  const err = document.getElementById('err');",
-  '  err.hidden = true;',
-  '  const body = Object.fromEntries(new FormData(f).entries());',
-  "  const res = await fetch(location.pathname, { method: 'POST',",
-  "    headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });",
-  '  const data = await res.json().catch(() => ({}));',
-  '  if (!res.ok) {',
-  "    err.textContent = data.error || 'Something went wrong.';",
-  '    err.hidden = false;',
-  '    return;',
-  '  }',
-  '  f.outerHTML = \'<h2>Thanks, you are on the list</h2><p>\' +',
-  "    (data.message || 'We will be in touch shortly.') + '</p>';",
-  '});',
-  ].join('\n') + '\n</scr' + 'ipt>';
-
 async function loadGroup(env, code) {
   const row = await env.DB.prepare(
     `SELECT id, user_id, name, vendor, product_name, destination, depart_date,
@@ -334,47 +317,16 @@ function paragraphs(text) {
     .join('\n');
 }
 
+/**
+ * A group's own page.
+ *
+ * The body lives in grouppage.js: it grew from a five field enquiry into a
+ * page with rate bands, key dates and an FAQ, which is a different kind of
+ * page from the hosted forms this file is about. The export stays here because
+ * the router and the trip-vara copy both know this name.
+ */
 export async function renderGroupPage(request, env, code) {
-  const g = await loadGroup(env, code);
-  if (!g || g.status === 'cancelled') {
-    return new Response(page('Not available',
-      '<h1>This trip is not taking names</h1><p>The link may be out of date. Get in touch and '
-      + 'we will tell you what is going out next.</p>'),
-      { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-  }
-
-  const facts = [g.vendor, g.product_name, g.destination].filter(Boolean);
-  const when = g.depart_date
-    ? `<p>${esc(sayDate(g.depart_date))}${
-        g.return_date ? ` to ${esc(sayDate(g.return_date))}` : ''}</p>` : '';
-
-  const body = [
-    `<h1>${esc(g.name)}</h1>`,
-    facts.length ? `<p>${esc(facts.join(' \u00b7 '))}</p>` : '',
-    when,
-    paragraphs(g.registration_blurb),
-    '<form id="f" novalidate>',
-    '<label for="name">Your name</label><input id="name" name="name" required maxlength="120">',
-    '<label for="email">Email</label><input id="email" name="email" type="email" required maxlength="254">',
-    '<label for="phone">Mobile</label><input id="phone" name="phone" type="tel" maxlength="40">',
-    '<label for="party_size">How many of you</label><input id="party_size" name="party_size" type="number" min="1" max="99">',
-    '<label for="notes">Anything you want us to know</label><textarea id="notes" name="notes" maxlength="1000"></textarea>',
-    // Honeypot. aria-hidden as well as off-screen, the same as the builder form
-    // above: position:absolute;left:-9999px hides it from eyes and from nobody
-    // else, so a screen reader read "Company website" as an ordinary field on
-    // this page, and filling it in returns "Thanks" and files the registration
-    // nowhere. The one visitor who could not see the trap was the one who fell
-    // into it, and the failure is silent at both ends.
-    '<div class="hp" aria-hidden="true"><label>Company website'
-      + '<input name="company_website" tabindex="-1" autocomplete="off"></label></div>',
-    '<button type="submit">Put me down</button>',
-    '<p class="err" id="err" hidden></p>',
-    '</form>',
-    GROUP_SCRIPT,
-  ].join('\n');
-
-  return new Response(page(g.name, body, await brandForUser(env, g.user_id)),
-    { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  return renderGroupTripPage(request, env, code);
 }
 
 function appUrl(env) {
@@ -427,6 +379,14 @@ export async function handleGroupRegistration(request, env, code) {
     if ((seen?.n || 0) >= 5) {
       return json({ error: 'Too many from here. Please try again later.' }, 429);
     }
+  }
+
+  // Third of three, and the only one that costs a request. The honeypot and
+  // the hourly limit catch the cheap end; this is for a real browser being
+  // driven. It passes when Turnstile is not configured, so nothing here stops
+  // working before the keys exist.
+  if (!await verifyTurnstile(env, body['cf-turnstile-response'], ip)) {
+    return badRequest(TURNSTILE_FAILED);
   }
 
   const name = clean(body.name, 120);
@@ -539,6 +499,7 @@ export async function renderSpecialPage(request, env, code) {
     '<label for="notes">Anything you want us to know</label><textarea id="notes" name="notes" maxlength="1000"></textarea>',
     '<div class="hp" aria-hidden="true"><label>Company website'
       + '<input name="company_website" tabindex="-1" autocomplete="off"></label></div>',
+    turnstileWidget(env),
     `<button type="submit">${gone ? 'Send it over' : 'Ask about this deal'}</button>`,
     '<p class="err" id="err" hidden></p>',
     '</form>',
@@ -588,6 +549,14 @@ export async function handleSpecialEnquiry(request, env, code) {
     if ((seen?.n || 0) >= 5) {
       return json({ error: 'Too many from here. Please try again later.' }, 429);
     }
+  }
+
+  // Third of three, and the only one that costs a request. The honeypot and
+  // the hourly limit catch the cheap end; this is for a real browser being
+  // driven. It passes when Turnstile is not configured, so nothing here stops
+  // working before the keys exist.
+  if (!await verifyTurnstile(env, body['cf-turnstile-response'], ip)) {
+    return badRequest(TURNSTILE_FAILED);
   }
 
   const name = clean(body.name, 120);
@@ -646,6 +615,14 @@ export async function handlePublicSubmit(request, env, slug) {
   // Honeypot. Answer as if it worked so a bot learns nothing.
   if (clean(body.company_website, 200)) {
     return json({ ok: true, message: form.successMessage || 'Thanks, we have got it.' });
+  }
+
+  // And the check that costs a request. Same fail-open: a form that stopped
+  // taking enquiries because keys had not been made yet would be worse than
+  // the honeypot on its own, which is what it had yesterday.
+  if (!await verifyTurnstile(env, body['cf-turnstile-response'],
+    request.headers.get('CF-Connecting-IP') || '')) {
+    return badRequest(TURNSTILE_FAILED);
   }
 
   const data = {};

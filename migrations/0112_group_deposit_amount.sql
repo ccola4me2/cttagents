@@ -1,0 +1,12 @@
+-- What the supplier wants down per person to hold a cabin.
+--
+-- The group already knew the deposit *date*. A date with no amount cannot
+-- build a payment schedule: the generator in payments.js writes a deposit row
+-- only when there is an amount to put on it, so every group booking came out
+-- with its whole cost sitting on the final date and nothing to chase in
+-- between.
+--
+-- Per guest, like every other number on a rate band, because that is how a
+-- group proposal is written: "$100 per person, due 10 December". A party of
+-- four in one cabin owes four of them.
+ALTER TABLE travel_groups ADD COLUMN deposit_per_guest_cents INTEGER;

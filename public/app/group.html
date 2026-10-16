@@ -124,6 +124,59 @@
                     <p class="field-hint">The terms and pricing lapse on this date, which is
                       usually well before the cabins do.</p></div>
                 </div>
+                <p class="label" style="margin:1.4rem 0 .5rem;">Dates the travellers are held
+                  to</p>
+                <div class="grid2">
+                  <div class="field"><label for="groupNumber">Group booking number</label>
+                    <input id="groupNumber" name="groupNumber" maxlength="60" placeholder="123456">
+                    <p class="field-hint">The one the supplier issues once the block is real, as
+                      opposed to the proposal number above.</p></div>
+                  <div class="field"><label for="depositDue">Deposit due</label>
+                    <input id="depositDue" name="depositDue" type="date">
+                    <p class="field-hint">The supplier's date for this block, which is not the
+                      deposit date on any one reservation out of it.</p></div>
+                  <div class="field"><label for="depositPerGuest">Deposit, per guest</label>
+                    <input id="depositPerGuest" name="depositPerGuest" class="money"
+                      inputmode="decimal" placeholder="0.00">
+                    <p class="field-hint">What the supplier wants down per person. Without an
+                      amount a booking made from this group has nothing to chase before the
+                      balance falls due.</p></div>
+                  <div class="field"><label for="finalPaymentDue">Final payment due</label>
+                    <input id="finalPaymentDue" name="finalPaymentDue" type="date"></div>
+                  <div class="field"><label for="passportDue">Passport details due</label>
+                    <input id="passportDue" name="passportDue" type="date">
+                    <p class="field-hint">The one deadline somebody can miss without any money
+                      moving, and so the one nothing else chases.</p></div>
+                </div>
+
+                <p class="label" style="margin:1.4rem 0 .5rem;">What somebody is agreeing to</p>
+                <div class="grid2">
+                  <div class="field"><label for="agencyFee">Your fee, per person</label>
+                    <input id="agencyFee" name="agencyFee" class="money" inputmode="decimal"
+                      placeholder="0.00">
+                    <p class="field-hint">Shown on the registration form as its own total, beside
+                      the trip cost, never rolled into it.</p></div>
+                  <div class="field"><label for="tripTerms">Trip cost: what comes back</label>
+                    <input id="tripTerms" name="tripTerms" maxlength="1000"
+                      placeholder="Refundable until the deposit date, then the supplier's tiers"></div>
+                  <div class="field"><label for="feeTerms">Your fee: what comes back</label>
+                    <input id="feeTerms" name="feeTerms" maxlength="1000"
+                      placeholder="Non refundable"></div>
+                </div>
+                <div class="field"><label for="terms">Terms they tick to accept</label>
+                  <textarea id="terms" name="terms" maxlength="4000" rows="4"></textarea>
+                  <p class="field-hint">Left empty, the registration form asks for no
+                    acknowledgement at all. Anything here has to be ticked before somebody can
+                    register, and the time they did it is kept with their record.</p></div>
+
+                <p class="label" style="margin:1.4rem 0 .5rem;">Questions people ask</p>
+                <div class="field">
+                  <div id="faq-list"></div>
+                  <button class="btn btn-ghost btn-sm" type="button" id="faq-add">Add a question</button>
+                  <p class="field-hint">Shown on the group's own page, in this order. A question
+                    with no answer is dropped rather than published blank.</p>
+                </div>
+
                 <div id="rates-card"></div>
                 <div class="field"><label for="notes">Notes</label>
                   <textarea id="notes" name="notes" maxlength="4000"></textarea></div>
@@ -137,8 +190,14 @@
           </section>
 
           <section class="card" id="signups-card" hidden style="margin-top:1.5rem;">
-            <div class="card-head"><h2>Who has put their name down</h2>
-              <span class="muted" id="signup-count"></span></div>
+            <div class="card-head"><h2>Who is coming</h2>
+              <span class="muted" id="signup-count"></span>
+              <div class="toolbar" style="margin:0;" id="list-tools" hidden>
+                <select id="list-pick" class="btn-sm" style="padding:.3rem .5rem;"></select>
+                <button class="btn btn-ghost btn-sm" type="button" id="list-get">Download</button>
+              </div></div>
+            <div id="roster-stats" class="card-pad" hidden
+              style="display:flex;gap:1.6rem;flex-wrap:wrap;padding-bottom:0;"></div>
             <div id="signups"></div>
           </section>
 
@@ -391,8 +450,76 @@ function fill(g) {
   set('proposalId', g.proposal_id); set('sailingId', g.sailing_id);
   set('vendorContact', g.vendor_contact); set('departurePort', g.departure_port);
   set('passengers', g.passengers || ''); set('proposalExpires', g.proposal_expires);
+  set('groupNumber', g.group_number); set('depositDue', g.deposit_due);
+  set('depositPerGuest', g.deposit_per_guest_cents
+    ? (g.deposit_per_guest_cents / 100).toFixed(2) : '');
+  set('finalPaymentDue', g.final_payment_due); set('passportDue', g.passport_due);
+  // Cents in the record, dollars in the box. Empty rather than 0.00 when
+  // nothing has been set, so a fee of nothing and a fee nobody has decided on
+  // do not look the same.
+  set('agencyFee', g.agency_fee_cents ? (g.agency_fee_cents / 100).toFixed(2) : '');
+  set('tripTerms', g.trip_terms); set('feeTerms', g.fee_terms); set('terms', g.terms);
+  drawFaq(parseFaq(g.faq_json));
   regForm.elements.registrationOpen.checked = Boolean(g.registration_open);
 }
+
+// ------------------------------------------------------------------ faq --
+
+const faqList = document.getElementById('faq-list');
+
+// Declared before the function that assigns it. fill() runs long after this
+// module is evaluated, so the dead zone was never reachable, but a reader
+// should not have to work that out.
+let faqPairs = [];
+
+function parseFaq(raw) {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+/**
+ * The FAQ rows, rebuilt from the array.
+ *
+ * Redrawn wholesale on every change rather than patched, because the only
+ * operations are add and remove and a list of six is not worth the bookkeeping
+ * of keeping the DOM and the array in step by hand.
+ */
+function drawFaq(pairs) {
+  faqPairs = pairs.slice();
+  faqList.innerHTML = faqPairs.map((pair, i) => `
+    <div class="faq-row" style="display:grid;gap:.4rem;margin-bottom:.8rem;
+         padding-bottom:.8rem;border-bottom:1px solid var(--navy-100);">
+      <input class="faq-q" data-i="${i}" maxlength="200" placeholder="The question"
+        value="${esc(pair.q || '')}">
+      <textarea class="faq-a" data-i="${i}" maxlength="2000" rows="2"
+        placeholder="The answer">${esc(pair.a || '')}</textarea>
+      <div><button type="button" class="btn btn-ghost btn-sm faq-drop" data-i="${i}">Remove</button></div>
+    </div>`).join('') || '<p class="muted" style="margin:0 0 .6rem;">No questions yet.</p>';
+}
+
+function readFaq() {
+  const out = [];
+  for (const [i] of faqPairs.entries()) {
+    const q = faqList.querySelector(`.faq-q[data-i="${i}"]`);
+    const a = faqList.querySelector(`.faq-a[data-i="${i}"]`);
+    out.push({ q: q ? q.value : '', a: a ? a.value : '' });
+  }
+  return out;
+}
+
+document.getElementById('faq-add').addEventListener('click', () => {
+  drawFaq([...readFaq(), { q: '', a: '' }]);
+});
+
+faqList.addEventListener('click', (e) => {
+  const drop = e.target.closest('.faq-drop');
+  if (!drop) return;
+  const i = Number(drop.dataset.i);
+  drawFaq(readFaq().filter((_, n) => n !== i));
+});
 
 function renderHeader(g) {
   document.getElementById('title').textContent = g.name;
@@ -465,37 +592,169 @@ function renderLink(g, codeShared) {
   });
 }
 
-function renderSignups(rows) {
+// ------------------------------------------------------------- the roster --
+//
+// Loaded separately from the group itself. The roster is the heavy read, with
+// a row per traveller and a decrypt per passport, and the details form above
+// should not wait on it to become editable.
+
+let roster = { registrations: [], statuses: [], counts: {}, canHoldPassports: false };
+
+function passportChip(t) {
+  if (t.hasPassport) {
+    return `<span class="pill pill-good" title="${esc(t.passportMasked)}">Passport on file</span>`;
+  }
+  return '<span class="pill pill-warn">No passport yet</span>';
+}
+
+function travellerLine(t) {
+  const bits = [
+    t.passportExpiry ? `expires ${esc(dateFmt(t.passportExpiry))}` : '',
+    t.dob ? `born ${esc(dateFmt(t.dob))}` : '',
+    t.passport_country ? esc(t.passport_country) : '',
+  ].filter(Boolean).join(' \u00b7 ');
+  const needs = [
+    t.dietary ? `Cannot eat: ${esc(t.dietary)}` : '',
+    t.accessibility ? esc(t.accessibility) : '',
+  ].filter(Boolean).join(' \u00b7 ');
+  return `<div style="display:flex;gap:.7rem;align-items:flex-start;
+       padding:.6rem 0;border-top:1px solid var(--navy-100);">
+    <div style="flex:1;min-width:0;">
+      <span class="name">${esc(t.name)}</span>${t.is_lead ? ' <span class="muted">(lead)</span>' : ''}
+      ${bits ? `<div class="muted">${bits}</div>` : ''}
+      ${needs ? `<div class="muted">${needs}</div>` : ''}
+      ${t.emergency_name ? `<div class="muted">In an emergency: ${esc(t.emergency_name)}${
+  t.emergency_phone ? `, ${esc(t.emergency_phone)}` : ''}${
+  t.emergency_relation ? ` (${esc(t.emergency_relation)})` : ''}</div>` : ''}
+    </div>
+    <div style="text-align:right;white-space:nowrap;">
+      ${passportChip(t)}
+      ${canEdit ? `<button class="btn btn-ghost btn-sm" data-trav="${esc(t.id)}"
+        style="margin-left:.4rem;">Edit</button>` : ''}
+    </div>
+  </div>`;
+}
+
+/**
+ * What this party still owes, when there is anything to say.
+ *
+ * Nothing at all until they are a reservation, because a payment cannot exist
+ * before a booking does and an empty money line on every unbooked row would be
+ * noise on the screen an advisor reads most.
+ *
+ * The two sides are never added together. What the supplier is waiting for
+ * decides whether the cabin survives; what the agency is waiting for is the
+ * agency's own invoice, and a client can easily be straight with one and not
+ * the other.
+ */
+function moneyLine(r) {
+  const m = r.money || {};
+  if (!r.booking_id || (!m.supplierOutstanding && !m.agencyOutstanding
+    && !(m.supplier && m.supplier.paid) && !(m.agency && m.agency.paid))) return '';
+  const bits = [];
+  if (m.supplierOutstanding > 0) {
+    bits.push(`<span class="pill pill-warn">${money(m.supplierOutstanding)} to the supplier${
+      m.supplier.nextDue ? ` by ${esc(dateFmt(m.supplier.nextDue))}` : ''}</span>`);
+  } else if (m.supplier && m.supplier.due > 0) {
+    bits.push('<span class="pill pill-good">Supplier paid in full</span>');
+  }
+  if (m.agencyOutstanding > 0) {
+    bits.push(`<span class="pill pill-warn">${money(m.agencyOutstanding)} to you</span>`);
+  } else if (m.agency && m.agency.due > 0) {
+    bits.push('<span class="pill pill-good">Your fee paid</span>');
+  }
+  return bits.length ? `<div style="margin-bottom:.4rem;">${bits.join(' ')}</div>` : '';
+}
+
+function partyCard(r) {
+  const when = dateFmt(new Date(r.created_at * 1000).toISOString().slice(0, 10));
+  const chase = r.missingPassport
+    ? `<span class="pill pill-warn">${r.missingPassport} passport${
+      r.missingPassport === 1 ? '' : 's'} outstanding</span>`
+    : '';
+  return `<div class="card" style="margin:0 0 1rem;box-shadow:none;">
+    <div class="card-pad">
+      <div style="display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap;">
+        <div style="flex:1;min-width:12rem;">
+          <span class="name" style="font-size:1.02rem;">${esc(r.name)}</span>
+          <div class="muted">${esc(r.email || '')}${r.phone ? ` \u00b7 ${esc(r.phone)}` : ''}</div>
+          <div class="muted">Registered ${esc(when)}${
+  r.rate_name ? ` \u00b7 wants ${esc(r.rate_name)}` : ''}${
+  r.terms_at ? ' \u00b7 agreed the terms' : ''}</div>
+          ${r.notes ? `<div class="muted" style="white-space:normal;">${esc(r.notes)}</div>` : ''}
+        </div>
+        <div style="text-align:right;">
+          ${moneyLine(r)}
+          ${chase}
+          <div style="margin-top:.5rem;display:flex;gap:.4rem;justify-content:flex-end;">
+            ${canEdit ? `<select class="btn-sm" data-status="${esc(r.id)}"
+              style="padding:.3rem .5rem;">${roster.statuses.map((st) => `<option value="${esc(st)}"${
+  st === r.status ? ' selected' : ''}>${esc(st)}</option>`).join('')}</select>` : ''}
+            ${r.booking_id
+    ? `<a class="btn btn-ghost btn-sm" href="/app/reservation?id=${encodeURIComponent(r.booking_id)}">Booked</a>`
+    : canEdit
+      ? `<button class="btn btn-primary btn-sm" data-book="${esc(r.id)}">Book them</button>`
+      : ''}
+          </div>
+        </div>
+      </div>
+      ${r.travellers.map(travellerLine).join('')}
+      ${r.travellers.length === 0
+    ? '<p class="muted" style="margin:.6rem 0 0;">Nobody named yet. This came in through the short enquiry form.</p>'
+    : ''}
+    </div>
+  </div>`;
+}
+
+function renderRoster() {
   const card = document.getElementById('signups-card');
   const host = document.getElementById('signups');
+  const stats = document.getElementById('roster-stats');
   card.hidden = false;
 
-  const waiting = rows.filter((r) => !r.booking_id).length;
+  const rows = roster.registrations || [];
+  const c = roster.counts || {};
+  // Named, not travelling. A party that came in through the short enquiry form
+  // has a size and no names, so "3 travelling" across five parties would read
+  // as a count of people rather than a count of records that are complete.
   document.getElementById('signup-count').textContent = rows.length
-    ? `${rows.length} name${rows.length === 1 ? '' : 's'}, ${waiting} not yet booked`
+    ? `${c.parties} part${c.parties === 1 ? 'y' : 'ies'}, ${c.people} traveller${
+      c.people === 1 ? '' : 's'} named`
     : '';
 
   if (!rows.length) {
+    stats.hidden = true;
     host.innerHTML = `<div class="empty"><h3>Nobody yet</h3>
       <p>Turn the sign-up page on and share the link. Names arrive here.</p></div>`;
     return;
   }
 
-  host.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>Name</th><th>Reach them on</th><th class="num">Party</th>
-      <th>What they said</th><th></th></tr></thead>
-    <tbody>${rows.map((r) => `<tr>
-      <td style="min-width:9rem;"><span class="name">${esc(r.name)}</span>
-        <div class="muted">${esc(dateFmt(new Date(r.created_at * 1000).toISOString().slice(0, 10)))}</div></td>
-      <td class="muted">${esc(r.email || '')}${r.phone ? `<div>${esc(r.phone)}</div>` : ''}</td>
-      <td class="num">${r.party_size || 1}</td>
-      <td class="muted" style="max-width:22rem;white-space:normal;">${esc(r.notes || '')}</td>
-      <td class="num">${r.booking_id
-        ? `<a class="btn btn-ghost btn-sm" href="/app/reservation?id=${encodeURIComponent(r.booking_id)}">Booked</a>`
-        : canEdit
-          ? `<button class="btn btn-primary btn-sm" data-book="${esc(r.id)}">Book them</button>`
-          : '<span class="muted">-</span>'}</td>
-    </tr>`).join('')}</tbody></table></div>`;
+  // The three numbers an advisor is actually working from. Missing passports
+  // first, because it is the only one of them with a deadline nothing else is
+  // chasing.
+  stats.hidden = false;
+  // Counts first, then money. The money is only ever about the parties that
+  // became reservations, because a payment cannot exist before a booking does,
+  // so it is shown as its own pair rather than mixed in with the headcounts.
+  const tiles = [
+    ['Passports outstanding', c.missingPassport, c.missingPassport ? 'warn' : 'good', false],
+    ['Parties registered', c.parties, '', false],
+    ['Turned into reservations', c.booked, '', false],
+  ];
+  if (c.supplierDue || c.supplierPaid || c.agencyDue || c.agencyPaid) {
+    tiles.push(['Owed to the supplier', c.supplierDue, c.supplierDue ? 'warn' : 'good', true]);
+    if (c.agencyDue || c.agencyPaid) {
+      tiles.push(['Owed to you', c.agencyDue, c.agencyDue ? 'warn' : 'good', true]);
+    }
+  }
+  stats.innerHTML = tiles.map(([label, value, tone, isMoney]) => `<div>
+      <div class="muted" style="font-size:.74rem;letter-spacing:.08em;text-transform:uppercase;">${esc(label)}</div>
+      <div style="font-size:1.4rem;font-weight:700;color:var(--${
+  tone === 'warn' ? 'amber-600' : tone === 'good' ? 'green-600' : 'navy-800'});
+        font-variant-numeric:tabular-nums;">${isMoney ? money(Number(value) || 0) : (Number(value) || 0)}</div>
+    </div>`).join('');
+
+  host.innerHTML = `<div class="card-pad">${rows.map(partyCard).join('')}</div>`;
 
   host.querySelectorAll('[data-book]').forEach((btn) => {
     btn.addEventListener('click', async () => {
@@ -512,7 +771,109 @@ function renderSignups(rows) {
       }
     });
   });
+
+  host.querySelectorAll('[data-status]').forEach((sel) => {
+    sel.addEventListener('change', async () => {
+      const row = rows.find((r) => r.id === sel.dataset.status);
+      try {
+        await api(`/api/group-registrations/${encodeURIComponent(sel.dataset.status)}`,
+          { method: 'PUT', body: { status: sel.value, supplierRef: row?.supplier_ref, notes: row?.notes } });
+        if (row) row.status = sel.value;
+      } catch (err) {
+        showError(document.getElementById('err'), err);
+      }
+    });
+  });
+
+  host.querySelectorAll('[data-trav]').forEach((btn) => {
+    btn.addEventListener('click', () => openTraveller(btn.dataset.trav));
+  });
+
+  drawListPicker();
 }
+
+// ------------------------------------------------- the lists people ask for --
+
+function drawListPicker() {
+  const tools = document.getElementById('list-tools');
+  const pick = document.getElementById('list-pick');
+  const lists = roster.lists || [];
+  if (!lists.length || !(roster.registrations || []).length) { tools.hidden = true; return; }
+  tools.hidden = false;
+  // Rebuilt rather than appended, because the roster reloads after every edit
+  // and a picker that grew by four options each time would be absurd.
+  pick.innerHTML = lists.map((l) => `<option value="${esc(l.key)}"
+    title="${esc(l.hint)}">${esc(l.name)}</option>`).join('');
+}
+
+// A plain navigation. The response is a download with its own filename, and
+// letting the browser do what it already does means a manifest with passports
+// on it never sits in a tab's memory first.
+document.getElementById('list-get').addEventListener('click', () => {
+  const list = document.getElementById('list-pick').value;
+  if (!groupId || !list) return;
+  window.location.href = `/api/groups/${encodeURIComponent(groupId)}/list?list=${
+    encodeURIComponent(list)}`;
+});
+
+async function loadRoster() {
+  if (!groupId) return;
+  try {
+    roster = await api(`/api/groups/${encodeURIComponent(groupId)}/roster`);
+    renderRoster();
+  } catch (err) {
+    showError(document.getElementById('err'), err);
+  }
+}
+
+// ---------------------------------------------------- one traveller's record --
+
+const travDlg = document.getElementById('trav-dlg');
+const travForm = document.getElementById('trav-form');
+const travErr = document.getElementById('trav-err');
+let editingTraveller = null;
+
+function openTraveller(id) {
+  const party = roster.registrations.find((r) => r.travellers.some((t) => t.id === id));
+  const t = party && party.travellers.find((x) => x.id === id);
+  if (!t) return;
+  editingTraveller = t;
+  travErr.hidden = true;
+  document.getElementById('trav-title').textContent = t.name;
+  const set = (n, v) => { travForm.elements[n].value = v ?? ''; };
+  set('name', t.name); set('email', t.email); set('dob', t.dob);
+  set('passportNumber', ''); set('passportExpiry', t.passportExpiry);
+  set('passportCountry', t.passport_country);
+  set('dietary', t.dietary); set('accessibility', t.accessibility);
+  set('emergencyName', t.emergency_name); set('emergencyPhone', t.emergency_phone);
+  set('emergencyRelation', t.emergency_relation);
+
+  // The passport box is deliberately empty even when one is on file, and the
+  // hint says what blank means. Prefilling it with a mask would save the mask.
+  document.getElementById('trav-passport-hint').textContent = t.hasPassport
+    ? `On file as ${t.passportMasked}. Leave blank to keep it.`
+    : 'Nothing on file yet.';
+  document.getElementById('trav-passport-fields').hidden = !roster.canHoldPassports;
+  travDlg.showModal();
+}
+
+document.getElementById('trav-cancel').addEventListener('click', () => travDlg.close());
+
+travForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!editingTraveller) return;
+  travErr.hidden = true;
+  const values = Object.fromEntries(new FormData(travForm).entries());
+  try {
+    await api(`/api/group-travellers/${encodeURIComponent(editingTraveller.id)}`,
+      { method: 'PUT', body: values });
+    travDlg.close();
+    await loadRoster();
+  } catch (err) {
+    travErr.textContent = err.message;
+    travErr.hidden = false;
+  }
+});
 
 function renderBookings(rows) {
   const card = document.getElementById('bookings-card');
@@ -552,7 +913,9 @@ async function load() {
     drawRates(d.rates);
     renderHeader(group);
     renderLink(group, d.codeShared);
-    renderSignups(d.registrations);
+    // Not awaited. The roster decrypts a passport per traveller and the
+    // details form above should be editable before that finishes.
+    loadRoster();
     renderBookings(d.bookings);
     deleteBtn.hidden = !canEdit;
 
@@ -590,6 +953,16 @@ function allValues(values) {
     departurePort: form.elements.departurePort.value,
     passengers: form.elements.passengers.value,
     proposalExpires: form.elements.proposalExpires.value,
+    groupNumber: form.elements.groupNumber.value,
+    depositDue: form.elements.depositDue.value,
+    depositPerGuest: form.elements.depositPerGuest.value,
+    finalPaymentDue: form.elements.finalPaymentDue.value,
+    passportDue: form.elements.passportDue.value,
+    agencyFee: form.elements.agencyFee.value,
+    tripTerms: form.elements.tripTerms.value,
+    feeTerms: form.elements.feeTerms.value,
+    terms: form.elements.terms.value,
+    faq: readFaq(),
   } : {};
   // Only when a proposal was just read. A save that does not mention the grid
   // must leave it alone, or correcting a date would wipe the rates.
@@ -677,4 +1050,49 @@ deleteBtn.addEventListener('click', async () => {
 
 await load();
 </script>
+<dialog id="trav-dlg">
+  <form id="trav-form" method="dialog">
+    <div class="card-head"><h2 id="trav-title">Traveller</h2></div>
+    <div class="card-pad">
+      <div class="notice notice-error" id="trav-err" hidden></div>
+      <div class="field"><label for="trav-name">Name, as it is on the passport</label>
+        <input id="trav-name" name="name" maxlength="120" required></div>
+      <div class="grid2">
+        <div class="field"><label for="trav-dob">Date of birth</label>
+          <input id="trav-dob" name="dob" type="date"></div>
+        <div class="field"><label for="trav-email">Email</label>
+          <input id="trav-email" name="email" type="email" maxlength="254"></div>
+      </div>
+      <div id="trav-passport-fields">
+        <div class="grid2">
+          <div class="field"><label for="trav-passport">Passport number</label>
+            <input id="trav-passport" name="passportNumber" maxlength="40" autocomplete="off">
+            <p class="field-hint" id="trav-passport-hint">Leave blank to keep what is on file.</p></div>
+          <div class="field"><label for="trav-expiry">Passport expires</label>
+            <input id="trav-expiry" name="passportExpiry" type="date"></div>
+          <div class="field"><label for="trav-country">Country of issue</label>
+            <input id="trav-country" name="passportCountry" maxlength="60"></div>
+        </div>
+      </div>
+      <div class="field"><label for="trav-diet">Anything they cannot eat</label>
+        <input id="trav-diet" name="dietary" maxlength="300"></div>
+      <div class="field"><label for="trav-access">Anything that would make the trip easier</label>
+        <input id="trav-access" name="accessibility" maxlength="300"></div>
+      <div class="grid2">
+        <div class="field"><label for="trav-em-name">Emergency contact</label>
+          <input id="trav-em-name" name="emergencyName" maxlength="120"></div>
+        <div class="field"><label for="trav-em-phone">Their phone</label>
+          <input id="trav-em-phone" name="emergencyPhone" type="tel" maxlength="40"></div>
+        <div class="field"><label for="trav-em-rel">How they know them</label>
+          <input id="trav-em-rel" name="emergencyRelation" maxlength="60"></div>
+      </div>
+    </div>
+    <div class="card-foot">
+      <button class="btn btn-ghost" type="button" id="trav-cancel">Cancel</button>
+      <span style="flex:1;"></span>
+      <button class="btn btn-primary" type="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+
 </body></html>

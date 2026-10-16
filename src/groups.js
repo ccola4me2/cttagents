@@ -9,11 +9,15 @@
 // Cabins sold is counted from the reservations pointing at the group rather
 // than stored on it. Two numbers that can disagree eventually will.
 
-import { json, badRequest, notFound, clean, cleanText, cleanDate, oneOf, uid, now, readJson } from './util.js';
+import { json, badRequest, notFound, clean, cleanText, cleanDate, oneOf, toCents, uid, now, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 import { pdfRead } from './pdftext.js';
 import { parseGroupQuote, FIELD_WORDS } from './groupquote.js';
+// The schedule generator, shared with the reservation screen so a group
+// booking and a typed one cannot produce different schedules. payments.js
+// does not import this file, so there is no cycle.
+import { buildSchedule } from './payments.js';
 
 const STATUSES = ['open', 'closed', 'cancelled'];
 
@@ -28,6 +32,9 @@ const COLUMNS = `
   g.group_type, g.registration_open, g.registration_blurb,
   g.proposal_id, g.sailing_id, g.vendor_contact, g.departure_port,
   g.passengers, g.proposal_expires,
+  g.deposit_due, g.final_payment_due, g.passport_due, g.group_number,
+  g.deposit_per_guest_cents, g.reminded_on,
+  g.faq_json, g.terms, g.agency_fee_cents, g.fee_terms, g.trip_terms,
   g.created_at, g.updated_at
 `;
 
@@ -79,9 +86,51 @@ function parse(body) {
       departurePort: clean(body.departurePort, 120),
       passengers: Math.max(0, Math.min(Number(body.passengers) || 0, 99999)),
       proposalExpires: cleanDate(body.proposalExpires),
+      // The supplier's dates for the block, which are not any one
+      // reservation's. Deliberately not validated against each other beyond
+      // the obvious: a supplier who wants the balance before the deposit date
+      // has made a mistake, but it is their mistake and the advisor has to be
+      // able to record what they were actually told.
+      depositDue: cleanDate(body.depositDue),
+      // Per guest, because that is how a group proposal is written. Without an
+      // amount the schedule generator writes no deposit row at all and the
+      // whole cost lands on the final date.
+      depositPerGuestCents: Math.max(0, Math.min(toCents(body.depositPerGuest) || 0, 10000000)),
+      finalPaymentDue: cleanDate(body.finalPaymentDue),
+      passportDue: cleanDate(body.passportDue),
+      groupNumber: clean(body.groupNumber, 60),
+      faqJson: faqOf(body.faq),
+      terms: cleanText(body.terms, 4000),
+      // Per person, and the agency's own. Dollars on the wire and cents in the
+      // record, the same as every other money field here: the page sends what
+      // was typed and toCents is the one place that decides what "1,250" means.
+      // Capped at a number that is clearly a typo rather than a fee.
+      agencyFeeCents: Math.max(0, Math.min(toCents(body.agencyFee) || 0, 10000000)),
+      feeTerms: cleanText(body.feeTerms, 1000),
+      tripTerms: cleanText(body.tripTerms, 1000),
     },
   };
 }
+
+/**
+ * The FAQ, as a page would write it.
+ *
+ * Stored as JSON on the group rather than as rows, because it is written and
+ * reordered as a whole and nothing ever asks a question of it. Empty pairs are
+ * dropped rather than saved blank: a form with three empty slots in it is how
+ * an FAQ ends up with three empty questions on the public page.
+ */
+function faqOf(value) {
+  if (!Array.isArray(value)) return null;
+  const pairs = [];
+  for (const item of value.slice(0, 30)) {
+    const q = clean(item && item.q, 200);
+    const a = cleanText(item && item.a, 2000);
+    if (q && a) pairs.push({ q, a });
+  }
+  return pairs.length ? JSON.stringify(pairs) : null;
+}
+
 
 /**
  * The rate grid, replaced wholesale.
@@ -266,8 +315,13 @@ export async function handleBookRegistration(request, env, id) {
 
   const reg = await env.DB.prepare(
     `SELECT r.*, g.name AS group_name, g.vendor, g.product_name, g.destination,
-            g.depart_date, g.return_date, g.group_type
-       FROM group_registrations r JOIN travel_groups g ON g.id = r.group_id
+            g.depart_date, g.return_date, g.group_type,
+            g.deposit_due, g.final_payment_due, g.deposit_per_guest_cents,
+            g.agency_fee_cents, g.fee_terms,
+            rt.room_type, rt.guests AS rate_guests, rt.per_guest_cents, rt.taxes_cents
+       FROM group_registrations r
+       JOIN travel_groups g ON g.id = r.group_id
+       LEFT JOIN group_rates rt ON rt.id = r.rate_id
       WHERE r.id = ? AND r.user_id = ?`
   ).bind(id, owner.id).first();
   if (!reg) return notFound('No such registration.');
@@ -282,6 +336,28 @@ export async function handleBookRegistration(request, env, id) {
     ).bind(reg.email || null, reg.phone || null, now(), clientId, owner.id).run();
   }
 
+  // How many people the money is for. The travellers they named, falling back
+  // to what they typed in the short enquiry form, falling back to one: a party
+  // of nobody is not a thing, and a cabin priced for nought guests is worse
+  // than one priced for the person who filled the form in.
+  const named = await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM group_travellers WHERE registration_id = ? AND user_id = ?'
+  ).bind(id, owner.id).first().catch(() => null);
+  const heads = Math.max(1, Math.min(
+    Number(named?.n) || Number(reg.party_size) || 1, 99));
+
+  // What the cabin costs, from the band they picked.
+  //
+  // Per guest times heads rather than the band's total_cents, because the
+  // total on a rate band is for its own stated occupancy and the party may not
+  // match it: two people in a cabin quoted for four pay two fares, not the
+  // quoted total. A registration with no band chosen comes through at nought,
+  // which is the honest answer and leaves the advisor to price it.
+  const fareCents = (Number(reg.per_guest_cents) || 0) * heads;
+  const taxCents = (Number(reg.taxes_cents) || 0) * heads;
+  const depositCents = (Number(reg.deposit_per_guest_cents) || 0) * heads;
+  const feeCents = (Number(reg.agency_fee_cents) || 0) * heads;
+
   const booking = await db.createBooking(env, owner.id, {
     clientName: reg.name,
     clientId: clientId || null,
@@ -292,15 +368,21 @@ export async function handleBookRegistration(request, env, id) {
     destination: reg.destination || null,
     departDate: reg.depart_date || null,
     returnDate: reg.return_date || null,
-    depositDue: null,
-    finalPaymentDue: null,
-    travellers: Math.max(1, Math.min(Number(reg.party_size) || 1, 99)),
-    grossCents: 0,
+    // The group's dates, not nothing. These are the supplier's deadlines for
+    // the block and they are the only dates anybody has at this point.
+    depositDue: reg.deposit_due || null,
+    finalPaymentDue: reg.final_payment_due || null,
+    depositCents,
+    cabin: reg.room_type || null,
+    cabinCategory: reg.room_type || null,
+    travellers: heads,
+    grossCents: fareCents + taxCents,
     commissionCents: 0,
     commissionStatus: 'pending',
     status: 'quoted',
     groupId: reg.group_id,
     notes: [`From the ${reg.group_name} sign-up page.`,
+            reg.room_type ? `They asked for ${reg.room_type}.` : '',
             reg.notes ? `They said: ${reg.notes}` : ''].filter(Boolean).join('\n'),
     insuranceStatus: 'unknown',
   });
@@ -309,12 +391,78 @@ export async function handleBookRegistration(request, env, id) {
     'UPDATE group_registrations SET booking_id = ? WHERE id = ? AND user_id = ?'
   ).bind(booking.id, id, owner.id).run();
 
-  await env.DB.prepare(
-    `INSERT INTO travellers (id, booking_id, user_id, name, email, phone, is_lead,
-       created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`
-  ).bind(uid(), booking.id, owner.id, reg.name, reg.email || null, reg.phone || null,
-         now(), now()).run();
+  // The people, carried across by name only.
+  //
+  // Their passports and dates of birth stay sealed on the group registration
+  // and are deliberately not copied here, because `travellers` is not an
+  // encrypted table: copying them in would quietly undo the encryption for
+  // every one of them. The manifest is taken from the group, which is where
+  // that data belongs and where it stays. See docs/encryption.md.
+  const party = await env.DB.prepare(
+    `SELECT name, email, is_lead FROM group_travellers
+      WHERE registration_id = ? AND user_id = ? ORDER BY is_lead DESC, created_at ASC`
+  ).bind(id, owner.id).all().catch(() => ({ results: [] }));
+
+  const people = (party.results || []).length
+    ? party.results
+    : [{ name: reg.name, email: reg.email, is_lead: 1 }];
+
+  for (const person of people) {
+    await env.DB.prepare(
+      `INSERT INTO travellers (id, booking_id, user_id, name, email, phone, is_lead,
+         created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(uid(), booking.id, owner.id, person.name,
+           person.email || (person.is_lead ? reg.email : null) || null,
+           person.is_lead ? (reg.phone || null) : null,
+           person.is_lead ? 1 : 0, now(), now()).run();
+  }
+
+  // What the price is made of, so the commission comes out right without
+  // anybody typing it again. The fare earns and the taxes do not, which is the
+  // one idea the whole pricing model turns on.
+  const ts = now();
+  if (fareCents > 0) {
+    await env.DB.prepare(
+      `INSERT INTO booking_pricing (id, booking_id, user_id, kind, label, amount_cents,
+         commissionable, sort_order, created_at, updated_at)
+       VALUES (?, ?, ?, 'fare', ?, ?, 1, 0, ?, ?)`
+    ).bind(uid(), booking.id, owner.id,
+           reg.room_type ? `${reg.room_type} fare` : 'Fare', fareCents, ts, ts).run();
+  }
+  if (taxCents > 0) {
+    await env.DB.prepare(
+      `INSERT INTO booking_pricing (id, booking_id, user_id, kind, label, amount_cents,
+         commissionable, sort_order, created_at, updated_at)
+       VALUES (?, ?, ?, 'taxes', 'Taxes and port fees', ?, 0, 1, ?, ?)`
+    ).bind(uid(), booking.id, owner.id, taxCents, ts, ts).run();
+  }
+
+  // The supplier's schedule, from the generator the reservation screen uses.
+  // It writes the deposit on the group's date, the balance on the group's
+  // final date, and a reminder ten days in front of that one.
+  const made = await db.getBooking(env, booking.id, owner.id);
+  const schedule = made ? await buildSchedule(env, owner, made) : { created: [] };
+  if (schedule.created.length) {
+    await env.DB.prepare(
+      `UPDATE booking_payments SET registration_id = ?, owed_to = 'supplier'
+        WHERE booking_id = ? AND user_id = ?`
+    ).bind(id, booking.id, owner.id).run();
+  }
+
+  // And the agency's own fee, which is not the supplier's money and never was.
+  // Its own line with owed_to set, so a total of what the supplier is waiting
+  // for and a total of what the agency is waiting for are different questions
+  // with different answers.
+  if (feeCents > 0) {
+    await db.createPayment(env, owner.id, {
+      bookingId: booking.id, kind: 'installment', paymentClass: 'hard',
+      amountCents: feeCents, dueDate: reg.deposit_due || null, paidDate: null,
+      registrationId: id, owedTo: 'agency',
+      notes: [`Our fee, ${heads} at ${(Number(reg.agency_fee_cents) || 0) / 100}`,
+              reg.fee_terms || ''].filter(Boolean).join('. '),
+    });
+  }
 
   await db.logActivity(env, owner.id, 'group.book',
     db.byHand(`Booked ${reg.name} onto ${reg.group_name}`,
@@ -357,14 +505,20 @@ export async function handleCreateGroup(request, env) {
        group_code, depart_date, return_date, option_date, cabins_held, status, notes,
        group_type, registration_open, registration_blurb,
        proposal_id, sailing_id, vendor_contact, departure_port, passengers, proposal_expires,
-       created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       deposit_due, final_payment_due, passport_due, group_number,
+       faq_json, terms, agency_fee_cents, fee_terms, trip_terms,
+       deposit_per_guest_cents, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(id, user.id, fields.name, fields.vendor, fields.productName, fields.destination,
          fields.groupCode, fields.departDate, fields.returnDate, fields.optionDate,
          fields.cabinsHeld, fields.status, fields.notes,
          fields.groupType, fields.registrationOpen, fields.registrationBlurb,
          fields.proposalId, fields.sailingId, fields.vendorContact, fields.departurePort,
-         fields.passengers, fields.proposalExpires, ts, ts).run();
+         fields.passengers, fields.proposalExpires,
+         fields.depositDue, fields.finalPaymentDue, fields.passportDue, fields.groupNumber,
+         fields.faqJson, fields.terms, fields.agencyFeeCents, fields.feeTerms, fields.tripTerms,
+         fields.depositPerGuestCents, ts, ts).run();
   await saveRates(env, id, user.id, raw.rates);
 
   await db.logActivity(env, user.id, 'group.create', `Opened group ${fields.name}`, { id });
@@ -391,14 +545,19 @@ export async function handleUpdateGroup(request, env, id) {
        group_code = ?, depart_date = ?, return_date = ?, option_date = ?,
        cabins_held = ?, status = ?, notes = ?, group_type = ?, registration_open = ?,
        registration_blurb = ?, proposal_id = ?, sailing_id = ?, vendor_contact = ?,
-       departure_port = ?, passengers = ?, proposal_expires = ?, updated_at = ?
+       departure_port = ?, passengers = ?, proposal_expires = ?,
+       deposit_due = ?, final_payment_due = ?, passport_due = ?, group_number = ?,
+       faq_json = ?, terms = ?, agency_fee_cents = ?, fee_terms = ?, trip_terms = ?,
+       deposit_per_guest_cents = ?, updated_at = ?
      WHERE id = ? AND user_id = ?`
   ).bind(fields.name, fields.vendor, fields.productName, fields.destination, fields.groupCode,
          fields.departDate, fields.returnDate, fields.optionDate, fields.cabinsHeld,
          fields.status, fields.notes, fields.groupType, fields.registrationOpen,
          fields.registrationBlurb, fields.proposalId, fields.sailingId, fields.vendorContact,
          fields.departurePort, fields.passengers, fields.proposalExpires,
-         now(), id, owner.id).run();
+         fields.depositDue, fields.finalPaymentDue, fields.passportDue, fields.groupNumber,
+         fields.faqJson, fields.terms, fields.agencyFeeCents, fields.feeTerms, fields.tripTerms,
+         fields.depositPerGuestCents, now(), id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Group not found.');
   // Only when the caller mentioned them. A save from the details form does not
   // carry rates, and treating that silence as "no grades" would wipe the grid
