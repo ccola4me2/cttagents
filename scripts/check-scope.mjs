@@ -98,6 +98,11 @@ const OWNED = new Set([
   // group id already implies the owner, and saying so again is what makes the
   // fence readable from the statement itself.
   'group_rates',
+  // The short names a group's page is shared under, current and old. Theirs, and every statement
+  // that changes one names user_id. The two that find a name by the name alone are the public
+  // page and the other portal's availability question: the name is the address that was
+  // handed out, so asking whose it is is the whole point of the lookup.
+  'group_slugs',
 ]);
 
 // Shared by a whole agency, so agency_id is the predicate that matters rather

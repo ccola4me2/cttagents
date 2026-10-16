@@ -33,6 +33,13 @@ import { seal, piiReady } from './pii.js';
 import { turnstileWidget, verifyTurnstile, TURNSTILE_FAILED } from './turnstile.js';
 import { sendSignupNoticeEmail } from './email.js';
 
+// What differs between the two portals, in one place so the rest of the file reads the same
+// in both.
+const LOGO_PATH = '/logo-mark.png';
+const LOGO_TYPE = 'image/png';
+const POWERED_BY = '';
+const DEFAULT_APP_URL = 'https://cttagents.com';
+
 // How many people one registration may name. Four is a family and eight is a
 // reunion booking two cabins together; past that somebody is filling the form
 // in wrongly and should be ringing the agency.
@@ -45,6 +52,36 @@ const PER_HOUR = 5;
 const STATUSES = ['new', 'contacted', 'confirmed', 'cancelled'];
 
 export { STATUSES as REGISTRATION_STATUSES };
+
+function appUrl(env) {
+  return (env.APP_URL || DEFAULT_APP_URL).replace(/\/$/, '');
+}
+
+/**
+ * Where a page is being asked for, and what its links should start with.
+ *
+ * A group is reached three ways: by the supplier's group number at /g/<number>, by its short
+ * name at /gs/<name> on the portal's own address, and by its short name straight after the
+ * shared domain. Everything below is the same page; only the way the group is found and the
+ * start of its links change, so both are carried in one small object.
+ *
+ *   { code, base }                 found by group number
+ *   { groupId, userId, slug, base } found by short name, already looked up
+ */
+export function refOf(ref) {
+  if (ref && typeof ref === 'object') return ref;
+  const code = String(ref === undefined || ref === null ? '' : ref);
+  return { code, base: `/g/${encodeURIComponent(code)}` };
+}
+
+// What the page reads off the group.
+const PAGE_COLUMNS = [
+  'id', 'user_id', 'name', 'vendor', 'product_name', 'destination', 'departure_port',
+  'depart_date', 'return_date', 'registration_open', 'registration_blurb', 'status',
+  'deposit_due', 'final_payment_due', 'passport_due', 'faq_json', 'terms',
+  'agency_fee_cents', 'fee_terms', 'trip_terms', 'group_type', 'deposit_per_guest_cents',
+  'page_slug', 'headline', 'hero_image_url', 'perks_json', 'itinerary_json',
+].join(', ');
 
 /**
  * The group behind a public address.
@@ -59,16 +96,26 @@ export { STATUSES as REGISTRATION_STATUSES };
  * is therefore satisfied by that, which is the right answer for the wrong
  * reason. What actually makes this safe is the code being the credential and
  * registration_open having to be 1, not anything the checker can see.
+ *
+ * A short name is looked up first, in groupslug.js, and arrives here as the group's id and
+ * its owner, so the second form below names user_id for real.
  */
-async function loadGroup(env, code) {
-  const row = await env.DB.prepare(
-    `SELECT id, user_id, name, vendor, product_name, destination, departure_port,
-            depart_date, return_date, registration_open, registration_blurb, status,
-            deposit_due, final_payment_due, passport_due, faq_json, terms,
-            agency_fee_cents, fee_terms, trip_terms
-       FROM travel_groups WHERE group_code = ? AND registration_open = 1`
-  ).bind(code).first();
+export async function loadGroup(env, rawRef) {
+  const ref = refOf(rawRef);
+  const row = ref.groupId
+    ? await env.DB.prepare(
+      `SELECT ${PAGE_COLUMNS} FROM travel_groups
+        WHERE id = ? AND user_id = ? AND registration_open = 1`
+    ).bind(ref.groupId, ref.userId).first()
+    : await env.DB.prepare(
+      `SELECT ${PAGE_COLUMNS} FROM travel_groups WHERE group_code = ? AND registration_open = 1`
+    ).bind(ref.code).first();
   return row || null;
+}
+
+/** Something to key a per-visitor limit on that is the same however the group was reached. */
+function refKey(ref) {
+  return ref.groupId || ref.code || '';
 }
 
 /**
@@ -131,6 +178,57 @@ function paragraphs(text) {
     .join('\n');
 }
 
+/** Who to name as the host, and how to reach the agency. Best effort: a page needs neither. */
+async function contactFor(env, userId) {
+  try {
+    const row = await env.DB.prepare(
+      `SELECT u.first_name, u.last_name, a.phone, a.email
+         FROM users u LEFT JOIN agencies a ON a.id = u.agency_id WHERE u.id = ?`
+    ).bind(userId).first();
+    return {
+      advisor: row ? `${row.first_name || ''} ${row.last_name || ''}`.trim() : '',
+      phone: (row && row.phone) || '',
+      email: (row && row.email) || '',
+    };
+  } catch {
+    return { advisor: '', phone: '', email: '' };
+  }
+}
+
+/**
+ * The address people are meant to share. The short one when the shared domain is set up and
+ * the group has a name; otherwise the portal's own address for this page.
+ */
+function canonicalOf(env, g, ref, tail = '') {
+  const host = String(env.GROUP_HOST || '').trim();
+  if (host && g.page_slug) return `https://${host}/${g.page_slug}${tail}`;
+  return `${appUrl(env)}${ref.base}${tail}`;
+}
+
+/** What a text message or Facebook shows when the link is pasted, and what a search sees. */
+function shareTags({ title, description, url, image }) {
+  const tags = [
+    // A group page is for the people it was sent to. Prices are real, so it is not for search.
+    '<meta name="robots" content="noindex, nofollow">',
+    `<link rel="canonical" href="${esc(url)}">`,
+    '<meta property="og:type" content="website">',
+    `<meta property="og:title" content="${esc(title)}">`,
+    `<meta property="og:description" content="${esc(description)}">`,
+    `<meta property="og:url" content="${esc(url)}">`,
+    `<meta name="description" content="${esc(description)}">`,
+  ];
+  if (image) {
+    tags.push(`<meta property="og:image" content="${esc(image)}">`,
+      '<meta name="twitter:card" content="summary_large_image">');
+  }
+  return tags.join('\n');
+}
+
+function logoOf(brand, env) {
+  const url = brand.logoUrl || LOGO_PATH;
+  return /^\//.test(url) ? `${appUrl(env)}${url}` : url;
+}
+
 // ---------------------------------------------------------------- layout --
 
 /**
@@ -139,25 +237,30 @@ function paragraphs(text) {
  * Its own rather than the one in publicform.js, which is a 560px single card
  * built for a form. This is a page somebody reads before they decide, so it is
  * wider and carries panels and cards that a form page has no use for.
+ *
+ * Links to the portal's own files are absolute: the page is also served from the shared
+ * group domain, which has none of them.
  */
-function page(title, body, brand, { wide = true } = {}) {
+function page(title, body, brand, { wide = true, env = {}, hero = false, head = '' } = {}) {
   const b = brand || DEFAULT_BRAND;
   const accent = HEX_COLOR.test(b.color || '') && readableOnWhite(b.color)
     ? b.color : DEFAULT_BRAND.color;
+  const home = appUrl(env);
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} | ${esc(b.name)}</title>
-<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="icon" href="${esc(home + LOGO_PATH)}" type="${LOGO_TYPE}">
+${head}
 <style>
   :root { --navy:${accent}; --coral:#e55942; --ink:#2f4459; --soft:#5c7286;
           --line:#e4edf5; --shell:#fbf9f5; --amber-bg:#fdf4e3; --amber:#9a6b12; }
   *{box-sizing:border-box}
   body{margin:0;background:var(--shell);color:var(--ink);
        font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-       -webkit-font-smoothing:antialiased;padding:1.6rem 1rem 3rem}
-  .wrap{max-width:${wide ? '48rem' : '34rem'};margin:0 auto}
+       -webkit-font-smoothing:antialiased;padding:0 0 3rem}
+  .wrap{max-width:${wide ? '48rem' : '34rem'};margin:0 auto;padding:1.6rem 1rem 0}
   .brand{display:flex;align-items:center;gap:.6rem;margin-bottom:1.8rem}
   .brand img{width:36px;height:36px}
   .brand b{font-size:1rem;letter-spacing:.24em;text-transform:uppercase;color:var(--navy);font-weight:700}
@@ -169,33 +272,84 @@ function page(title, body, brand, { wide = true } = {}) {
   .facts{margin:0 0 .3rem;color:var(--soft);font-size:.95rem}
   .when{margin:0;font-weight:600;color:var(--ink)}
   .blurb p{margin:0 0 .8rem}
-  /* Key dates. A list rather than a table: four rows of two on a phone is a
-     table that has to scroll sideways. */
-  .dates{list-style:none;margin:0;padding:0;display:grid;gap:.7rem;
-         grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))}
-  .dates li{border-top:2px solid var(--line);padding-top:.6rem}
-  .dates .lbl{display:block;font-size:.7rem;font-weight:700;letter-spacing:.1em;
-              text-transform:uppercase;color:var(--soft);margin-bottom:.2rem}
-  .dates .val{font-size:1rem;font-weight:700;color:var(--navy);font-variant-numeric:tabular-nums}
-  .dates .none{font-weight:400;color:var(--soft)}
+  .blurb p:last-child{margin-bottom:0}
+  /* The top of the page. */
+  .hero{background:var(--navy);color:#fff}
+  .hero.photo{background:linear-gradient(rgba(10,25,40,.55),rgba(10,25,40,.72)),var(--hero) center/cover no-repeat,var(--navy)}
+  .hero-in{max-width:48rem;margin:0 auto;padding:1.1rem 1rem 2.2rem}
+  .hero-brand{display:flex;align-items:center;gap:.6rem;font-size:.85rem;font-weight:700;margin-bottom:1.8rem}
+  .hero-brand img{width:30px;height:30px;border-radius:7px;background:#fff;padding:2px;object-fit:contain}
+  .hero-by{margin-left:auto;font-weight:400;color:rgba(255,255,255,.82)}
+  .eyebrow{margin:0 0 .3rem;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;
+           color:rgba(255,255,255,.78);font-weight:700}
+  .hero h1{color:#fff;font-size:2rem;margin:0 0 .45rem}
+  .hero-sub{margin:0 0 1.3rem;color:rgba(255,255,255,.9)}
+  .hero-cta{display:flex;gap:.6rem;flex-wrap:wrap}
+  .hero .cta{display:inline-block;margin:0;padding:.8rem 1.5rem}
+  .ghost{display:inline-block;border:1px solid rgba(255,255,255,.75);color:#fff;text-decoration:none;
+         border-radius:999px;padding:.8rem 1.3rem;font-weight:700}
+  .ghost:hover{background:rgba(255,255,255,.12)}
+  /* Four facts at a glance. */
+  .tiles{display:grid;gap:.6rem;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));margin:-1.1rem 0 1.2rem}
+  .tile{background:#fff;border:1px solid var(--line);border-radius:12px;padding:.7rem .9rem;
+        box-shadow:0 1px 2px rgba(15,28,43,.05)}
+  .tile .lbl{display:block;font-size:.68rem;font-weight:700;letter-spacing:.1em;
+             text-transform:uppercase;color:var(--soft)}
+  .tile .val{display:block;font-size:1.02rem;font-weight:700;color:var(--navy);
+             font-variant-numeric:tabular-nums}
+  .tile.low{background:var(--amber-bg);border-color:#f1dfb8}
+  .tile.low .val{color:var(--amber)}
   /* Rate bands. */
   .rates{display:grid;gap:.9rem}
   .rate{border:1px solid var(--line);border-radius:11px;padding:1rem}
-  .rate.gone{opacity:.55}
+  .rate.gone{opacity:.62}
   .rate-top{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap}
   .rate b{font-size:1.02rem;color:var(--navy)}
   .rate .price{font-size:1.15rem;font-weight:700;color:var(--navy);
                font-variant-numeric:tabular-nums;white-space:nowrap}
   .rate .per{font-size:.76rem;font-weight:400;color:var(--soft)}
   .rate .meta{margin:.45rem 0 0;font-size:.86rem;color:var(--soft)}
+  .rate-foot{display:flex;justify-content:space-between;align-items:center;gap:.8rem;
+             flex-wrap:wrap;margin-top:.7rem}
   .left{display:inline-block;font-size:.72rem;font-weight:700;letter-spacing:.06em;
         text-transform:uppercase;padding:.2rem .55rem;border-radius:999px;
-        background:var(--amber-bg);color:var(--amber);margin-top:.5rem}
+        background:var(--amber-bg);color:var(--amber)}
   .left.plenty{background:#e8f5f0;color:#1f7a5a}
   .left.gone{background:#fdeeec;color:#b3382a}
-  .faq dt{font-weight:700;color:var(--navy);margin-top:1rem}
-  .faq dt:first-child{margin-top:0}
-  .faq dd{margin:.3rem 0 0}
+  .pick-btn{display:inline-block;background:var(--coral);color:#fff;text-decoration:none;
+            border-radius:999px;padding:.55rem 1.15rem;font-weight:700;font-size:.9rem}
+  .pick-btn:hover{background:#c94430}
+  .pick-btn.wait{background:#fff;color:var(--navy);border:1px solid #c7d9e9}
+  /* How to book. */
+  .steps{list-style:none;margin:0;padding:0;display:grid;gap:.7rem;
+         grid-template-columns:repeat(auto-fit,minmax(10rem,1fr))}
+  .steps li{border:1px solid var(--line);border-radius:11px;padding:.85rem;
+            display:flex;flex-direction:column;gap:.2rem}
+  .steps .n{width:1.7rem;height:1.7rem;border-radius:50%;background:var(--navy);color:#fff;
+            font-size:.8rem;font-weight:700;display:flex;align-items:center;justify-content:center;
+            margin-bottom:.3rem}
+  .s-title{font-weight:700;color:var(--navy)}
+  .s-text{font-size:.9rem;color:var(--soft);font-variant-numeric:tabular-nums}
+  .perks{list-style:none;margin:0;padding:0;display:grid;gap:.55rem}
+  .perks .ck{color:#1f7a5a;font-weight:700;margin-right:.6rem}
+  .itin .day{display:grid;grid-template-columns:5.2rem 1fr;gap:.1rem .8rem;padding:.65rem 0;
+             border-top:1px solid var(--line)}
+  .itin .day:first-child{border-top:0;padding-top:0}
+  .itin .d{font-weight:700;color:var(--navy)}
+  .itin .p{font-weight:600}
+  .itin .t{grid-column:2;color:var(--soft);font-size:.9rem}
+  .two{display:grid;gap:.8rem;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr))}
+  .half{border:1px solid var(--line);border-radius:11px;padding:.85rem}
+  .half b{color:var(--navy)}
+  .half p{margin:.3rem 0 0;color:var(--soft);font-size:.92rem}
+  .faq details{border-top:1px solid var(--line);padding:.75rem 0}
+  .faq details:first-child{border-top:0;padding-top:0}
+  .faq summary{cursor:pointer;font-weight:700;color:var(--navy)}
+  .faq details p{margin:.5rem 0 0}
+  .contact{display:flex;gap:.9rem;align-items:center}
+  .avatar{width:46px;height:46px;border-radius:50%;background:var(--navy);color:#fff;flex:none;
+          display:flex;align-items:center;justify-content:center;font-weight:700}
+  .share-row{display:flex;gap:.6rem;flex-wrap:wrap}
   .cta{display:block;text-align:center;background:var(--coral);color:#fff;text-decoration:none;
        border-radius:999px;padding:.9rem 1.4rem;font-weight:700;margin-top:.4rem}
   .cta:hover{background:#c94430}
@@ -227,111 +381,277 @@ function page(title, body, brand, { wide = true } = {}) {
          padding:.9rem 1.4rem;font:inherit;font-weight:700;cursor:pointer;min-height:44px}
   button:hover{background:#c94430}
   button:disabled{opacity:.6;cursor:not-allowed}
+  button.alt{width:auto;background:#fff;color:var(--navy);border:1px solid #c7d9e9}
+  button.alt:hover{background:#f2f7fb}
   .note{border-radius:10px;padding:.85rem 1rem;font-size:.9rem;margin-bottom:1.1rem}
   .note.error{background:#fdeeec;color:#b3382a}
+  .note.warn{background:var(--amber-bg);color:var(--amber)}
   .note.pay{background:#f2f7fb;border-left:3px solid var(--navy);border-radius:4px}
   .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
   .foot{text-align:center;margin-top:1.4rem;font-size:.78rem;color:#8395a5}
   .foot a{color:#8395a5}
   [hidden]{display:none!important}
 </style></head>
-<body><div class="wrap">
-  <div class="brand"><img src="${esc(b.logoUrl || '/logo-mark.png')}" alt="">
-    <span><b>${esc(b.name)}</b><small>${esc(b.tagline || '')}</small></span></div>
+<body>${hero ? '' : `<div class="wrap"><div class="brand"><img src="${esc(logoOf(b, env))}" alt="">
+    <span><b>${esc(b.name)}</b><small>${esc(b.tagline || '')}</small></span></div>`}
   ${body}
   <p class="foot">&copy; ${new Date().getFullYear()} ${esc(b.name)}
-    &middot; <a href="/privacy">Privacy policy</a></p>
-</div></body></html>`;
+    &middot; <a href="${esc(home)}/privacy">Privacy policy</a>${POWERED_BY}</p>
+${hero ? '' : '</div>'}</body></html>`;
 }
 
-function gone(brand, message) {
+function gone(brand, env, message) {
   return new Response(page('Not available',
-    `<div class="card"><h1>This trip is not taking names</h1><p>${esc(message)}</p></div>`, brand),
+    `<div class="card"><h1>This trip is not taking names</h1><p>${esc(message)}</p></div>`,
+    brand, { env }),
+  { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+}
+
+/** A page for an address that is not any group's. Branded as nobody, because it is nobody's. */
+export function noGroupPage(env, message) {
+  return new Response(page('Page not found',
+    `<div class="card"><h1>We could not find that group</h1><p>${esc(message
+      || 'The link may be mistyped or out of date. Ask whoever sent it for the current one.')}</p></div>`,
+    null, { env }),
   { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
 // ------------------------------------------------------- the landing page --
 
-function dateList(g) {
-  const rows = [
-    ['Sails', g.depart_date],
-    ['Deposit due', g.deposit_due],
-    ['Balance due', g.final_payment_due],
-    ['Passports in by', g.passport_due],
-  ].filter(([, iso]) => iso);
-  if (!rows.length) return '';
-  return `<div class="card"><h2>Dates to keep</h2><ul class="dates">${
-    rows.map(([label, iso]) => `<li><span class="lbl">${esc(label)}</span>
-      <span class="val">${esc(sayDate(iso))}</span></li>`).join('')
-  }</ul></div>`;
+const TYPE_WORDS = {
+  cruise: 'Group cruise', package: 'Group package', lodging: 'Group stay',
+  tour: 'Group tour', other: 'Group trip',
+};
+
+function nightsOf(g) {
+  if (!g.depart_date || !g.return_date) return 0;
+  const a = Date.parse(`${g.depart_date}T00:00:00Z`);
+  const b = Date.parse(`${g.return_date}T00:00:00Z`);
+  const n = Math.round((b - a) / 86400000);
+  return n > 0 && n < 400 ? n : 0;
 }
 
-function rateCards(rates) {
+function daysUntil(iso) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || '')) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  return Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000);
+}
+
+/** A group that is closed or has sailed takes no more registrations. */
+function closedTo(g) {
+  return g.status === 'closed' || Boolean(g.depart_date && daysUntil(g.depart_date) < 0);
+}
+
+/**
+ * Where this group stands, for the page: open, full, closed, or already sailed.
+ * Full is every cabin grade that has a block size being used up; a grade with no block size
+ * recorded is not counted, because the page would be inventing a limit.
+ */
+function standing(g, rates) {
+  if (g.depart_date && daysUntil(g.depart_date) < 0) return 'departed';
+  if (g.status === 'closed') return 'closed';
+  const metered = rates.filter((r) => r.metered);
+  if (metered.length && metered.length === rates.length && metered.every((r) => r.left === 0)) {
+    return 'full';
+  }
+  return 'open';
+}
+
+function listOf(json) {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function heroBlock(g, brand, contact, state, base, env) {
+  const kind = TYPE_WORDS[g.group_type] || TYPE_WORDS.other;
+  const sub = g.headline
+    || [g.vendor, g.product_name, g.destination].filter(Boolean).join(' · ');
+  const hasPhoto = Boolean(g.hero_image_url);
+  const by = contact.advisor ? `<span class="hero-by">Hosted by ${esc(contact.advisor)}</span>` : '';
+  const buttons = state === 'open'
+    ? `<a class="cta" href="${base}/register">Reserve your cabin</a>
+       <a class="ghost" href="#ask">Ask a question</a>`
+    : state === 'full'
+      ? `<a class="cta" href="${base}/register">Join the waitlist</a>
+         <a class="ghost" href="#ask">Ask a question</a>`
+      : '<a class="ghost" href="#ask">Ask about the next sailing</a>';
+  return `<header class="hero${hasPhoto ? ' photo' : ''}"${
+    hasPhoto ? ` style="--hero:url('${esc(g.hero_image_url)}')"` : ''}>
+    <div class="hero-in">
+      <div class="hero-brand"><img src="${esc(logoOf(brand, env))}" alt="">
+        <span>${esc(brand.name)}</span>${by}</div>
+      <p class="eyebrow">${esc(kind)}</p>
+      <h1>${esc(g.name)}</h1>
+      ${sub ? `<p class="hero-sub">${esc(sub)}</p>` : ''}
+      <div class="hero-cta">${buttons}</div>
+    </div></header>`;
+}
+
+function glance(g, rates) {
+  const left = rates.filter((r) => r.metered).reduce((n, r) => n + r.left, 0);
+  const held = rates.filter((r) => r.metered).reduce((n, r) => n + (Number(r.cabins) || 0), 0);
+  const nights = nightsOf(g);
+  const tiles = [
+    g.depart_date ? ['Sails', sayDate(g.depart_date), ''] : null,
+    nights ? ['Nights', String(nights), ''] : null,
+    g.deposit_due ? ['Deposit due', sayDate(g.deposit_due), ''] : null,
+    held ? ['Cabins left', `${left} of ${held}`, left <= 3 ? 'low' : ''] : null,
+    g.departure_port ? ['Sailing from', g.departure_port, ''] : null,
+  ].filter(Boolean).slice(0, 4);
+  if (!tiles.length) return '';
+  return `<div class="tiles">${tiles.map(([label, value, tone]) =>
+    `<div class="tile${tone ? ` ${tone}` : ''}"><span class="lbl">${esc(label)}</span>
+      <span class="val">${esc(value)}</span></div>`).join('')}</div>`;
+}
+
+function rateCards(rates, base, state) {
   if (!rates.length) return '';
-  return `<div class="card"><h2>What is held</h2><div class="rates">${
-    rates.map((r) => {
-      const out = r.metered && r.left === 0;
-      const tag = !r.metered
-        ? ''
-        : out
-          ? '<span class="left gone">None left</span>'
-          : `<span class="left${r.left > 2 ? ' plenty' : ''}">${r.left} of ${r.cabins} left</span>`;
-      const meta = [
-        r.occupancy ? `${esc(r.occupancy)} occupancy` : '',
-        r.guests ? `${r.guests} guest${r.guests === 1 ? '' : 's'}` : '',
-        r.taxes_cents ? `taxes and fees ${money(r.taxes_cents)} each` : '',
-      ].filter(Boolean).join(' · ');
-      return `<div class="rate${out ? ' gone' : ''}">
-        <div class="rate-top"><b>${esc(r.room_type)}</b>
-          <span class="price">${money(r.per_guest_cents)}<span class="per"> per guest</span></span></div>
-        ${meta ? `<p class="meta">${meta}</p>` : ''}
-        ${tag}
-      </div>`;
-    }).join('')
-  }</div><p class="muted" style="margin:1rem 0 0;">Prices are per guest and do not include
-    anything bought separately. The trip is paid to the travel supplier through us, and
-    never on this page.</p></div>`;
+  return `<div class="card"><h2>What is still available</h2>
+    <p class="muted" style="margin:-.4rem 0 1rem;">Prices are per guest and do not include
+      anything bought separately. The trip is paid to the travel supplier through us, and
+      never on this page.</p><div class="rates">${
+  rates.map((r) => {
+    const out = r.metered && r.left === 0;
+    const tag = !r.metered
+      ? ''
+      : out
+        ? '<span class="left gone">None left</span>'
+        : `<span class="left${r.left > 3 ? ' plenty' : ''}">${r.left} of ${r.cabins} left</span>`;
+    const meta = [
+      r.occupancy ? `${esc(r.occupancy)} occupancy` : '',
+      r.guests ? `${r.guests} guest${r.guests === 1 ? '' : 's'}` : '',
+      r.taxes_cents ? `taxes and fees ${money(r.taxes_cents)} each` : '',
+    ].filter(Boolean).join(' · ');
+    const action = state === 'open' || state === 'full'
+      ? `<a class="pick-btn${out ? ' wait' : ''}" href="${base}/register?rate=${encodeURIComponent(r.id)}">${
+        out ? 'Join the waitlist' : 'Book this cabin'}</a>`
+      : '';
+    return `<div class="rate${out ? ' gone' : ''}">
+      <div class="rate-top"><b>${esc(r.room_type)}</b>
+        <span class="price">${money(r.per_guest_cents)}<span class="per"> per guest</span></span></div>
+      ${meta ? `<p class="meta">${meta}</p>` : ''}
+      <div class="rate-foot">${tag}${action}</div>
+    </div>`;
+  }).join('')
+}</div></div>`;
+}
+
+function stepsBlock(g, base, state) {
+  const steps = [];
+  if (state === 'open' || state === 'full') {
+    steps.push(['Reserve your cabin', 'Pick a cabin and register. Nothing is charged on the page.']);
+  }
+  if (g.deposit_due) {
+    steps.push(['Deposit due', `${sayDate(g.deposit_due)}${
+      g.deposit_per_guest_cents ? `, ${money(g.deposit_per_guest_cents)} per guest` : ''}`]);
+  }
+  if (g.passport_due) steps.push(['Passports in by', sayDate(g.passport_due)]);
+  if (g.final_payment_due) steps.push(['Balance due', sayDate(g.final_payment_due)]);
+  if (steps.length < 2) return '';
+  const next = [g.deposit_due, g.final_payment_due, g.passport_due]
+    .filter((d) => d && daysUntil(d) >= 0).sort()[0];
+  const count = next
+    ? `<p class="muted" style="margin:.9rem 0 0;">${daysUntil(next) === 0
+      ? 'The next date is today.' : `The next date is in ${daysUntil(next)} day${
+        daysUntil(next) === 1 ? '' : 's'}.`}</p>` : '';
+  return `<div class="card"><h2>How to book</h2><ol class="steps">${
+    steps.map(([title, text], i) => `<li><span class="n">${i + 1}</span>
+      <span class="s-title">${esc(title)}</span><span class="s-text">${esc(text)}</span></li>`).join('')
+  }</ol>${count}</div>`;
+}
+
+function perksBlock(g) {
+  const perks = listOf(g.perks_json).map((p) => String(p || '').trim()).filter(Boolean);
+  if (!perks.length) return '';
+  return `<div class="card"><h2>What is included</h2><ul class="perks">${
+    perks.map((p) => `<li><span class="ck" aria-hidden="true">&#10003;</span>${esc(p)}</li>`).join('')}</ul></div>`;
+}
+
+function itineraryBlock(g) {
+  const days = listOf(g.itinerary_json).filter((d) => d && (d.port || d.note));
+  if (!days.length) return '';
+  return `<div class="card"><h2>Itinerary</h2><div class="itin">${
+    days.map((d) => `<div class="day"><span class="d">${esc(d.day || '')}</span>
+      <span class="p">${esc(d.port || '')}</span>${d.note ? `<span class="t">${esc(d.note)}</span>` : ''}</div>`).join('')
+  }</div></div>`;
+}
+
+function moneyBlock(g) {
+  const fee = Number(g.agency_fee_cents) || 0;
+  if (!fee && !g.trip_terms && !g.fee_terms) return '';
+  return `<div class="card"><h2>What it costs and what comes back</h2><div class="two">
+    <div class="half"><b>Trip cost</b><p>${esc(g.trip_terms
+    || 'Paid to the travel supplier through us. It follows the supplier\'s cancellation schedule.')}</p></div>
+    ${fee || g.fee_terms ? `<div class="half"><b>Our fee${fee ? `, ${money(fee)} per guest` : ''}</b>
+      <p>${esc(g.fee_terms || 'This is the agency\'s own fee.')}</p></div>` : ''}
+    </div></div>`;
 }
 
 function faqBlock(faq) {
   if (!faq.length) return '';
-  return `<div class="card"><h2>Questions people ask</h2><dl class="faq">${
-    faq.map((p) => `<dt>${esc(p.q)}</dt><dd>${esc(p.a)}</dd>`).join('')
-  }</dl></div>`;
+  return `<div class="card"><h2>Questions people ask</h2><div class="faq">${
+    faq.map((p) => `<details><summary>${esc(p.q)}</summary><p>${esc(p.a)}</p></details>`).join('')
+  }</div></div>`;
 }
 
-export async function renderGroupTripPage(request, env, code) {
-  const g = await loadGroup(env, code);
+function contactBlock(contact, brand) {
+  const bits = [];
+  if (contact.phone) bits.push(`<a href="tel:${esc(String(contact.phone).replace(/[^\d+]/g, ''))}">${esc(contact.phone)}</a>`);
+  if (contact.email) bits.push(`<a href="mailto:${esc(contact.email)}">${esc(contact.email)}</a>`);
+  if (brand.website) bits.push(`<a href="${esc(brand.website)}" rel="noopener">${esc(brand.website.replace(/^https?:\/\//, ''))}</a>`);
+  if (!contact.advisor && !bits.length) return '';
+  const initials = (contact.advisor || brand.name).split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+  return `<div class="card contact"><span class="avatar">${esc(initials)}</span>
+    <div><b>${esc(contact.advisor || brand.name)}</b>
+      <p class="muted" style="margin:.1rem 0 0;">Your group's travel advisor at ${esc(brand.name)}${
+  bits.length ? `<br>${bits.join(' &middot; ')}` : ''}</p></div></div>`;
+}
+
+export async function renderGroupTripPage(request, env, rawRef) {
+  const ref = refOf(rawRef);
+  const g = await loadGroup(env, ref);
   const brand = g ? await brandForUser(env, g.user_id) : null;
   if (!g || g.status === 'cancelled') {
-    return gone(brand, 'The link may be out of date. Get in touch and we will tell you what is '
+    return gone(brand, env, 'The link may be out of date. Get in touch and we will tell you what is '
       + 'going out next.');
   }
 
+  const base = ref.base;
   const rates = await loadRates(env, g.id, g.user_id);
-  const facts = [g.vendor, g.product_name, g.destination, g.departure_port].filter(Boolean);
-  const when = g.depart_date
-    ? `${sayDate(g.depart_date)}${g.return_date ? ` to ${sayDate(g.return_date)}` : ''}`
-    : '';
+  const contact = await contactFor(env, g.user_id);
+  const state = standing(g, rates);
+  const canonical = canonicalOf(env, g, ref);
+
+  const notice = state === 'departed'
+    ? 'This sailing has departed. Get in touch about the next one.'
+    : state === 'closed'
+      ? 'Booking on this group has closed. Get in touch and we will tell you what is open.'
+      : state === 'full'
+        ? 'Every cabin in this group is taken. Join the waitlist and we will tell you if one opens up.'
+        : '';
 
   const body = [
-    '<div class="card">',
-    `<h1>${esc(g.name)}</h1>`,
-    facts.length ? `<p class="facts">${esc(facts.join(' · '))}</p>` : '',
-    when ? `<p class="when">${esc(when)}</p>` : '',
-    '</div>',
+    heroBlock(g, brand, contact, state, base, env),
+    '<main class="wrap">',
+    notice ? `<div class="note warn">${esc(notice)}</div>` : '',
+    glance(g, rates),
     g.registration_blurb ? `<div class="card blurb">${paragraphs(g.registration_blurb)}</div>` : '',
-    dateList(g),
-    rateCards(rates),
+    state === 'departed' ? '' : rateCards(rates, base, state),
+    state === 'departed' ? '' : stepsBlock(g, base, state),
+    perksBlock(g),
+    itineraryBlock(g),
+    moneyBlock(g),
     faqBlock(faqOf(g)),
-    `<div class="card"><h2>Coming with us</h2>
-      <p class="muted" style="margin-top:0;">Tell us who is travelling and which cabin you want.
-        It takes a couple of minutes and nothing is charged here.</p>
-      <a class="cta" href="/g/${encodeURIComponent(code)}/register">Register for this trip</a></div>`,
     // The short enquiry stays. Not everybody reading this is ready to name
     // four passports, and losing "send me more" because the only button was
     // "register" would cost the agency the easier half of the list.
-    `<div class="card"><h2>Not ready yet?</h2>
+    `<div class="card" id="ask"><h2>${state === 'open' ? 'Not ready yet? Ask a question'
+      : 'Ask us a question'}</h2>
       <p class="muted" style="margin-top:0;">Leave your name and we will send you the details.</p>
       <form id="f" novalidate>
         <div class="note error" id="err" hidden></div>
@@ -350,11 +670,22 @@ export async function renderGroupTripPage(request, env, code) {
         ${turnstileWidget(env)}
         <button type="submit">Send me the details</button>
       </form></div>`,
+    contactBlock(contact, brand),
+    `<div class="card share"><b>Share this page</b>
+      <p class="muted" style="margin:.2rem 0 .8rem;">Send the link to anybody who might want to come.</p>
+      <div class="share-row"><button type="button" id="copy" class="alt">Copy link</button>
+        <button type="button" id="share" class="alt" hidden>Share</button></div></div>`,
+    '</main>',
     ENQUIRY_SCRIPT,
+    shareScript(canonical),
   ].filter(Boolean).join('\n');
 
-  return new Response(page(g.name, body, brand),
-    { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  const description = [g.headline, g.depart_date ? `Sailing ${sayDate(g.depart_date)}` : '',
+    'See what is available and how to book.'].filter(Boolean).join('. ').slice(0, 200);
+  return new Response(page(g.name, body, brand, {
+    env, hero: true,
+    head: shareTags({ title: g.name, description, url: canonical, image: g.hero_image_url }),
+  }), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
 const ENQUIRY_SCRIPT = `<scr${''}ipt>
@@ -377,6 +708,31 @@ f.addEventListener('submit', async (e) => {
     (data.message || 'We will be in touch shortly.') + '</p>';
 });
 </scr${''}ipt>`;
+
+// Copy and share, for the person who wants to pass the page on. The address is the short
+// one even when the page was opened on another, so a pasted link is the one worth keeping.
+function shareScript(url) {
+  return `<scr${''}ipt>
+const link = ${JSON.stringify(url).replace(/</g, '\\u003c')};
+const copy = document.getElementById('copy');
+const share = document.getElementById('share');
+copy.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(link);
+    copy.textContent = 'Copied';
+    setTimeout(() => { copy.textContent = 'Copy link'; }, 1600);
+  } catch (ex) {
+    copy.textContent = 'Press Cmd-C or long press to copy';
+  }
+});
+if (navigator.share) {
+  share.hidden = false;
+  share.addEventListener('click', () => {
+    navigator.share({ title: document.title, url: link }).catch(() => {});
+  });
+}
+</scr${''}ipt>`;
+}
 
 // --------------------------------------------------------- registering --
 
@@ -409,7 +765,7 @@ function travellerBlock(i, withPassport) {
   </fieldset>`;
 }
 
-function ratePicker(rates) {
+function ratePicker(rates, wanted = '') {
   if (!rates.length) {
     return '<p class="muted">No cabin grades have been loaded for this trip yet. Register '
       + 'anyway and we will come back to you with what is available.</p>';
@@ -419,7 +775,8 @@ function ratePicker(rates) {
     const perGuest = money(r.per_guest_cents);
     const taxes = r.taxes_cents ? ` plus ${money(r.taxes_cents)} taxes and fees` : '';
     return `<label class="pick${out ? ' gone' : ''}">
-      <input type="radio" name="rate" value="${esc(r.id)}"${out ? ' disabled' : ''}
+      <input type="radio" name="rate" value="${esc(r.id)}"${out ? ' disabled' : ''}${
+  !out && wanted && wanted === r.id ? ' checked' : ''}
         data-guest="${Number(r.per_guest_cents) || 0}" data-tax="${Number(r.taxes_cents) || 0}">
       <span class="pick-body"><b>${esc(r.room_type)}</b>
         <span class="muted" style="display:block;">${perGuest} per guest${taxes}${
@@ -430,12 +787,14 @@ function ratePicker(rates) {
   }).join('');
 }
 
-export async function renderRegisterPage(request, env, code) {
-  const g = await loadGroup(env, code);
+export async function renderRegisterPage(request, env, rawRef) {
+  const ref = refOf(rawRef);
+  const g = await loadGroup(env, ref);
   const brand = g ? await brandForUser(env, g.user_id) : null;
-  if (!g || g.status === 'cancelled') {
-    return gone(brand, 'Registration for this trip has closed.');
+  if (!g || g.status === 'cancelled' || closedTo(g)) {
+    return gone(brand, env, 'Registration for this trip has closed.');
   }
+  const wanted = new URL(request.url).searchParams.get('rate') || '';
 
   const rates = await loadRates(env, g.id, g.user_id);
   // No key, no boxes. A form that takes a passport number it cannot encrypt
@@ -452,14 +811,15 @@ export async function renderRegisterPage(request, env, code) {
   }
 
   const body = [
-    `<div class="card"><h1>Register for ${esc(g.name)}</h1>`,
+    `<div class="card"><p class="muted" style="margin:0 0 .6rem;"><a href="${ref.base}">Back to the trip page</a></p>
+    <h1>Register for ${esc(g.name)}</h1>`,
     `<p class="muted">${esc([g.vendor, g.product_name].filter(Boolean).join(' · '))}${
       g.depart_date ? `, sailing ${esc(sayDate(g.depart_date))}` : ''}</p></div>`,
 
     '<form id="reg" novalidate><div class="card">',
     '<div class="note error" id="err" hidden></div>',
     '<h2>Which cabin</h2>',
-    ratePicker(rates),
+    ratePicker(rates, wanted),
     '</div>',
 
     '<div class="card"><h2>Who to contact</h2>',
@@ -515,8 +875,11 @@ export async function renderRegisterPage(request, env, code) {
     registerScript(fee),
   ].filter(Boolean).join('\n');
 
-  return new Response(page(`Register for ${g.name}`, body, brand, { wide: false }),
-    { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  return new Response(page(`Register for ${g.name}`, body, brand, {
+    wide: false, env,
+    head: shareTags({ title: `Register for ${g.name}`, description: 'Reserve your cabin.',
+      url: canonicalOf(env, g, ref, '/register'), image: g.hero_image_url }),
+  }), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
 function registerScript(feeCents) {
@@ -540,6 +903,10 @@ form.addEventListener('change', (e) => {
   const tax = Number(e.target.dataset.tax) || 0;
   tripCell.textContent = cash(guest) + (tax ? ' plus ' + cash(tax) + ' taxes and fees' : '');
 });
+
+// A cabin picked on the trip page arrives already chosen, so the total has to follow it.
+const chosen = form.querySelector('input[name="rate"]:checked');
+if (chosen) chosen.dispatchEvent(new Event('change', { bubbles: true }));
 
 document.getElementById('more').addEventListener('click', () => {
   const next = blocks.find((b) => b.hidden);
@@ -625,10 +992,6 @@ async function tooMany(env, group, ipHash) {
   return (seen?.n || 0) >= PER_HOUR;
 }
 
-function appUrl(env) {
-  return (env.APP_URL || 'https://cttagents.com').replace(/\/$/, '');
-}
-
 /**
  * Tell the advisor somebody registered.
  *
@@ -655,9 +1018,11 @@ async function notifyOwner(env, group, details) {
   }
 }
 
-export async function handleRegister(request, env, code) {
-  const g = await loadGroup(env, code);
+export async function handleRegister(request, env, rawRef) {
+  const ref = refOf(rawRef);
+  const g = await loadGroup(env, ref);
   if (!g || g.status === 'cancelled') return notFound('This trip is not taking registrations.');
+  if (closedTo(g)) return badRequest('Registration for this trip has closed.');
 
   const body = await readJson(request);
 
@@ -668,7 +1033,7 @@ export async function handleRegister(request, env, code) {
   }
 
   const ip = request.headers.get('CF-Connecting-IP') || '';
-  const ipHash = ip ? (await sha256Hex(`group:${code}:${ip}`)).slice(0, 32) : null;
+  const ipHash = ip ? (await sha256Hex(`group:${refKey(ref)}:${ip}`)).slice(0, 32) : null;
   if (await tooMany(env, g, ipHash)) {
     return json({ error: 'Too many from here. Please try again later.' }, 429);
   }

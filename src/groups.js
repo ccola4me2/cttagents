@@ -18,6 +18,7 @@ import { parseGroupQuote, FIELD_WORDS } from './groupquote.js';
 // booking and a typed one cannot produce different schedules. payments.js
 // does not import this file, so there is no cycle.
 import { buildSchedule } from './payments.js';
+import { assignSlug, linkInfo, releaseAllFor, cleanSlug, slugProblem, slugState } from './groupslug.js';
 
 const STATUSES = ['open', 'closed', 'cancelled'];
 
@@ -35,6 +36,7 @@ const COLUMNS = `
   g.deposit_due, g.final_payment_due, g.passport_due, g.group_number,
   g.deposit_per_guest_cents, g.reminded_on,
   g.faq_json, g.terms, g.agency_fee_cents, g.fee_terms, g.trip_terms,
+  g.page_slug, g.headline, g.hero_image_url, g.perks_json, g.itinerary_json,
   g.created_at, g.updated_at
 `;
 
@@ -57,6 +59,11 @@ function parse(body) {
   const optionDate = cleanDate(body.optionDate);
   if (optionDate && departDate && optionDate > departDate) {
     return { error: 'The option date falls after departure, which cannot be right.' };
+  }
+
+  const heroImageUrl = imageUrlOf(body.heroImageUrl);
+  if (clean(body.heroImageUrl, 500) && !heroImageUrl) {
+    return { error: 'The picture needs to be a link starting with https:// that goes straight to an image.' };
   }
 
   return {
@@ -108,8 +115,66 @@ function parse(body) {
       agencyFeeCents: Math.max(0, Math.min(toCents(body.agencyFee) || 0, 10000000)),
       feeTerms: cleanText(body.feeTerms, 1000),
       tripTerms: cleanText(body.tripTerms, 1000),
+      // What the shared page adds to the record. Each is only written when the caller sent it,
+      // see pageFields below.
+      headline: clean(body.headline, 140),
+      heroImageUrl,
+      perksJson: perksOf(body.perks),
+      itineraryJson: itineraryOf(body.itinerary),
     },
   };
+}
+
+/** A link to a picture, or nothing. https only, and nothing that could close a CSS url(). */
+function imageUrlOf(value) {
+  const text = clean(value, 500);
+  return /^https:\/\/[^\s'"()<>\\]+$/i.test(text) ? text : null;
+}
+
+/** What the group gets, as short lines. Blank ones are dropped rather than shown empty. */
+function perksOf(value) {
+  if (!Array.isArray(value)) return null;
+  const lines = value.slice(0, 12).map((v) => clean(v, 120)).filter(Boolean);
+  return lines.length ? JSON.stringify(lines) : null;
+}
+
+/** Day by day. A row with neither a port nor a note says nothing and is dropped. */
+function itineraryOf(value) {
+  if (!Array.isArray(value)) return null;
+  const rows = [];
+  for (const item of value.slice(0, 30)) {
+    const row = {
+      day: clean(item && item.day, 20),
+      port: clean(item && item.port, 80),
+      note: clean(item && item.note, 200),
+    };
+    if (row.port || row.note) rows.push(row);
+  }
+  return rows.length ? JSON.stringify(rows) : null;
+}
+
+/**
+ * The page fields a save actually mentioned, as SET clauses.
+ *
+ * A save that does not carry them leaves them alone: the group page on the portal sends the
+ * whole group, but anything older that saves a group without them must not wipe a headline,
+ * a picture or an itinerary that somebody wrote.
+ */
+function pageFields(raw, fields) {
+  const sets = [];
+  const binds = [];
+  const pairs = [
+    ['headline', 'headline', fields.headline],
+    ['heroImageUrl', 'hero_image_url', fields.heroImageUrl],
+    ['perks', 'perks_json', fields.perksJson],
+    ['itinerary', 'itinerary_json', fields.itineraryJson],
+  ];
+  for (const [key, column, value] of pairs) {
+    if (raw[key] === undefined) continue;
+    sets.push(`${column} = ?`);
+    binds.push(value || null);
+  }
+  return { sets, binds };
 }
 
 /**
@@ -295,6 +360,8 @@ export async function handleGetGroup(request, env, id) {
     // Whether the link is safe to hand out, which is only true if this group
     // is the only one on the code.
     codeShared: (await clashingCodes(env, [group])).length > 0,
+    // The short name the page is shared under, and the ones it used to have.
+    link: await linkInfo(env, group),
     rates: await ratesFor(env, id, group.user_id) });
 }
 
@@ -497,6 +564,15 @@ export async function handleCreateGroup(request, env) {
   if (await codeTaken(env, fields.groupCode)) {
     return badRequest(`The code ${fields.groupCode} is already in use. Pick another.`);
   }
+  // A short name asked for has to be usable. One not asked for is chosen after the group exists.
+  const askedSlug = cleanSlug(raw.pageSlug);
+  if (askedSlug) {
+    const problem = slugProblem(askedSlug);
+    if (problem) return badRequest(problem);
+    if ((await slugState(env, askedSlug, user.id, null)).state !== 'free') {
+      return badRequest('That name is taken. Try another.');
+    }
+  }
 
   const id = uid();
   const ts = now();
@@ -507,9 +583,10 @@ export async function handleCreateGroup(request, env) {
        proposal_id, sailing_id, vendor_contact, departure_port, passengers, proposal_expires,
        deposit_due, final_payment_due, passport_due, group_number,
        faq_json, terms, agency_fee_cents, fee_terms, trip_terms,
-       deposit_per_guest_cents, created_at, updated_at)
+       deposit_per_guest_cents, headline, hero_image_url, perks_json, itinerary_json,
+       created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(id, user.id, fields.name, fields.vendor, fields.productName, fields.destination,
          fields.groupCode, fields.departDate, fields.returnDate, fields.optionDate,
          fields.cabinsHeld, fields.status, fields.notes,
@@ -518,8 +595,19 @@ export async function handleCreateGroup(request, env) {
          fields.passengers, fields.proposalExpires,
          fields.depositDue, fields.finalPaymentDue, fields.passportDue, fields.groupNumber,
          fields.faqJson, fields.terms, fields.agencyFeeCents, fields.feeTerms, fields.tripTerms,
-         fields.depositPerGuestCents, ts, ts).run();
+         fields.depositPerGuestCents, fields.headline || null, fields.heroImageUrl,
+         fields.perksJson, fields.itineraryJson, ts, ts).run();
   await saveRates(env, id, user.id, raw.rates);
+  // Best effort: a group that cannot be given a name yet is still a group, and the share box
+  // on its page offers one.
+  try {
+    await assignSlug(env, {
+      userId: user.id, groupId: id, name: fields.name, departDate: fields.departDate,
+      preferred: askedSlug,
+    });
+  } catch (e) {
+    console.error('group slug', e);
+  }
 
   await db.logActivity(env, user.id, 'group.create', `Opened group ${fields.name}`, { id });
   return json({ ok: true, group: await getGroup(env, id, user.id) }, 201);
@@ -559,6 +647,11 @@ export async function handleUpdateGroup(request, env, id) {
          fields.faqJson, fields.terms, fields.agencyFeeCents, fields.feeTerms, fields.tripTerms,
          fields.depositPerGuestCents, now(), id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Group not found.');
+  const page = pageFields(raw, fields);
+  if (page.sets.length) {
+    await env.DB.prepare(`UPDATE travel_groups SET ${page.sets.join(', ')} WHERE id = ? AND user_id = ?`)
+      .bind(...page.binds, id, owner.id).run();
+  }
   // Only when the caller mentioned them. A save from the details form does not
   // carry rates, and treating that silence as "no grades" would wipe the grid
   // every time somebody corrected a date.
@@ -580,6 +673,8 @@ export async function handleDeleteGroup(request, env, id) {
   // bookings made out of it, which are real trips people have paid for.
   await env.DB.prepare('UPDATE bookings SET group_id = NULL WHERE group_id = ? AND user_id = ?')
     .bind(id, owner.id).run();
+  // Its short names stop meaning anything with it.
+  await releaseAllFor(env, id, owner.id);
   const res = await env.DB.prepare('DELETE FROM travel_groups WHERE id = ? AND user_id = ?')
     .bind(id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Group not found.');

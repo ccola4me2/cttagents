@@ -247,6 +247,8 @@ import {
   handleRoster, handleUpdateRegistration, handleUpdateGroupTraveller, handleDeleteRegistration,
 } from './grouproster.js';
 import { handleGroupList } from './groupmanifest.js';
+import { handleSlugCheck, handleSetSlug, handlePublicSlugTaken } from './groupslug.js';
+import { isGroupHost, serveGroupHost, serveSlug, redirectForCode } from './grouphost.js';
 import { remindGroups, handleRunGroupReminders } from './groupremind.js';
 import {
   handleListCredits,
@@ -678,6 +680,9 @@ async function routeRequest(request, env, ctx) {
   const path = url.pathname.replace(/\/{2,}/g, '/');
   const method = request.method.toUpperCase();
 
+  // The shared group domain serves group pages and nothing else: no portal, no sign in.
+  if (isGroupHost(request, env)) return serveGroupHost(request, env);
+
   if (path.startsWith('/api/')) return routeApi(request, env, path, method);
 
   // Everything else is a page or a static file.
@@ -748,6 +753,7 @@ async function routeApi(request, env, path, method) {
   const taskItemMatch = path.match(/^\/api\/task-items\/([^/]+)$/);
   const templateMatch = path.match(/^\/api\/task-templates\/([^/]+)$/);
   const groupMatch = path.match(/^\/api\/groups\/([^/]+)$/);
+  const groupSlugMatch = path.match(/^\/api\/groups\/([^/]+)\/slug$/);
   const groupBookMatch = path.match(/^\/api\/groups\/registrations\/([^/]+)\/book$/);
   const rosterMatch = path.match(/^\/api\/groups\/([^/]+)\/roster$/);
   const groupListMatch = path.match(/^\/api\/groups\/([^/]+)\/list$/);
@@ -794,6 +800,9 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/billing/checkout' && method === 'POST') return handleCheckout(request, env);
   if (path === '/api/billing/portal' && method === 'POST') return handlePortal(request, env);
 
+  // The other portal asking whether a group name is already held here. Public, and it says
+  // nothing but yes or no: the names are addresses that were handed out anyway.
+  if (path === '/api/public/group-slug-taken' && method === 'GET') return handlePublicSlugTaken(request, env);
   if (path === '/api/auth/login' && method === 'POST') return handleLogin(request, env);
   if (path === '/api/auth/logout' && method === 'POST') return handleLogout(request, env);
   if (path === '/api/auth/me' && method === 'GET') return handleMe(request, env);
@@ -1083,6 +1092,9 @@ async function routeApi(request, env, path, method) {
   if (templateMatch && method === 'DELETE') return handleDeleteTemplate(request, env, templateMatch[1]);
 
   // Group space: cabins held by a vendor before anybody has booked them.
+  // A group's short name: the part of its link after the shared domain.
+  if (path === '/api/group-slugs/check' && method === 'GET') return handleSlugCheck(request, env);
+  if (groupSlugMatch && method === 'PUT') return handleSetSlug(request, env, groupSlugMatch[1]);
   if (path === '/api/groups' && method === 'GET') return handleListGroups(request, env);
   if (path === '/api/groups/quote' && method === 'POST') return handleParseQuote(request, env);
   if (path === '/api/groups' && method === 'POST') return handleCreateGroup(request, env);
@@ -1432,9 +1444,16 @@ async function routePage(request, env, path) {
 
   // A group's own page, on the same terms: public, because it is how names
   // arrive for a trip nobody has been told about yet.
+  // A group by its short name, on this portal's own address. The shared domain serves the same
+  // pages at the root; see grouphost.js.
+  const slugPage = path.match(/^\/gs\/([^/]+)(?:\/(register))?\/?$/);
+  if (slugPage) return serveSlug(request, env, slugPage[1], slugPage[2] || '', 'path');
+
   const groupPage = path.match(/^\/g\/([^/]+)\/?$/);
   if (groupPage) {
     const code = decodeURIComponent(groupPage[1]);
+    const moved = await redirectForCode(request, env, code, '');
+    if (moved) return moved;
     return request.method === 'POST'
       ? handleGroupRegistration(request, env, code)
       : renderGroupPage(request, env, code);
@@ -1446,6 +1465,8 @@ async function routePage(request, env, path) {
   const groupRegister = path.match(/^\/g\/([^/]+)\/register\/?$/);
   if (groupRegister) {
     const code = decodeURIComponent(groupRegister[1]);
+    const moved = await redirectForCode(request, env, code, '/register');
+    if (moved) return moved;
     return request.method === 'POST'
       ? handleRegister(request, env, code)
       : renderRegisterPage(request, env, code);

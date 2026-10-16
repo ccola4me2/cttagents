@@ -72,6 +72,12 @@ INVITE_DOMAIN = "cttinbox.com"
 # and an unsubscribe link is the one address that cannot afford to. The
 # workers.dev host keeps answering, so links already sent still resolve.
 APP_URL = "https://cttagents.com"
+# The shared domain group pages are shared on: cruisegrouppage.com/<short name>. One domain
+# serves the groups of both portals, so it is attached to this Worker only. A name that is not
+# one of this portal's groups is handed on to the other portal through the PEER binding below.
+GROUP_HOST = "cruisegrouppage.com"
+# Off until the domain answers. On, /g/<group number> redirects to the group's short name.
+GROUP_REDIRECT = "0"
 # The agency's name, on the domain Resend will actually send from.
 #
 # This said cruisestoursandtravel.com for a long time, on the stated grounds
@@ -137,5 +143,12 @@ RESET_TTL_MINUTES = "60"
 
 # Payment reminders, task digests, the broadcast queue and the automation
 # runner. Every 5 minutes; each job no-ops cheaply when it has nothing to do.
+# The other portal, for the one question that spans both: is this group name already taken
+# there, and whose group does a name on the shared domain belong to. Trip Vara's Worker is
+# named in its own wrangler.toml and must already exist for this to deploy.
+[[services]]
+binding = "PEER"
+service = "trip-vara"
+
 [triggers]
 crons = ["*/5 * * * *"]

@@ -243,6 +243,13 @@ try {
         data-caption="${esc(f.name)}">${esc(f.name)}</option>`).join('');
 } catch { /* the box still takes a typed address */ }
 
+// Arriving from a group's page with its link already in hand.
+const arrived = new URLSearchParams(location.search);
+if (arrived.get('url')) {
+  url.value = arrived.get('url');
+  caption.value = arrived.get('caption') || '';
+}
+
 draw();
 </script>
 </body></html>

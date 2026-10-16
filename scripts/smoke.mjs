@@ -7051,6 +7051,165 @@ async function main() {
       'and the money goes with it', `${after.data?.counts?.supplierDue}`);
   }
 
+  // ------------------------------------------------ a group's short name --
+  step('A group page by its short name');
+  {
+    const slugA = `sm-${stamp}`;
+    const slugB = `sm2-${stamp}`;
+    const made = await call(advisor, 'POST', '/api/groups', {
+      name: `Margaritaville at Sea Oct 2027 ${stamp}`, vendor: 'Test Line', departDate: isoDay(120),
+      returnDate: isoDay(124), cabinsHeld: 6, registrationOpen: true, pageSlug: slugA,
+      headline: 'Four nights, one great crowd', heroImageUrl: 'https://example.com/ship-photo.jpg',
+      perks: ['$100 onboard credit', 'Group cocktail party'],
+      itinerary: [{ day: 'Day 1', port: 'Tampa', note: 'Depart 4:00 PM' }, { day: '', port: '', note: '' }],
+      depositDue: isoDay(30), finalPaymentDue: isoDay(90),
+      rates: [{ roomType: 'Interior', occupancy: 'Double', cabins: 3, guests: 2, perGuestCents: 68900, taxesCents: 17240 }],
+    });
+    const gid = made.data?.group?.id;
+    check(made.status === 201 && made.data?.group?.page_slug === slugA,
+      'a group can be made with a short name of its own', `${made.status} ${made.data?.group?.page_slug}`);
+    cleanup('the short name group', () => call(advisor, 'DELETE', `/api/groups/${gid}`));
+
+    const auto = await call(advisor, 'POST', '/api/groups', {
+      name: `The Alaska Cruise Group June 2027 ${stamp}`, departDate: '2027-06-12', registrationOpen: true,
+    });
+    const autoSlug = auto.data?.group?.page_slug || '';
+    check(/^alaska-/.test(autoSlug) && autoSlug.length <= 30,
+      'one not asked for is suggested from the name, without the filler words', autoSlug);
+    cleanup('the suggested name group', () => call(advisor, 'DELETE', `/api/groups/${auto.data?.group?.id}`));
+
+    // The rules for a name.
+    for (const [name, why] of [['admin', 'a word the site keeps'], ['ab', 'one that is too short'],
+      ['12345', 'one with no letter in it']]) {
+      const bad = await call(advisor, 'GET', `/api/group-slugs/check?name=${name}&groupId=${gid}`);
+      check(bad.status === 200 && bad.data?.available === false && Boolean(bad.data?.problem),
+        `${why} is refused with a reason`, JSON.stringify(bad.data));
+    }
+    const tidy = await call(advisor, 'GET', `/api/group-slugs/check?name=${encodeURIComponent(`  Hello World ${stamp}  `)}`);
+    check(tidy.data?.slug === `hello-world-${stamp}` && tidy.data?.available === true,
+      'what is typed is made into a name: lower case, hyphens, nothing else', JSON.stringify(tidy.data));
+
+    const clash = await call(advisor, 'POST', '/api/groups', { name: 'Clash', pageSlug: slugA });
+    check(clash.status === 400, 'a name another group holds cannot be taken', `status ${clash.status}`);
+    const rivalCheck = await call(admin, 'GET', `/api/group-slugs/check?name=${slugA}`);
+    check(rivalCheck.data?.available === false && rivalCheck.data?.state === 'taken',
+      'and nobody else can take it either', JSON.stringify(rivalCheck.data));
+    const asked = await call(null, 'GET', `/api/public/group-slug-taken?name=${slugA}`);
+    const askedFree = await call(null, 'GET', `/api/public/group-slug-taken?name=nobody-has-${stamp}`);
+    check(asked.data?.taken === true && askedFree.data?.taken === false,
+      'the other portal can ask whether a name is held, and is told yes or no and nothing else',
+      `${JSON.stringify(asked.data)} ${JSON.stringify(askedFree.data)}`);
+
+    // The page, with no session.
+    const page = await call(null, 'GET', `/gs/${slugA}`);
+    check(page.status === 200 && page.raw.includes(`Margaritaville at Sea Oct 2027 ${stamp}`),
+      'the page is public at its short name', `status ${page.status}`);
+    check(page.raw.includes('Four nights, one great crowd') && page.raw.includes('ship-photo.jpg'),
+      'with the line under the title and the picture across the top');
+    check(page.raw.includes('$100 onboard credit') && page.raw.includes('Depart 4:00 PM'),
+      'and what the group gets and the day by day');
+    check(page.raw.includes('noindex') && page.raw.includes('og:title') && page.raw.includes('rel="canonical"'),
+      'it is kept out of search and carries what a pasted link shows');
+    check(page.raw.includes('Book this cabin') && page.raw.includes('/register?rate='),
+      'each cabin has a button that carries that cabin to the form');
+    check(page.raw.includes('3 of 3 left') && page.raw.includes('$689.00'),
+      'with how many are left and the price, cents and all');
+    check(page.raw.includes('<script>\n') && !page.raw.includes('<scr\nipt>'),
+      'and its scripts are scripts, not text');
+    check(!/type="?(card|cc-number)/i.test(page.raw), 'there is still no card field on it');
+
+    const shout = await call(null, 'GET', `/gs/${slugA.toUpperCase()}`);
+    check(shout.status === 200, 'a name typed in capitals reaches the same page', `status ${shout.status}`);
+    const nope = await call(null, 'GET', `/gs/nobody-has-${stamp}`);
+    check(nope.status === 404 && nope.raw.includes('could not find that group'),
+      'a name nobody holds gets a plain page saying so', `status ${nope.status}`);
+
+    const rateId = (made.data?.rates || [])[0]?.id;
+    const reg = await call(null, 'GET', `/gs/${slugA}/register?rate=${rateId}`);
+    check(reg.status === 200 && reg.raw.includes(`value="${rateId}" checked`),
+      'registering opens with the cabin that was picked already chosen', `status ${reg.status}`);
+    const posted = await call(null, 'POST', `/gs/${slugA}/register`, {
+      rate: rateId, leadName: `Short ${stamp}`, leadEmail: `short-${stamp}@test.dev`,
+      travellers: [{ name: `Short ${stamp}` }],
+    });
+    check(posted.status === 200 && posted.data?.ok, 'and a registration is taken at the short name',
+      `status ${posted.status} ${JSON.stringify(posted.data)}`);
+    const enquiry = await call(null, 'POST', `/gs/${slugA}`, {
+      name: `Ask ${stamp}`, email: `ask-${stamp}@test.dev`,
+    });
+    check(enquiry.status === 200, 'so is a question', `status ${enquiry.status}`);
+
+    // Saving without the page fields leaves them alone.
+    const quiet = await call(advisor, 'PUT', `/api/groups/${gid}`, {
+      name: `Margaritaville at Sea Oct 2027 ${stamp}`, registrationOpen: true,
+    });
+    check(quiet.status === 200 && quiet.data?.group?.headline === 'Four nights, one great crowd',
+      'a save that does not mention the page fields leaves them as they were', quiet.data?.group?.headline);
+    const badPic = await call(advisor, 'PUT', `/api/groups/${gid}`, {
+      name: 'x', heroImageUrl: 'javascript:alert(1)',
+    });
+    check(badPic.status === 400, 'a picture link that is not https is refused', `status ${badPic.status}`);
+
+    // Changing the name keeps the old one working.
+    const renamed = await call(advisor, 'PUT', `/api/groups/${gid}/slug`, { slug: slugB });
+    check(renamed.status === 200 && renamed.data?.link?.slug === slugB,
+      'the name can be changed', `${renamed.status} ${JSON.stringify(renamed.data)}`);
+    const old = await call(null, 'GET', `/gs/${slugA}`);
+    check(old.status === 301, 'and the old one redirects, so a link already sent still works',
+      `status ${old.status}`);
+    const fresh = await call(null, 'GET', `/gs/${slugB}`);
+    check(fresh.status === 200, 'to the new one', `status ${fresh.status}`);
+    const still = await call(null, 'POST', `/gs/${slugA}`, { name: `Late ${stamp}`, email: `late-${stamp}@test.dev` });
+    check(still.status === 200, 'and a form open on the old name is still taken', `status ${still.status}`);
+    const detail = await call(advisor, 'GET', `/api/groups/${gid}`);
+    const hist = detail.data?.link?.history || [];
+    check(hist.some((h) => h.slug === slugA && h.status === 'archived')
+      && hist.some((h) => h.slug === slugB && h.status === 'current'),
+      'the old name is archived on the group and the new one is current', JSON.stringify(hist));
+    const taken = await call(admin, 'GET', `/api/group-slugs/check?name=${slugA}`);
+    check(taken.data?.available === false, 'an archived name stays reserved against everybody else',
+      JSON.stringify(taken.data));
+
+    // Reusing an archived name on a newer group is asked about first.
+    const second = await call(advisor, 'POST', '/api/groups', {
+      name: `Next year ${stamp}`, registrationOpen: true, departDate: isoDay(200),
+    });
+    const secondId = second.data?.group?.id;
+    cleanup('the second short name group', () => call(advisor, 'DELETE', `/api/groups/${secondId}`));
+    const ask = await call(advisor, 'PUT', `/api/groups/${secondId}/slug`, { slug: slugA });
+    check(ask.status === 409 && ask.data?.needsRecycle === true,
+      'the same advisor asking for an archived name is asked to confirm', `${ask.status} ${JSON.stringify(ask.data)}`);
+    const recycled = await call(advisor, 'PUT', `/api/groups/${secondId}/slug`, { slug: slugA, recycle: true });
+    check(recycled.status === 200 && recycled.data?.link?.slug === slugA,
+      'and once they do, it moves to the newer group', `${recycled.status} ${JSON.stringify(recycled.data)}`);
+    const moved = await call(null, 'GET', `/gs/${slugA}`);
+    check(moved.status === 200 && moved.raw.includes(`Next year ${stamp}`),
+      'old links now lead to the newer group', `status ${moved.status}`);
+    const before = await call(advisor, 'GET', `/api/groups/${gid}`);
+    check((before.data?.link?.history || []).some((h) => h.slug === slugA && h.status === 'released'),
+      'the older group keeps it in its history as a name it had', JSON.stringify(before.data?.link?.history));
+
+    // A group that has sailed.
+    const sailed = await call(advisor, 'POST', '/api/groups', {
+      name: `Sailed ${stamp}`, registrationOpen: true, departDate: isoDay(-10), returnDate: isoDay(-5),
+      rates: [{ roomType: 'Interior', cabins: 3, guests: 2, perGuestCents: 50000 }],
+    });
+    cleanup('the sailed group', () => call(advisor, 'DELETE', `/api/groups/${sailed.data?.group?.id}`));
+    const sailedSlug = sailed.data?.group?.page_slug;
+    const sailedPage = await call(null, 'GET', `/gs/${sailedSlug}`);
+    check(sailedPage.raw.includes('This sailing has departed') && !sailedPage.raw.includes('Book this cabin'),
+      'a group that has sailed says so and offers no booking', `status ${sailedPage.status}`);
+    const sailedReg = await call(null, 'POST', `/gs/${sailedSlug}/register`, {
+      leadName: 'Late', leadEmail: `late2-${stamp}@test.dev`, travellers: [{ name: 'Late' }],
+    });
+    check(sailedReg.status === 400, 'and registering for it is refused', `status ${sailedReg.status}`);
+
+    // Deleting the group lets its names go.
+    await call(advisor, 'DELETE', `/api/groups/${secondId}`);
+    const gone = await call(null, 'GET', `/gs/${slugA}`);
+    check(gone.status === 404, 'a deleted group\'s names stop meaning anything', `status ${gone.status}`);
+  }
+
   // ------------------------------------------------ the mirrored catalog --
   step('Sailings borrowed from CruiseShoppers');
 

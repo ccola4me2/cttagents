@@ -17,7 +17,7 @@ import { fileFormPeople } from './formpeople.js';
 import { fireTrigger } from './automations.js';
 import { sendSignupNoticeEmail } from './email.js';
 import { brandForUser, brandOf, DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand.js';
-import { renderGroupTripPage } from './grouppage.js';
+import { renderGroupTripPage, loadGroup, refOf } from './grouppage.js';
 import { verifyTurnstile, turnstileWidget, TURNSTILE_FAILED } from './turnstile.js';
 
 /**
@@ -281,15 +281,6 @@ export async function renderPublicForm(request, env, slug) {
  */
 // Kept as its own constant so the closing script tag is never written inside
 // another template literal, which is how a page silently ends early.
-async function loadGroup(env, code) {
-  const row = await env.DB.prepare(
-    `SELECT id, user_id, name, vendor, product_name, destination, depart_date,
-            return_date, registration_open, registration_blurb, status
-       FROM travel_groups WHERE group_code = ? AND registration_open = 1`
-  ).bind(code).first();
-  return row || null;
-}
-
 /**
  * A date the way somebody says it out loud.
  *
@@ -326,8 +317,8 @@ function paragraphs(text) {
  * page from the hosted forms this file is about. The export stays here because
  * the router and the trip-vara copy both know this name.
  */
-export async function renderGroupPage(request, env, code) {
-  return renderGroupTripPage(request, env, code);
+export async function renderGroupPage(request, env, ref) {
+  return renderGroupTripPage(request, env, ref);
 }
 
 function appUrl(env) {
@@ -360,8 +351,9 @@ async function notifyOwner(env, userId, { to, ...details }) {
   }
 }
 
-export async function handleGroupRegistration(request, env, code) {
-  const g = await loadGroup(env, code);
+export async function handleGroupRegistration(request, env, rawRef) {
+  const ref = refOf(rawRef);
+  const g = await loadGroup(env, ref);
   if (!g || g.status === 'cancelled') return notFound('This trip is not taking names.');
 
   const body = await readJson(request);
@@ -371,7 +363,7 @@ export async function handleGroupRegistration(request, env, code) {
   if (clean(body.company_website, 200)) return json({ ok: true, message: 'Thanks.' });
 
   const ip = request.headers.get('CF-Connecting-IP') || '';
-  const ipHash = ip ? (await sha256Hex(`group:${code}:${ip}`)).slice(0, 32) : null;
+  const ipHash = ip ? (await sha256Hex(`group:${ref.groupId || ref.code}:${ip}`)).slice(0, 32) : null;
   if (ipHash) {
     const seen = await env.DB.prepare(
       `SELECT COUNT(*) AS n FROM group_registrations
