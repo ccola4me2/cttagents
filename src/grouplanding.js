@@ -241,13 +241,13 @@ export function renderGroupLanding(env, { area = 'ctt' } = {}) {
         <div class="bar"><i></i><i></i><i></i><b>${esc(host + start)}/your-group</b></div>
         <div class="top"><small>Group cruise</small><strong>Caribbean Getaway, Spring Sailing</strong><span>Seven nights round trip, hosted by your travel advisor</span></div>
         <div class="body">
-          <div class="row"><div><b>Interior</b><small>Per person, two sharing</small></div><div class="price">from $899</div><span class="tag">Available</span></div>
-          <div class="row"><div><b>Balcony</b><small>Per person, two sharing</small></div><div class="price">from $1,299</div><span class="tag low">3 left</span></div>
+          <div class="row"><div><b>Interior</b><small>Per person, taxes and fees included</small></div><div class="price">from $899</div><span class="tag">Available</span></div>
+          <div class="row"><div><b>Balcony</b><small>Per person, taxes and fees included</small></div><div class="price">from $1,299</div><span class="tag low">3 left</span></div>
           <div class="row"><div><b>Deposit due</b><small>Holds your cabin</small></div><div class="price">Dec 1</div><span class="tag">Reserve</span></div>
           <div class="go">Reserve your cabin</div>
         </div>
       </div>
-      <p class="note">An example, not a real group. Names, dates and prices come from your advisor.</p>
+      <p class="note">An example, not a real group. Names, dates and prices come from your advisor. Prices include taxes and fees, and gratuities are not included.</p>
     </div>
   </div>
 </section>

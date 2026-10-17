@@ -6659,7 +6659,8 @@ async function main() {
     check(landing.status === 200, 'the trip page is public', `status ${landing.status}`);
     check(landing.raw.includes('Inside') && landing.raw.includes('Balcony'),
       'and shows the cabin grades');
-    check(landing.raw.includes('$1,199.00'),
+    check(landing.raw.includes('$1,413.00') && landing.raw.includes('taxes and fees included')
+      && landing.raw.includes('Gratuities are not included') && !landing.raw.includes('$1,199.00'),
       'with the price carrying its cents, always');
     check(landing.raw.includes('4 of 4 left') && landing.raw.includes('1 of 1 left'),
       'and how many of each are left');
@@ -6673,6 +6674,9 @@ async function main() {
     const regPage = await call(null, 'GET', `/gs/${signupSlug}/register`);
     check(regPage.status === 200, 'the registration page is public too',
       `status ${regPage.status}`);
+    check(regPage.raw.includes('Taxes and fees are included. Gratuities are not included.')
+      && regPage.raw.includes('taxes and fees included'),
+      'the registration page says taxes and fees are included and gratuities are not');
     check(regPage.raw.includes('Our fee, per guest') && regPage.raw.includes('$75.50'),
       'the agency fee is its own line, never folded into the trip cost');
     check(regPage.raw.includes('Nothing is charged on this page'),
@@ -7163,7 +7167,7 @@ async function main() {
       'it is kept out of search and carries what a pasted link shows');
     check(page.raw.includes('Book this cabin') && page.raw.includes('/register?rate='),
       'each cabin has a button that carries that cabin to the form');
-    check(page.raw.includes('3 of 3 left') && page.raw.includes('$689.00'),
+    check(page.raw.includes('3 of 3 left') && page.raw.includes('$861.40') && !page.raw.includes('$689.00'),
       'with how many are left and the price, cents and all');
     check(page.raw.includes('<script>\n') && !page.raw.includes('<scr\nipt>'),
       'and its scripts are scripts, not text');

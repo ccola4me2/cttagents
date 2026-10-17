@@ -573,9 +573,9 @@ function glance(g, rates) {
 function rateCards(rates, base, state) {
   if (!rates.length) return '';
   return `<div class="card"><h2>What is still available</h2>
-    <p class="muted" style="margin:-.4rem 0 1rem;">Prices are per guest and do not include
-      anything bought separately. The trip is paid to the travel supplier through us, and
-      never on this page.</p><div class="rates">${
+    <p class="muted" style="margin:-.4rem 0 1rem;">Prices are per guest and include taxes and
+      fees. Gratuities are not included, and neither is anything bought separately. The trip is
+      paid to the travel supplier through us, and never on this page.</p><div class="rates">${
   rates.map((r) => {
     const out = r.metered && r.left === 0;
     const tag = !r.metered
@@ -586,7 +586,7 @@ function rateCards(rates, base, state) {
     const meta = [
       r.occupancy ? `${esc(r.occupancy)} occupancy` : '',
       r.guests ? `${r.guests} guest${r.guests === 1 ? '' : 's'}` : '',
-      r.taxes_cents ? `taxes and fees ${money(r.taxes_cents)} each` : '',
+      r.per_guest_cents ? 'taxes and fees included' : '',
     ].filter(Boolean).join(' · ');
     const action = state === 'open' || state === 'full'
       ? `<a class="pick-btn${out ? ' wait' : ''}" href="${base}/register?rate=${encodeURIComponent(r.id)}">${
@@ -595,7 +595,7 @@ function rateCards(rates, base, state) {
     return `<div class="rate${out ? ' gone' : ''}">
       <div class="rate-top"><b>${esc(r.room_type)}</b>
         ${r.per_guest_cents
-    ? `<span class="price">${money(r.per_guest_cents)}<span class="per"> per guest</span></span>`
+    ? `<span class="price">${money(r.per_guest_cents + (Number(r.taxes_cents) || 0))}<span class="per"> per guest</span></span>`
     : '<span class="price"><span class="per">Price to come</span></span>'}</div>
       ${meta ? `<p class="meta">${meta}</p>` : ''}
       <div class="rate-foot">${tag}${action}</div>
@@ -850,12 +850,14 @@ function ratePicker(rates, wanted = '') {
   }
   return rates.map((r) => {
     const out = r.metered && r.left === 0;
-    const perGuest = r.per_guest_cents ? `${money(r.per_guest_cents)} per guest` : 'Price to come';
-    const taxes = r.taxes_cents ? ` plus ${money(r.taxes_cents)} taxes and fees` : '';
+    // What a guest pays for the cabin, taxes and fees included, as the page says everywhere.
+    const all = r.per_guest_cents ? r.per_guest_cents + (Number(r.taxes_cents) || 0) : 0;
+    const perGuest = all ? `${money(all)} per guest` : 'Price to come';
+    const taxes = all ? ', taxes and fees included' : '';
     return `<label class="pick${out ? ' gone' : ''}">
       <input type="radio" name="rate" value="${esc(r.id)}"${out ? ' disabled' : ''}${
   !out && wanted && wanted === r.id ? ' checked' : ''}
-        data-guest="${Number(r.per_guest_cents) || 0}" data-tax="${Number(r.taxes_cents) || 0}">
+        data-guest="${all}" data-tax="0">
       <span class="pick-body"><b>${esc(r.room_type)}</b>
         <span class="muted" style="display:block;">${perGuest}${taxes}${
   r.occupancy ? ` · ${esc(r.occupancy)} occupancy` : ''}</span>
@@ -936,6 +938,7 @@ export async function renderRegisterPage(request, env, rawRef) {
     '<div class="card"><h2>What this costs</h2>',
     '<div class="totals" id="totals">',
     '<div class="row"><span>Trip cost, per guest</span><b id="t-trip">Pick a cabin</b></div>',
+    '<p class="terms">Taxes and fees are included. Gratuities are not included.</p>',
     g.trip_terms ? `<p class="terms">${esc(g.trip_terms)}</p>` : '',
     fee ? `<div class="row"><span>Our fee, per guest</span><b>${money(fee)}</b></div>` : '',
     fee && g.fee_terms ? `<p class="terms">${esc(g.fee_terms)}</p>` : '',
@@ -972,9 +975,9 @@ function cash(cents) {
     { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// The trip cost follows the chosen band. Taxes are shown beside it rather than
-// folded in, because the fare is the commissionable half and the taxes are not,
-// and a single number hides which part a refund would be calculated on.
+// The trip cost follows the chosen band, with taxes and fees included in the number a guest is shown.
+// The reservation made from a registration still keeps the fare and the taxes apart, which is what a
+// refund and a commission are worked out on; this is only what the page says.
 form.addEventListener('change', (e) => {
   if (e.target.name !== 'rate') return;
   const guest = Number(e.target.dataset.guest) || 0;
