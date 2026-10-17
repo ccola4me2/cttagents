@@ -38,7 +38,7 @@ const RESERVED = new Set([
   'about', 'admin', 'api', 'app', 'assets', 'billing', 'blog', 'c', 'contact', 'dashboard',
   'favicon', 'forgot', 'g', 'gs', 'help', 'home', 'i', 'index', 'join', 'login', 'logout',
   'mail', 'portal', 'pricing', 'privacy', 'register', 'reset', 'robots', 's', 'settings',
-  'sitemap', 'static', 'support', 't', 'terms', 'trip', 'tv', 'u', 'www',
+  'sitemap', 'static', 'support', 't', 'terms', 'trip', 'tv', 'u', 'www', 'cgp',
 ]);
 
 // Left out of a suggestion: they say nothing about which group this is.

@@ -47,6 +47,17 @@ export async function serveGroupHost(request, env) {
   const mine = groupPrefix(env);
   const inTv = path === '/tv' || path.startsWith('/tv/');
 
+  // The service's own logo and icons, for both areas. They are files shipped with the CTT Worker, which
+  // owns the domain, so a request for one never goes to Trip Vara.
+  if (path.startsWith('/cgp/') || path === '/favicon.ico') {
+    if (!env.ASSETS) return new Response('Not found', { status: 404 });
+    const asset = await env.ASSETS.fetch(new Request(new URL(path === '/favicon.ico' ? '/cgp/favicon.ico' : path, request.url)));
+    if (!asset.ok) return new Response('Not found', { status: 404 });
+    const out = new Response(asset.body, asset);
+    out.headers.set('Cache-Control', 'public, max-age=86400');
+    return out;
+  }
+
   if (inTv && !mine) {
     // Not this portal's area: Trip Vara answers it, and if it cannot there is nobody else to ask.
     if (env.PEER && !request.headers.get(HOP)) {

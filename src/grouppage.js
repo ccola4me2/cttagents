@@ -251,7 +251,10 @@ function page(title, body, brand, { wide = true, env = {}, hero = false, head = 
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} | ${esc(b.name)}</title>
-<link rel="icon" href="${esc(home + LOGO_PATH)}" type="${LOGO_TYPE}">
+${neutral
+    ? `<link rel="icon" type="image/png" sizes="32x32" href="${esc(neutralAsset(env, 'icon-32.png'))}">
+<link rel="apple-touch-icon" href="${esc(neutralAsset(env, 'icon-180.png'))}">`
+    : `<link rel="icon" href="${esc(home + LOGO_PATH)}" type="${LOGO_TYPE}">`}
 ${head}
 <style>
   :root { --navy:${accent}; --coral:#e55942; --ink:#2f4459; --soft:#5c7286;
@@ -392,12 +395,26 @@ ${head}
   .foot a{color:#8395a5}
   [hidden]{display:none!important}
 </style></head>
-<body>${hero ? '' : `<div class="wrap"><div class="brand">${neutral ? '' : `<img src="${esc(logoOf(b, env))}" alt="">`}
-    <span><b>${esc(b.name)}</b><small>${esc(b.tagline || '')}</small></span></div>`}
+<body>${hero ? '' : `<div class="wrap"><div class="brand">${neutral
+    ? `<a href="${esc(neutralHome(env))}"><img src="${esc(neutralAsset(env, 'logo.png'))}" alt="Cruise Group Page" width="164" height="52" style="display:block;width:164px;height:auto;"></a>`
+    : `<img src="${esc(logoOf(b, env))}" alt="">
+    <span><b>${esc(b.name)}</b><small>${esc(b.tagline || '')}</small></span>`}</div>`}
   ${body}
   ${neutral ? '' : `<p class="foot">&copy; ${new Date().getFullYear()} ${esc(b.name)}
     &middot; <a href="${esc(home)}/privacy">Privacy policy</a>${POWERED_BY}</p>`}
 ${hero ? '' : '</div>'}</body></html>`;
+}
+
+/** The service's own files, from the shared domain when there is one, so a page on any address finds them. */
+function neutralAsset(env, file) {
+  const host = String(env.GROUP_HOST || '').trim();
+  return host ? `https://${host}/cgp/${file}` : `${appUrl(env)}/logo-mark.png`;
+}
+
+/** Where the service's own logo goes: its front page on the shared domain. */
+function neutralHome(env) {
+  const host = String(env.GROUP_HOST || '').trim();
+  return host ? `https://${host}${prefixOf(env)}/` : appUrl(env);
 }
 
 function gone(brand, env, message) {

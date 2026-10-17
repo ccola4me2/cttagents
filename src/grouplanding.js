@@ -34,6 +34,11 @@ export function renderGroupLanding(env, { area = 'ctt' } = {}) {
 <meta property="og:type" content="website">
 <meta property="og:title" content="Cruise Group Page: one page for your whole group">
 <meta property="og:description" content="Sailing, cabins, prices and deadlines in one place, and everyone signs up right there.">
+<meta property="og:image" content="https://${esc(host)}/cgp/share.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" sizes="32x32" href="/cgp/icon-32.png">
+<link rel="shortcut icon" href="/cgp/favicon.ico">
+<link rel="apple-touch-icon" href="/cgp/icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -45,7 +50,7 @@ export function renderGroupLanding(env, { area = 'ctt' } = {}) {
   a { color: var(--teal-d); }
   .wrap { max-width: 1100px; margin: 0 auto; padding: 0 1.25rem; }
   header { background: var(--white); border-bottom: 1px solid var(--line); }
-  .nav { display: flex; align-items: center; justify-content: space-between; height: 68px; }
+  .nav { display: flex; align-items: center; justify-content: space-between; height: 76px; }
   .brand { display: flex; align-items: center; gap: 0.65rem; text-decoration: none; color: var(--navy); font-weight: 800; letter-spacing: 0.02em; font-size: 1.05rem; }
     .hero { background: linear-gradient(135deg, var(--navy) 0%, var(--navy-2) 55%, var(--teal-d) 100%); color: var(--white); padding: 4.5rem 0 4rem; position: relative; overflow: hidden; }
   .hero::after { content: ""; position: absolute; inset: auto -10% -45% -10%; height: 60%; background: radial-gradient(ellipse at center, rgba(255,255,255,0.10), transparent 60%); pointer-events: none; }
@@ -93,7 +98,7 @@ export function renderGroupLanding(env, { area = 'ctt' } = {}) {
 <header>
   <div class="wrap nav">
     <a class="brand" href="${tv ? '/tv' : '/'}" aria-label="Cruise Group Page">
-      <span>Cruise Group Page</span>
+      <img src="/cgp/logo.png" alt="Cruise Group Page" width="164" height="52" style="display:block;">
     </a>
   </div>
 </header>
