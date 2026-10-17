@@ -6662,8 +6662,10 @@ async function main() {
     check(landing.raw.includes('$1,413.00') && landing.raw.includes('taxes and fees included')
       && landing.raw.includes('Gratuities are not included') && !landing.raw.includes('$1,199.00'),
       'with the price carrying its cents, always');
-    check(landing.raw.includes('4 of 4 left') && landing.raw.includes('1 of 1 left'),
-      'and how many of each are left');
+    check(landing.raw.includes('4 cabins available') && landing.raw.includes('1 cabin available'),
+      'and how many cabins of each are available');
+    check(!/\d+ guests?\b/.test(landing.raw.replace(/<script[\s\S]*?<\/script>/g, '')),
+      'without a count of guests, which is not what somebody choosing a cabin asks');
     check(landing.raw.includes('Is airfare included?'), 'the FAQ is on it');
     check(landing.raw.includes('Deposit due') && landing.raw.includes('Passports in by'),
       'and the dates somebody is held to');
@@ -7167,7 +7169,7 @@ async function main() {
       'it is kept out of search and carries what a pasted link shows');
     check(page.raw.includes('Book this cabin') && page.raw.includes('/register?rate='),
       'each cabin has a button that carries that cabin to the form');
-    check(page.raw.includes('3 of 3 left') && page.raw.includes('$861.40') && !page.raw.includes('$689.00'),
+    check(page.raw.includes('3 cabins available') && page.raw.includes('$861.40') && !page.raw.includes('$689.00'),
       'with how many are left and the price, cents and all');
     check(page.raw.includes('<script>\n') && !page.raw.includes('<scr\nipt>'),
       'and its scripts are scripts, not text');

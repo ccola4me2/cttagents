@@ -561,7 +561,7 @@ function glance(g, rates) {
     g.depart_date ? ['Sails', sayDate(g.depart_date), ''] : null,
     nights ? ['Nights', String(nights), ''] : null,
     g.deposit_due ? ['Deposit due', sayDate(g.deposit_due), ''] : null,
-    held ? ['Cabins left', `${left} of ${held}`, left <= 3 ? 'low' : ''] : null,
+    held ? ['Cabins available', String(left), left <= 3 ? 'low' : ''] : null,
     g.departure_port ? ['Sailing from', g.departure_port, ''] : null,
   ].filter(Boolean).slice(0, 4);
   if (!tiles.length) return '';
@@ -582,10 +582,9 @@ function rateCards(rates, base, state) {
       ? ''
       : out
         ? '<span class="left gone">None left</span>'
-        : `<span class="left${r.left > 3 ? ' plenty' : ''}">${r.left} of ${r.cabins} left</span>`;
+        : `<span class="left${r.left > 3 ? ' plenty' : ''}">${r.left} cabin${r.left === 1 ? '' : 's'} available</span>`;
     const meta = [
       r.occupancy ? `${esc(r.occupancy)} occupancy` : '',
-      r.guests ? `${r.guests} guest${r.guests === 1 ? '' : 's'}` : '',
       r.per_guest_cents ? 'taxes and fees included' : '',
     ].filter(Boolean).join(' · ');
     const action = state === 'open' || state === 'full'
@@ -862,7 +861,7 @@ function ratePicker(rates, wanted = '') {
         <span class="muted" style="display:block;">${perGuest}${taxes}${
   r.occupancy ? ` · ${esc(r.occupancy)} occupancy` : ''}</span>
         <span class="muted" style="display:block;">${
-  out ? 'None left' : r.metered ? `${r.left} of ${r.cabins} left` : 'Ask us about availability'}</span>
+  out ? 'None left' : r.metered ? `${r.left} cabin${r.left === 1 ? '' : 's'} available` : 'Ask us about availability'}</span>
       </span></label>`;
   }).join('');
 }
