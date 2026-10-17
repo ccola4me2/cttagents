@@ -1,11 +1,12 @@
 // Serving a group's page by its short name.
 //
-// One domain, cruisegrouppage.com, serves the groups of both portals: the name follows the
-// domain, so the address carries no hint of which portal a group lives in. The domain is
-// attached to one Worker. That Worker answers for its own groups and, when a name is not
-// one of theirs, hands the request on to the other portal through a service binding (PEER),
-// which answers for its own. The request is passed on as it came, so the visitor's address,
-// the form they posted and every header arrive untouched.
+// One domain, cruisegrouppage.com, serves the groups of both portals, in two areas that do not
+// share names. Cruises Tours and Travel's groups are at /<name>. Trip Vara's are at /tv/<name>,
+// because Trip Vara is many agencies and each of its pages carries that agency's own name, logo
+// and colours. The domain is attached to the CTT Worker, which answers its own area and hands
+// everything under /tv to the Trip Vara Worker through a service binding (PEER). The request is
+// passed on as it came, so the visitor's address, the form they posted and every header arrive
+// untouched. Each Worker is told its own area by GROUP_PREFIX: empty for CTT, /tv for Trip Vara.
 //
 // The same pages also answer at /gs/<name> on each portal's own address, which is how they
 // are tested and how they stay reachable before the shared domain is switched on.
@@ -32,16 +33,40 @@ export function isGroupHost(request, env) {
   return new URL(request.url).hostname.toLowerCase() === host;
 }
 
-/** Everything on the shared domain: a name, a name and /register, and nothing else. */
+/** What this portal's links on the shared domain start with: nothing for CTT, /tv for Trip Vara. */
+export function groupPrefix(env) {
+  return String(env.GROUP_PREFIX || '').replace(/\/+$/, '');
+}
+
+/**
+ * Everything on the shared domain: the front page, a name, a name and /register, and nothing else. Each Worker answers its own area, and CTT passes the Trip Vara area across.
+ */
 export async function serveGroupHost(request, env) {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/{2,}/g, '/');
-  const m = path.match(/^\/([^/]+)(?:\/(register))?\/?$/);
-  if (!m) {
-    // The bare domain gets the landing page; anything else unrecognised, the plain notice.
-    if (path === '/') return renderGroupLanding(env);
+  const mine = groupPrefix(env);
+  const inTv = path === '/tv' || path.startsWith('/tv/');
+
+  if (inTv && !mine) {
+    // Not this portal's area: Trip Vara answers it, and if it cannot there is nobody else to ask.
+    if (env.PEER && !request.headers.get(HOP)) {
+      try {
+        const headers = new Headers(request.headers);
+        headers.set(HOP, '1');
+        return await withTimeout(env.PEER.fetch(new Request(request, { headers })), 20000);
+      } catch (e) {
+        console.error('group page peer', e);
+      }
+    }
     return noGroupPage(env);
   }
+  // Trip Vara answers nothing outside its own area.
+  if (mine && !inTv) return noGroupPage(env);
+
+  const rest = inTv ? (path.slice(3) || '/') : path;
+  if (rest === '/') return renderGroupLanding(env, { area: inTv ? 'tv' : 'ctt' });
+  const m = rest.match(/^\/([^/]+)(?:\/(register))?\/?$/);
+  if (!m) return noGroupPage(env);
   return serveSlug(request, env, m[1], m[2] || '', 'host');
 }
 
@@ -60,22 +85,13 @@ export async function serveSlug(request, env, rawName, tail, mode) {
     return new Response('Method not allowed', { status: 405 });
   }
 
+  // A name nobody holds in this area. The two areas do not share names, so nobody else is asked.
   const hit = slug ? await findSlug(env, slug) : null;
   if (!hit) {
-    // Not ours. On the shared domain the other portal may hold it.
-    if (mode === 'host' && env.PEER && !request.headers.get(HOP)) {
-      try {
-        const headers = new Headers(request.headers);
-        headers.set(HOP, '1');
-        return await withTimeout(env.PEER.fetch(new Request(request, { headers })), 20000);
-      } catch (e) {
-        console.error('group page peer', e);
-      }
-    }
     return noGroupPage(env);
   }
 
-  const start = mode === 'host' ? '' : '/gs';
+  const start = mode === 'host' ? groupPrefix(env) : '/gs';
   // An old name sends a reader to the current one. A form posted to an old name is still
   // taken, because the page that posted it was loaded from there.
   if (hit.status === 'archived' && hit.current && hit.current !== slug && method !== 'POST') {
@@ -113,6 +129,6 @@ export async function redirectForCode(request, env, code, tail) {
   const search = new URL(request.url).search;
   return new Response(null, {
     status: 301,
-    headers: { Location: `https://${host}/${row.page_slug}${tail}${search}` },
+    headers: { Location: `https://${host}${groupPrefix(env)}/${row.page_slug}${tail}${search}` },
   });
 }

@@ -76,6 +76,9 @@ APP_URL = "https://cttagents.com"
 # serves the groups of both portals, so it is attached to this Worker only. A name that is not
 # one of this portal's groups is handed on to the other portal through the PEER binding below.
 GROUP_HOST = "cruisegrouppage.com"
+# What this portal's links on that domain start with. Cruises Tours and Travel's groups are at the
+# root, cruisegrouppage.com/<name>. Trip Vara's are under /tv, because it is many agencies.
+GROUP_PREFIX = ""
 # On: /g/<group number> redirects to the group's short name.
 GROUP_REDIRECT = "1"
 # The agency's name, on the domain Resend will actually send from.

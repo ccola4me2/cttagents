@@ -711,7 +711,7 @@ function renderLink(g, link, codeShared) {
     <div class="field" style="margin:1rem 0 0;max-width:34rem;">
       <label for="slug-input">${link.slug ? 'Short name' : 'Short name for the link'}</label>
       <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;">
-        <span class="muted">${esc(link.host || location.host)}/</span>
+        <span class="muted">${esc((link.host || location.host) + (link.prefix || ''))}/</span>
         <input id="slug-input" value="${esc(link.slug || link.suggestion || '')}" maxlength="30"
           autocomplete="off" style="flex:1;min-width:10rem;">
         <button class="btn btn-primary btn-sm" type="button" id="slug-save">${

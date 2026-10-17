@@ -201,7 +201,7 @@ async function contactFor(env, userId) {
  */
 function canonicalOf(env, g, ref, tail = '') {
   const host = String(env.GROUP_HOST || '').trim();
-  if (host && g.page_slug) return `https://${host}/${g.page_slug}${tail}`;
+  if (host && g.page_slug) return `https://${host}${prefixOf(env)}/${g.page_slug}${tail}`;
   return `${appUrl(env)}${ref.base}${tail}`;
 }
 
@@ -418,7 +418,7 @@ export function noGroupPage(env, message) {
     `<div class="card"><h1>We could not find that group</h1><p>${esc(message
       || 'The link may be mistyped or out of date. Ask whoever sent it for the current one.')}</p>${
   home ? `<p><a class="cta" href="https://${esc(home)}/">Look for it by name</a></p>` : ''}</div>`,
-    { name: 'Cruise Group Page', tagline: '', logoUrl: null, color: DEFAULT_BRAND.color },
+    { name: 'Cruise Group Page', tagline: '', logoUrl: null, color: '#0f2747' },
     { env, neutral: true }),
   { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
@@ -491,7 +491,12 @@ async function nextSailing(env, g) {
 /** Where another group's page is, from the one being read: the shared domain when there is one. */
 function pageUrlFor(env, slug) {
   const host = String(env.GROUP_HOST || '').trim();
-  return host ? `https://${host}/${slug}` : `/gs/${slug}`;
+  return host ? `https://${host}${prefixOf(env)}/${slug}` : `/gs/${slug}`;
+}
+
+/** The start of this portal's links on the shared domain: nothing for CTT, /tv for Trip Vara. */
+function prefixOf(env) {
+  return String(env.GROUP_PREFIX || '').replace(/\/+$/, '');
 }
 
 function heroBlock(g, brand, contact, state, base, env, next) {

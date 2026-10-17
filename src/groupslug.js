@@ -7,7 +7,8 @@
 //
 // Three promises sit on top of that, and the table is what keeps them:
 //
-//   1. A name means one group. Across both portals, because one domain serves both.
+//   1. A name means one group in its area: CTT's names are at /<name> and Trip Vara's at /tv/<name>,
+//      so the two portals never share a name and never have to ask each other.
 //   2. A link that was sent keeps working. Changing a name archives the old one rather than
 //      dropping it: it redirects to the group and stays reserved to the advisor, so nobody
 //      else can take it and catch the people who still hold the old link.
@@ -37,7 +38,7 @@ const RESERVED = new Set([
   'about', 'admin', 'api', 'app', 'assets', 'billing', 'blog', 'c', 'contact', 'dashboard',
   'favicon', 'forgot', 'g', 'gs', 'help', 'home', 'i', 'index', 'join', 'login', 'logout',
   'mail', 'portal', 'pricing', 'privacy', 'register', 'reset', 'robots', 's', 'settings',
-  'sitemap', 'static', 'support', 't', 'terms', 'trip', 'u', 'www',
+  'sitemap', 'static', 'support', 't', 'terms', 'trip', 'tv', 'u', 'www',
 ]);
 
 // Left out of a suggestion: they say nothing about which group this is.
@@ -123,34 +124,12 @@ export function withTimeout(promise, ms) {
 }
 
 /**
- * Does the other portal hold this name?
- *
- * One domain serves both portals, so a name has to be free in both. Asked through the
- * service binding, which is only there when the other portal is configured. Fails open: a
- * group that cannot be created because the other portal is down is a worse outcome than
- * the rare chance of two groups on one name, and the first portal asked wins that tie.
- */
-async function peerHolds(env, slug) {
-  if (!env.PEER) return false;
-  try {
-    const res = await withTimeout(env.PEER.fetch(
-      `https://peer.internal/api/public/group-slug-taken?name=${encodeURIComponent(slug)}`), 2500);
-    if (!res.ok) return false;
-    const data = await res.json().catch(() => ({}));
-    return data.taken === true;
-  } catch (e) {
-    console.error('group name peer check', e);
-    return false;
-  }
-}
-
-/**
  * Where a name stands for this advisor and this group:
  *   free          nobody holds it
  *   current       this group is shared under it already
  *   own-archived  this group used to be, and can go back to it
  *   recyclable    archived on another of this advisor's groups; reuse needs a yes
- *   taken         somebody else's, on either portal
+ *   taken         somebody else's
  */
 export async function slugState(env, slug, userId, groupId) {
   const row = await localHolder(env, slug);
@@ -161,7 +140,6 @@ export async function slugState(env, slug, userId, groupId) {
     if (row.user_id === userId && row.status === 'archived') return { state: 'recyclable', row };
     return { state: 'taken', row };
   }
-  if (await peerHolds(env, slug)) return { state: 'taken', row: null };
   return { state: 'free', row: null };
 }
 
@@ -223,11 +201,14 @@ export async function linkInfo(env, group) {
       WHERE group_id = ? AND user_id = ? ORDER BY created_at DESC`
   ).bind(group.id, group.user_id).all().catch(() => ({ results: [] }));
   const host = env.GROUP_HOST || '';
+  const prefix = String(env.GROUP_PREFIX || '').replace(/\/+$/, '');
   const slug = group.page_slug || null;
   return {
     slug,
     host,
-    url: slug && host ? `https://${host}/${slug}` : null,
+    // What the link starts with after the domain: nothing for CTT's groups, /tv for Trip Vara's.
+    prefix,
+    url: slug && host ? `https://${host}${prefix}/${slug}` : null,
     suggestion: slug ? null : suggestSlug(group.name, group.depart_date),
     history: results || [],
     mostOld: MOST_OLD_NAMES,
