@@ -192,7 +192,7 @@ export function renderGroupLanding(env, { area = 'ctt' } = {}) {
       <a href="#how">How it works</a>
       <a href="#inside">What is on a page</a>
       <a href="#questions">Questions</a>
-      <a class="cta" href="#find">Open my group</a>
+      <a class="cta" href="#find">Visit my group page</a>
     </nav>
   </div>
 </header>
@@ -210,11 +210,11 @@ export function renderGroupLanding(env, { area = 'ctt' } = {}) {
       </ul>
     </div>
     <div class="finder" id="find">
-      <h2>Open your group's page</h2>
+      <h2>Visit your group's page</h2>
       <p>Every group has its own address. Type the name from the link your advisor sent you, or paste the whole link.</p>
       <form id="finder" action="/" method="get">
         <label class="field"><span>${esc(host + start)}/</span><input id="gname" name="g" placeholder="your-group-name" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Your group's name"></label>
-        <button type="submit">Open my group</button>
+        <button type="submit">Visit my group page</button>
       </form>
       <p class="hint">Do not have it? Ask your travel advisor, they can send it again in seconds.</p>
     </div>
@@ -305,8 +305,8 @@ export function renderGroupLanding(env, { area = 'ctt' } = {}) {
   <div class="wrap">
     <div class="final">
       <h2>Have your group's link?</h2>
-      <p>Open your group's page and see the sailing, the cabins and what to do next.</p>
-      <a href="#find" id="again">Open my group</a>
+      <p>Visit your group's page to see the sailing, the cabins and what to do next.</p>
+      <a href="#find" id="again">Visit my group page</a>
     </div>
   </div>
 </section>
