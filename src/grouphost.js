@@ -19,6 +19,7 @@
 import { cleanSlug, findSlug, withTimeout } from './groupslug.js';
 import { renderGroupPage, handleGroupRegistration } from './publicform.js';
 import { renderRegisterPage, handleRegister, noGroupPage } from './grouppage.js';
+import { renderGroupLanding } from './grouplanding.js';
 
 // Set on a request that has already been handed across, so the two portals can never
 // bounce one between them.
@@ -37,8 +38,9 @@ export async function serveGroupHost(request, env) {
   const path = url.pathname.replace(/\/{2,}/g, '/');
   const m = path.match(/^\/([^/]+)(?:\/(register))?\/?$/);
   if (!m) {
-    return noGroupPage(env, path === '/'
-      ? 'This address serves group trip pages. Use the link you were sent.' : '');
+    // The bare domain gets the landing page; anything else unrecognised, the plain notice.
+    if (path === '/') return renderGroupLanding(env);
+    return noGroupPage(env);
   }
   return serveSlug(request, env, m[1], m[2] || '', 'host');
 }
