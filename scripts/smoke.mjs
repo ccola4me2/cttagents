@@ -7161,6 +7161,8 @@ async function main() {
     const nope = await call(null, 'GET', `/gs/nobody-has-${stamp}`);
     check(nope.status === 404 && nope.raw.includes('could not find that group'),
       'a name nobody holds gets a plain page saying so', `status ${nope.status}`);
+    check(nope.raw.includes('Cruise Group Page') && !nope.raw.includes('Powered by') && !nope.raw.includes('/privacy'),
+      'and that page is the service\'s own, not either portal\'s, whichever portal answered');
 
     const made2 = await call(advisor, 'GET', `/api/groups/${gid}`);
     const rateId = (made2.data?.rates || [])[0]?.id;

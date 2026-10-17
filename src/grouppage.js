@@ -241,7 +241,7 @@ function logoOf(brand, env) {
  * Links to the portal's own files are absolute: the page is also served from the shared
  * group domain, which has none of them.
  */
-function page(title, body, brand, { wide = true, env = {}, hero = false, head = '' } = {}) {
+function page(title, body, brand, { wide = true, env = {}, hero = false, head = '', neutral = false } = {}) {
   const b = brand || DEFAULT_BRAND;
   const accent = HEX_COLOR.test(b.color || '') && readableOnWhite(b.color)
     ? b.color : DEFAULT_BRAND.color;
@@ -392,11 +392,11 @@ ${head}
   .foot a{color:#8395a5}
   [hidden]{display:none!important}
 </style></head>
-<body>${hero ? '' : `<div class="wrap"><div class="brand"><img src="${esc(logoOf(b, env))}" alt="">
+<body>${hero ? '' : `<div class="wrap"><div class="brand">${neutral ? '' : `<img src="${esc(logoOf(b, env))}" alt="">`}
     <span><b>${esc(b.name)}</b><small>${esc(b.tagline || '')}</small></span></div>`}
   ${body}
-  <p class="foot">&copy; ${new Date().getFullYear()} ${esc(b.name)}
-    &middot; <a href="${esc(home)}/privacy">Privacy policy</a>${POWERED_BY}</p>
+  ${neutral ? '' : `<p class="foot">&copy; ${new Date().getFullYear()} ${esc(b.name)}
+    &middot; <a href="${esc(home)}/privacy">Privacy policy</a>${POWERED_BY}</p>`}
 ${hero ? '' : '</div>'}</body></html>`;
 }
 
@@ -407,12 +407,19 @@ function gone(brand, env, message) {
   { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
-/** A page for an address that is not any group's. Branded as nobody, because it is nobody's. */
+/**
+ * A page for an address that is not any group's. Branded as the service and not as either portal: the
+ * shared domain hands a name it does not know to the other portal, so without this a mistyped name
+ * was told "Powered by Trip Vara" or carried the other agency's name, whichever portal answered.
+ */
 export function noGroupPage(env, message) {
+  const home = String(env.GROUP_HOST || '').trim();
   return new Response(page('Page not found',
     `<div class="card"><h1>We could not find that group</h1><p>${esc(message
-      || 'The link may be mistyped or out of date. Ask whoever sent it for the current one.')}</p></div>`,
-    null, { env }),
+      || 'The link may be mistyped or out of date. Ask whoever sent it for the current one.')}</p>${
+  home ? `<p><a class="cta" href="https://${esc(home)}/">Look for it by name</a></p>` : ''}</div>`,
+    { name: 'Cruise Group Page', tagline: '', logoUrl: null, color: DEFAULT_BRAND.color },
+    { env, neutral: true }),
   { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
