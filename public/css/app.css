@@ -1420,6 +1420,7 @@ th.num .th-sort { justify-content: flex-end; }
 .cal-wrap .cal-day .ev.off { text-decoration: line-through; opacity: .55; }
 .cal-wrap .cal-day .ev.more { color: var(--ink-500); padding-left: .3rem; }
 
+.ev-agency { background: var(--teal-50); color: var(--teal-600); font-weight: 600; }
 .ev-appointment { background: var(--coral-50); color: var(--coral-600); }
 .ev-task { background: var(--navy-50); color: var(--navy-800); }
 .ev-lead { background: var(--amber-50); color: var(--amber-600); }

@@ -18,6 +18,7 @@ import { json, cleanDate } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 import { birthdaysBetween } from './travellers.js';
+import { agencyEventsBetween } from './agencyevents.js';
 
 /** A day that many days after the given one, as a plain date. */
 function dayOffset(iso, days) {
@@ -56,6 +57,9 @@ export async function handleCalendar(request, env) {
   // round, so they are worked out rather than selected. Their own call for the
   // same reason.
   const birthdays = await birthdaysBetween(env, scope, { from, to }).catch(() => []);
+
+  // The agency's own, which are everybody's and so are not narrowed by whose calendar this is.
+  const shared = await agencyEventsBetween(env, user, from, to).catch(() => []);
 
   const [appointments, taskRows, leadRows, tripRows, payRows] = await Promise.all([
     env.DB.prepare(
@@ -122,6 +126,14 @@ export async function handleCalendar(request, env) {
       note: a.kind || '',
       muted: Boolean(a.cancelled_at), done: Boolean(a.done_at), outcome: a.outcome || '',
       href: `/app/calendar?open=${encodeURIComponent(a.id)}`,
+    });
+  }
+  for (const e of shared) {
+    events.push({
+      kind: 'agency', id: e.id, date: e.onDate, time: e.startTime, endTime: e.endTime,
+      title: e.title, who: e.vendor, where: e.link, note: e.kindLabel,
+      tz: e.tz, notes: e.notes, going: e.going, goingCount: e.goingCount,
+      muted: Boolean(e.cancelledAt), href: '/app/calendar',
     });
   }
   for (const t of taskRows.results || []) {

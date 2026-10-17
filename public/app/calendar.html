@@ -132,6 +132,7 @@ const dayCard = document.getElementById('day-card');
 // What each kind is, in the order the key reads and the grid stacks them. An
 // appointment is the only one you made on purpose, so it leads.
 const KINDS = [
+  ['agency', 'Agency event'],
   ['appointment', 'Appointment'],
   ['task', 'Task'],
   ['lead', 'Lead follow-up'],
@@ -159,6 +160,12 @@ let showing = new Set(KINDS.map(([k]) => k));
 try {
   const saved = JSON.parse(localStorage.getItem('cal-kinds') || 'null');
   if (Array.isArray(saved) && saved.length) showing = new Set(saved);
+  // Agency events arrived after some people had already chosen what to show. Theirs is switched on
+  // once so a training is not missed because of a choice made before it existed.
+  if (!localStorage.getItem('cal-agency-seen')) {
+    showing.add('agency');
+    localStorage.setItem('cal-agency-seen', '1');
+  }
 } catch { /* a browser with storage switched off still gets a calendar */ }
 let people = [];
 let today = iso(new Date());
@@ -310,12 +317,19 @@ function showDay(day) {
             e.kind === 'appointment' || !e.href
               ? esc(e.title)
               : `<a href="${esc(e.href)}" class="row-open">${esc(e.title)}</a>`}</span>
-          <div class="muted where">${[esc(e.who), linkBits(e.where), linkBits(e.note)]
-            .filter(Boolean).join('  &middot;  ')}</div>
+          <div class="muted where">${[esc(e.who), linkBits(e.where), e.kind === 'agency' ? esc(e.note) : linkBits(e.note)]
+            .filter(Boolean).join('  &middot;  ')}${e.kind === 'agency' && e.tz ? ` &middot; ${esc(e.tz)}` : ''}${
+            e.kind === 'agency' && e.goingCount ? ` &middot; ${e.goingCount} going` : ''}</div>
+          ${e.kind === 'agency' && e.notes
+            ? `<div class="where" style="white-space:pre-wrap;margin-top:.25rem;">${linkBits(e.notes)}</div>` : ''}
           ${e.kind === 'appointment' && e.outcome
             ? `<div class="where" style="white-space:pre-wrap;margin-top:.25rem;">${esc(e.outcome)}</div>` : ''}
         </div>
-        <div>${e.kind === 'appointment'
+        <div>${e.kind === 'agency'
+          ? (e.muted ? '<span class="badge badge-red">Cancelled</span>'
+            : `<button class="btn ${e.going ? 'btn-primary' : 'btn-ghost'} btn-sm" data-going="${esc(e.id)}"
+                aria-pressed="${e.going}">${e.going ? 'Going' : 'I\'m going'}</button>`)
+          : e.kind === 'appointment'
           ? `${e.done ? '' : `<button class="btn btn-ghost btn-sm" data-complete="${esc(e.id)}">Complete</button> `}<button class="btn btn-ghost btn-sm" data-edit="${esc(e.id)}">Edit</button>`
           : `<a class="btn btn-ghost btn-sm" href="${esc(e.href)}">Open</a>`}</div>
       </li>`).join('')}</ul>${add}`
@@ -333,6 +347,15 @@ function showDay(day) {
     await load();
   });
 
+  document.getElementById('day-body').querySelectorAll('[data-going]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const on = b.getAttribute('aria-pressed') !== 'true';
+      try {
+        await api(`/api/agency-events/${encodeURIComponent(b.dataset.going)}/going`,
+          { method: 'PUT', body: { going: on } });
+        await load();
+      } catch (e) { showError(err, e); }
+    }));
   document.getElementById('day-body').querySelectorAll('[data-edit]').forEach((b) =>
     b.addEventListener('click', () => openAppt(b.dataset.edit)));
   document.getElementById('day-body').querySelectorAll('[data-complete]').forEach((b) =>

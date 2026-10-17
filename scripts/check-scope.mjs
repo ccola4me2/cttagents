@@ -130,6 +130,10 @@ const AGENCY_OWNED = new Set([
   // with their user_id on, and the agency's standard has none, so the agency is the predicate on every
   // statement and the advisor is only ever added to it.
   'statement_wording',
+  // What the whole agency does together: a vendor training, a webinar, a meeting. An owner makes
+  // them and every advisor in the agency reads them, so agency_id is the predicate. The going
+  // table records who said so, one row per advisor, and every change to it names agency_id too.
+  'agency_events', 'agency_event_going',
 ]);
 
 // Carries a user_id, and is not reached through one.

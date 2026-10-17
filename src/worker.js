@@ -276,6 +276,13 @@ import {
   handleDeleteEnquiry,
 } from './specials.js';
 import {
+  handleListAgencyEvents,
+  handleAdminAgencyEvents,
+  handleSaveAgencyEvent,
+  handleDeleteAgencyEvent,
+  handleGoing,
+} from './agencyevents.js';
+import {
   handleListSupplierSpecials,
   handleReadSpecialsFile,
   handleImportSpecials,
@@ -517,6 +524,7 @@ const PAGE_FILES = {
   '/admin/commissions': '/admin/commissions.html',
   '/admin/specials': '/admin/specials.html',
   '/admin/training': '/admin/training.html',
+  '/admin/events': '/admin/events.html',
   '/admin': '/admin/index.html',
   '/admin/': '/admin/index.html',
 };
@@ -770,6 +778,8 @@ async function routeApi(request, env, path, method) {
   const groupTravMatch = path.match(/^\/api\/group-travellers\/([^/]+)$/);
   const creditMatch = path.match(/^\/api\/credits\/([^/]+)$/);
   const specialMatch = path.match(/^\/api\/specials\/([^/]+)$/);
+  const agencyEventMatch = path.match(/^\/api\/agency-events\/([^/]+)$/);
+  const agencyGoingMatch = path.match(/^\/api\/agency-events\/([^/]+)\/going$/);
   const supplierSpecialMatch = path.match(/^\/api\/supplier-specials\/([^/]+)$/);
   const supplierListMatch = path.match(/^\/api\/supplier-specials\/lists\/([^/]+)$/);
   const myTplMatch = path.match(/^\/api\/form-templates\/([^/]+)$/);
@@ -1190,6 +1200,14 @@ async function routeApi(request, env, path, method) {
   if (houseMatch && method === 'GET') return handleHouseholdRecord(request, env, houseMatch[1]);
   if (houseMatch && method === 'PUT') return handleUpdateHousehold(request, env, houseMatch[1]);
   if (houseMatch && method === 'DELETE') return handleDeleteHousehold(request, env, houseMatch[1]);
+
+  // What the whole agency does together: a vendor training, a webinar, a meeting.
+  if (path === '/api/agency-events' && method === 'GET') return handleListAgencyEvents(request, env);
+  if (path === '/api/agency-events' && method === 'POST') return handleSaveAgencyEvent(request, env, null);
+  if (path === '/api/admin/agency-events' && method === 'GET') return handleAdminAgencyEvents(request, env);
+  if (agencyGoingMatch && method === 'PUT') return handleGoing(request, env, agencyGoingMatch[1]);
+  if (agencyEventMatch && method === 'PUT') return handleSaveAgencyEvent(request, env, agencyEventMatch[1]);
+  if (agencyEventMatch && method === 'DELETE') return handleDeleteAgencyEvent(request, env, agencyEventMatch[1]);
 
   // Deals worth telling people about, and when each one dies.
   if (path === '/api/specials' && method === 'GET') return handleListSpecials(request, env);

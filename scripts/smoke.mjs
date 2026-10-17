@@ -8165,6 +8165,69 @@ async function main() {
     check(last.data?.wordingSource === 'built-in', 'and with neither it is the portal\'s again', last.data?.wordingSource);
   }
 
+  // Agency events: an owner puts a training on everyone's calendar, advisors say they are going.
+  {
+    const day = isoDay(40);
+    const empty = await call(admin, 'POST', '/api/agency-events', { title: '', onDate: day, startTime: '14:00' });
+    check(empty.status === 400, 'an agency event needs a name', `status ${empty.status}`);
+    const badLink = await call(admin, 'POST', '/api/agency-events',
+      { title: `Training ${stamp}`, onDate: day, startTime: '14:00', link: 'javascript:alert(1)' });
+    check(badLink.status === 400, 'and a join link has to be a web address', `status ${badLink.status}`);
+    const backwards = await call(admin, 'POST', '/api/agency-events',
+      { title: `Training ${stamp}`, onDate: day, startTime: '15:00', endTime: '14:00' });
+    check(backwards.status === 400, 'and cannot end before it starts', `status ${backwards.status}`);
+
+    const notOwner = await call(advisor, 'POST', '/api/agency-events',
+      { title: `Training ${stamp}`, onDate: day, startTime: '14:00' });
+    check(notOwner.status === 403, 'an advisor cannot put something on everyone\'s calendar', `status ${notOwner.status}`);
+
+    const made = await call(admin, 'POST', '/api/agency-events', {
+      title: `Vendor training ${stamp}`, kind: 'training', vendor: 'Test Line', onDate: day,
+      startTime: '14:00', endTime: '15:00', tz: 'ET', link: 'https://example.com/join', notes: 'Bring questions',
+    });
+    const evId = made.data?.id;
+    check(made.status === 201 && Boolean(evId), 'an owner can add an agency event', `status ${made.status}`);
+    if (evId) cleanup('the agency event', () => call(admin, 'DELETE', `/api/agency-events/${evId}`));
+
+    const seen = await call(advisor, 'GET', '/api/agency-events');
+    const theirs = (seen.data?.events || []).find((e) => e.id === evId);
+    check(Boolean(theirs) && theirs.going === false && theirs.title === `Vendor training ${stamp}`,
+      'it shows up for an advisor, who has not said they are going', JSON.stringify(theirs));
+    const cal = await call(advisor, 'GET', `/api/calendar?from=${day}&to=${day}`);
+    const onCal = (cal.data?.events || []).find((e) => e.kind === 'agency' && e.id === evId);
+    check(Boolean(onCal) && onCal.where === 'https://example.com/join',
+      'and on their calendar, with the join link', JSON.stringify(onCal));
+
+    const going = await call(advisor, 'PUT', `/api/agency-events/${evId}/going`, { going: true });
+    const after = (await call(advisor, 'GET', '/api/agency-events')).data?.events?.find((e) => e.id === evId);
+    check(going.status === 200 && after?.going === true && after?.goingCount === 1,
+      'an advisor can say they are going', JSON.stringify(after));
+    const owner = await call(admin, 'GET', '/api/admin/agency-events');
+    const ownersRow = (owner.data?.events || []).find((e) => e.id === evId);
+    check(owner.status === 200 && (ownersRow?.attendees || []).length === 1,
+      'and the owner sees who is', JSON.stringify(ownersRow?.attendees));
+    const noList = await call(advisor, 'GET', '/api/admin/agency-events');
+    check(noList.status === 403, 'but the list of who is going is the owner\'s', `status ${noList.status}`);
+    const stranger = await call(advisor, 'PUT', '/api/agency-events/not-an-event/going', { going: true });
+    check(stranger.status === 404, 'an event that does not exist cannot be answered', `status ${stranger.status}`);
+
+    const changed = await call(admin, 'PUT', `/api/agency-events/${evId}`,
+      { title: `Vendor training ${stamp} moved`, onDate: day, startTime: '16:00' });
+    check(changed.status === 200, 'an owner can change it', `status ${changed.status}`);
+    await call(admin, 'PUT', `/api/agency-events/${evId}`, { cancelled: true });
+    const gone = (await call(advisor, 'GET', '/api/agency-events')).data?.events?.some((e) => e.id === evId);
+    check(gone === false, 'a cancelled event leaves the dashboard list');
+    const struck = (await call(advisor, 'GET', `/api/calendar?from=${day}&to=${day}`)).data?.events
+      ?.find((e) => e.id === evId);
+    check(struck?.muted === true, 'and stays on the calendar, struck through');
+    const advisorCancel = await call(advisor, 'PUT', `/api/agency-events/${evId}`, { cancelled: false });
+    check(advisorCancel.status === 403, 'an advisor cannot restore or change one', `status ${advisorCancel.status}`);
+    const removed = await call(admin, 'DELETE', `/api/agency-events/${evId}`);
+    const calAfter = (await call(advisor, 'GET', `/api/calendar?from=${day}&to=${day}`)).data?.events
+      ?.some((e) => e.id === evId);
+    check(removed.status === 200 && calAfter === false, 'deleting it takes it off every calendar');
+  }
+
   // Invoices for several reservations at once, and moving reservations into a group.
   {
     const second = await call(advisor, 'POST', '/api/bookings', {

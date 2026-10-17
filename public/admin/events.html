@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trainings and events | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Trainings and events</h1>
+        <p class="sub">Put a vendor training, a webinar or a meeting on every advisor's calendar and dashboard.</p></div>
+      <div class="toolbar" style="margin:0;">
+        <button class="btn btn-primary btn-sm" id="add">Add an event</button>
+      </div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <section class="card" id="panel"><p class="spinner">Loading...</p></section>
+    </div>
+  </div>
+</div>
+
+<dialog id="dlg">
+  <form id="event-form" method="dialog">
+    <div class="card-head"><h2 id="dlg-title">Add an event</h2>
+      <button class="btn btn-ghost btn-sm" type="button" id="cancel">Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" hidden></div>
+      <div class="field"><label for="title">What is it</label>
+        <input id="title" name="title" maxlength="160" required
+          placeholder="Royal Caribbean agent training"></div>
+      <div class="field-row">
+        <div class="field"><label for="kind">Kind</label>
+          <select id="kind" name="kind"></select></div>
+        <div class="field"><label for="vendor">Who is giving it</label>
+          <input id="vendor" name="vendor" maxlength="120" placeholder="A supplier, if it is one"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="onDate">Day</label>
+          <input id="onDate" name="onDate" type="date" required></div>
+        <div class="field"><label for="startTime">From</label>
+          <input id="startTime" name="startTime" type="time" required></div>
+        <div class="field"><label for="endTime">Until</label>
+          <input id="endTime" name="endTime" type="time"></div>
+        <div class="field"><label for="tz">Time zone</label>
+          <input id="tz" name="tz" maxlength="12" placeholder="ET" list="zones">
+          <datalist id="zones"><option value="ET"><option value="CT"><option value="MT"><option value="PT"></datalist></div>
+      </div>
+      <div class="field"><label for="link">Join link</label>
+        <input id="link" name="link" type="url" maxlength="500" placeholder="https://"></div>
+      <div class="field"><label for="notes">Notes for the advisors</label>
+        <textarea id="notes" name="notes" maxlength="2000" rows="3"
+          placeholder="What it covers, whether there is a recording, anything to bring"></textarea></div>
+    </div>
+    <div class="card-foot">
+      <button class="btn btn-primary" type="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module">
+import { api, mountShell, esc, dateFmt, showError, onSubmit, linkBits } from '/js/app.js';
+await mountShell({ admin: true });
+
+const panel = document.getElementById('panel');
+const err = document.getElementById('err');
+const dlg = document.getElementById('dlg');
+const form = document.getElementById('event-form');
+let data = null;
+let editing = null;
+
+function row(e, advisors) {
+  const going = e.attendees || [];
+  return `<tr class="${e.cancelledAt ? 'muted' : ''}">
+    <td><strong>${esc(e.title)}</strong>${e.cancelledAt ? ' <span class="badge badge-red">Cancelled</span>' : ''}
+      <div class="muted" style="font-size:.84rem;">${esc(e.kindLabel)}${e.vendor ? ` &middot; ${esc(e.vendor)}` : ''}${
+        e.link ? ` &middot; ${linkBits(e.link)}` : ''}</div></td>
+    <td>${esc(dateFmt(e.onDate))}<div class="muted" style="font-size:.84rem;">${esc(e.startTime)}${
+      e.endTime ? ` to ${esc(e.endTime)}` : ''}${e.tz ? ` ${esc(e.tz)}` : ''}</div></td>
+    <td>${going.length} of ${advisors}${going.length
+      ? `<div class="muted" style="font-size:.84rem;">${esc(going.join(', '))}</div>` : ''}</td>
+    <td style="white-space:nowrap;text-align:right;">
+      <button class="btn btn-ghost btn-sm" data-edit="${esc(e.id)}">Edit</button>
+      <button class="btn btn-ghost btn-sm" data-cancel="${esc(e.id)}">${e.cancelledAt ? 'Restore' : 'Cancel'}</button>
+      <button class="btn btn-ghost btn-sm" data-drop="${esc(e.id)}">Delete</button>
+    </td></tr>`;
+}
+
+function table(list, advisors) {
+  return `<table class="table">
+    <thead><tr><th>Event</th><th>When</th><th>Going</th><th></th></tr></thead>
+    <tbody>${list.map((e) => row(e, advisors)).join('')}</tbody></table>`;
+}
+
+function render() {
+  const { events, advisors, today } = data;
+  const upcoming = events.filter((e) => e.onDate >= today);
+  const past = events.filter((e) => e.onDate < today).reverse();
+  panel.innerHTML = `
+    <div class="card-pad"><p style="margin:0;">${upcoming.length
+      ? `${upcoming.length} coming up. Each one is on every advisor's calendar and in the Trainings and events panel on their dashboard.`
+      : 'Nothing is scheduled. Add a training and it shows on every advisor\'s calendar and dashboard.'}</p></div>
+    ${upcoming.length ? table(upcoming, advisors) : ''}
+    ${past.length ? `<div class="card-pad"><h3 style="margin:0;">Earlier</h3></div>${table(past, advisors)}` : ''}`;
+  panel.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => open(b.dataset.edit)));
+  panel.querySelectorAll('[data-cancel]').forEach((b) => b.addEventListener('click', async () => {
+    const e = events.find((x) => x.id === b.dataset.cancel);
+    try {
+      await api(`/api/agency-events/${encodeURIComponent(e.id)}`,
+        { method: 'PUT', body: { cancelled: !e.cancelledAt } });
+      await load();
+    } catch (x) { showError(err, x); }
+  }));
+  panel.querySelectorAll('[data-drop]').forEach((b) => b.addEventListener('click', async () => {
+    const e = events.find((x) => x.id === b.dataset.drop);
+    if (!confirm(`Delete "${e.title}"? It disappears from every calendar. Cancel keeps it, struck through.`)) return;
+    try {
+      await api(`/api/agency-events/${encodeURIComponent(e.id)}`, { method: 'DELETE' });
+      await load();
+    } catch (x) { showError(err, x); }
+  }));
+}
+
+function open(id) {
+  editing = id ? data.events.find((e) => e.id === id) : null;
+  document.getElementById('dlg-title').textContent = editing ? 'Change this event' : 'Add an event';
+  const kind = form.elements.kind;
+  kind.innerHTML = data.kinds.map(([k, label]) => `<option value="${esc(k)}">${esc(label)}</option>`).join('');
+  const e = editing || { kind: 'training', title: '', vendor: '', onDate: '', startTime: '', endTime: '',
+    tz: 'ET', link: '', notes: '' };
+  for (const k of ['title', 'vendor', 'onDate', 'startTime', 'endTime', 'tz', 'link', 'notes']) {
+    form.elements[k].value = e[k] || '';
+  }
+  kind.value = e.kind;
+  dlg.showModal();
+}
+
+document.getElementById('add').addEventListener('click', () => open(null));
+document.getElementById('cancel').addEventListener('click', () => dlg.close());
+onSubmit(form, async () => {
+  const body = Object.fromEntries(new FormData(form).entries());
+  if (editing) await api(`/api/agency-events/${encodeURIComponent(editing.id)}`, { method: 'PUT', body });
+  else await api('/api/agency-events', { method: 'POST', body });
+  dlg.close();
+  await load();
+});
+
+async function load() {
+  try { data = await api('/api/admin/agency-events'); render(); }
+  catch (e) { showError(err, e); panel.innerHTML = ''; }
+}
+await load();
+</script>
+</body></html>
