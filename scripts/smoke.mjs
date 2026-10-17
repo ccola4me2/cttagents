@@ -8182,6 +8182,10 @@ async function main() {
     const gotTwo = await call(advisor, 'GET', `/api/bookings/${stId}`);
     check(outOf.data?.changed === 2 && !gotTwo.data?.booking?.group_id,
       'and out of it again', JSON.stringify(outOf.data));
+    // Taken off the book now, not at the end: an unsent quote left lying about changes what the dashboard
+    // lists as waiting, and the checks after this one are about that list.
+    await dropBooking(stq);
+    await dropBooking(st2);
   }
 
   // 2000 + 318.55 - 100. A discount is stored positive and subtracted, the
