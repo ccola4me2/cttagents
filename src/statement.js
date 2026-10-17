@@ -761,6 +761,7 @@ export async function handleBulkQuote(request, env) {
       // sender choose, and the names of the ones that are.
       documents: docsList.map((d) => ({ ...d, selected: pickIds.includes(d.id) })),
       attached: docsList.filter((d) => pickIds.includes(d.id)).map((d) => d.filename),
+      notShared: invoices ? (data.notShared || 0) : 0,
       mode: s.mode, sample: s,
     };
     if (s.mode !== wantMode) {
@@ -854,7 +855,7 @@ async function combinedStatement(request, env, user, { kind, results, statements
     const scope = db.selfScope(owner);
     for (const st of statements) {
       if (!st.pickIds.length) continue;
-      const docs = docsReady(env) ? await listDocuments(env, st.id, scope) : [];
+      const docs = docsReady(env) ? (await listDocuments(env, st.id, scope)).filter((d) => d.shared) : [];
       const picked = await chooseAttachments(env, docs, st.pickIds, { withContent: send });
       if (picked.error) return badRequest(`${st.s.clientName || 'One of them'}: ${picked.error}`);
       for (const f of picked.files) files.push({ ...f, client: st.s.clientName || '' });
@@ -961,8 +962,10 @@ export async function handleStatement(request, env, id) {
     ? await db.getClient(env, scope, { id: booking.client_id })
     : await db.getClient(env, scope, { name: booking.client_name });
 
-  // The reservation's own files, which are the only things an email can carry.
-  const docs = docsReady(env) ? await listDocuments(env, id, scope) : [];
+  // The reservation's own files that the client may see, which are the only things an email can carry:
+  // a file the advisor has not shared with the client is not offered, and cannot be named.
+  const allDocs = docsReady(env) ? await listDocuments(env, id, scope) : [];
+  const docs = allDocs.filter((d) => d.shared);
 
   // Numbered on send, not on preview. Previewing an invoice three times before
   // deciding not to send it would otherwise burn three numbers out of a
@@ -1001,12 +1004,12 @@ export async function handleStatement(request, env, id) {
 
   if (body.preview) {
     // The message as it will leave, footer and all, from the same function the send uses.
-    // What is attached. Whatever the sender ticked, or when they have not been asked yet, the
-    // vendor's confirmation on an invoice and nothing on a quote. Only the names and sizes are read
-    // here; the files themselves are read when it is sent.
+    // What is attached. Whatever the sender ticked, or when they have not been asked yet, what the client
+    // may see on an invoice, except a file named like the agency's own copy or a passport, and nothing on a
+    // quote. Only the names and sizes are read here; the files themselves are read when it is sent.
     const wanted = Array.isArray(body.attachmentIds)
       ? body.attachmentIds
-      : docs.filter((d) => statement.mode === 'statement' && d.category === 'confirmation'
+      : docs.filter((d) => statement.mode === 'statement' && d.category !== 'passport'
         && !looksLikeAgencyCopy(d.filename)).map((d) => d.id);
     const picked = await chooseAttachments(env, docs, wanted);
     if (picked.error && Array.isArray(body.attachmentIds)) return badRequest(picked.error);
@@ -1025,7 +1028,9 @@ export async function handleStatement(request, env, id) {
         attachments: pickedFiles.map((f) => ({ filename: f.filename, bytes: f.bytes })),
         links: asSent.links,
       } : null,
-      // Every file on the reservation that could go with it, and which are going.
+      // The files on the reservation the client may see, and which are going. How many more there are
+      // that are not shared, so the screen can say why a file is not offered.
+      notShared: allDocs.length - docs.length,
       documents: docs.map((d) => ({
         id: d.id, filename: d.filename, category: d.category, bytes: Number(d.size_bytes) || 0,
         selected: pickedFiles.some((f) => f.id === d.id),

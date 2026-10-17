@@ -8028,12 +8028,18 @@ async function main() {
   const confDoc = await uploadDoc(advisor, stId, `confirmation-${stamp}.txt`, 'Royal Caribbean confirmation', 'confirmation');
   const otherDoc = await uploadDoc(advisor, stId, `passport-${stamp}.txt`, 'a scan', 'passport');
   const agencyDoc = await uploadDoc(advisor, stId, `agency_copy-${stamp}.txt`, 'agency copy', 'confirmation');
+  // Only what the client may see is offered, so these are shared with them, and one more is not.
   if (confDoc && otherDoc && agencyDoc) {
+    for (const d of [confDoc, otherDoc, agencyDoc]) await call(advisor, 'POST', `/api/documents/${d.id}/share`, { shared: true });
+  }
+  const hiddenDoc = await uploadDoc(advisor, stId, `internal-${stamp}.txt`, 'private notes', 'other');
+  if (confDoc && otherDoc && agencyDoc && hiddenDoc) {
     const offered = await call(advisor, 'POST', `/api/bookings/${stId}/statement`, { preview: true });
     const listed = offered.data?.documents || [];
     const isInvoice = offered.data?.statement?.mode === 'statement';
-    check(listed.length === 3 && listed.some((d) => d.id === confDoc.id) && listed.some((d) => d.id === otherDoc.id),
-      'the reservation\'s own files are offered with the email', JSON.stringify(listed));
+    check(listed.length === 3 && listed.some((d) => d.id === confDoc.id) && listed.some((d) => d.id === otherDoc.id)
+      && !listed.some((d) => d.id === hiddenDoc.id) && offered.data?.notShared === 1,
+      'only the files the client can see are offered with the email, and the one that is not shared is not', JSON.stringify(listed));
     check(listed.find((d) => d.id === confDoc.id)?.selected === isInvoice
       && listed.find((d) => d.id === otherDoc.id)?.selected === false,
       'the confirmation is ticked on an invoice, and a passport scan never is', JSON.stringify(listed));
@@ -8055,6 +8061,9 @@ async function main() {
       { preview: true, attachmentIds: ['not-a-file-on-this-reservation'] });
     check(stranger.status === 400, 'a file that is not on this reservation cannot be named',
       `status ${stranger.status}`);
+    const unshared = await call(advisor, 'POST', `/api/bookings/${stId}/statement`,
+      { preview: true, attachmentIds: [hiddenDoc.id] });
+    check(unshared.status === 400, 'and neither can one the client may not see', `status ${unshared.status}`);
     const sendStranger = await call(advisor, 'POST', `/api/bookings/${stId}/statement`,
       { attachmentIds: ['not-a-file-on-this-reservation'] });
     check(sendStranger.status === 400, 'on the send either', `status ${sendStranger.status}`);

@@ -2547,8 +2547,10 @@ async function statement() {
       + 'the agency earns. Check it before it goes to a client.</span>' : ''}</span></label>`).join('')}</div>
           <span class="muted" style="font-size:.8rem;">${files.length
     ? `${files.length} going with it.` : 'None going with it.'} Tick the files that should go with it.</span>`
-        : '<strong>None.</strong> Nothing is attached. Upload the confirmation under Documents on this '
-          + 'reservation and it can be attached here.'}</dd>
+        : `<strong>None.</strong> Nothing is attached. ${pv.notShared
+          ? `This reservation has ${pv.notShared} file${pv.notShared === 1 ? '' : 's'}, and none is shared with the client. `
+            + 'Tick Shared with client on a document under Documents and it can be attached here.'
+          : 'Upload the confirmation under Documents on this reservation, and share it with the client, and it can be attached here.'}`}</dd>
       <dt>Links in it</dt><dd>${links.length ? links.map((l) =>
         `${esc(l.text)}<br><span class="muted" style="font-size:.8rem;word-break:break-all;">${
           esc(l.href)}</span>`).join('<div style="height:.4rem;"></div>') : 'None.'}</dd>`;
