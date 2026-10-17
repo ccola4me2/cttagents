@@ -278,6 +278,15 @@
                       <button class="btn btn-ghost btn-sm" type="button" id="hero-remove" hidden>Remove the uploaded picture</button>
                     </div>
                   </div></div>
+                <div class="field"><label>Files to download</label>
+                  <div id="files-list"></div>
+                  <div style="display:grid;gap:.4rem;max-width:32rem;margin-top:.4rem;" id="files-form">
+                    <input id="file-title" maxlength="80" placeholder="Name shown on the page, such as Group flyer">
+                    <input type="file" id="file-pdf" accept="application/pdf,.pdf">
+                    <div><button class="btn btn-ghost btn-sm" type="button" id="file-add">Upload the PDF</button></div>
+                  </div>
+                  <p class="field-hint" id="file-note">PDF only, up to 10 MB each and six to a group. They show as
+                    download buttons on the group's page.</p></div>
                 <div class="field"><label for="perks">What the group gets</label>
                   <textarea id="perks" name="perks" rows="4" maxlength="1600"
                     placeholder="$100 onboard credit per cabin"></textarea>
@@ -533,6 +542,48 @@ document.getElementById('hero-remove').addEventListener('click', async () => {
     showHero('');
     document.getElementById('hero-note').textContent = 'Removed.';
   } catch (err) { document.getElementById('hero-note').textContent = err.message; }
+});
+
+// The PDFs the page offers for download: listed here, added with a name, and taken off one at a time.
+function drawFiles(files) {
+  const box = document.getElementById('files-list');
+  box.innerHTML = files.length ? `<ul style="list-style:none;margin:0 0 .4rem;padding:0;display:grid;gap:.4rem;">${
+    files.map((f) => `<li style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">
+      <a href="${esc(f.url)}" target="_blank" rel="noopener"><strong>${esc(f.title)}</strong></a>
+      <span class="muted">${esc(f.filename)}, ${f.bytes >= 1048576 ? `${(f.bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(f.bytes / 1024))} KB`}</span>
+      ${canEdit ? `<button class="btn btn-ghost btn-sm" type="button" data-drop-file="${esc(f.id)}">Remove</button>` : ''}</li>`).join('')
+  }</ul>` : '<p class="muted" style="margin:0 0 .4rem;">None yet.</p>';
+  box.querySelectorAll('[data-drop-file]').forEach((b) => b.addEventListener('click', async () => {
+    if (!confirm('Take this download off the page? The file is deleted.')) return;
+    b.disabled = true;
+    try {
+      const res = await api(`/api/groups/${encodeURIComponent(groupId)}/files/${encodeURIComponent(b.dataset.dropFile)}`,
+        { method: 'DELETE' });
+      drawFiles(res.files);
+    } catch (err) { document.getElementById('file-note').textContent = err.message; b.disabled = false; }
+  }));
+  document.getElementById('files-form').hidden = !canEdit;
+}
+
+document.getElementById('file-add').addEventListener('click', async () => {
+  const input = document.getElementById('file-pdf');
+  const note = document.getElementById('file-note');
+  if (!groupId) { note.textContent = 'Save the group first, then add its downloads.'; return; }
+  if (!input.files[0]) { note.textContent = 'Choose a PDF first.'; return; }
+  note.textContent = 'Uploading...';
+  try {
+    const form = new FormData();
+    form.append('file', input.files[0]);
+    form.append('title', document.getElementById('file-title').value);
+    const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}/files`,
+      { method: 'POST', body: form, credentials: 'same-origin' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'That file could not be uploaded.');
+    drawFiles(data.files);
+    input.value = '';
+    document.getElementById('file-title').value = '';
+    note.textContent = 'Added. It is on the page now.';
+  } catch (err) { note.textContent = err.message; }
 });
 
 // The perks and the itinerary are stored as lists and typed as lines.
@@ -1202,6 +1253,7 @@ async function load() {
     drawRates(d.rates);
     renderHeader(group);
     renderLink(group, d.link, d.codeShared);
+    drawFiles(d.files || []);
     // Not awaited. The roster decrypts a passport per traveller and the
     // details form above should be editable before that finishes.
     loadRoster();

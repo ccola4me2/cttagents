@@ -251,6 +251,7 @@ import {
 import { handleGroupList } from './groupmanifest.js';
 import { handleSlugCheck, handleSetSlug, handleReleaseSlug, handlePublicSlugTaken } from './groupslug.js';
 import { handleUploadPicture, handleRemovePicture, serveGroupPicture } from './grouppicture.js';
+import { handleUploadGroupFile, handleDeleteGroupFile, serveGroupFile } from './groupfiles.js';
 import { handleSaveWording, handleClearWording } from './wording.js';
 import { isGroupHost, serveGroupHost, serveSlug, redirectForCode } from './grouphost.js';
 import { remindGroups, handleRunGroupReminders } from './groupremind.js';
@@ -760,6 +761,8 @@ async function routeApi(request, env, path, method) {
   const groupSlugMatch = path.match(/^\/api\/groups\/([^/]+)\/slug$/);
   const groupRepeatMatch = path.match(/^\/api\/groups\/([^/]+)\/repeat$/);
   const groupPictureMatch = path.match(/^\/api\/groups\/([^/]+)\/picture$/);
+  const groupFilesMatch = path.match(/^\/api\/groups\/([^/]+)\/files$/);
+  const groupFileMatch = path.match(/^\/api\/groups\/([^/]+)\/files\/([^/]+)$/);
   const groupBookMatch = path.match(/^\/api\/groups\/registrations\/([^/]+)\/book$/);
   const rosterMatch = path.match(/^\/api\/groups\/([^/]+)\/roster$/);
   const groupListMatch = path.match(/^\/api\/groups\/([^/]+)\/list$/);
@@ -1105,6 +1108,8 @@ async function routeApi(request, env, path, method) {
   if (groupSlugMatch && method === 'PUT') return handleSetSlug(request, env, groupSlugMatch[1]);
   if (path === '/api/group-slugs/release' && method === 'POST') return handleReleaseSlug(request, env);
   if (groupRepeatMatch && method === 'POST') return handleRepeatGroup(request, env, groupRepeatMatch[1]);
+  if (groupFilesMatch && method === 'POST') return handleUploadGroupFile(request, env, groupFilesMatch[1]);
+  if (groupFileMatch && method === 'DELETE') return handleDeleteGroupFile(request, env, groupFileMatch[1], groupFileMatch[2]);
   if (groupPictureMatch && method === 'POST') return handleUploadPicture(request, env, groupPictureMatch[1]);
   if (groupPictureMatch && method === 'DELETE') return handleRemovePicture(request, env, groupPictureMatch[1]);
   if (path === '/api/statement-wording' && method === 'PUT') return handleSaveWording(request, env);
@@ -1463,6 +1468,9 @@ async function routePage(request, env, path) {
   // An uploaded picture for a group's page, public while the page is on.
   const pictureOf = path.match(/^\/gi\/([^/]+)\/?$/);
   if (pictureOf) return serveGroupPicture(request, env, decodeURIComponent(pictureOf[1]));
+  // A PDF a group's page offers for download, public while the page is on.
+  const fileOf = path.match(/^\/gf\/([^/]+)\/?$/);
+  if (fileOf) return serveGroupFile(request, env, decodeURIComponent(fileOf[1]));
 
   const slugPage = path.match(/^\/gs\/([^/]+)(?:\/(register))?\/?$/);
   if (slugPage) return serveSlug(request, env, slugPage[1], slugPage[2] || '', 'path');

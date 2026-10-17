@@ -103,6 +103,9 @@ const OWNED = new Set([
   // page and the other portal's availability question: the name is the address that was
   // handed out, so asking whose it is is the whole point of the lookup.
   'group_slugs',
+  // The PDFs a group's page offers for download. Theirs, named by user_id in every statement that
+  // changes one; the public download finds one by the id the page handed out.
+  'group_files',
 ]);
 
 // Shared by a whole agency, so agency_id is the predicate that matters rather

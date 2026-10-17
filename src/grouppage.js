@@ -32,6 +32,7 @@ import { brandForUser, DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand
 import { seal, piiReady } from './pii.js';
 import { turnstileWidget, verifyTurnstile, TURNSTILE_FAILED } from './turnstile.js';
 import { sendSignupNoticeEmail } from './email.js';
+import { listGroupFiles } from './groupfiles.js';
 
 // What differs between the two portals, in one place so the rest of the file reads the same
 // in both.
@@ -334,6 +335,14 @@ ${head}
   .s-title{font-weight:700;color:var(--navy)}
   .s-text{font-size:.9rem;color:var(--soft);font-variant-numeric:tabular-nums}
   .perks{list-style:none;margin:0;padding:0;display:grid;gap:.55rem}
+  .files{list-style:none;margin:0;padding:0;display:grid;gap:.6rem}
+  .files a{display:flex;align-items:center;gap:.8rem;border:1px solid var(--line);border-radius:11px;
+           padding:.8rem 1rem;text-decoration:none;color:var(--navy);font-weight:600}
+  .files a:hover{background:#f2f7fb}
+  .files .pdf{flex:none;background:var(--coral);color:#fff;font-size:.68rem;font-weight:700;
+              letter-spacing:.08em;border-radius:6px;padding:.25rem .45rem}
+  .files .ft{flex:1}
+  .files small{color:var(--soft);font-weight:400}
   .perks .ck{color:#1f7a5a;font-weight:700;margin-right:.6rem}
   .itin .day{display:grid;grid-template-columns:5.2rem 1fr;gap:.1rem .8rem;padding:.65rem 0;
              border-top:1px solid var(--line)}
@@ -635,6 +644,15 @@ function itineraryBlock(g) {
   }</div></div>`;
 }
 
+function filesBlock(files) {
+  if (!files.length) return '';
+  const size = (bytes) => (bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
+  return `<div class="card"><h2>Downloads</h2><ul class="files">${
+    files.map((f) => `<li><a href="${esc(f.url)}" target="_blank" rel="noopener"><span class="pdf">PDF</span>
+      <span class="ft">${esc(f.title)}</span><small>${esc(size(f.bytes))}</small></a></li>`).join('')
+  }</ul></div>`;
+}
+
 function moneyBlock(g) {
   const fee = Number(g.agency_fee_cents) || 0;
   if (!fee && !g.trip_terms && !g.fee_terms) return '';
@@ -678,6 +696,7 @@ export async function renderGroupTripPage(request, env, rawRef) {
   const base = ref.base;
   const rates = await loadRates(env, g.id, g.user_id);
   const contact = await contactFor(env, g.user_id);
+  const files = await listGroupFiles(env, g.id, g.user_id);
   const state = standing(g, rates);
   const canonical = canonicalOf(env, g, ref);
   const next = state === 'departed' ? await nextSailing(env, g) : null;
@@ -703,6 +722,7 @@ export async function renderGroupTripPage(request, env, rawRef) {
     state === 'departed' ? '' : stepsBlock(g, base, state),
     perksBlock(g),
     itineraryBlock(g),
+    filesBlock(files),
     moneyBlock(g),
     faqBlock(faqOf(g)),
     // The short enquiry stays. Not everybody reading this is ready to name

@@ -147,6 +147,19 @@ async function uploadDoc(cookieJar, bookingId, filename, content, category = 'ot
   return res.json().catch(() => null);
 }
 
+/** A PDF for a group's page to offer, which is a multipart upload with a name. */
+async function uploadGroupFile(cookieJar, groupId, bytes, filename, title) {
+  const body = new FormData();
+  body.append('file', new Blob([bytes], { type: 'application/pdf' }), filename);
+  body.append('title', title);
+  const res = await fetch(`${BASE}/api/groups/${groupId}/files`, {
+    method: 'POST',
+    headers: { ...(cookieJar.header() ? { cookie: cookieJar.header() } : {}) },
+    body,
+  });
+  return { status: res.status, data: await res.json().catch(() => null) };
+}
+
 /** A picture for a group's page, which is a multipart upload like a document. */
 async function uploadPicture(cookieJar, groupId, bytes, type, filename) {
   const body = new FormData();
@@ -7356,6 +7369,33 @@ async function main() {
       const cleared = await call(advisor, 'GET', `/api/groups/${gid}`);
       check(gonePic.status === 200 && after.status === 404 && !cleared.data?.group?.hero_image_url,
         'it can be removed, and then it is not served', `${gonePic.status} ${after.status}`);
+    }
+
+    // A PDF the page offers for download.
+    const pdfBytes = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n');
+    const added = await uploadGroupFile(advisor, gid, pdfBytes, 'Group Flyer.pdf', 'Group flyer');
+    if (added.status === 400 && /storage/i.test(added.data?.error || '')) {
+      skip('PDF downloads on a group page', 'no document storage is bound here');
+    } else {
+      check(added.status === 201 && added.data?.files?.length === 1 && added.data.files[0].title === 'Group flyer',
+        'a PDF can be added to a group\'s page, with a name', `${added.status} ${JSON.stringify(added.data)}`);
+      const fileId = added.data?.files?.[0]?.id;
+      const got = await fetch(`${BASE}/gf/${fileId}`);
+      check(got.status === 200 && got.headers.get('content-type') === 'application/pdf'
+        && got.headers.get('x-content-type-options') === 'nosniff',
+        'and it is served to anybody, as a PDF and nothing else', `${got.status} ${got.headers.get('content-type')}`);
+      const curSlug = (await call(advisor, 'GET', `/api/groups/${gid}`)).data?.group?.page_slug;
+      const withFile = await call(null, 'GET', `/gs/${curSlug}`);
+      check(withFile.raw.includes('Downloads') && withFile.raw.includes('Group flyer') && withFile.raw.includes(`/gf/${fileId}`),
+        'the group\'s page lists it under Downloads');
+      const notPdf = await uploadGroupFile(advisor, gid, Buffer.from('<html>not a pdf</html>'), 'Flyer.pdf', 'Fake');
+      check(notPdf.status === 400, 'a file that is not a PDF is refused even with a PDF\'s name', `status ${notPdf.status}`);
+      let last = null;
+      for (let n = 0; n < 6; n += 1) last = await uploadGroupFile(advisor, gid, pdfBytes, `More ${n}.pdf`, `More ${n}`);
+      check(last.status === 400, 'a group\'s page offers at most six downloads', `status ${last.status}`);
+      const dropped = await call(advisor, 'DELETE', `/api/groups/${gid}/files/${fileId}`);
+      const afterDrop = await fetch(`${BASE}/gf/${fileId}`);
+      check(dropped.status === 200 && afterDrop.status === 404, 'a download can be removed, and then it is gone', `${dropped.status} ${afterDrop.status}`);
     }
 
     // Deleting the group lets its names go.

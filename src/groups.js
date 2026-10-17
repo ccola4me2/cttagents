@@ -19,6 +19,7 @@ import { parseGroupQuote, FIELD_WORDS } from './groupquote.js';
 // does not import this file, so there is no cycle.
 import { buildSchedule } from './payments.js';
 import { assignSlug, linkInfo, releaseAllFor, cleanSlug, slugProblem, slugState } from './groupslug.js';
+import { listGroupFiles, removeGroupFiles } from './groupfiles.js';
 
 const STATUSES = ['open', 'closed', 'cancelled'];
 
@@ -363,6 +364,8 @@ export async function handleGetGroup(request, env, id) {
     codeShared: (await clashingCodes(env, [group])).length > 0,
     // The short name the page is shared under, and the ones it used to have.
     link: await linkInfo(env, group),
+    // The PDFs its page offers for download.
+    files: await listGroupFiles(env, id, group.user_id),
     rates: await ratesFor(env, id, group.user_id) });
 }
 
@@ -777,6 +780,7 @@ export async function handleDeleteGroup(request, env, id) {
     .bind(id, owner.id).run();
   // Its short names stop meaning anything with it.
   await releaseAllFor(env, id, owner.id);
+  await removeGroupFiles(env, id, owner.id);
   const res = await env.DB.prepare('DELETE FROM travel_groups WHERE id = ? AND user_id = ?')
     .bind(id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Group not found.');
