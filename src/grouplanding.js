@@ -163,7 +163,6 @@ export function renderGroupLanding(env) {
       </div>
       <div class="btns">
         <a class="btn gold" href="https://cttagents.com/">CTT Agent Portal</a>
-        <a class="btn ghost" href="https://tripvaratravel.com/">Trip Vara</a>
       </div>
     </div>
   </div>
