@@ -232,7 +232,11 @@ function readView() {
       </div>
     </section>
 
-    <section class="card" style="margin-top:1.25rem;">
+    ${d.showSold ? soldView(t) : ''}`;
+}
+
+function soldView(t) {
+  return `    <section class="card" style="margin-top:1.25rem;">
       <div class="card-head"><h2>Sold through this vendor</h2>
         <span class="muted">${t.trips} trip${t.trips === 1 ? '' : 's'} ·
           ${money(t.grossCents)} · ${money(t.commissionCents)} commission</span></div>

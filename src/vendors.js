@@ -10,7 +10,7 @@ import { json, badRequest, notFound, clean, cleanText, uid, now, readJson } from
 // A reservation marked "no commission" earns nobody anything, so it adds
 // nothing to a vendor's total either.
 import { EARNED_SQL } from './split.js';
-import { requireUser, requireAdmin } from './auth.js';
+import { requireUser, requireAdmin, isAdmin } from './auth.js';
 import * as db from './db.js';
 
 const COLUMNS = `
@@ -660,12 +660,17 @@ export async function handleGetVendor(request, env, id) {
       LIMIT 100`
   ).bind(...bookingScope.binds, id).all();
 
-  const trips = bookings || [];
+  // What was sold, to whom, for how much and for what commission is an owner's to read. An advisor
+  // gets the vendor's own record (terms, contacts, rates) and none of the reservations, so the
+  // rows are not sent at all rather than sent and hidden by the page.
+  const showSold = isAdmin(user);
+  const trips = showSold ? (bookings || []) : [];
   const counted = trips.filter((b) => b.status === 'booked' || b.status === 'travelled');
 
   return json({
     vendor,
     categories: CATEGORIES,
+    showSold,
     bookings: trips,
     // Anybody in the agency. The directory is shared, so the rate somebody
     // renegotiates is a correction for everyone rather than a note on a copy.

@@ -992,14 +992,16 @@ async function main() {
 
   if (vendorRowAdvisor) {
     const detailAdvisor = await call(advisor, 'GET', `/api/vendors/${vendorRowAdvisor.id}`);
-    const detailNames = (detailAdvisor.data?.bookings || []).map((b) => b.client_name);
-    check(detailNames.length === 1 && detailNames[0] === `Associate Vendor Client ${stamp}`,
-      'the vendor page lists only their own reservations', JSON.stringify(detailNames));
-    check(!JSON.stringify(detailAdvisor.data || {}).includes(`Owner Vendor Client ${stamp}`),
-      'and the owner\'s client is not named anywhere in the answer');
-    check(detailAdvisor.data?.totals?.grossCents === 300000
-      && detailAdvisor.data?.totals?.commissionCents === 30000,
-    'with totals that are theirs', JSON.stringify(detailAdvisor.data?.totals));
+    // What was sold through a vendor is an owner's to read: an advisor opens the vendor's own record
+    // and is sent no reservations, no client names and no totals, not even their own.
+    check(detailAdvisor.status === 200 && detailAdvisor.data?.showSold === false
+      && (detailAdvisor.data?.bookings || []).length === 0,
+    'the vendor page sends an advisor no reservations at all', JSON.stringify(detailAdvisor.data?.bookings));
+    check(!JSON.stringify(detailAdvisor.data || {}).includes(`Owner Vendor Client ${stamp}`)
+      && !JSON.stringify(detailAdvisor.data || {}).includes(`Associate Vendor Client ${stamp}`),
+    'and no client is named anywhere in the answer');
+    check(detailAdvisor.data?.totals?.grossCents === 0 && detailAdvisor.data?.totals?.commissionCents === 0,
+    'with nothing to total', JSON.stringify(detailAdvisor.data?.totals));
 
     const detailOwner = await call(admin, 'GET', `/api/vendors/${vendorRowAdvisor.id}`);
     check((detailOwner.data?.bookings || []).length === 2,
