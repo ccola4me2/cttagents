@@ -438,7 +438,8 @@ const attachMap = () => Object.fromEntries(qTicked().map((id) => [id,
   [...document.querySelectorAll(`[data-qdoc="${id}"]:checked`)].map((box) => box.value)]));
 // A row's files as tick boxes: what is on the reservation, how it is filed, and whether it goes.
 const filesCell = (r) => ((r.documents || []).length
-  ? r.documents.map((d) => `<label style="display:flex;gap:.4rem;align-items:flex-start;font-weight:400;font-size:.85rem;margin:0 0 .2rem;">
+  ? `<div class="muted" style="font-size:.8rem;margin:0 0 .3rem;">${r.documents.length} document${r.documents.length === 1 ? '' : 's'} on file</div>`
+    + r.documents.map((d) => `<label style="display:flex;gap:.4rem;align-items:flex-start;font-weight:400;font-size:.85rem;margin:0 0 .2rem;">
       <input type="checkbox" data-qdoc="${esc(r.id)}" value="${esc(d.id)}"${d.selected ? ' checked' : ''} style="margin-top:.2rem;">
       <span>${esc(d.filename)} <span class="muted">filed as ${esc(d.category)}</span>${d.agencyCopy
     ? ' <span style="color:var(--red-600);">looks like the agency copy</span>' : ''}</span></label>`).join('')
