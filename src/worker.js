@@ -159,6 +159,7 @@ import {
   handleGetForm,
   handleSaveForm,
   handleDeleteForm,
+  handleDeleteSubmission,
   handleSendForm,
   handleFormInvites,
   handleListMyTemplates,
@@ -248,7 +249,7 @@ import {
   handleRoster, handleUpdateRegistration, handleUpdateGroupTraveller, handleDeleteRegistration,
 } from './grouproster.js';
 import { handleGroupList } from './groupmanifest.js';
-import { handleSlugCheck, handleSetSlug, handlePublicSlugTaken } from './groupslug.js';
+import { handleSlugCheck, handleSetSlug, handleReleaseSlug, handlePublicSlugTaken } from './groupslug.js';
 import { isGroupHost, serveGroupHost, serveSlug, redirectForCode } from './grouphost.js';
 import { remindGroups, handleRunGroupReminders } from './groupremind.js';
 import {
@@ -981,6 +982,8 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/myforms/report' && method === 'GET') return handleFormsReport(request, env);
   const fileSubMatch = path.match(/^\/api\/myforms\/submissions\/([^/]+)\/file$/);
   if (fileSubMatch && method === 'POST') return handleFileSubmission(request, env, fileSubMatch[1]);
+  const subDeleteMatch = path.match(/^\/api\/myforms\/submissions\/([^/]+)$/);
+  if (subDeleteMatch && method === 'DELETE') return handleDeleteSubmission(request, env, subDeleteMatch[1]);
   if (leadToBookingMatch && method === 'POST') {
     return handleReservationFromLead(request, env, leadToBookingMatch[1]);
   }
@@ -1097,6 +1100,7 @@ async function routeApi(request, env, path, method) {
   // A group's short name: the part of its link after the shared domain.
   if (path === '/api/group-slugs/check' && method === 'GET') return handleSlugCheck(request, env);
   if (groupSlugMatch && method === 'PUT') return handleSetSlug(request, env, groupSlugMatch[1]);
+  if (path === '/api/group-slugs/release' && method === 'POST') return handleReleaseSlug(request, env);
   if (groupRepeatMatch && method === 'POST') return handleRepeatGroup(request, env, groupRepeatMatch[1]);
   if (path === '/api/groups' && method === 'GET') return handleListGroups(request, env);
   if (path === '/api/groups/quote' && method === 'POST') return handleParseQuote(request, env);

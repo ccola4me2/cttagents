@@ -126,11 +126,12 @@ function sayAnswer(v) {
   if (v && typeof v === 'object') {
     const { name, ...rest } = v;
     const extra = Object.entries(rest).filter(([, x]) => x)
-      .map(([k, x]) => `${k === 'dob' ? 'born' : k} ${x}`).join(', ');
+      .map(([k, x]) => `${k === 'dob' ? 'born' : k} ${sayAnswer(x)}`).join(', ');
     return [name, extra && `(${extra})`].filter(Boolean).join(' ')
-      || Object.values(v).filter(Boolean).join(', ');
+      || Object.values(v).filter(Boolean).map(sayAnswer).join(', ');
   }
-  return String(v);
+  // A date the way it is said here, month then day then year, wherever it turns up in an answer.
+  return String(v).replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, '$2/$3/$1');
 }
 
 /**

@@ -187,10 +187,22 @@ async function showSubs(id) {
               </div></div>
             <dl class="kv" style="margin-top:.7rem;">${Object.entries(s.data)
               .map(([k, v]) => `<dt>${esc(labelOf(d.form, k))}</dt><dd>${esc(sayValue(v))}</dd>`).join('')}</dl>
-            ${s.contactId ? `<p style="margin:.6rem 0 0;"><button class="btn btn-ghost btn-sm" type="button"
-              data-file="${esc(s.id)}">File the address and travellers on their record</button></p>` : ''}
+            <p style="margin:.6rem 0 0;display:flex;gap:.6rem;flex-wrap:wrap;">${s.contactId
+              ? `<button class="btn btn-ghost btn-sm" type="button"
+              data-file="${esc(s.id)}">File the address and travellers on their record</button>` : ''}
+              <button class="btn btn-ghost btn-sm" type="button" data-del-sub="${esc(s.id)}">Delete this entry</button></p>
           </li>`).join('')}</ul>`
         : '<div class="empty"><p>No submissions yet.</p></div>');
+    // Only the entry goes. The client or lead it made stays on the book.
+    subsEl.querySelectorAll('[data-del-sub]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('Delete this entry? The client or lead it made stays on your book; only this entry '
+          + 'on the form goes.')) return;
+      b.disabled = true;
+      try {
+        await api(`/api/myforms/submissions/${encodeURIComponent(b.dataset.delSub)}`, { method: 'DELETE' });
+        showSubs(id);
+      } catch (e) { showError(subsEl, e); b.disabled = false; }
+    }));
     // For a submission that came in before the people in it were filed.
     subsEl.querySelectorAll('[data-file]').forEach((b) => b.addEventListener('click', async () => {
       b.disabled = true;

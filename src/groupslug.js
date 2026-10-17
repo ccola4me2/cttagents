@@ -299,6 +299,40 @@ export async function handleSlugCheck(request, env) {
   return json({ slug, available: true, state, needsRecycle: state === 'recyclable', from });
 }
 
+/**
+ * POST /api/group-slugs/release { groupId, slug }
+ *
+ * Lets an old name go: it stops redirecting and anybody may take it. For the advisor whose group it
+ * was, and for an owner on any advisor's group, which is who db.writerFor lets through. Only an old
+ * name: the one a group is shared under now is changed, not released.
+ */
+export async function handleReleaseSlug(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const body = await readJson(request);
+  // Whose record this is: see db.writerFor.
+  const owner = await db.writerFor(env, user, 'travel_groups', String(body.groupId || ''));
+  if (!owner) return notFound('Group not found.');
+
+  const slug = cleanSlug(body.slug);
+  const row = await env.DB.prepare(
+    `SELECT id FROM group_slugs WHERE slug = ? AND group_id = ? AND user_id = ? AND status = 'archived'`
+  ).bind(slug, String(body.groupId), owner.id).first();
+  if (!row) return notFound('That is not an old name of this group.');
+
+  await env.DB.prepare(
+    `UPDATE group_slugs SET status = 'released', retired_at = ? WHERE id = ? AND user_id = ?`
+  ).bind(now(), row.id, owner.id).run();
+  await db.logActivity(env, user.id, 'group.slug.release', `Let an old group link go: ${slug}`,
+    { id: body.groupId });
+
+  const group = await env.DB.prepare(
+    'SELECT id, user_id, name, page_slug, depart_date FROM travel_groups WHERE id = ? AND user_id = ?'
+  ).bind(String(body.groupId), owner.id).first();
+  return json({ ok: true, link: await linkInfo(env, group) });
+}
+
 /** PUT /api/groups/:id/slug : name the group's page, or change the name it has. */
 export async function handleSetSlug(request, env, id) {
   const { user, response } = await requireUser(request, env);

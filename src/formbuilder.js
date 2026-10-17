@@ -1350,6 +1350,35 @@ export async function handleSaveForm(request, env, id = null) {
   return json({ ok: true, form: hydrate(row) }, isNew ? 201 : 200);
 }
 
+/**
+ * DELETE /api/myforms/submissions/:id
+ *
+ * One entry off a form's list, so a test or a mistake does not sit there for ever. Only the entry:
+ * the client or lead it made stays, because that is a person on the book and may have been worked
+ * since. An owner may remove any; an advisor only one that belongs to a client of theirs, or that
+ * never became a client at all.
+ */
+export async function handleDeleteSubmission(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const sub = await env.DB.prepare(
+    'SELECT id, form_id, contact_id FROM form_submissions WHERE id = ? AND agency_id = ?'
+  ).bind(id, tenantFor(env, user)).first();
+  if (!sub) return notFound('That entry is not here.');
+
+  if (sub.contact_id && !isAdmin(user)) {
+    // Whose record this is: see db.writerFor.
+    const mine = await db.writerFor(env, user, 'clients', sub.contact_id);
+    if (!mine) return notFound('That entry belongs to somebody else\'s client.');
+  }
+
+  await env.DB.prepare('DELETE FROM form_submissions WHERE id = ? AND agency_id = ?')
+    .bind(id, tenantFor(env, user)).run();
+  await db.logActivity(env, user.id, 'form.submission.delete', 'Deleted a form entry', { id });
+  return json({ ok: true });
+}
+
 export async function handleDeleteForm(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;

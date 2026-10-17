@@ -1066,6 +1066,23 @@ async function main() {
       check(Boolean(b.id) && !b.lead_stage, 'and the person with them is a client, not a lead', JSON.stringify(b.lead_stage));
       check(Boolean(a.household_id) && a.household_id === b.household_id, 'in one household', JSON.stringify([a.household_id, b.household_id]));
       check(/A cruise/.test(a.lead_asked_about || ''), 'and what they asked about is on the lead', String(a.lead_asked_about));
+      // What they told you reads the birthdays the way people say them, month then day then year.
+      const rec = await call(advisor, 'GET', `/api/client?id=${encodeURIComponent(a.id)}`);
+      const told = JSON.stringify(rec.data?.submissions || rec.data?.answers || rec.data || '');
+      check(told.includes('06/29/1979') && !told.includes('1979-06-29'),
+        'a birthday under what they told you reads as month, day, year', told.slice(0, 200));
+
+      // One entry off the form's list, and only the entry.
+      const listBefore = await call(advisor, 'GET', `/api/myforms/${pf.id}`);
+      const entry = (listBefore.data?.submissions || [])[0];
+      const gone = await call(advisor, 'DELETE', `/api/myforms/submissions/${entry?.id}`);
+      const listAfter = await call(advisor, 'GET', `/api/myforms/${pf.id}`);
+      check(gone.status === 200 && !(listAfter.data?.submissions || []).some((s) => s.id === entry?.id),
+        'an entry can be deleted from a form\'s list', `status ${gone.status}`);
+      const stays = await find(lead);
+      check(Boolean(stays.id), 'and the lead it made stays on the book');
+      const again = await call(advisor, 'DELETE', `/api/myforms/submissions/${entry?.id}`);
+      check(again.status === 404, 'deleting it twice says it is not there', `status ${again.status}`);
       if (b.id) await call(advisor, 'DELETE', `/api/clients/${b.id}`);
       if (a.id) await call(advisor, 'DELETE', `/api/clients/${a.id}`);
     }
@@ -7289,6 +7306,19 @@ async function main() {
     check(oldPage.raw.includes('This sailing has departed') && oldPage.raw.includes('See the next sailing')
       && oldPage.raw.includes(`/${copy?.page_slug}"`),
       'and the page of the group that has sailed points to it', `status ${oldPage.status}`);
+
+    // An old name can be let go, which frees it for anybody.
+    const slugC = `sm3-${stamp}`;
+    await call(advisor, 'PUT', `/api/groups/${gid}/slug`, { slug: slugC });
+    const letGo = await call(advisor, 'POST', '/api/group-slugs/release', { groupId: gid, slug: slugB });
+    const afterGo = await call(null, 'GET', `/gs/${slugB}`);
+    check(letGo.status === 200 && afterGo.status === 404,
+      'an old name can be let go, and its link then leads nowhere', `${letGo.status} ${afterGo.status}`);
+    const free = await call(admin, 'GET', `/api/group-slugs/check?name=${slugB}`);
+    check(free.data?.available === true, 'and the name is free for anybody', JSON.stringify(free.data));
+    const notOld = await call(advisor, 'POST', '/api/group-slugs/release', { groupId: gid, slug: slugC });
+    check(notOld.status === 404, 'the name a group is shared under now cannot be let go',
+      `status ${notOld.status}`);
 
     // Deleting the group lets its names go.
     await call(advisor, 'DELETE', `/api/groups/${secondId}`);

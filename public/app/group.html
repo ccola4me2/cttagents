@@ -294,7 +294,9 @@
 import { api, mountShell, esc, money, dateFmt, daysUntil, showError, onSubmit }
   from '/js/app.js';
 import { mountSupplierPicker } from '/js/supplier-picker.js';
-const ME = (await mountShell()).id;
+const me = await mountShell();
+const ME = me.id;
+const IS_OWNER = me.role === 'admin';
 
 const groupId = new URL(location.href).searchParams.get('id');
 const form = document.getElementById('group-form');
@@ -642,8 +644,12 @@ function renderLink(g, link, codeShared) {
 
   const url = link.slug ? shortUrl(link) : '';
   const old = (link.history || []).filter((h) => h.status !== 'current');
+  const mayRelease = canEdit || IS_OWNER;
   const oldRows = old.map((h) => `<li><code>${esc(h.slug)}</code> <span class="muted">${
-    h.status === 'archived' ? 'old name, still goes to this group' : 'old name, let go'}</span></li>`).join('');
+    h.status === 'archived' ? 'old name, still goes to this group' : 'old name, let go'}</span>${
+  h.status === 'archived' && mayRelease
+    ? ` <button class="btn btn-ghost btn-sm" type="button" data-release="${esc(h.slug)}">Let it go</button>`
+    : ''}</li>`).join('');
 
   card.hidden = false;
   body.innerHTML = `<p class="label" style="margin:0 0 .4rem;">${
@@ -682,6 +688,16 @@ function renderLink(g, link, codeShared) {
       } catch { copy.textContent = 'Press Cmd-C'; }
     });
   }
+  body.querySelectorAll('[data-release]').forEach((b) => b.addEventListener('click', async () => {
+    if (!confirm(`Let ${b.dataset.release} go? Anybody who still has that link will get a page that is not found, `
+        + 'and the name becomes free for anyone to take.')) return;
+    b.disabled = true;
+    try {
+      const res = await api('/api/group-slugs/release', {
+        method: 'POST', body: { groupId, slug: b.dataset.release } });
+      renderLink(group, res.link, lastShared);
+    } catch (e) { b.disabled = false; showError(document.getElementById('err'), e); }
+  }));
   wireSlug(g, link);
 }
 
