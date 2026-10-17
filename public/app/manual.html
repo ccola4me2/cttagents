@@ -249,6 +249,10 @@
   small form where you fill in only what should change, and everything left as it is stays as it is.
   You can change the status (quoted, booked or cancelled), whether the deposit is refundable, the group
   name and number, and the final payment and deposit dates.</p>
+<p><strong>Move to a group</strong> in the same bar puts every ticked reservation into one of your groups in
+  Group space, so they count in its cabins sold, or takes them out of their group. The list is your own groups
+  only, and a reservation cannot be moved into somebody else's. For a group another company runs, such as TLN,
+  use the group name and number instead.</p>
 <ul>
   <li>Each reservation is changed by the same route one is, so the same checks apply to each, and a date
     that is not a date is refused on every one of them with the reason.</li>
@@ -293,6 +297,27 @@
   <li>Only quoted reservations are sent a quote. A booked one would be sent an invoice, which says
     something else to a client, so it is refused here. Twenty five at a time.</li>
   <li>An email cannot be recalled, so the screen asks once more before it sends.</li>
+</ul>
+
+<h3 id="send-invoices">Sending several invoices at once</h3>
+<p>Tick the booked or travelled reservations and press <strong>Send invoices</strong>. It is the same window as
+  sending quotes, for the other kind: a booked reservation is only ever sent an invoice and a quoted one only a
+  quote, so each button works on the ticked reservations of its own kind and leaves the rest alone. The table
+  before anything goes shows the client, the address, the trip total, what has been received, the balance, the
+  next payment date and the confirmation that would go with it.</p>
+<ul>
+  <li><strong>Each on its own</strong>, with the box unticked: every reservation is its own invoice, exactly as
+    sending it alone, and you can change the address on any row.</li>
+  <li><strong>One email</strong>, with the box ticked: for a family or a group that one person pays for. Each trip
+    is listed with its total, what has been received and its balance, then the balance across all of them,
+    with one card authorization form for what falls due soonest. It needs at least two, all one advisor's, and
+    if one of them is not booked the whole email is refused rather than sent without it.</li>
+  <li><strong>Attach each reservation's vendor confirmation</strong> is ticked for you. Only the guest copy is
+    attached: a confirmation named like the agency's own copy is never attached from here, because it can show
+    what the agency earns. Each row names the file, and the preview of the combined email lists them. One email
+    carries up to 10 files and 15 MB, and is refused rather than trimmed if it is over.</li>
+  <li><strong>Preview</strong> on a row, <strong>Preview the email</strong> and <strong>Send me a test</strong> work as they do for
+    quotes. Nothing is recorded as sent until it is sent, and an invoice never makes a trip page.</li>
 </ul>
 
 <h3 id="quote-contents">What a quote says</h3>

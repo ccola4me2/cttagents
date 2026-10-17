@@ -8108,6 +8108,82 @@ async function main() {
     check(last.data?.wordingSource === 'built-in', 'and with neither it is the portal\'s again', last.data?.wordingSource);
   }
 
+  // Invoices for several reservations at once, and moving reservations into a group.
+  {
+    const second = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Statement ${stamp}`, supplier: 'Celebrity Cruises', status: 'booked',
+      productName: 'Eastern Caribbean', confirmationNumber: `STMT2-${stamp}`,
+      departDate: isoDay(210), returnDate: isoDay(217),
+    });
+    const st2 = second.data?.booking?.id;
+    if (st2) cleanup('the second statement reservation', () => dropBooking(st2));
+    await call(advisor, 'POST', `/api/bookings/${st2}/pricing`, { kind: 'fare', amount: '1000' });
+    const quotedOne = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Statement ${stamp}`, supplier: 'Test Line', status: 'quoted', productName: 'Not booked yet',
+      departDate: isoDay(220), returnDate: isoDay(227),
+    });
+    const stq = quotedOne.data?.booking?.id;
+    if (stq) cleanup('the quoted reservation', () => dropBooking(stq));
+
+    const inv = await call(advisor, 'POST', '/api/bookings/bulk-quote',
+      { kind: 'invoice', attachConfirmations: true, ids: [stId, st2], send: false });
+    const rows = inv.data?.results || [];
+    check(inv.status === 200 && rows.length === 2 && rows.every((r) => r.ok),
+      'invoices for several reservations can be previewed together', JSON.stringify(rows.map((r) => r.error || r.ok)));
+    check(rows.every((r) => typeof r.balanceCents === 'number' && typeof r.paidCents === 'number'),
+      'each row says what has been received and what is left');
+    check(/booking with us/i.test(inv.data?.defaults?.each?.intro || ''),
+      'and starts from the invoice wording, not the quote wording', inv.data?.defaults?.each?.intro);
+    // Only where there is document storage to have put a confirmation in.
+    const haveDocs = ((await call(advisor, 'POST', `/api/bookings/${stId}/statement`, { preview: true })).data?.documents || []).length > 0;
+    if (haveDocs) {
+      check(rows.find((r) => r.id === stId)?.attached?.some((f) => f.startsWith('confirmation-'))
+        && !rows.find((r) => r.id === stId)?.attached?.some((f) => /agency/i.test(f)),
+        'each row names the confirmation that would go, and never the agency copy',
+        JSON.stringify(rows.find((r) => r.id === stId)?.attached));
+    }
+
+    const noQuotes = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [stId], send: false });
+    check(noQuotes.data?.results?.[0]?.ok === false && /quoted/i.test(noQuotes.data?.results?.[0]?.error || ''),
+      'a booked reservation is still refused a quote', JSON.stringify(noQuotes.data?.results));
+    const noInvoice = await call(advisor, 'POST', '/api/bookings/bulk-quote', { kind: 'invoice', ids: [stq], send: false });
+    check(noInvoice.data?.results?.[0]?.ok === false && /booked/i.test(noInvoice.data?.results?.[0]?.error || ''),
+      'and a quoted one is refused an invoice', JSON.stringify(noInvoice.data?.results));
+
+    const together = await call(advisor, 'POST', '/api/bookings/bulk-quote', {
+      kind: 'invoice', attachConfirmations: true, ids: [stId, st2], send: false, combine: { to: `ruth-${stamp}@example.com` } });
+    const c = together.data?.combined || {};
+    check(together.status === 200 && (c.html || '').includes('Your 2 invoices') && c.subject === 'Your invoices: 2 reservations',
+      'two invoices can be previewed as one email', `status ${together.status} ${together.data?.error || ''}`);
+    check(c.balanceCents === rows.reduce((n, r) => n + r.balanceCents, 0) && c.paidCents === rows.reduce((n, r) => n + r.paidCents, 0),
+      'with the balance across both worked out from each', `${c.balanceCents}`);
+    check((c.html || '').includes('balance ') && /Received, thank you/.test(c.html || ''),
+      'and the email says what has been received and what is left');
+    if (haveDocs) {
+      check((c.attachments || []).some((f) => f.filename.startsWith('confirmation-')) && !(c.attachments || []).some((f) => /agency/i.test(f.filename)),
+        'and lists the confirmation that goes with it, never the agency copy', JSON.stringify(c.attachments));
+    }
+    const mixed = await call(advisor, 'POST', '/api/bookings/bulk-quote', {
+      kind: 'invoice', ids: [stId, stq], send: false, combine: { to: `ruth-${stamp}@example.com` } });
+    check(mixed.status === 400, 'one that is not booked stops the whole combined invoice rather than being left out', `status ${mixed.status}`);
+
+    // Into a group, and out of it.
+    const grp = await call(advisor, 'POST', '/api/groups', { name: `Move target ${stamp}`, departDate: isoDay(300) });
+    const grpId = grp.data?.group?.id;
+    if (grpId) cleanup('the move target group', () => call(advisor, 'DELETE', `/api/groups/${grpId}`));
+    const into = await call(advisor, 'POST', '/api/bookings/bulk', { ids: [stId, st2], changes: { groupId: grpId } });
+    const gotOne = await call(advisor, 'GET', `/api/bookings/${stId}`);
+    check(into.status === 200 && into.data?.changed === 2 && gotOne.data?.booking?.group_id === grpId,
+      'reservations can be moved into a group together', JSON.stringify(into.data));
+    const stranger = await call(advisor, 'POST', '/api/bookings/bulk', { ids: [stId], changes: { groupId: 'not-a-group-of-theirs' } });
+    check(stranger.data?.changed === 0 && stranger.data?.results?.[0]?.ok === false,
+      'but not into a group that is not theirs', JSON.stringify(stranger.data));
+    const outOf = await call(advisor, 'POST', '/api/bookings/bulk', { ids: [stId, st2], changes: { groupId: 'none' } });
+    const gotTwo = await call(advisor, 'GET', `/api/bookings/${stId}`);
+    check(outOf.data?.changed === 2 && !gotTwo.data?.booking?.group_id,
+      'and out of it again', JSON.stringify(outOf.data));
+  }
+
   // 2000 + 318.55 - 100. A discount is stored positive and subtracted, the
   // same way it is on the advisor's screen, so the two cannot drift apart.
   check(sm.tripCents === 221855, 'the total is the breakdown, discount subtracted', sm.tripCents);

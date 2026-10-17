@@ -36,7 +36,9 @@
         <div class="notice notice-ok" style="display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;">
           <strong id="pick-count"></strong>
           <button class="btn btn-primary btn-sm" id="pick-change" type="button">Change them</button>
+          <button class="btn btn-secondary btn-sm" id="pick-group" type="button">Move to a group</button>
           <button class="btn btn-secondary btn-sm" id="pick-quote" type="button" hidden>Send quotes for the deposit</button>
+          <button class="btn btn-secondary btn-sm" id="pick-invoice" type="button" hidden>Send invoices</button>
           <input id="pick-name" maxlength="120" placeholder="Trip name (optional)" style="min-width:200px;">
           <button class="btn btn-ghost btn-sm" id="pick-go" type="button">Put together as one trip</button>
           <button class="btn btn-ghost btn-sm" id="pick-clear" type="button">Clear</button>
@@ -48,13 +50,16 @@
           <div class="card-head"><h2 id="quote-title">Send quotes</h2>
             <button class="btn btn-ghost btn-sm" type="button" id="quote-close">Close</button></div>
           <div class="card-pad">
-            <p class="field-hint" style="margin-top:0;">Sent by email over the advisor's name, with a link to each
+            <p class="field-hint" id="quote-hint" style="margin-top:0;">Sent by email over the advisor's name, with a link to each
               trip's page. Where a deposit is set it says how much and by when. Untick any you do not want to send.</p>
             <div style="display:grid;gap:.5rem;margin:0 0 1rem;">
               <label style="font-weight:400;"><input type="checkbox" id="quote-combine">
-                <strong>Send them as one email with one deposit.</strong> For a family or a group paying together:
+                <span id="quote-combine-text"><strong>Send them as one email with one deposit.</strong> For a family or a group paying together:
                 every trip in a single message to one address, with one deposit that holds them all. Left unticked,
-                each reservation is its own email with its own deposit, and you can change the address on any row.</label>
+                each reservation is its own email with its own deposit, and you can change the address on any row.</span></label>
+              <label style="font-weight:400;" id="quote-attach-row" hidden><input type="checkbox" id="quote-attach" checked>
+                <strong>Attach each reservation's vendor confirmation.</strong> The guest copy only. One named like the
+                agency's own copy is never attached from here. Each file is listed on its row before anything is sent.</label>
               <div class="field" id="quote-one" style="margin:.2rem 0 0 1.4rem;max-width:26rem;" hidden>
                 <label for="quote-one-to">Send it to</label>
                 <input id="quote-one-to" type="email" maxlength="160" autocomplete="off" placeholder="name@example.com">
@@ -104,6 +109,13 @@
                 <option value="booked">Booked</option>
                 <option value="cancelled">Cancelled</option>
               </select></div>
+            <div class="field"><label for="bulk-group">Group</label>
+              <select id="bulk-group" name="groupId">
+                <option value="">Leave as it is</option>
+                <option value="none">Take out of its group</option>
+              </select>
+              <p class="field-hint">A group you run in Group space. They are counted in its cabins sold. For a
+                group somebody else runs, such as TLN, use the group name and number below.</p></div>
             <div class="field"><label for="bulk-deposit">Deposit is</label>
               <select id="bulk-deposit" name="depositRefundable">
                 <option value="">Leave as it is</option>
@@ -300,6 +312,7 @@ function drawPickBar() {
   go.disabled = !tripOk;
   go.title = tripOk ? '' : 'A trip needs two or more booked or travelled reservations that are not in one already.';
   document.getElementById('pick-quote').hidden = !rows.some((b) => b.status === 'quoted');
+  document.getElementById('pick-invoice').hidden = !rows.some((b) => b.status === 'booked' || b.status === 'travelled');
   const all = document.getElementById('pick-all');
   if (all) all.checked = cache.length > 0 && cache.every((b) => picked.has(b.id));
 }
@@ -336,6 +349,29 @@ document.getElementById('pick-change').addEventListener('click', () => {
     `Change ${picked.size} reservation${picked.size === 1 ? '' : 's'}`;
   document.getElementById('bulk-go').disabled = false;
   bulkDlg.showModal();
+  fillGroups();
+});
+
+// The groups there are to move them into, read when the window opens so a group made a minute ago is there.
+async function fillGroups() {
+  const sel = document.getElementById('bulk-group');
+  try {
+    const d = await api('/api/groups');
+    // The first two options stay; the groups after them are rebuilt each time.
+    while (sel.options.length > 2) sel.remove(2);
+    for (const g of (d.groups || []).filter((x) => x.status !== 'cancelled')) {
+      const opt = document.createElement('option');
+      opt.value = g.id;
+      opt.textContent = g.depart_date ? `${g.name}, sailing ${dateFmt(g.depart_date)}` : g.name;
+      sel.appendChild(opt);
+    }
+  } catch { /* the rest of the window still works without the list */ }
+}
+
+// The same window, opened on the group, for the commonest reason to change a set of reservations.
+document.getElementById('pick-group').addEventListener('click', () => {
+  document.getElementById('pick-change').click();
+  document.getElementById('bulk-group').focus();
 });
 document.getElementById('bulk-close').addEventListener('click', () => bulkDlg.close());
 onSubmit(bulkForm, async (values) => {
@@ -343,7 +379,7 @@ onSubmit(bulkForm, async (values) => {
   for (const [k, v] of Object.entries(values)) if (v !== '') changes[k] = v;
   if (!Object.keys(changes).length) throw new Error('Choose something to change.');
   const names = { status: 'status', deposit: 'deposit amount', depositRefundable: 'deposit kind', groupLabel: 'group name',
-    groupNumber: 'group number', finalPaymentDue: 'final payment date', depositDue: 'deposit date' };
+    groupNumber: 'group number', finalPaymentDue: 'final payment date', depositDue: 'deposit date', groupId: 'group' };
   const what = Object.keys(changes).map((k) => names[k] || k).join(', ');
   if (!confirm(`Change the ${what} on ${picked.size} reservation${picked.size === 1 ? '' : 's'}?`)) return;
   const res = await api('/api/bookings/bulk', { method: 'POST', body: { ids: [...picked], changes } });
@@ -363,16 +399,42 @@ onSubmit(bulkForm, async (values) => {
   await load();
 });
 
-// Quotes to several clients, previewed first and then sent. Each on its own email, with the address
-// changeable per row, or all in one email to one address with one deposit.
+// Quotes or invoices to several clients, previewed first and then sent. Each on its own email, with the
+// address changeable per row, or all in one email to one address: a quote with one deposit, an invoice
+// with the balance across all of them.
 const quoteDlg = document.getElementById('quote-dlg');
 let quoteRows = [];
+// Which kind is open. Quotes go to quoted reservations and invoices to booked ones, never the other way.
+let qKind = 'quote';
+const COPY = {
+  quote: {
+    noun: 'quote', one: 'one email with one deposit',
+    hint: 'Sent by email over the advisor\'s name, with a link to each trip\'s page. Where a deposit is set it says how much and by when. Untick any you do not want to send.',
+    combine: '<strong>Send them as one email with one deposit.</strong> For a family or a group paying together: every trip in a single message to one address, with one deposit that holds them all. Left unticked, each reservation is its own email with its own deposit, and you can change the address on any row.',
+    wordsEach: 'Your words go in every email, at the top and at the end, with each quote below. Leave them empty to send the standard wording.',
+    wordsOne: 'Your words go in the one email. An opening message replaces the standard opening, and the note goes at the end.',
+    look: 'Each trip\'s link opens its own page, which is created when this is sent.',
+  },
+  invoice: {
+    noun: 'invoice', one: 'one email',
+    hint: 'Sent by email over the advisor\'s name. Each says what has been received and what is still to come. Untick any you do not want to send.',
+    combine: '<strong>Send them as one email.</strong> For a family or a group that one person pays for: every trip in a single message to one address, with the balance across all of them. Left unticked, each reservation is its own invoice, and you can change the address on any row.',
+    wordsEach: 'Your words go in every email, at the top and at the end, with each invoice below. Leave them empty to send the standard wording.',
+    wordsOne: 'Your words go in the one email. An opening message replaces the standard opening, and the note goes at the end.',
+    look: 'Nothing is recorded as sent until it is sent.',
+  },
+};
+const qCopy = () => COPY[qKind];
 // What the advisor changed. Only differences from the standard wording are sent, so what was left alone
 // keeps following the reservations.
 let qDefaults = null;
 let qSubjectDefault = '';
+// Whether the vendor's confirmation goes with each invoice. Only an invoice has the choice.
+const attachOn = () => qKind === 'invoice' && document.getElementById('quote-attach').checked;
+// Every request to the server says which kind it is about, and whether confirmations go with it.
+const bulkBody = (extra) => ({ kind: qKind, attachConfirmations: attachOn(), ...extra });
 // The words the server starts from, for one at a time or for one email. A professional opening and closing are
-// filled in, and only what the advisor changes is sent, so what is left alone keeps following the quote.
+// filled in, and only what the advisor changes is sent, so what is left alone keeps following the reservation.
 const qDef = () => (qDefaults ? (document.getElementById('quote-combine').checked ? qDefaults.combined : qDefaults.each) : { intro: '', note: '' });
 const quoteCustom = () => {
   const subject = document.getElementById('quote-subject').value.trim();
@@ -392,22 +454,25 @@ const quoteSum = () => {
   const ids = qTicked();
   const n = ids.length;
   const one = qMode() === 'one';
+  const noun = qCopy().noun;
   document.getElementById('quote-one').hidden = !one;
-  document.getElementById('quote-words-hint').textContent = one
-    ? 'Your words go in the one email. An opening message replaces the standard opening, and the note goes at the end.'
-    : 'Your words go in every email, at the top and at the end, with each quote below. Leave them empty to send the standard wording.';
+  document.getElementById('quote-words-hint').textContent = one ? qCopy().wordsOne : qCopy().wordsEach;
   // In one email the address on each row is not used, so it is replaced by a plain note instead of a box
   // that looks editable and is not.
   document.querySelectorAll('[data-qto]').forEach((el) => { el.style.display = one ? 'none' : ''; });
   document.querySelectorAll('[data-qone]').forEach((el) => { el.hidden = !one; });
+  // The confirmation column follows the box: with it ticked each row names the file, without it none.
+  document.querySelectorAll('[data-qfile]').forEach((el) => { el.hidden = !attachOn(); });
   const go = document.getElementById('quote-go');
   go.disabled = n === 0 || (one && n < 2);
-  go.textContent = !n ? 'Send' : one ? `Send ${n} quotes in one email` : `Send ${n} quote${n === 1 ? '' : 's'}`;
+  go.textContent = !n ? 'Send' : one ? `Send ${n} ${noun}s in one email` : `Send ${n} ${noun}${n === 1 ? '' : 's'}`;
   const rows = quoteRows.filter((r) => ids.includes(r.id));
   const deposit = rows.reduce((t, r) => t + (r.depositCents || 0), 0);
   const dues = rows.map((r) => r.depositDue).filter(Boolean).sort();
+  const balance = rows.reduce((t, r) => t + (r.balanceCents || 0), 0);
   document.getElementById('quote-sum').textContent = !n ? 'Nothing is ticked to send.'
     : one && n < 2 ? 'Tick at least two to send them together.'
+    : one && qKind === 'invoice' ? `One email for ${n} invoices: a balance of ${money(balance)} across them.`
     : one ? `One deposit of ${money(deposit)}${dues[0] ? `, due ${dateFmt(dues[0])}` : ''}, for ${money(rows.reduce((t, r) => t + (r.tripCents || 0), 0))} of trips.`
     : '';
 };
@@ -440,8 +505,8 @@ document.getElementById('quote-test').addEventListener('click', async (e) => {
   e.target.disabled = true;
   try {
     const me = (await api('/api/auth/me')).user.email;
-    if (!confirm(`Send a test of this combined quote to ${me}? Nothing is recorded as sent to the clients.`)) { e.target.disabled = false; return; }
-    const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids, send: true, test: true, combine: { to: me }, custom: quoteCustom() } });
+    if (!confirm(`Send a test of this combined ${qCopy().noun} to ${me}? Nothing is recorded as sent to the clients.`)) { e.target.disabled = false; return; }
+    const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: bulkBody({ ids, send: true, test: true, combine: { to: me }, custom: quoteCustom() }) });
     errBox.className = 'notice notice-ok';
     errBox.textContent = `Test sent to ${me}. Subject: ${res.combined.subject}. Nothing was recorded as sent to the clients.`;
     errBox.hidden = false;
@@ -455,17 +520,20 @@ document.getElementById('quote-look').addEventListener('click', async (e) => {
   errBox.className = 'notice notice-error';
   errBox.hidden = true;
   if (ids.length < 2) { errBox.textContent = 'Tick at least two to preview them together.'; errBox.hidden = false; return; }
-  if (!to) { errBox.textContent = 'Type the address the combined quote goes to.'; errBox.hidden = false; return; }
+  if (!to) { errBox.textContent = `Type the address the combined ${qCopy().noun} goes to.`; errBox.hidden = false; return; }
   e.target.disabled = true;
   try {
-    const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids, send: false, combine: { to }, custom: quoteCustom() } });
+    const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: bulkBody({ ids, send: false, combine: { to }, custom: quoteCustom() }) });
     // The subject is the one thing that is only known for the combined email, so it is filled in here.
     qSubjectDefault = res.combined.defaults.subject;
     if (!document.getElementById('quote-subject').value.trim()) document.getElementById('quote-subject').value = qSubjectDefault;
-    showLook(res.combined.html, `To ${to}. Subject: ${res.combined.subject}. Each trip's link opens its own page, which is created when this is sent.`);
+    const files = (res.combined.attachments || []).map((f) => f.filename);
+    showLook(res.combined.html, `To ${to}. Subject: ${res.combined.subject}. ${files.length
+      ? `Attached: ${files.join(', ')}. ` : (qKind === 'invoice' ? 'Nothing attached. ' : '')}${qCopy().look}`);
   } catch (ex) { errBox.textContent = ex.message || 'That could not be previewed.'; errBox.hidden = false; }
   e.target.disabled = false;
 });
+document.getElementById('quote-attach').addEventListener('change', quoteSum);
 document.getElementById('quote-combine').addEventListener('change', () => {
   // Moving between the two, the words follow: whatever is still the standard wording of the mode that was
   // left becomes the standard wording of the mode that is opened, and anything typed is kept.
@@ -487,13 +555,27 @@ document.getElementById('quote-combine').addEventListener('change', () => {
   }
   quoteSum();
 });
-document.getElementById('pick-quote').addEventListener('click', async () => {
+
+/**
+ * Open the window for quotes or for invoices, on whichever of the ticked reservations are of that kind.
+ * The rest of the ticked ones are left alone: a booked reservation is never sent a quote.
+ */
+async function openSend(kind) {
+  qKind = kind;
+  const quoting = kind === 'quote';
   qDefaults = null;
   qSubjectDefault = '';
   ['quote-subject', 'quote-intro', 'quote-note'].forEach((x) => { document.getElementById(x).value = ''; });
-  const ids = cache.filter((b) => picked.has(b.id) && b.status === 'quoted').map((b) => b.id);
+  const ids = cache.filter((b) => picked.has(b.id)
+    && (quoting ? b.status === 'quoted' : (b.status === 'booked' || b.status === 'travelled'))).map((b) => b.id);
+  const noun = qCopy().noun;
   document.getElementById('quote-error').hidden = true;
-  document.getElementById('quote-title').textContent = `Send ${ids.length} quote${ids.length === 1 ? '' : 's'}`;
+  document.getElementById('quote-title').textContent = `Send ${ids.length} ${noun}${ids.length === 1 ? '' : 's'}`;
+  document.getElementById('quote-hint').textContent = qCopy().hint;
+  document.getElementById('quote-combine-text').innerHTML = qCopy().combine;
+  document.getElementById('quote-subject').placeholder = quoting ? 'Your quotes' : 'Your invoices';
+  document.getElementById('quote-attach-row').hidden = quoting;
+  document.getElementById('quote-attach').checked = true;
   document.getElementById('quote-rows').innerHTML = '<p class="spinner">Reading each one...</p>';
   document.getElementById('quote-go').disabled = true;
   document.getElementById('quote-combine').checked = false;
@@ -502,7 +584,10 @@ document.getElementById('pick-quote').addEventListener('click', async () => {
   quoteRows = [];
   try {
     for (let i = 0; i < ids.length; i += 25) {
-      const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids: ids.slice(i, i + 25), send: false } });
+      // Read with the confirmations named, so each row can say which file would go; the box only decides
+      // whether they are sent.
+      const res = await api('/api/bookings/bulk-quote', { method: 'POST',
+        body: { kind, attachConfirmations: !quoting, ids: ids.slice(i, i + 25), send: false } });
       quoteRows.push(...res.results);
       if (!qDefaults && res.defaults) qDefaults = res.defaults;
     }
@@ -514,23 +599,32 @@ document.getElementById('pick-quote').addEventListener('click', async () => {
   } catch (e) { showError(document.getElementById('quote-error'), e); return; }
   // A row can go out when it can be read and only lacks an address, because one can be typed here.
   const sendable = (r) => r.ok || Boolean(r.problem && /email address/i.test(r.problem));
+  const head = quoting
+    ? '<th class="num">Trip</th><th class="num">Deposit</th><th>Deposit due</th>'
+    : '<th class="num">Trip</th><th class="num">Received</th><th class="num">Balance</th><th>Next due</th><th>Confirmation</th>';
   document.getElementById('quote-rows').innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th style="width:1.5rem;"></th><th>Client</th><th>Sent to</th><th class="num">Trip</th>
-      <th class="num">Deposit</th><th>Deposit due</th><th></th></tr></thead>
+    <thead><tr><th style="width:1.5rem;"></th><th>Client</th><th>Sent to</th>${head}<th></th></tr></thead>
     <tbody>${quoteRows.map((r) => {
       const can = sendable(r);
       const note = !can ? esc(r.error)
         : r.alreadySent ? `<span class="badge badge-amber">sent ${r.sentCount || 1} time${(r.sentCount || 1) === 1 ? '' : 's'} before</span>`
-        : !r.depositCents ? '<span class="badge badge-amber">no deposit set, so it will not ask for one</span>' : '';
+        : quoting && !r.depositCents ? '<span class="badge badge-amber">no deposit set, so it will not ask for one</span>' : '';
+      const cells = quoting
+        ? `<td class="num">${money(r.tripCents)}</td>
+        <td class="num">${r.depositCents ? money(r.depositCents) : '<span class="muted">-</span>'}</td>
+        <td>${r.depositDue ? esc(dateFmt(r.depositDue)) : '<span class="muted">-</span>'}</td>`
+        : `<td class="num">${money(r.tripCents)}</td>
+        <td class="num">${money(r.paidCents)}</td>
+        <td class="num">${money(r.balanceCents)}</td>
+        <td>${r.nextDue ? esc(dateFmt(r.nextDue)) : '<span class="muted">-</span>'}</td>
+        <td data-qfile>${(r.attached || []).length ? esc(r.attached.join(', ')) : '<span class="muted">none on file</span>'}</td>`;
       return `<tr>
         <td><input type="checkbox" data-qsend="${esc(r.id)}" ${can ? '' : 'disabled'}${can && r.to && !r.alreadySent ? ' checked' : ''}></td>
         <td><strong>${esc(r.client || (cache.find((b) => b.id === r.id) || {}).client_name || '')}</strong></td>
         <td>${can ? `<input type="email" data-qto="${esc(r.id)}" value="${esc(r.to || '')}" maxlength="160"
           placeholder="no email on file, type one" style="min-width:15rem;">
           <span class="muted" data-qone hidden>goes in the one email</span>` : '<span class="muted">-</span>'}</td>
-        <td class="num">${money(r.tripCents)}</td>
-        <td class="num">${r.depositCents ? money(r.depositCents) : '<span class="muted">-</span>'}</td>
-        <td>${r.depositDue ? esc(dateFmt(r.depositDue)) : '<span class="muted">-</span>'}</td>
+        ${cells}
         <td>${note}${can ? ` <button class="btn btn-ghost btn-sm" type="button" data-qlook="${esc(r.id)}">Preview</button>` : ''}</td></tr>`;
     }).join('')}</tbody></table></div>`;
   // The one address a combined email goes to, offered as the most common one on the list.
@@ -543,7 +637,7 @@ document.getElementById('pick-quote').addEventListener('click', async () => {
     const box = document.querySelector(`[data-qsend="${el.dataset.qto}"]`);
     if (box && !box.disabled && !box.checked && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(el.value.trim())) { box.checked = true; quoteSum(); }
   }));
-  // One quote, as it would go on its own, with the words typed above and the address in its row.
+  // One of them, as it would go on its own, with the words typed above and the address in its row.
   document.querySelectorAll('[data-qlook]').forEach((b) => b.addEventListener('click', async () => {
     const errBox = document.getElementById('quote-error');
     errBox.className = 'notice notice-error';
@@ -553,26 +647,32 @@ document.getElementById('pick-quote').addEventListener('click', async () => {
       const to = (document.querySelector(`[data-qto="${b.dataset.qlook}"]`) || {}).value || '';
       const words = quoteCustom();
       const res = await api(`/api/bookings/${encodeURIComponent(b.dataset.qlook)}/statement`, { method: 'POST',
-        body: { preview: true, ...(to.trim() ? { to: to.trim() } : {}), custom: { intro: words.intro, note: words.note } } });
-      showLook(res.html, `To ${res.to || 'no address yet'}. Subject: ${res.subject}`);
+        body: { preview: true, ...(to.trim() ? { to: to.trim() } : {}), custom: { intro: words.intro, note: words.note },
+          ...(quoting ? {} : (attachOn() ? {} : { attachmentIds: [] })) } });
+      const files = (res.envelope && res.envelope.attachments ? res.envelope.attachments : []).map((f) => f.filename);
+      showLook(res.html, `To ${res.to || 'no address yet'}. Subject: ${res.subject}.${quoting ? ''
+        : (files.length ? ` Attached: ${files.join(', ')}.` : ' Nothing attached.')}`);
     } catch (ex) { errBox.textContent = ex.message || 'That could not be previewed.'; errBox.hidden = false; }
     b.disabled = false;
   }));
   quoteSum();
-});
+}
+document.getElementById('pick-quote').addEventListener('click', () => openSend('quote'));
+document.getElementById('pick-invoice').addEventListener('click', () => openSend('invoice'));
 onSubmit(document.getElementById('quote-form'), async () => {
   const ids = qTicked();
   if (!ids.length) throw new Error('Nothing is ticked to send.');
+  const noun = qCopy().noun;
   const one = qMode() === 'one';
   const results = [];
   let combined = null;
   if (one) {
     const to = document.getElementById('quote-one-to').value.trim();
-    if (!to) throw new Error('Type the address the combined quote goes to.');
+    if (!to) throw new Error(`Type the address the combined ${noun} goes to.`);
     if (ids.length < 2) throw new Error('Tick at least two to send them together.');
-    if (ids.length > 25) throw new Error('A combined quote holds at most 25 reservations.');
-    if (!confirm(`Email ${ids.length} quotes as one message to ${to} now? It cannot be recalled.`)) return;
-    const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids, send: true, combine: { to }, custom: quoteCustom() } });
+    if (ids.length > 25) throw new Error(`A combined ${noun} holds at most 25 reservations.`);
+    if (!confirm(`Email ${ids.length} ${noun}s as one message to ${to} now? It cannot be recalled.`)) return;
+    const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: bulkBody({ ids, send: true, combine: { to }, custom: quoteCustom() }) });
     results.push(...res.results);
     combined = res.combined;
   } else {
@@ -581,20 +681,21 @@ onSubmit(document.getElementById('quote-form'), async () => {
       if (ids.includes(el.dataset.qto) && el.value.trim()) to[el.dataset.qto] = el.value.trim();
     });
     const missing = ids.filter((id) => !to[id]);
-    if (missing.length) throw new Error('Type an email address for every quote that is ticked.');
-    if (!confirm(`Email ${ids.length} quote${ids.length === 1 ? '' : 's'} now? Each is its own message and cannot be recalled.`)) return;
+    if (missing.length) throw new Error(`Type an email address for every ${noun} that is ticked.`);
+    if (!confirm(`Email ${ids.length} ${noun}${ids.length === 1 ? '' : 's'} now? Each is its own message and cannot be recalled.`)) return;
     for (let i = 0; i < ids.length; i += 25) {
       const part = ids.slice(i, i + 25);
-      const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: { ids: part, send: true,
-        to: Object.fromEntries(part.map((id) => [id, to[id]])) } });
+      const res = await api('/api/bookings/bulk-quote', { method: 'POST', body: bulkBody({ ids: part, send: true,
+        custom: quoteCustom(), to: Object.fromEntries(part.map((id) => [id, to[id]])) }) });
       results.push(...res.results);
     }
   }
   const failed = results.filter((r) => !r.ok);
   const sent = results.length - failed.length;
   document.getElementById('quote-rows').innerHTML = `<div class="notice ${failed.length ? 'notice-warn' : 'notice-ok'}">
-    ${combined ? `${sent} quotes sent as one email to ${esc(combined.to)}${combined.depositCents ? `, with one deposit of ${money(combined.depositCents)}` : ''}.`
-      : `${sent} quote${sent === 1 ? '' : 's'} sent.`}${failed.length ? ` ${failed.length} could not be sent:
+    ${combined ? `${sent} ${noun}s sent as one email to ${esc(combined.to)}${combined.depositCents ? `, with one deposit of ${money(combined.depositCents)}` : ''}${
+      qKind === 'invoice' && combined.balanceCents ? `, with a balance of ${money(combined.balanceCents)} across them` : ''}.`
+      : `${sent} ${noun}${sent === 1 ? '' : 's'} sent.`}${failed.length ? ` ${failed.length} could not be sent:
     <ul class="plain" style="margin:.4rem 0 0;">${failed.map((r) => `<li>${esc(r.client || 'A reservation')}: ${esc(r.error)}</li>`).join('')}</ul>` : ''}</div>`;
   document.getElementById('quote-go').disabled = true;
   document.getElementById('quote-sum').textContent = '';

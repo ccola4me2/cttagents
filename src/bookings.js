@@ -840,6 +840,8 @@ const QUICK_FIELDS = {
   groupNumber: ['group_number', (v) => clean(v, 60) || null],
   depositRefundable: ['deposit_refundable', (v) => (DEPOSIT_KINDS.includes(v) ? v : null)],
   personal: ['personal', (v) => (v ? 1 : 0)],
+  // The group in Group space this reservation is sold from. The word none takes it out of its group.
+  groupId: ['group_id', (v) => (String(v) === 'none' ? null : clean(v, 64) || null)],
 };
 
 // advisor_split_pct and lead_source used to live here and no longer do.
@@ -860,7 +862,7 @@ const QUICK_FIELDS = {
 // reservation is, so every check that route makes (a date that is not a date, a commission
 // above the cost, an advisor marking commission received) applies to every one of them.
 const BULK_FIELDS = ['status', 'groupLabel', 'groupNumber', 'depositRefundable', 'finalPaymentDue',
-  'depositDue', 'deposit', 'insuranceStatus'];
+  'depositDue', 'deposit', 'insuranceStatus', 'groupId'];
 const BULK_MAX = 60;
 
 /**
@@ -934,6 +936,15 @@ export async function handleQuickUpdate(request, env, id) {
     binds.push(coerce(body[key]));
   }
   if (!sets.length) return badRequest('Nothing to change.');
+
+  // A group it is moved into has to be this advisor's own: a group id is not a permission, and
+  // pointing a reservation at somebody else's block would count it in their cabins sold.
+  if (Object.prototype.hasOwnProperty.call(body, 'groupId') && body.groupId && String(body.groupId) !== 'none') {
+    const group = await env.DB.prepare(
+      `SELECT id FROM travel_groups WHERE id = ? AND user_id = ? AND status <> 'cancelled'`
+    ).bind(clean(body.groupId, 64), owner.id).first();
+    if (!group) return badRequest('That group is not one of yours, or it has been cancelled.');
+  }
 
   const before = await db.getBooking(env, id, owner.id);
   if (!before) return notFound('Reservation not found.');

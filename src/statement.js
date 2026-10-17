@@ -21,7 +21,7 @@ import { listOptions } from './options.js';
 import { listTravellers, listAmenities } from './travellers.js';
 import * as db from './db.js';
 import { paymentFormFor } from './brand.js';
-import { docsReady, listDocuments, chooseAttachments, looksLikeAgencyCopy } from './documents.js';
+import { docsReady, listDocuments, chooseAttachments, looksLikeAgencyCopy, MAX_EMAIL_ATTACH_BYTES } from './documents.js';
 import { savedWording } from './wording.js';
 
 const KIND_LABEL = {
@@ -566,6 +566,102 @@ export function renderCombinedQuote(env, statements, { paymentFormUrl = '', cust
   };
 }
 
+/** The opening paragraph of a combined invoice as written when nobody has changed it. */
+export const combinedInvoiceIntro = () => 'Thank you for booking with us. Below is each trip with what has been received and what is still due, and the balance across all of them. If anything looks wrong, reply to this and I will sort it out.';
+
+/** The closing note of a combined invoice as written when nobody has changed it. */
+export const combinedInvoiceNote = ({ withForm }) => (withForm
+  ? 'To pay by card, please complete the secure card authorization form above. Your card is not charged before the date you give. If you have any questions about your payments or your trips, call or email me any time.'
+  : 'Thank you again for choosing us. If you have any questions about your payments or your trips, call or email me any time.');
+
+/**
+ * Several invoices in one email.
+ *
+ * For a family or a group that one person pays for, on separate reservations: each trip with what has
+ * been received and what is still to come, and the balance across all of them. Built from the same
+ * statements the single invoice is built from, so a trip reads here as it would alone.
+ */
+export function renderCombinedInvoice(env, statements, { paymentFormUrl = '', custom = {} } = {}) {
+  const first = statements[0];
+  const tripTotal = statements.reduce((n, s) => n + (s.tripCents || 0), 0);
+  const paidTotal = statements.reduce((n, s) => n + (s.paidCents || 0), 0);
+  const balanceTotal = statements.reduce((n, s) => n + (s.balanceCents || 0), 0);
+
+  // What falls due soonest across all of them, for the one card form: every payment on that day.
+  const upcoming = statements.flatMap((s) => s.due || []).filter((d) => d.date && d.amountCents > 0);
+  const soonest = upcoming.map((d) => d.date).sort()[0] || '';
+  const dueNow = upcoming.filter((d) => d.date === soonest);
+  const dueNowCents = dueNow.reduce((n, d) => n + d.amountCents, 0);
+
+  const cell = 'padding:4px 0;';
+  const trip = (s) => {
+    const name = [s.tripName, s.vendor].filter(Boolean).join(' with ') || 'Your trip';
+    const facts = [
+      ['Confirmation', s.confirmation],
+      ['Departing', day(s.departDate)],
+      ['Returning', day(s.returnDate)],
+      ['Cabin category', s.cabinCategory],
+      ['Cabin', s.cabinNumber],
+      ['Travelling', s.travellers.join(', ')],
+    ].filter(([, v]) => v);
+    const line = (label, cents, strong) => `<tr>
+        <td style="padding:6px 0;border-top:1px solid #e2ebf4;color:#12315e;${strong ? 'font-weight:600;' : ''}">${escapeHtml(label)}</td>
+        <td style="padding:6px 0;border-top:1px solid #e2ebf4;text-align:right;white-space:nowrap;color:#12315e;${
+  strong ? 'font-weight:600;' : ''}">${money(cents)}</td></tr>`;
+    return `<p style="margin:26px 0 4px;font-size:16px;font-weight:600;color:#12315e;">
+        ${escapeHtml(s.clientName ? `${s.clientName}: ${name}` : name)}</p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:15px;border-collapse:collapse;">
+        ${facts.map(([k, v]) => `<tr><td style="${cell}color:#5c7286;width:34%;vertical-align:top;">${escapeHtml(k)}</td>
+          <td style="${cell}color:#2f4459;">${escapeHtml(v)}</td></tr>`).join('')}
+      </table>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:15px;border-collapse:collapse;margin-top:8px;">
+        ${line('Trip total', s.tripCents, false)}${line('Received, thank you', s.paidCents, false)}${line('Balance', s.balanceCents, true)}
+      </table>
+      ${(s.due || []).length ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+        style="font-size:14px;border-collapse:collapse;margin-top:6px;color:#5c7286;">${rows(s.due)}</table>` : ''}
+      ${s.standing ? `<p style="margin:8px 0 0;font-size:14px;color:#5c7286;">${escapeHtml(s.standing)}</p>` : ''}
+      ${s.shareCode ? `<p style="margin:10px 0 0;"><a href="${escapeHtml(`${appUrl(env)}/t/${s.shareCode}?s=invoice`)}"
+        style="color:#12315e;font-weight:600;">See this trip and its documents</a></p>` : ''}`;
+  };
+
+  const closing = custom.note === undefined
+    ? combinedInvoiceNote({ withForm: Boolean(paymentFormUrl) }) : custom.note;
+  const card = paymentFormUrl && dueNowCents > 0
+    ? cardBlock(paymentFormUrl, {
+      heading: 'To pay by card',
+      button: 'Authorize your payment',
+      amountCents: dueNowCents, dueIso: soonest,
+      scope: dueNow.length > 1 ? `One form covers the ${dueNow.length} payments due that day.` : '',
+    }) : '';
+
+  const body = [
+    '<p style="margin:0 0 14px;">Hello,</p>',
+    paragraphs(custom.intro || combinedInvoiceIntro()),
+    statements.map(trip).join(''),
+    `<p style="margin:22px 0 0;padding:12px 16px;background:#f2f7fb;border-radius:8px;color:#12315e;">
+       All together: trips ${money(tripTotal)}, received ${money(paidTotal)}, <strong>balance ${money(balanceTotal)}</strong>.</p>`,
+    card,
+    closing ? `<div style="margin:18px 0 0;">${paragraphs(closing)}</div>` : '',
+    `<p style="margin:24px 0 0;">${escapeHtml(first.advisorName)}${
+      first.agencyName ? `<br><span style="color:#5c7286;">${escapeHtml(first.agencyName)}</span>` : ''}</p>`,
+  ].filter(Boolean).join('');
+
+  const footer = [
+    escapeHtml(first.advisorName),
+    first.agencyName ? escapeHtml(first.agencyName) : '',
+    first.agencyAddress ? escapeHtml(first.agencyAddress) : '',
+    first.advisorPhone ? escapeHtml(first.advisorPhone) : '',
+    `<a href="mailto:${escapeHtml(first.advisorEmail)}" style="color:#12315e;">${escapeHtml(first.advisorEmail)}</a>`,
+    first.sellerOfTravel ? escapeHtml(first.sellerOfTravel) : '',
+  ].filter(Boolean).join(' &middot; ');
+
+  return {
+    subject: custom.subject || `Your invoices: ${statements.length} reservations`,
+    html: layout(env, { heading: `Your ${statements.length} invoices`, body, footer, cta: null }),
+    tripCents: tripTotal, paidCents: paidTotal, balanceCents: balanceTotal, depositCents: 0, depositDue: soonest,
+  };
+}
+
 /**
  * Preview first, send second, as two separate requests.
  *
@@ -593,10 +689,19 @@ export async function handleBulkQuote(request, env) {
   if (response) return response;
 
   const body = await readJson(request);
+  // Quotes by default, and invoices when asked: the same list, the same preview and the same send, for
+  // the other kind of reservation. A quoted reservation is only ever sent a quote and a booked one only
+  // an invoice, because saying the wrong one to a client is worse than saying nothing.
+  const invoices = body.kind === 'invoice';
+  const wantMode = invoices ? 'statement' : 'quote';
+  const noun = invoices ? 'invoice' : 'quote';
   const ids = [...new Set(Array.isArray(body.ids) ? body.ids.map((x) => String(x || '').slice(0, 64)).filter(Boolean) : [])];
-  if (!ids.length) return badRequest('Pick the reservations to send quotes for.');
+  if (!ids.length) return badRequest(`Pick the reservations to send ${noun}s for.`);
   if (ids.length > BULK_QUOTE_MAX) return badRequest(`Send at most ${BULK_QUOTE_MAX} at a time.`);
   const send = body.send === true;
+  // The vendor's confirmation on each invoice, ticked for the sender as it is on a single one, and
+  // shown in the preview so what goes is on the screen first. Never on a quote.
+  const attachConfirmations = invoices && body.attachConfirmations === true;
 
   // Where each one goes when it is not the address on the client's record: a family on one parent's
   // email, a group's organiser. Checked here so a mistyped address is refused before anything is sent.
@@ -608,76 +713,106 @@ export async function handleBulkQuote(request, env) {
     sendTo[key] = address;
   }
   const combineTo = body.combine && typeof body.combine === 'object' ? String(body.combine.to || '').trim() : '';
-  if (body.combine && !EMAIL.test(combineTo)) return badRequest('Say which address the combined quote goes to.');
+  if (body.combine && !EMAIL.test(combineTo)) return badRequest(`Say which address the combined ${noun} goes to.`);
   if (body.combine && ids.length < 2) return badRequest('Combining needs at least two reservations.');
 
   // Words the advisor added, for each email when they go one at a time. The subject is left to each: a
   // single subject over eight different trips would be wrong for most of them.
   const typed = cleanCustom(body.custom);
   const eachCustom = { intro: typed.intro, note: typed.note, subject: '' };
-  const ask = (id, preview, to) => handleStatement(new Request(request.url, {
+  // attachmentIds: left out on a preview, so the default is read; named on a send, from what the
+  // preview of that one reservation said would go.
+  const ask = (id, preview, to, attachmentIds) => handleStatement(new Request(request.url, {
     method: 'POST', headers: request.headers,
-    body: JSON.stringify({ preview, ...(to ? { to } : {}), custom: eachCustom }),
+    body: JSON.stringify({
+      preview, ...(to ? { to } : {}), custom: eachCustom,
+      ...(invoices ? { attachmentIds: attachmentIds || [] } : {}),
+    }),
   }), env, id);
 
   const results = [];
   const statements = [];
   for (const id of ids) {
-    const looked = await ask(id, true, sendTo[id] || (combineTo || ''));
+    // Read with the default files on an invoice when confirmations are wanted, with none when not.
+    const looked = invoices && attachConfirmations
+      ? await handleStatement(new Request(request.url, {
+        method: 'POST', headers: request.headers,
+        body: JSON.stringify({ preview: true, ...((sendTo[id] || combineTo) ? { to: sendTo[id] || combineTo } : {}), custom: eachCustom }),
+      }), env, id)
+      : await ask(id, true, sendTo[id] || (combineTo || ''));
     const data = await looked.json().catch(() => ({}));
     if (!looked.ok) { results.push({ id, ok: false, error: data.error || `Not found (${looked.status}).` }); continue; }
     const s = data.statement || {};
+    const pickIds = invoices && attachConfirmations
+      ? (data.documents || []).filter((d) => d.selected).map((d) => d.id) : [];
     const row = {
       id, client: s.clientName || '', to: data.to || null, problem: data.problem || null,
       alreadySent: data.alreadySent || null, sentCount: data.sentCount || 0,
       depositCents: s.depositCents || 0, depositDue: s.depositDue || '', tripCents: s.tripCents || 0,
+      // What an invoice reads on: what has been received, what is left, and when the next payment is due.
+      paidCents: s.paidCents || 0, balanceCents: s.balanceCents || 0,
+      nextDue: ((s.due || [])[0] || {}).date || '',
+      attached: invoices && attachConfirmations
+        ? (data.envelope && data.envelope.attachments ? data.envelope.attachments.map((a) => a.filename) : []) : [],
       mode: s.mode, sample: s,
     };
-    if (s.mode !== 'quote') {
-      results.push({ ...row, ok: false, error: 'Only a quoted reservation is sent a quote.' });
+    if (s.mode !== wantMode) {
+      results.push({ ...row, ok: false, error: invoices
+        ? 'Only a booked or travelled reservation is sent an invoice.' : 'Only a quoted reservation is sent a quote.' });
       continue;
     }
     if (data.problem && !body.combine) { results.push({ ...row, ok: false, error: data.problem }); continue; }
-    if (body.combine) { results.push({ ...row, ok: true }); statements.push({ id, s }); continue; }
+    if (body.combine) { results.push({ ...row, ok: true }); statements.push({ id, s, pickIds }); continue; }
     if (!send) { results.push({ ...row, ok: true }); continue; }
 
-    const sent = await ask(id, false, sendTo[id] || '');
+    const sent = await ask(id, false, sendTo[id] || '', pickIds);
     const out = await sent.json().catch(() => ({}));
     results.push({ ...row, ok: sent.ok, error: sent.ok ? null : (out.error || `Not sent (${sent.status}).`) });
   }
 
   if (body.combine) {
-    return combinedQuote(request, env, user, { results: results.map(({ sample: _s, ...row }) => row), statements, ids, combineTo, send, test: body.test === true, custom: cleanCustom(body.custom) });
+    return combinedStatement(request, env, user, {
+      kind: invoices ? 'invoice' : 'quote',
+      results: results.map(({ sample: _s, ...row }) => row), statements, ids, combineTo, send,
+      test: body.test === true, custom: cleanCustom(body.custom),
+    });
   }
 
   if (send) {
     const n = results.filter((r) => r.ok).length;
-    await db.logActivity(env, user.id, 'quote.bulk', `Sent ${n} quote${n === 1 ? '' : 's'} at once`, { count: n });
+    await db.logActivity(env, user.id, invoices ? 'invoice.bulk' : 'quote.bulk',
+      `Sent ${n} ${noun}${n === 1 ? '' : 's'} at once`, { count: n });
   }
   // The starting words for the editor, for one at a time and for one email, so it can offer them before
   // anything has been previewed.
   const firstRead = results.find((r) => r.ok);
   const anyDeposit = results.some((r) => r.ok && r.depositCents);
   const sample = firstRead && firstRead.sample;
-  return json({ ok: true, sent: send, results: results.map(({ sample: _s, ...row }) => row), defaults: sample ? {
+  return json({ ok: true, sent: send, results: results.map(({ sample: _s, ...row }) => row), defaults: sample ? (invoices ? {
+    each: { intro: defaultIntro(false), note: defaultNote(sample) },
+    combined: { intro: combinedInvoiceIntro(), note: combinedInvoiceNote({ withForm: Boolean(sample.paymentFormUrl) }) },
+  } : {
     each: { intro: defaultIntro(true), note: defaultNote(sample) },
     combined: { intro: combinedIntro(anyDeposit), note: combinedNote({ withDeposit: anyDeposit, withForm: Boolean(sample.paymentFormUrl) }) },
-  } : null });
+  }) : null });
 }
 
 /**
- * One email, one deposit, for several reservations.
+ * One email for several reservations: a quote with one deposit, or an invoice with the balance across
+ * them.
  *
- * Every reservation has to be a quote with the same advisor, and none may have failed to read: sending
- * a combined message that quietly leaves one out is worse than not sending it. On send each trip is
- * given its page first, so the link beside it goes somewhere, and each is then recorded as sent exactly
- * as it would have been on its own.
+ * Every reservation has to be the right kind (all quotes, or all booked) with the same advisor, and
+ * none may have failed to read: sending a combined message that quietly leaves one out is worse than
+ * not sending it. On send a quote is given its page first, so the link beside it goes somewhere, and
+ * each reservation is then recorded as sent exactly as it would have been on its own.
  */
-async function combinedQuote(request, env, user, { results, statements, ids, combineTo, send, test, custom }) {
+async function combinedStatement(request, env, user, { kind, results, statements, ids, combineTo, send, test, custom }) {
+  const invoices = kind === 'invoice';
+  const noun = invoices ? 'invoice' : 'quote';
   const bad = results.find((r) => !r.ok);
   if (bad) return badRequest(`${bad.client || 'One of them'}: ${bad.error}`);
   if (new Set(statements.map(({ s }) => s.advisorEmail)).size > 1) {
-    return badRequest('A combined quote can only hold one advisor\'s reservations.');
+    return badRequest(`A combined ${noun} can only hold one advisor's reservations.`);
   }
 
   // A test goes to the signed in person and nowhere else, and records nothing against the clients: the
@@ -690,32 +825,61 @@ async function combinedQuote(request, env, user, { results, statements, ids, com
   if (!owner) return notFound('Reservation not found.');
 
   let built = statements.map(({ s }) => s);
-  const rendered = (list) => renderCombinedQuote(env, list, { paymentFormUrl: list[0].paymentFormUrl || '', custom });
+  const render = invoices ? renderCombinedInvoice : renderCombinedQuote;
+  const rendered = (list) => render(env, list, { paymentFormUrl: list[0].paymentFormUrl || '', custom });
   let out = rendered(built);
-  const plain = renderCombinedQuote(env, built, { paymentFormUrl: built[0].paymentFormUrl || '' });
+  const plain = render(env, built, { paymentFormUrl: built[0].paymentFormUrl || '' });
   const summary = {
     // What it says when nothing is changed, so the editor can start from the real words.
-    defaults: { subject: plain.subject, intro: combinedIntro(plain.depositCents > 0), note: combinedNote({ withDeposit: plain.depositCents > 0, withForm: Boolean(built[0].paymentFormUrl) }) },
+    defaults: { subject: plain.subject,
+      intro: invoices ? combinedInvoiceIntro() : combinedIntro(plain.depositCents > 0),
+      note: invoices ? combinedInvoiceNote({ withForm: Boolean(built[0].paymentFormUrl) })
+        : combinedNote({ withDeposit: plain.depositCents > 0, withForm: Boolean(built[0].paymentFormUrl) }) },
     to: combineTo, count: built.length, subject: out.subject,
     tripCents: out.tripCents, depositCents: out.depositCents, depositDue: out.depositDue,
+    paidCents: out.paidCents || 0, balanceCents: out.balanceCents || 0,
   };
+
+  // The vendor's confirmations that go with it, for an invoice, across all of the reservations. Named
+  // in the preview; read from storage only when it is sent.
+  const files = [];
+  if (invoices) {
+    const scope = db.selfScope(owner);
+    for (const st of statements) {
+      if (!st.pickIds.length) continue;
+      const docs = docsReady(env) ? await listDocuments(env, st.id, scope) : [];
+      const picked = await chooseAttachments(env, docs, st.pickIds, { withContent: send });
+      if (picked.error) return badRequest(`${st.s.clientName || 'One of them'}: ${picked.error}`);
+      for (const f of picked.files) files.push({ ...f, client: st.s.clientName || '' });
+    }
+    if (files.length > 10) return badRequest('One email carries at most 10 files. Leave the confirmations off, or send fewer at a time.');
+    const total = files.reduce((n, f) => n + f.bytes, 0);
+    if (total > MAX_EMAIL_ATTACH_BYTES) {
+      return badRequest(`The confirmations come to ${(total / 1048576).toFixed(1)} MB, more than one email carries. Send fewer at a time.`);
+    }
+  }
+  summary.attachments = files.map((f) => ({ filename: f.filename, bytes: f.bytes, client: f.client }));
+
   // The message itself on a preview, so the advisor can read exactly what would go before it does.
   if (!send) return json({ ok: true, sent: false, results, combined: { ...summary, html: out.html } });
 
-  // Each trip gets its page when it is sent, as a single quote's does.
-  for (const { id, s } of statements) {
-    if (s.shareCode) continue;
-    const code = shareCode();
-    const ts = now();
-    await env.DB.prepare(
-      `UPDATE bookings SET share_code = ?, shared_at = COALESCE(shared_at, ?), updated_at = ?
-        WHERE id = ? AND user_id = ? AND share_code IS NULL`
-    ).bind(code, ts, ts, id, owner.id).run();
+  // Each quote gets its page when it is sent, as a single quote's does. An invoice never makes one:
+  // whether a client has a page is the advisor's choice.
+  if (!invoices) {
+    for (const { id, s } of statements) {
+      if (s.shareCode) continue;
+      const code = shareCode();
+      const ts = now();
+      await env.DB.prepare(
+        `UPDATE bookings SET share_code = ?, shared_at = COALESCE(shared_at, ?), updated_at = ?
+          WHERE id = ? AND user_id = ? AND share_code IS NULL`
+      ).bind(code, ts, ts, id, owner.id).run();
+    }
   }
   built = [];
   for (const { id } of statements) {
     const again = await handleStatement(new Request(request.url, {
-      method: 'POST', headers: request.headers, body: JSON.stringify({ preview: true, to: combineTo }),
+      method: 'POST', headers: request.headers, body: JSON.stringify({ preview: true, to: combineTo, attachmentIds: [] }),
     }), env, id);
     built.push((await again.json().catch(() => ({}))).statement);
   }
@@ -725,6 +889,7 @@ async function combinedQuote(request, env, user, { results, statements, ids, com
   try {
     await sendHtml(env, {
       to: combineTo, replyTo: owner.email, subject: test ? `TEST: ${out.subject}` : out.subject, html: out.html,
+      attachments: files.map((f) => ({ filename: f.filename, content: f.content })),
       unsubscribe: { agencyId: owner.agency_id, agencyName: owner.agency_name },
     });
   } catch (e) {
@@ -732,20 +897,27 @@ async function combinedQuote(request, env, user, { results, statements, ids, com
   }
 
   if (test) {
-    await db.logActivity(env, user.id, 'quote.test', `Sent a test of ${built.length} quotes to myself`, { count: built.length });
+    await db.logActivity(env, user.id, `${noun}.test`, `Sent a test of ${built.length} ${noun}s to myself`, { count: built.length });
     return json({ ok: true, sent: true, test: true, results, combined: { ...summary, subject: `TEST: ${out.subject}` } });
   }
 
-  // Recorded only after the send returns, one by one, the way a single quote is.
+  // Recorded only after the send returns, one by one, the way a single one is.
   for (let i = 0; i < statements.length; i += 1) {
     const fingerprint = await statementFingerprint(built[i]);
-    await env.DB.prepare(
-      `UPDATE bookings SET quote_sent_at = ?, quote_sent_count = quote_sent_count + 1,
-              statement_hash = ?, updated_at = ? WHERE id = ? AND user_id = ?`
-    ).bind(now(), fingerprint, now(), statements[i].id, owner.id).run();
+    if (invoices) {
+      await env.DB.prepare(
+        `UPDATE bookings SET statement_sent_at = ?, statement_hash = ?, updated_at = ?
+          WHERE id = ? AND user_id = ?`
+      ).bind(now(), fingerprint, now(), statements[i].id, owner.id).run();
+    } else {
+      await env.DB.prepare(
+        `UPDATE bookings SET quote_sent_at = ?, quote_sent_count = quote_sent_count + 1,
+                statement_hash = ?, updated_at = ? WHERE id = ? AND user_id = ?`
+      ).bind(now(), fingerprint, now(), statements[i].id, owner.id).run();
+    }
   }
-  await db.logActivity(env, owner.id, 'quote.combined',
-    db.byHand(`Sent ${built.length} quotes as one email`, user, owner), { count: built.length });
+  await db.logActivity(env, owner.id, `${noun}.combined`,
+    db.byHand(`Sent ${built.length} ${noun}s as one email`, user, owner), { count: built.length });
   return json({ ok: true, sent: true, results, combined: { ...summary, subject: out.subject } });
 }
 
