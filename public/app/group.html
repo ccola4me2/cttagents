@@ -267,7 +267,17 @@
                   <input id="heroImageUrl" name="heroImageUrl" maxlength="500" inputmode="url"
                     placeholder="https://">
                   <p class="field-hint">A link that goes straight to a picture, starting with
-                    https://. Left empty, the top of the page is a block of the agency's colour.</p></div>
+                    https://. Left empty, the top of the page is a block of the agency's colour.</p>
+                  <div style="margin-top:.6rem;">
+                    <label for="hero-file" style="font-weight:600;">Or upload one</label>
+                    <input type="file" id="hero-file" accept="image/jpeg,image/png,image/webp,image/gif">
+                    <p class="field-hint" id="hero-note">JPEG, PNG, WebP or GIF, up to 5 MB. A wide picture
+                      works best, about twice as wide as it is tall.</p>
+                    <div id="hero-shown" hidden style="display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;">
+                      <img id="hero-thumb" alt="" style="max-width:14rem;max-height:8rem;border-radius:.5rem;">
+                      <button class="btn btn-ghost btn-sm" type="button" id="hero-remove" hidden>Remove the uploaded picture</button>
+                    </div>
+                  </div></div>
                 <div class="field"><label for="perks">What the group gets</label>
                   <textarea id="perks" name="perks" rows="4" maxlength="1600"
                     placeholder="$100 onboard credit per cabin"></textarea>
@@ -488,6 +498,43 @@ if (quoteFile) quoteFile.addEventListener('change', async () => {
   }
 });
 
+// The picture across the top: shown as a small preview, and an uploaded one can be taken off.
+function showHero(url) {
+  const shown = document.getElementById('hero-shown');
+  shown.hidden = !url;
+  document.getElementById('hero-thumb').src = url || '';
+  document.getElementById('hero-remove').hidden = !(url && String(url).includes('/gi/'));
+}
+
+document.getElementById('hero-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  const note = document.getElementById('hero-note');
+  if (!file) return;
+  if (!groupId) { note.textContent = 'Save the group first, then upload its picture.'; e.target.value = ''; return; }
+  note.textContent = 'Uploading...';
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}/picture`,
+      { method: 'POST', body: form, credentials: 'same-origin' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'That picture could not be uploaded.');
+    regForm.elements.heroImageUrl.value = data.url;
+    showHero(data.url);
+    note.textContent = 'Uploaded. It is on the page now.';
+  } catch (err) { note.textContent = err.message; }
+  e.target.value = '';
+});
+
+document.getElementById('hero-remove').addEventListener('click', async () => {
+  try {
+    await api(`/api/groups/${encodeURIComponent(groupId)}/picture`, { method: 'DELETE' });
+    regForm.elements.heroImageUrl.value = '';
+    showHero('');
+    document.getElementById('hero-note').textContent = 'Removed.';
+  } catch (err) { document.getElementById('hero-note').textContent = err.message; }
+});
+
 // The perks and the itinerary are stored as lists and typed as lines.
 function parseList(json) {
   try {
@@ -517,6 +564,7 @@ function fill(g) {
   set('groupType', g.group_type || 'cruise');
   set('registrationBlurb', g.registration_blurb);
   set('headline', g.headline); set('heroImageUrl', g.hero_image_url);
+  showHero(g.hero_image_url);
   set('perks', parseList(g.perks_json).join('\n'));
   set('itinerary', parseList(g.itinerary_json)
     .map((d) => [d.day || '', d.port || '', d.note || ''].join(' | ').replace(/( \| )+$/, '')).join('\n'));

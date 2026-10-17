@@ -147,6 +147,18 @@ async function uploadDoc(cookieJar, bookingId, filename, content, category = 'ot
   return res.json().catch(() => null);
 }
 
+/** A picture for a group's page, which is a multipart upload like a document. */
+async function uploadPicture(cookieJar, groupId, bytes, type, filename) {
+  const body = new FormData();
+  body.append('file', new Blob([bytes], { type }), filename);
+  const res = await fetch(`${BASE}/api/groups/${groupId}/picture`, {
+    method: 'POST',
+    headers: { ...(cookieJar.header() ? { cookie: cookieJar.header() } : {}) },
+    body,
+  });
+  return { status: res.status, data: await res.json().catch(() => null) };
+}
+
 /**
  * Make an advisor the way the portal actually makes them: an admin creates the
  * account, and the one-time link that comes back is what gives it a password.
@@ -7320,6 +7332,30 @@ async function main() {
     check(notOld.status === 404, 'the name a group is shared under now cannot be let go',
       `status ${notOld.status}`);
 
+    // A picture uploaded for the page.
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+    const pic = await uploadPicture(advisor, gid, png, 'image/png', 'hero.png');
+    if (pic.status === 400 && /storage/i.test(pic.data?.error || '')) {
+      skip('uploading a picture for a group page', 'no document storage is bound here');
+    } else {
+      check(pic.status === 200 && /\/gi\//.test(pic.data?.url || ''), 'a picture can be uploaded for the page', `${pic.status} ${JSON.stringify(pic.data)}`);
+      const shown = await fetch(`${BASE}/gi/${gid}`);
+      check(shown.status === 200 && shown.headers.get('content-type') === 'image/png'
+        && shown.headers.get('x-content-type-options') === 'nosniff',
+        'and it is served to anybody, as a picture and nothing else', `${shown.status} ${shown.headers.get('content-type')}`);
+      const withUrl = await call(advisor, 'GET', `/api/groups/${gid}`);
+      check(withUrl.data?.group?.hero_image_url === pic.data?.url, 'the group points at it', withUrl.data?.group?.hero_image_url);
+      const notPic = await uploadPicture(advisor, gid, Buffer.from('<script>alert(1)</script>'), 'image/png', 'hero.png');
+      check(notPic.status === 400, 'a file that is not a picture is refused even when it says it is one', `status ${notPic.status}`);
+      const strangerPic = await uploadPicture(advisor, 'not-a-group', png, 'image/png', 'hero.png');
+      check(strangerPic.status === 404, 'and so is a picture for a group that is not yours', `status ${strangerPic.status}`);
+      const gonePic = await call(advisor, 'DELETE', `/api/groups/${gid}/picture`);
+      const after = await fetch(`${BASE}/gi/${gid}`);
+      const cleared = await call(advisor, 'GET', `/api/groups/${gid}`);
+      check(gonePic.status === 200 && after.status === 404 && !cleared.data?.group?.hero_image_url,
+        'it can be removed, and then it is not served', `${gonePic.status} ${after.status}`);
+    }
+
     // Deleting the group lets its names go.
     await call(advisor, 'DELETE', `/api/groups/${secondId}`);
     const gone = await call(null, 'GET', `/gs/${slugA}`);
@@ -8027,6 +8063,49 @@ async function main() {
       'a test copy is for invoices only', `status ${testQuote.status}`);
   } else {
     skip('attaching files to an invoice', 'no document storage is bound here');
+  }
+
+  // Wording saved as the standard: the advisor's own, then the agency's, then the portal's. What is typed
+  // on one send still wins over all of them.
+  {
+    const kindNow = prev.data?.statement?.mode === 'quote' ? 'quote' : 'invoice';
+    const first = await call(advisor, 'POST', `/api/bookings/${stId}/statement`, { preview: true });
+    check(first.data?.wordingSource === 'built-in' && Boolean(first.data?.defaults?.intro),
+      'the standard wording starts as the portal\'s own', first.data?.wordingSource);
+    const noKind = await call(advisor, 'PUT', '/api/statement-wording', { kind: 'receipt', intro: 'x' });
+    check(noKind.status === 400, 'wording has to say whether it is for quotes or invoices', `status ${noKind.status}`);
+    const noOwner = await call(advisor, 'PUT', '/api/statement-wording',
+      { kind: kindNow, scope: 'agency', intro: 'Agency wide' });
+    check(noOwner.status === 403, 'an advisor cannot set the agency\'s wording', `status ${noOwner.status}`);
+
+    const mineSaved = await call(advisor, 'PUT', '/api/statement-wording',
+      { kind: kindNow, scope: 'mine', intro: `My own opening ${stamp}`, note: `My own closing ${stamp}` });
+    cleanup('the advisor\'s wording', () => call(advisor, 'DELETE', `/api/statement-wording?kind=${kindNow}&scope=mine`));
+    const second = await call(advisor, 'POST', `/api/bookings/${stId}/statement`, { preview: true });
+    check(mineSaved.status === 200 && second.data?.wordingSource === 'advisor'
+      && second.data?.defaults?.intro === `My own opening ${stamp}`
+      && second.data?.defaults?.note === `My own closing ${stamp}`,
+      'an advisor can save their own wording as the standard', JSON.stringify(second.data?.defaults));
+    check((second.data?.html || '').includes(`My own opening ${stamp}`) && (second.data?.html || '').includes(`My own closing ${stamp}`),
+      'and the email starts from it');
+    const typed = await call(advisor, 'POST', `/api/bookings/${stId}/statement`,
+      { preview: true, custom: { intro: `Typed this time ${stamp}` } });
+    check((typed.data?.html || '').includes(`Typed this time ${stamp}`)
+      && !(typed.data?.html || '').includes(`My own opening ${stamp}`),
+      'what is typed on one send still wins over the standard');
+
+    const agencySaved = await call(admin, 'PUT', '/api/statement-wording',
+      { kind: kindNow, scope: 'agency', intro: `Agency opening ${stamp}`, note: '' });
+    cleanup('the agency wording', () => call(admin, 'DELETE', `/api/statement-wording?kind=${kindNow}&scope=agency`));
+    await call(advisor, 'DELETE', `/api/statement-wording?kind=${kindNow}&scope=mine`);
+    const third = await call(advisor, 'POST', `/api/bookings/${stId}/statement`, { preview: true });
+    check(agencySaved.status === 200 && third.data?.wordingSource === 'agency'
+      && third.data?.defaults?.intro === `Agency opening ${stamp}` && third.data?.defaults?.note === '',
+      'without their own, an advisor starts from the agency\'s, and no closing note can be the standard',
+      JSON.stringify([third.data?.wordingSource, third.data?.defaults]));
+    await call(admin, 'DELETE', `/api/statement-wording?kind=${kindNow}&scope=agency`);
+    const last = await call(advisor, 'POST', `/api/bookings/${stId}/statement`, { preview: true });
+    check(last.data?.wordingSource === 'built-in', 'and with neither it is the portal\'s again', last.data?.wordingSource);
   }
 
   // 2000 + 318.55 - 100. A discount is stored positive and subtracted, the

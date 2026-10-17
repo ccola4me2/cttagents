@@ -123,6 +123,10 @@ const AGENCY_OWNED = new Set([
   // A commission check: what a vendor paid the agency in one payment, which can
   // cover several advisors' reservations, so no one advisor owns it. Owners only.
   'commission_checks',
+  // The opening and closing words of a quote or an invoice. An advisor's own are the agency's rows
+  // with their user_id on, and the agency's standard has none, so the agency is the predicate on every
+  // statement and the advisor is only ever added to it.
+  'statement_wording',
 ]);
 
 // Carries a user_id, and is not reached through one.

@@ -22,6 +22,7 @@ import { listTravellers, listAmenities } from './travellers.js';
 import * as db from './db.js';
 import { paymentFormFor } from './brand.js';
 import { docsReady, listDocuments, chooseAttachments, looksLikeAgencyCopy } from './documents.js';
+import { savedWording } from './wording.js';
 
 const KIND_LABEL = {
   deposit: 'Deposit', installment: 'Payment', final: 'Final balance', refund: 'Refund',
@@ -809,7 +810,15 @@ export async function handleStatement(request, env, id) {
   });
 
   let statement = build();
-  let rendered = renderStatement(env, statement, custom);
+  // The opening and closing words the advisor, or the agency, has saved as the standard. What was
+  // typed on this one send wins over them, and they win over the wording built in.
+  const wording = await savedWording(env, owner, statement.mode === 'quote' ? 'quote' : 'invoice');
+  const withSaved = (c) => ({
+    subject: c.subject,
+    intro: c.intro || wording.intro || '',
+    note: c.note !== undefined ? c.note : (wording.note === null ? undefined : wording.note),
+  });
+  let rendered = renderStatement(env, statement, withSaved(custom));
 
   if (body.preview) {
     // The message as it will leave, footer and all, from the same function the send uses.
@@ -869,7 +878,13 @@ export async function handleStatement(request, env, id) {
       // So the page can say so rather than showing a gap where a number goes.
       subject: rendered.subject,
       // What it says when nothing is changed, so the editor can start from the real words.
-      defaults: { subject: renderStatement(env, statement).subject, intro: defaultIntro(statement.mode === 'quote'), note: defaultNote(statement) },
+      defaults: {
+        subject: renderStatement(env, statement).subject,
+        intro: wording.intro || defaultIntro(statement.mode === 'quote'),
+        note: wording.note !== null ? wording.note : defaultNote(statement),
+      },
+      // Whose wording the standard is: the advisor's own, the agency's, or the portal's.
+      wordingSource: wording.source,
       statement,
       html: asSent ? asSent.html : rendered.html,
     });
@@ -909,7 +924,7 @@ export async function handleStatement(request, env, id) {
     booking.share_code = code;
     booking.shared_at = booking.shared_at || ts;
     statement = build();
-    rendered = renderStatement(env, statement, custom);
+    rendered = renderStatement(env, statement, withSaved(custom));
   }
 
   try {

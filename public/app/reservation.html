@@ -2501,6 +2501,12 @@ async function statement() {
           <button class="btn btn-secondary btn-sm" type="button" id="st-update">Update the preview</button>
           <button class="btn btn-ghost btn-sm" type="button" id="st-reset">Back to the standard wording</button>
         </div>
+        <p class="muted" style="font-size:.8rem;margin:.8rem 0 .4rem;" id="st-whose"></p>
+        <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+          <button class="btn btn-ghost btn-sm" type="button" id="st-save-mine">Make this my standard wording</button>
+          <button class="btn btn-ghost btn-sm" type="button" id="st-save-agency" hidden>Make this the agency's standard</button>
+          <button class="btn btn-ghost btn-sm" type="button" id="st-clear-mine" hidden>Stop using my own standard</button>
+        </div>
       </div>
       <div>
         <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem;">
@@ -2609,6 +2615,32 @@ async function statement() {
   // Ticking a file refreshes the envelope, so what is listed is what will be sent.
   document.getElementById('st-envelope').addEventListener('change', (e) => {
     if (e.target.matches('[data-doc]')) update();
+  });
+  // The opening and closing words saved as the standard, for every quote or invoice from here on.
+  const kind = s.mode === 'quote' ? 'quote' : 'invoice';
+  const whose = p.wordingSource === 'advisor' ? 'Your own standard wording is in use.'
+    : p.wordingSource === 'agency' ? 'The agency\'s standard wording is in use.'
+      : 'The standard wording is the portal\'s own.';
+  document.getElementById('st-whose').textContent = `${whose} Saving makes the opening message and the note at the end `
+    + `what every ${kind} starts from. What you type on one send still wins.`;
+  document.getElementById('st-clear-mine').hidden = p.wordingSource !== 'advisor';
+  document.getElementById('st-save-agency').hidden = me.role !== 'admin';
+  const saveWording = async (scope, button) => {
+    button.disabled = true;
+    try {
+      await api('/api/statement-wording', { method: 'PUT',
+        body: { kind, scope, intro: fIntro.value, note: fNote.value } });
+      await statement();
+    } catch (e) { err.innerHTML = `<div class="notice notice-error">${esc(e.message)}</div>`; button.disabled = false; }
+  };
+  document.getElementById('st-save-mine').addEventListener('click', (e) => saveWording('mine', e.target));
+  document.getElementById('st-save-agency').addEventListener('click', (e) => saveWording('agency', e.target));
+  document.getElementById('st-clear-mine').addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try {
+      await api(`/api/statement-wording?kind=${kind}&scope=mine`, { method: 'DELETE' });
+      await statement();
+    } catch (er) { err.innerHTML = `<div class="notice notice-error">${esc(er.message)}</div>`; e.target.disabled = false; }
   });
   document.getElementById('st-reset').addEventListener('click', () => {
     fTo.value = p.to || ''; fSubject.value = def.subject; fIntro.value = def.intro; fNote.value = def.note || ''; update();

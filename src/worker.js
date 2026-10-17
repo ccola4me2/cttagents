@@ -250,6 +250,8 @@ import {
 } from './grouproster.js';
 import { handleGroupList } from './groupmanifest.js';
 import { handleSlugCheck, handleSetSlug, handleReleaseSlug, handlePublicSlugTaken } from './groupslug.js';
+import { handleUploadPicture, handleRemovePicture, serveGroupPicture } from './grouppicture.js';
+import { handleSaveWording, handleClearWording } from './wording.js';
 import { isGroupHost, serveGroupHost, serveSlug, redirectForCode } from './grouphost.js';
 import { remindGroups, handleRunGroupReminders } from './groupremind.js';
 import {
@@ -757,6 +759,7 @@ async function routeApi(request, env, path, method) {
   const groupMatch = path.match(/^\/api\/groups\/([^/]+)$/);
   const groupSlugMatch = path.match(/^\/api\/groups\/([^/]+)\/slug$/);
   const groupRepeatMatch = path.match(/^\/api\/groups\/([^/]+)\/repeat$/);
+  const groupPictureMatch = path.match(/^\/api\/groups\/([^/]+)\/picture$/);
   const groupBookMatch = path.match(/^\/api\/groups\/registrations\/([^/]+)\/book$/);
   const rosterMatch = path.match(/^\/api\/groups\/([^/]+)\/roster$/);
   const groupListMatch = path.match(/^\/api\/groups\/([^/]+)\/list$/);
@@ -1102,6 +1105,10 @@ async function routeApi(request, env, path, method) {
   if (groupSlugMatch && method === 'PUT') return handleSetSlug(request, env, groupSlugMatch[1]);
   if (path === '/api/group-slugs/release' && method === 'POST') return handleReleaseSlug(request, env);
   if (groupRepeatMatch && method === 'POST') return handleRepeatGroup(request, env, groupRepeatMatch[1]);
+  if (groupPictureMatch && method === 'POST') return handleUploadPicture(request, env, groupPictureMatch[1]);
+  if (groupPictureMatch && method === 'DELETE') return handleRemovePicture(request, env, groupPictureMatch[1]);
+  if (path === '/api/statement-wording' && method === 'PUT') return handleSaveWording(request, env);
+  if (path === '/api/statement-wording' && method === 'DELETE') return handleClearWording(request, env);
   if (path === '/api/groups' && method === 'GET') return handleListGroups(request, env);
   if (path === '/api/groups/quote' && method === 'POST') return handleParseQuote(request, env);
   if (path === '/api/groups' && method === 'POST') return handleCreateGroup(request, env);
@@ -1453,6 +1460,10 @@ async function routePage(request, env, path) {
   // arrive for a trip nobody has been told about yet.
   // A group by its short name, on this portal's own address. The shared domain serves the same
   // pages at the root; see grouphost.js.
+  // An uploaded picture for a group's page, public while the page is on.
+  const pictureOf = path.match(/^\/gi\/([^/]+)\/?$/);
+  if (pictureOf) return serveGroupPicture(request, env, decodeURIComponent(pictureOf[1]));
+
   const slugPage = path.match(/^\/gs\/([^/]+)(?:\/(register))?\/?$/);
   if (slugPage) return serveSlug(request, env, slugPage[1], slugPage[2] || '', 'path');
 
