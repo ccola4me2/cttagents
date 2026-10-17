@@ -8143,6 +8143,22 @@ async function main() {
         JSON.stringify(rows.find((r) => r.id === stId)?.attached));
     }
 
+    if (haveDocs) {
+      // Every file on the reservation is listed, ticked or not, and what is ticked on the screen is what goes.
+      const onRow = rows.find((r) => r.id === stId)?.documents || [];
+      check(onRow.length >= 3 && onRow.some((d) => d.category === 'passport' && !d.selected) && onRow.some((d) => d.agencyCopy),
+        'each row lists every file on the reservation, ticked or not', JSON.stringify(onRow.map((d) => [d.filename, d.selected])));
+      const chosen = onRow.find((d) => d.category === 'passport');
+      const asked = { kind: 'invoice', attachConfirmations: true, ids: [stId, st2], send: false, combine: { to: `ruth-${stamp}@example.com` } };
+      const ticked = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ...asked, attach: { [stId]: [chosen?.id] } });
+      check((ticked.data?.combined?.attachments || []).length === 1 && ticked.data.combined.attachments[0].filename === chosen?.filename,
+        'and the files ticked on the screen are the ones that go, whatever they are filed as',
+        JSON.stringify(ticked.data?.combined?.attachments));
+      const unticked = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ...asked, attach: { [stId]: [] } });
+      check((unticked.data?.combined?.attachments || []).length === 0, 'and none ticked means none go',
+        JSON.stringify(unticked.data?.combined?.attachments));
+    }
+
     const noQuotes = await call(advisor, 'POST', '/api/bookings/bulk-quote', { ids: [stId], send: false });
     check(noQuotes.data?.results?.[0]?.ok === false && /quoted/i.test(noQuotes.data?.results?.[0]?.error || ''),
       'a booked reservation is still refused a quote', JSON.stringify(noQuotes.data?.results));

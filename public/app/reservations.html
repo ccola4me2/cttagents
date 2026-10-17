@@ -432,7 +432,17 @@ let qSubjectDefault = '';
 // Whether the vendor's confirmation goes with each invoice. Only an invoice has the choice.
 const attachOn = () => qKind === 'invoice' && document.getElementById('quote-attach').checked;
 // Every request to the server says which kind it is about, and whether confirmations go with it.
-const bulkBody = (extra) => ({ kind: qKind, attachConfirmations: attachOn(), ...extra });
+const bulkBody = (extra) => ({ kind: qKind, attachConfirmations: attachOn(), ...(attachOn() ? { attach: attachMap() } : {}), ...extra });
+// The files ticked on each row, for the reservations that are ticked to send.
+const attachMap = () => Object.fromEntries(qTicked().map((id) => [id,
+  [...document.querySelectorAll(`[data-qdoc="${id}"]:checked`)].map((box) => box.value)]));
+// A row's files as tick boxes: what is on the reservation, how it is filed, and whether it goes.
+const filesCell = (r) => ((r.documents || []).length
+  ? r.documents.map((d) => `<label style="display:flex;gap:.4rem;align-items:flex-start;font-weight:400;font-size:.85rem;margin:0 0 .2rem;">
+      <input type="checkbox" data-qdoc="${esc(r.id)}" value="${esc(d.id)}"${d.selected ? ' checked' : ''} style="margin-top:.2rem;">
+      <span>${esc(d.filename)} <span class="muted">filed as ${esc(d.category)}</span>${d.agencyCopy
+    ? ' <span style="color:var(--red-600);">looks like the agency copy</span>' : ''}</span></label>`).join('')
+  : '<span class="muted">no files on this reservation</span>');
 // The words the server starts from, for one at a time or for one email. A professional opening and closing are
 // filled in, and only what the advisor changes is sent, so what is left alone keeps following the reservation.
 const qDef = () => (qDefaults ? (document.getElementById('quote-combine').checked ? qDefaults.combined : qDefaults.each) : { intro: '', note: '' });
@@ -601,7 +611,7 @@ async function openSend(kind) {
   const sendable = (r) => r.ok || Boolean(r.problem && /email address/i.test(r.problem));
   const head = quoting
     ? '<th class="num">Trip</th><th class="num">Deposit</th><th>Deposit due</th>'
-    : '<th class="num">Trip</th><th class="num">Received</th><th class="num">Balance</th><th>Next due</th><th>Confirmation</th>';
+    : '<th class="num">Trip</th><th class="num">Received</th><th class="num">Balance</th><th>Next due</th><th>Files to attach</th>';
   document.getElementById('quote-rows').innerHTML = `<div class="table-wrap"><table>
     <thead><tr><th style="width:1.5rem;"></th><th>Client</th><th>Sent to</th>${head}<th></th></tr></thead>
     <tbody>${quoteRows.map((r) => {
@@ -617,7 +627,7 @@ async function openSend(kind) {
         <td class="num">${money(r.paidCents)}</td>
         <td class="num">${money(r.balanceCents)}</td>
         <td>${r.nextDue ? esc(dateFmt(r.nextDue)) : '<span class="muted">-</span>'}</td>
-        <td data-qfile>${(r.attached || []).length ? esc(r.attached.join(', ')) : '<span class="muted">none on file</span>'}</td>`;
+        <td data-qfile>${filesCell(r)}</td>`;
       return `<tr>
         <td><input type="checkbox" data-qsend="${esc(r.id)}" ${can ? '' : 'disabled'}${can && r.to && !r.alreadySent ? ' checked' : ''}></td>
         <td><strong>${esc(r.client || (cache.find((b) => b.id === r.id) || {}).client_name || '')}</strong></td>
@@ -648,7 +658,8 @@ async function openSend(kind) {
       const words = quoteCustom();
       const res = await api(`/api/bookings/${encodeURIComponent(b.dataset.qlook)}/statement`, { method: 'POST',
         body: { preview: true, ...(to.trim() ? { to: to.trim() } : {}), custom: { intro: words.intro, note: words.note },
-          ...(quoting ? {} : (attachOn() ? {} : { attachmentIds: [] })) } });
+          ...(quoting ? {} : { attachmentIds: attachOn()
+            ? [...document.querySelectorAll(`[data-qdoc="${b.dataset.qlook}"]:checked`)].map((box) => box.value) : [] }) } });
       const files = (res.envelope && res.envelope.attachments ? res.envelope.attachments : []).map((f) => f.filename);
       showLook(res.html, `To ${res.to || 'no address yet'}. Subject: ${res.subject}.${quoting ? ''
         : (files.length ? ` Attached: ${files.join(', ')}.` : ' Nothing attached.')}`);

@@ -702,6 +702,9 @@ export async function handleBulkQuote(request, env) {
   // The vendor's confirmation on each invoice, ticked for the sender as it is on a single one, and
   // shown in the preview so what goes is on the screen first. Never on a quote.
   const attachConfirmations = invoices && body.attachConfirmations === true;
+  // Which of a reservation's files go with its invoice, when the sender has chosen them on the screen:
+  // { reservation id: [file ids] }. Without an entry the default is used, the guest copy of the confirmation.
+  const attachMap = body.attach && typeof body.attach === 'object' ? body.attach : {};
 
   // Where each one goes when it is not the address on the client's record: a family on one parent's
   // email, a group's organiser. Checked here so a mistyped address is refused before anything is sent.
@@ -743,8 +746,10 @@ export async function handleBulkQuote(request, env) {
     const data = await looked.json().catch(() => ({}));
     if (!looked.ok) { results.push({ id, ok: false, error: data.error || `Not found (${looked.status}).` }); continue; }
     const s = data.statement || {};
+    const docsList = invoices ? (data.documents || []) : [];
     const pickIds = invoices && attachConfirmations
-      ? (data.documents || []).filter((d) => d.selected).map((d) => d.id) : [];
+      ? (Array.isArray(attachMap[id]) ? attachMap[id].map((x) => String(x)) : docsList.filter((d) => d.selected).map((d) => d.id))
+      : [];
     const row = {
       id, client: s.clientName || '', to: data.to || null, problem: data.problem || null,
       alreadySent: data.alreadySent || null, sentCount: data.sentCount || 0,
@@ -752,8 +757,10 @@ export async function handleBulkQuote(request, env) {
       // What an invoice reads on: what has been received, what is left, and when the next payment is due.
       paidCents: s.paidCents || 0, balanceCents: s.balanceCents || 0,
       nextDue: ((s.due || [])[0] || {}).date || '',
-      attached: invoices && attachConfirmations
-        ? (data.envelope && data.envelope.attachments ? data.envelope.attachments.map((a) => a.filename) : []) : [],
+      // Every file on the reservation with whether it is going, so the screen can show them and let the
+      // sender choose, and the names of the ones that are.
+      documents: docsList.map((d) => ({ ...d, selected: pickIds.includes(d.id) })),
+      attached: docsList.filter((d) => pickIds.includes(d.id)).map((d) => d.filename),
       mode: s.mode, sample: s,
     };
     if (s.mode !== wantMode) {
