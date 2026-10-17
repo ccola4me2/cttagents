@@ -94,10 +94,18 @@ export function parseCMap(text, into = new Map(), stats = null) {
     while ((m = re.exec(block))) put(parseInt(m[1], 16), fromHexUtf16(m[2]));
   }
   for (const block of text.match(/beginbfrange([\s\S]*?)endbfrange/g) || []) {
-    const re = /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g;
+    // A range is either <lo> <hi> <start>, counting up from one value, or <lo> <hi> [<a> <b> ...], with
+    // one destination for each code in turn. Word writes nearly all of its maps in the second form, so a
+    // reader that skipped it read a Word document as a handful of stray letters.
+    const re = /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*(?:<([0-9A-Fa-f]+)>|\[((?:\s*<[0-9A-Fa-f]*>)*)\s*\])/g;
     let m;
     while ((m = re.exec(block))) {
       const lo = parseInt(m[1], 16);
+      if (m[4] !== undefined) {
+        const each = m[4].match(/<([0-9A-Fa-f]*)>/g) || [];
+        each.forEach((hex, i) => put(lo + i, fromHexUtf16(hex.slice(1, -1))));
+        continue;
+      }
       const hi = Math.min(parseInt(m[2], 16), lo + 65535);
       const base = parseInt(m[3], 16);
       for (let c = lo; c <= hi; c += 1) put(c, String.fromCodePoint(base + (c - lo)));
@@ -134,12 +142,16 @@ function unescapeLiteral(text) {
  * a space, which is how some software lays out every line, and without reading
  * it "Sail Date" arrives as "SailDate" and no label can be found.
  */
-export function decodeContent(text, cmap) {
+export function decodeContent(text, cmap, fontMaps = null) {
   const out = [];
+  // The map for the font being drawn in. Two fonts in one document number their glyphs separately, so
+  // 0001 is a different letter in each; where the file says which font has which map, the one for the
+  // current font is used, and the single merged map is only the fallback.
+  let current = cmap;
   const glyphs = (hex) => {
     const padded = hex.length % 4 ? hex + '0'.repeat(4 - (hex.length % 4)) : hex;
     let s = '';
-    for (let i = 0; i < padded.length; i += 4) s += cmap.get(parseInt(padded.slice(i, i + 4), 16)) ?? '';
+    for (let i = 0; i < padded.length; i += 4) s += current.get(parseInt(padded.slice(i, i + 4), 16)) ?? '';
     return s;
   };
 
@@ -160,7 +172,7 @@ export function decodeContent(text, cmap) {
     + '|<([0-9A-Fa-f]+)>'
     + '|\\(((?:\\\\.|[^\\\\()])*)\\)'
     + '|(-?\\d*\\.?\\d+)\\s+(-?\\d*\\.?\\d+)\\s+T[dD]\\b'
-    + '|\\/[^\\s\\/\\[\\]<>()]+\\s+(-?\\d*\\.?\\d+)\\s+Tf\\b'
+    + '|\\/([^\\s\\/\\[\\]<>()]+)\\s+(-?\\d*\\.?\\d+)\\s+Tf\\b'
     // T* has no word character after it, so a trailing \\b never matched and every
     // line a producer ended with T* ran into the next one.
     + '|(\\bT\\*|\\bTm\\b|\\bET\\b)', 'g');
@@ -185,7 +197,9 @@ export function decodeContent(text, cmap) {
       if (Math.abs(dy) > 0.5) out.push('\n');
       else if (dx > size * 1.6) out.push('  ');
     } else if (m[6] !== undefined) {
-      size = Math.abs(Number(m[6])) || size;
+      if (fontMaps && fontMaps.has(m[6])) current = fontMaps.get(m[6]);
+      else if (fontMaps) current = cmap;
+      size = Math.abs(Number(m[7])) || size;
     } else {
       out.push('\n');
     }
@@ -216,7 +230,7 @@ export function decodeContent(text, cmap) {
  */
 export async function pdfRead(buffer, { inflate: inflater = inflate } = {}) {
   const info = {
-    text: '', streams: 0, cmaps: 0, content: 0, images: 0, conflicts: 0,
+    text: '', streams: 0, cmaps: 0, content: 0, images: 0, conflicts: 0, fonts: 0,
     // none, rc4 (was locked and has been opened), password (locked, and the
     // empty password does not open it) or unsupported (locked in a newer way).
     encryption: 'none',
@@ -274,6 +288,15 @@ export async function pdfRead(buffer, { inflate: inflater = inflate } = {}) {
     // can see it. The map itself is always plainly a map.
     const cmap = new Map();
     const bodies = [];
+    // Each map on its own as well as in the merged one, and the text of every object that could be a font or a
+    // list of fonts, so a font's own map can be found.
+    const cmapByObject = new Map();
+    const objectText = new Map();
+    for (const hd of heads) {
+      const chunk = raw.slice(hd.at, hd.at + 4000);
+      const stop = chunk.search(/\bstream\b|\bendobj\b/);
+      objectText.set(hd.num, stop > 0 ? chunk.slice(0, stop) : chunk);
+    }
     for (const s of streams) {
       let body = bytes.slice(s.from, s.to);
       if (lock.kind === 'rc4') {
@@ -289,12 +312,67 @@ export async function pdfRead(buffer, { inflate: inflater = inflate } = {}) {
       if (/begincmap/.test(text)) {
         info.cmaps += 1;
         parseCMap(text, cmap, info);
+        const owner = objectAt(s.at);
+        if (owner) cmapByObject.set(owner.num, parseCMap(text, new Map()));
       } else if (/\bTJ\b|\bTj\b/.test(text)) {
         bodies.push(text);
+      } else {
+        // Objects packed into a compressed stream, which is where newer software keeps its font dictionaries.
+        const owner = objectAt(s.at);
+        const dict = owner ? raw.slice(owner.at, s.at) : '';
+        const count = /\/N\s+(\d+)/.exec(dict);
+        const first = /\/First\s+(\d+)/.exec(dict);
+        if (/\/Type\s*\/ObjStm/.test(dict) && count && first) {
+          const heads2 = [];
+          const pairs = /(\d+)\s+(\d+)/g;
+          pairs.lastIndex = 0;
+          let pm;
+          while (heads2.length < Number(count[1]) && (pm = pairs.exec(text.slice(0, Number(first[1]))))) {
+            heads2.push({ num: Number(pm[1]), off: Number(pm[2]) });
+          }
+          heads2.forEach((o, i) => {
+            const from = Number(first[1]) + o.off;
+            const to = i + 1 < heads2.length ? Number(first[1]) + heads2[i + 1].off : text.length;
+            objectText.set(o.num, text.slice(from, to));
+          });
+        }
       }
     }
     info.content = bodies.length;
-    info.text = bodies.map((b) => decodeContent(b, cmap)).join('\n');
+
+    // Which map goes with which font name. A font dictionary says where its map is, and a page's resources
+    // say which font each name in the content means; the two are joined here. A name the file uses for more
+    // than one font is left to the merged map, because a wrong letter is worse than a gap.
+    const toUnicodeOf = new Map();
+    for (const [num, body] of objectText) {
+      const ref = /\/ToUnicode\s+(\d+)\s+\d+\s+R/.exec(body);
+      if (ref && /\/Type\s*\/Font|\/Subtype\s*\/(?:Type0|TrueType|Type1)/.test(body)) toUnicodeOf.set(num, Number(ref[1]));
+    }
+    const fontOf = new Map();
+    const unsure = new Set();
+    const sawFonts = (listText) => {
+      const pair = /\/([^\s\/\[\]<>()]+)\s+(\d+)\s+\d+\s+R/g;
+      let pm;
+      while ((pm = pair.exec(listText))) {
+        const at = Number(pm[2]);
+        if (fontOf.has(pm[1]) && fontOf.get(pm[1]) !== at) unsure.add(pm[1]);
+        else fontOf.set(pm[1], at);
+      }
+    };
+    for (const body of objectText.values()) {
+      const inline = /\/Font\s*<<([\s\S]*?)>>/.exec(body);
+      if (inline) { sawFonts(inline[1]); continue; }
+      const byRef = /\/Font\s+(\d+)\s+\d+\s+R/.exec(body);
+      if (byRef && objectText.has(Number(byRef[1]))) sawFonts(objectText.get(Number(byRef[1])));
+    }
+    const fontMaps = new Map();
+    for (const [name, num] of fontOf) {
+      if (unsure.has(name)) continue;
+      const map = cmapByObject.get(toUnicodeOf.get(num));
+      if (map) fontMaps.set(name, map);
+    }
+    info.fonts = fontMaps.size;
+    info.text = bodies.map((b) => decodeContent(b, cmap, fontMaps.size ? fontMaps : null)).join('\n');
   } catch (e) {
     console.error('pdfRead', e);
   }
