@@ -7122,7 +7122,7 @@ async function main() {
       headline: 'Four nights, one great crowd', heroImageUrl: 'https://example.com/ship-photo.jpg',
       perks: ['$100 onboard credit', 'Group cocktail party'],
       itinerary: [{ day: 'Day 1', port: 'Tampa', note: 'Depart 4:00 PM' }, { day: '', port: '', note: '' }],
-      depositDue: isoDay(30), finalPaymentDue: isoDay(90), depositPerGuest: '250', departurePort: 'TPA',
+      depositDue: isoDay(30), finalPaymentDue: isoDay(90), depositPerGuest: '250', departurePort: 'TPA', excursionsUrl: 'https://example.com/shore?ship=1',
       amenities: [{ name: 'Onboard credit', price: '$100 per cabin', note: 'Spend it anywhere onboard' }, { name: '' }],
       drinks: [{ name: 'Premium drink package', price: '$59.99 per person per day', note: 'Cocktails, wine and beer' }],
       enhancements: [{ name: 'Wi-Fi', price: '$19.99 per day', note: 'One device' }],
@@ -7177,6 +7177,19 @@ async function main() {
     check(page.raw.includes('Deposit to hold your cabin') && page.raw.includes('$250.00')
       && page.raw.includes('Final payment'),
     'the deposit is shown as an amount per guest with its date, beside the final payment');
+    check(page.raw.includes('Browse shore excursions') && page.raw.includes('href="https://example.com/shore?ship=1"')
+      && page.raw.includes('noopener'),
+    'the itinerary offers a button to look at shore excursions, when the advisor gave a link');
+    const badLink = await call(advisor, 'PUT', `/api/groups/${gid}`, {
+      name: made.data?.group?.name, vendor: 'Test Line', departDate: isoDay(120), returnDate: isoDay(124),
+      cabinsHeld: 6, registrationOpen: true, excursionsUrl: 'javascript:alert(1)',
+    });
+    check(badLink.status === 200 && !badLink.data?.group?.excursions_url,
+      'a link that is not https is not kept', JSON.stringify(badLink.data?.group?.excursions_url));
+    await call(advisor, 'PUT', `/api/groups/${gid}`, {
+      name: made.data?.group?.name, vendor: 'Test Line', departDate: isoDay(120), returnDate: isoDay(124),
+      cabinsHeld: 6, registrationOpen: true, excursionsUrl: 'https://example.com/shore?ship=1',
+    });
     check(page.raw.includes('Prices and availability are subject to change'),
       'drink packages and enhancements say that prices and availability can change');
     check(page.raw.includes('Tampa') && !/>TPA</.test(page.raw),

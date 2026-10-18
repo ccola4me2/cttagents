@@ -313,6 +313,11 @@
                     placeholder="Group cocktail party"></textarea>
                   <p class="field-hint">One per line. A plain checklist further down the page, for the smaller
                     things.</p></div>
+                <div class="field"><label for="excursionsUrl">Shore excursions link</label>
+                  <input id="excursionsUrl" name="excursionsUrl" type="url" maxlength="500"
+                    placeholder="https://">
+                  <p class="field-hint">Your own booking site, or the cruise line's page for this sailing. It
+                    shows under the itinerary as a Browse shore excursions button. Starts with https://.</p></div>
                 <div class="field"><label for="itinerary">Itinerary</label>
                   <textarea id="itinerary" name="itinerary" rows="6" maxlength="4000"
                     placeholder="Day 1 | Tampa | Depart 4:00 PM"></textarea>
@@ -621,6 +626,8 @@ function drawOnPage() {
     ${row('Itinerary', 'itinerary', days.length
       ? `<ul style="margin:0;padding-left:1.1rem;">${days.map((d) => `<li>${d.day ? `<strong>${esc(d.day)}</strong> ` : ''}${
         esc(d.port || '')}${d.note ? ` <span class="muted">${esc(d.note)}</span>` : ''}</li>`).join('')}</ul>` : '')}
+    ${row('Shore excursions link', 'excursionsUrl', g.excursions_url
+      ? `<a href="${esc(g.excursions_url)}" target="_blank" rel="noopener">${esc(g.excursions_url)}</a>` : '')}
     ${row('Downloads', 'file-title', (lastFiles || []).length
       ? `<ul style="margin:0;padding-left:1.1rem;">${lastFiles.map((f) => `<li><a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.title)}</a></li>`).join('')}</ul>` : '')}
     ${row('Questions answered', 'faq-add', faq.length ? `${faq.length} question${faq.length === 1 ? '' : 's'}` : '')}`;
@@ -721,6 +728,7 @@ function fill(g) {
   set('groupType', g.group_type || 'cruise');
   set('registrationBlurb', g.registration_blurb);
   set('headline', g.headline); set('heroImageUrl', g.hero_image_url);
+  set('excursionsUrl', g.excursions_url);
   showHero(g.hero_image_url);
   set('perks', parseList(g.perks_json).join('\n'));
   set('amenities', extrasText(g.amenities_json));
@@ -1392,6 +1400,7 @@ function allValues(values) {
     registrationBlurb: regForm.elements.registrationBlurb.value,
     headline: regForm.elements.headline.value,
     heroImageUrl: regForm.elements.heroImageUrl.value,
+    excursionsUrl: regForm.elements.excursionsUrl.value,
     perks: readPerks(),
     itinerary: readItinerary(),
     amenities: readExtras('amenities'),

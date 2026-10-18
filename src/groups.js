@@ -39,7 +39,7 @@ const COLUMNS = `
   g.deposit_per_guest_cents, g.reminded_on,
   g.faq_json, g.terms, g.agency_fee_cents, g.fee_terms, g.trip_terms,
   g.page_slug, g.headline, g.hero_image_url, g.perks_json, g.itinerary_json, g.repeated_from,
-  g.amenities_json, g.drinks_json, g.enhancements_json,
+  g.amenities_json, g.drinks_json, g.enhancements_json, g.excursions_url,
   g.hero_image_key,
   g.created_at, g.updated_at
 `;
@@ -125,6 +125,7 @@ function parse(body) {
       heroImageUrl,
       perksJson: perksOf(body.perks),
       itineraryJson: itineraryOf(body.itinerary),
+      excursionsUrl: webLinkOf(body.excursionsUrl),
       amenitiesJson: extrasOf(body.amenities),
       drinksJson: extrasOf(body.drinks),
       enhancementsJson: extrasOf(body.enhancements),
@@ -136,6 +137,12 @@ function parse(body) {
 function imageUrlOf(value) {
   const text = clean(value, 500);
   return /^https:\/\/[^\s'"()<>\\]+$/i.test(text) ? text : null;
+}
+
+/** A link to a web page, or nothing. https only, and nothing that could break out of an attribute. */
+function webLinkOf(value) {
+  const text = clean(value, 500);
+  return /^https:\/\/[^\s<>"'\\]+$/i.test(text) ? text : null;
 }
 
 /** What the group gets, as short lines. Blank ones are dropped rather than shown empty. */
@@ -197,6 +204,7 @@ function pageFields(raw, fields) {
     ['heroImageUrl', 'hero_image_url', fields.heroImageUrl],
     ['perks', 'perks_json', fields.perksJson],
     ['itinerary', 'itinerary_json', fields.itineraryJson],
+    ['excursionsUrl', 'excursions_url', fields.excursionsUrl],
     ['amenities', 'amenities_json', fields.amenitiesJson],
     ['drinks', 'drinks_json', fields.drinksJson],
     ['enhancements', 'enhancements_json', fields.enhancementsJson],
@@ -622,9 +630,9 @@ async function createGroupRow(env, ownerId, raw) {
        deposit_due, final_payment_due, passport_due, group_number,
        faq_json, terms, agency_fee_cents, fee_terms, trip_terms,
        deposit_per_guest_cents, headline, hero_image_url, perks_json, itinerary_json,
-       amenities_json, drinks_json, enhancements_json, created_at, updated_at)
+       amenities_json, drinks_json, enhancements_json, excursions_url, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(id, ownerId, fields.name, fields.vendor, fields.productName, fields.destination,
          fields.groupCode, fields.departDate, fields.returnDate, fields.optionDate,
          fields.cabinsHeld, fields.status, fields.notes,
@@ -635,7 +643,7 @@ async function createGroupRow(env, ownerId, raw) {
          fields.faqJson, fields.terms, fields.agencyFeeCents, fields.feeTerms, fields.tripTerms,
          fields.depositPerGuestCents, fields.headline || null, fields.heroImageUrl,
          fields.perksJson, fields.itineraryJson, fields.amenitiesJson, fields.drinksJson,
-         fields.enhancementsJson, ts, ts).run();
+         fields.enhancementsJson, fields.excursionsUrl, ts, ts).run();
   await saveRates(env, id, ownerId, raw.rates);
   // Best effort: a group that cannot be given a name yet is still a group, and the share box
   // on its page offers one.
@@ -742,7 +750,7 @@ export async function handleRepeatGroup(request, env, id) {
     headline: src.headline, heroImageUrl: src.hero_image_url,
     perks: listOf(src.perks_json), itinerary: listOf(src.itinerary_json),
     amenities: listOf(src.amenities_json), drinks: listOf(src.drinks_json),
-    enhancements: listOf(src.enhancements_json),
+    enhancements: listOf(src.enhancements_json), excursionsUrl: src.excursions_url,
     rates, pageSlug: raw.pageSlug,
   });
   if (made.error) return badRequest(made.error);

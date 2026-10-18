@@ -83,7 +83,7 @@ const PAGE_COLUMNS = [
   'deposit_due', 'final_payment_due', 'passport_due', 'faq_json', 'terms',
   'agency_fee_cents', 'fee_terms', 'trip_terms', 'group_type', 'deposit_per_guest_cents',
   'page_slug', 'headline', 'hero_image_url', 'perks_json', 'itinerary_json',
-  'amenities_json', 'drinks_json', 'enhancements_json',
+  'amenities_json', 'drinks_json', 'enhancements_json', 'excursions_url',
 ].join(', ');
 
 /**
@@ -406,6 +406,13 @@ ${head}
   .extra .en{font-weight:700;color:var(--navy)}
   .extra .ep{font-weight:700;color:var(--navy);text-align:right;font-variant-numeric:tabular-nums}
   .extra .et{grid-column:1/-1;color:var(--soft);font-size:.9rem}
+  .excursions{display:flex;gap:1rem;align-items:center;justify-content:space-between;flex-wrap:wrap;
+              margin-top:1.1rem;padding:1rem 1.1rem;border:1px solid #cfe0ee;background:#f3f8fc;border-radius:12px}
+  .excursions b{color:var(--navy)}
+  .excursions p{margin:.2rem 0 0;color:var(--soft);font-size:.9rem;max-width:30rem}
+  .exc-btn{display:inline-block;background:var(--navy);color:#fff;text-decoration:none;border-radius:999px;
+           padding:.65rem 1.3rem;font-weight:700;font-size:.9rem;white-space:nowrap}
+  .exc-btn:hover{opacity:.9}
   .itin{position:relative}
   .itin .day{display:grid;grid-template-columns:5.2rem 1fr;gap:.1rem .8rem;padding:.65rem 0 .65rem 1.1rem;
              border-left:2px solid #cfe0ee;margin-left:.3rem;position:relative}
@@ -775,11 +782,17 @@ function perksBlock(g) {
 
 function itineraryBlock(g) {
   const days = listOf(g.itinerary_json).filter((d) => d && (d.port || d.note));
-  if (!days.length) return '';
-  return `<div class="card"><h2>Your itinerary</h2><div class="itin">${
+  const link = /^https:\/\/[^\s<>"'\\]+$/i.test(g.excursions_url || '') ? g.excursions_url : '';
+  if (!days.length && !link) return '';
+  const trips = link
+    ? `<div class="excursions"><div><b>Plan your days ashore</b>
+        <p>See the shore excursions on offer in each port, and choose the ones that suit your group.</p></div>
+        <a class="exc-btn" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Browse shore excursions</a></div>`
+    : '';
+  return `<div class="card"><h2>Your itinerary</h2>${days.length ? `<div class="itin">${
     days.map((d) => `<div class="day"><span class="d">${esc(d.day || '')}</span>
       <span class="p">${esc(d.port || '')}</span>${d.note ? `<span class="t">${esc(d.note)}</span>` : ''}</div>`).join('')
-  }</div></div>`;
+  }</div>` : ''}${trips}</div>`;
 }
 
 function filesBlock(files) {
