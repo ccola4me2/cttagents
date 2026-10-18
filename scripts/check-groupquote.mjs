@@ -335,6 +335,7 @@ is('and a Margaritaville proposal is never handed to the fallback',
     [p.fields.departDate, p.fields.returnDate, p.fields.productName, p.fields.optionDate, p.fields.proposalId],
     ['2027-10-30', '2027-11-06', 'Islander', '2026-11-14', '4788']);
   is('and the number of cabins and guests', [p.fields.cabinsHeld, p.fields.passengers], [12, 24]);
+  is('and the port as the city, not the airport code', p.fields.departurePort, 'Tampa');
   is('and all four cabin rates, each agreeing with the total on the page',
     [p.rates.length, p.rates.every((r) => r.reconciles), p.rates[2].roomType, p.rates[2].perGuestCents, p.rates[2].taxesCents],
     [4, true, 'Breezy Balcony Stateroom', 58615, 21200]);

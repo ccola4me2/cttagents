@@ -6,6 +6,7 @@
 // rather than written from what a proposal is supposed to look like.
 
 import { after, money, toCents, dollars } from './groupquote-util.js';
+import { portName } from './ports.js';
 
 /**
  * Is this the form.
@@ -176,7 +177,7 @@ function parse(t) {
       proposalId,
       sailingId,
       vendorContact: specialist,
-      departurePort: port,
+      departurePort: portName(port),
       passengers: guests ? Number(guests) : 0,
       proposalExpires: expires,
       groupCode: '',

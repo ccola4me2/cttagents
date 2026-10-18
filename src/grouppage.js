@@ -33,6 +33,7 @@ import { seal, piiReady } from './pii.js';
 import { turnstileWidget, verifyTurnstile, TURNSTILE_FAILED } from './turnstile.js';
 import { sendSignupNoticeEmail } from './email.js';
 import { listGroupFiles } from './groupfiles.js';
+import { portName } from './ports.js';
 
 // What differs between the two portals, in one place so the rest of the file reads the same
 // in both.
@@ -637,7 +638,7 @@ function detailsBlock(g) {
     ['Sails', g.depart_date ? sayDate(g.depart_date) : ''],
     ['Returns', g.return_date ? sayDate(g.return_date) : ''],
     ['Length', nights ? `${nights} night${nights === 1 ? '' : 's'}` : ''],
-    ['Sailing from', g.departure_port],
+    ['Sailing from', portName(g.departure_port)],
   ].filter(([, v]) => v);
   if (rows.length < 2) return '';
   return `<div class="card"><h2>The sailing</h2><dl class="facts-list">${
@@ -652,7 +653,7 @@ function glance(g, rates) {
     g.depart_date ? ['Sails', sayDate(g.depart_date), ''] : null,
     nights ? ['Nights', String(nights), ''] : null,
     held ? ['Cabins available', String(left), left <= 3 ? 'low' : ''] : null,
-    g.departure_port ? ['Sailing from', g.departure_port, ''] : null,
+    g.departure_port ? ['Sailing from', portName(g.departure_port), ''] : null,
   ].filter(Boolean).slice(0, 4);
   if (!tiles.length) return '';
   return `<div class="tiles">${tiles.map(([label, value, tone]) =>

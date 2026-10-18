@@ -20,6 +20,7 @@ import { parseGroupQuote, FIELD_WORDS } from './groupquote.js';
 import { buildSchedule } from './payments.js';
 import { assignSlug, linkInfo, releaseAllFor, cleanSlug, slugProblem, slugState } from './groupslug.js';
 import { listGroupFiles, removeGroupFiles } from './groupfiles.js';
+import { portName } from './ports.js';
 
 const STATUSES = ['open', 'closed', 'cancelled'];
 
@@ -93,7 +94,7 @@ function parse(body) {
       proposalId: clean(body.proposalId, 40),
       sailingId: clean(body.sailingId, 40),
       vendorContact: clean(body.vendorContact, 120),
-      departurePort: clean(body.departurePort, 120),
+      departurePort: portName(clean(body.departurePort, 120)),
       passengers: Math.max(0, Math.min(Number(body.passengers) || 0, 99999)),
       proposalExpires: cleanDate(body.proposalExpires),
       // The supplier's dates for the block, which are not any one
