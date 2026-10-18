@@ -10,7 +10,7 @@
 // than stored on it. Two numbers that can disagree eventually will.
 
 import { json, badRequest, notFound, clean, cleanText, cleanDate, oneOf, toCents, uid, now, readJson, usDate } from './util.js';
-import { requireUser, isAdmin } from './auth.js';
+import { requireUser, isAdmin, borrowedSeat } from './auth.js';
 import * as db from './db.js';
 import { pdfRead } from './pdftext.js';
 import { parseGroupQuote, FIELD_WORDS } from './groupquote.js';
@@ -253,7 +253,7 @@ async function saveSelling(env, user, owner, id, raw) {
     sets.push('advisor_notes = ?');
     binds.push(cleanText(raw.advisorNotes, 1500) || null);
   }
-  if (raw.outsideAdvisorPct !== undefined && isAdmin(user) && !user.acting_as) {
+  if (raw.outsideAdvisorPct !== undefined && isAdmin(user) && !borrowedSeat(user)) {
     const text = String(raw.outsideAdvisorPct === null ? '' : raw.outsideAdvisorPct).trim();
     let pct = null;
     if (text !== '') {

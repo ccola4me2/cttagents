@@ -12,7 +12,7 @@
 // reach back, and taking the reservation out of the group takes the group's share off again.
 
 import { json, badRequest, notFound, forbidden, clean, uid, now, readJson } from './util.js';
-import { requireUser } from './auth.js';
+import { requireUser, borrowedSeat } from './auth.js';
 import * as db from './db.js';
 
 export const SELLING = ['private', 'open', 'request'];
@@ -115,7 +115,7 @@ export async function handleBookableGroups(request, env) {
 export async function handleRequestAccess(request, env, groupId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  if (user.acting_as) return forbidden('Stop working as an advisor to ask for yourself.');
+  if (borrowedSeat(user)) return forbidden('Stop working as an advisor to ask for yourself.');
   const agency = user.agency_id || '';
 
   const g = await env.DB.prepare(
