@@ -8262,6 +8262,104 @@ async function main() {
     check(last.data?.wordingSource === 'built-in', 'and with neither it is the portal\'s again', last.data?.wordingSource);
   }
 
+  // Who may sell into a group: private, open, or by request, and what an outside booking pays.
+  {
+    const made = await call(admin, 'POST', '/api/groups', {
+      name: `Owner group ${stamp}`, vendor: 'Test Line', departDate: isoDay(150), returnDate: isoDay(154),
+      cabinsHeld: 6, groupType: 'cruise',
+    });
+    const gid = made.data?.group?.id;
+    cleanup('the selling group', () => call(admin, 'DELETE', `/api/groups/${gid}`));
+    check(made.status === 201 && made.data?.group?.selling === 'private',
+      'a new group starts private', made.data?.group?.selling);
+
+    const hidden = await call(advisor, 'GET', '/api/groups/bookable');
+    check(!(hidden.data?.groups || []).some((g) => g.id === gid),
+      'another advisor cannot see a private group');
+    const blocked = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Outside ${stamp}`, supplier: 'Test Line', status: 'booked', productName: 'Outside trip',
+      departDate: isoDay(150), returnDate: isoDay(154), groupId: gid,
+    });
+    check(blocked.status === 400, 'nor put a reservation into it', `status ${blocked.status}`);
+    const advisorsTry = await call(advisor, 'PUT', `/api/groups/${gid}`, { name: 'Taken over', selling: 'open' });
+    check(advisorsTry.status === 404, 'nor change its setting', `status ${advisorsTry.status}`);
+
+    const opened = await call(admin, 'PUT', `/api/groups/${gid}`, {
+      name: `Owner group ${stamp}`, vendor: 'Test Line', departDate: isoDay(150), returnDate: isoDay(154),
+      cabinsHeld: 6, groupType: 'cruise', selling: 'open', advisorNotes: 'TC credit stays with the leader',
+      outsideAdvisorPct: '80',
+    });
+    check(opened.status === 200 && opened.data?.group?.selling === 'open'
+      && Number(opened.data?.group?.outside_advisor_pct) === 80 && Boolean(opened.data?.group?.selling_changed_at),
+    'an owner can open a group and set what an outside booking keeps', JSON.stringify([opened.status, opened.data?.group?.selling]));
+    const listed = (await call(advisor, 'GET', '/api/groups/bookable')).data?.groups?.find((g) => g.id === gid);
+    check(Boolean(listed) && listed.may === true && listed.notes === 'TC credit stays with the leader'
+      && listed.outsidePct === 80,
+    'an open group is offered to an advisor with its instructions and rate', JSON.stringify(listed));
+
+    const outside = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Outside ${stamp}`, supplier: 'Test Line', status: 'booked', productName: 'Outside trip',
+      departDate: isoDay(150), returnDate: isoDay(154), groupId: gid,
+    });
+    const outId = outside.data?.booking?.id;
+    if (outId) cleanup('the outside reservation', () => dropBooking(outId));
+    check(outside.status === 201 && Number(outside.data?.booking?.advisor_split_pct) === 80,
+      'a reservation put in carries the group\'s share', JSON.stringify([outside.status, outside.data?.booking?.advisor_split_pct]));
+    const moveOut = await call(advisor, 'POST', `/api/bookings/${outId}/quick`, { groupId: 'none' });
+    const afterOut = await call(advisor, 'GET', `/api/bookings/${outId}`);
+    check(moveOut.status === 200 && (afterOut.data?.booking?.advisor_split_pct ?? null) === null,
+      'taking it out of the group takes the share off again', JSON.stringify(afterOut.data?.booking?.advisor_split_pct));
+    const moveBack = await call(advisor, 'POST', `/api/bookings/${outId}/quick`, { groupId: gid });
+    check(moveBack.status === 200, 'and it can be put back', `status ${moveBack.status}`);
+
+    // An advisor cannot set what an outside booking keeps, on a group of their own either.
+    const own = await call(advisor, 'POST', '/api/groups', { name: `Advisor group ${stamp}`, vendor: 'Test Line' });
+    const ownId = own.data?.group?.id;
+    cleanup('the advisor\'s own group', () => call(advisor, 'DELETE', `/api/groups/${ownId}`));
+    const tryShare = await call(advisor, 'PUT', `/api/groups/${ownId}`, {
+      name: `Advisor group ${stamp}`, vendor: 'Test Line', selling: 'open', outsideAdvisorPct: '100',
+    });
+    check(tryShare.status === 200 && tryShare.data?.group?.selling === 'open'
+      && (tryShare.data?.group?.outside_advisor_pct ?? null) === null,
+    'an advisor can open their own group but not set the share', JSON.stringify(tryShare.data?.group?.outside_advisor_pct));
+    const badSelling = await call(advisor, 'PUT', `/api/groups/${ownId}`, {
+      name: `Advisor group ${stamp}`, vendor: 'Test Line', selling: 'everyone',
+    });
+    check(badSelling.status === 400, 'a setting that is not one of the three is refused', `status ${badSelling.status}`);
+
+    // By request.
+    await call(admin, 'PUT', `/api/groups/${gid}`, {
+      name: `Owner group ${stamp}`, vendor: 'Test Line', departDate: isoDay(150), returnDate: isoDay(154),
+      cabinsHeld: 6, groupType: 'cruise', selling: 'request',
+    });
+    const asking = (await call(advisor, 'GET', '/api/groups/bookable')).data?.groups?.find((g) => g.id === gid);
+    check(Boolean(asking) && asking.may === false && asking.access === 'none',
+      'a group that takes requests is listed, not yet bookable', JSON.stringify(asking));
+    const second = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Asking ${stamp}`, supplier: 'Test Line', status: 'booked', productName: 'Asking trip',
+      departDate: isoDay(150), returnDate: isoDay(154), groupId: gid,
+    });
+    check(second.status === 400, 'and a reservation cannot go in until approved', `status ${second.status}`);
+    const asked = await call(advisor, 'POST', `/api/groups/${gid}/access-request`, {});
+    check(asked.status === 200 && asked.data?.access === 'pending', 'an advisor can ask', JSON.stringify(asked.data));
+    const queue = await call(admin, 'GET', `/api/groups/${gid}/access`);
+    const reqId = queue.data?.requests?.[0]?.id;
+    check(queue.status === 200 && queue.data?.requests?.length === 1 && Boolean(reqId),
+      'the group\'s advisor sees the request', JSON.stringify(queue.data));
+    const noDecide = await call(advisor, 'PUT', `/api/groups/${gid}/access/${reqId}`, { decision: 'approve' });
+    check(noDecide.status === 404, 'the one asking cannot approve themselves', `status ${noDecide.status}`);
+    const approve = await call(admin, 'PUT', `/api/groups/${gid}/access/${reqId}`, { decision: 'approve' });
+    const nowOk = (await call(advisor, 'GET', '/api/groups/bookable')).data?.groups?.find((g) => g.id === gid);
+    check(approve.status === 200 && nowOk?.may === true, 'once approved they can book into it', JSON.stringify(nowOk));
+    await call(admin, 'PUT', `/api/groups/${gid}/access/${reqId}`, { decision: 'revoke' });
+    const revoked = (await call(advisor, 'GET', '/api/groups/bookable')).data?.groups?.find((g) => g.id === gid);
+    check(revoked?.may === false, 'and approval can be taken away', JSON.stringify(revoked));
+
+    const stats = await call(admin, 'GET', '/api/admin/group-stats?range=all');
+    check((stats.data?.groups || []).find((g) => g.id === gid)?.selling === 'request',
+      'the owner\'s list of groups says who may sell each one');
+  }
+
   // Agency events: an owner puts a training on everyone's calendar, advisors say they are going.
   {
     const day = isoDay(40);

@@ -85,7 +85,9 @@ function render(d) {
         <td><a class="name" href="${href}">${esc(g.name)}</a>
           <div class="muted">${esc([g.group_code, g.product_name].filter(Boolean).join(' / '))}</div>
           ${clashes.has(g.group_code) ? '<div><span class="badge badge-red">code used twice</span></div>' : ''}
-          ${g.registration_open ? '<div><span class="badge badge-green">taking sign-ups</span></div>' : ''}</td>
+          ${g.registration_open ? '<div><span class="badge badge-green">taking sign-ups</span></div>' : ''}
+          <div><span class="badge ${g.selling === 'open' ? 'badge-green' : g.selling === 'request' ? 'badge-amber' : 'badge-navy'}">${
+  g.selling === 'open' ? 'Open to agency' : g.selling === 'request' ? 'By request' : 'Private'}</span></div></td>
         ${showAdvisor ? `<td class="muted">${esc(g.advisor_name || '-')}</td>` : ''}
         <td>${esc(g.vendor || '-')}</td>
         <td>${esc(short(g.depart_date))}</td>

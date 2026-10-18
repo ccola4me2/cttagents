@@ -33,6 +33,7 @@ import {
 } from './pricing.js';
 import { settlement } from './reconcile.js';
 import { receiptShown, payDatesFrom, suggestPayDate, todayIso } from './paydates.js';
+import { groupGrant, applyGroupTerms } from './groupaccess.js';
 
 // The taxonomy a travel agency actually reports on. Five buckets could not
 // tell a transfer from a tour from travel insurance, which meant "travel by
@@ -751,6 +752,11 @@ export async function handleCreateBooking(request, env) {
   // booking with one attached, which is the same hole as editing it after.
   fields.advisorSplitPct = null;
 
+  // A group has to be one this advisor may sell from.
+  if (fields.groupId && !await groupGrant(env, user.id, fields.groupId)) {
+    return badRequest('You cannot sell from that group, or it has been cancelled.');
+  }
+
   // Whether commission has arrived is recorded by the agency, with the money.
   if (fields.commissionStatus === COMMISSION_RECEIVED && !isAdmin(user)) {
     return forbidden(RECEIVED_BY_AGENCY);
@@ -761,7 +767,11 @@ export async function handleCreateBooking(request, env) {
   fields.clientId = await db.resolveClient(env, user.id, fields.clientName,
     { ghlContactId: fields.ghlContactId });
   fields.vendorId = await resolveVendor(env, user.id, fields.supplier);
-  const booking = await db.createBooking(env, user.id, fields);
+  let booking = await db.createBooking(env, user.id, fields);
+  if (booking.group_id) {
+    await applyGroupTerms(env, user.id, booking.id, booking.group_id, null);
+    booking = await db.getBooking(env, booking.id, user.id) || booking;
+  }
   await db.logActivity(env, user.id, 'booking.create',
     `Added booking for ${booking.client_name}`, { id: booking.id });
   await fireTrigger(env, tenantFor(env, user), 'booking.created', {
@@ -937,13 +947,13 @@ export async function handleQuickUpdate(request, env, id) {
   }
   if (!sets.length) return badRequest('Nothing to change.');
 
-  // A group it is moved into has to be this advisor's own: a group id is not a permission, and
-  // pointing a reservation at somebody else's block would count it in their cabins sold.
+  // A group it is moved into has to be one this advisor may sell from: their own, or one the agency
+  // has opened to them. A group id is not a permission, and pointing a reservation at somebody else's
+  // block would count it in their cabins sold.
   if (Object.prototype.hasOwnProperty.call(body, 'groupId') && body.groupId && String(body.groupId) !== 'none') {
-    const group = await env.DB.prepare(
-      `SELECT id FROM travel_groups WHERE id = ? AND user_id = ? AND status <> 'cancelled'`
-    ).bind(clean(body.groupId, 64), owner.id).first();
-    if (!group) return badRequest('That group is not one of yours, or it has been cancelled.');
+    if (!await groupGrant(env, owner.id, clean(body.groupId, 64))) {
+      return badRequest('You cannot sell from that group, or it has been cancelled.');
+    }
   }
 
   const before = await db.getBooking(env, id, owner.id);
@@ -978,6 +988,11 @@ export async function handleQuickUpdate(request, env, id) {
     `UPDATE bookings SET ${sets.join(', ')}, updated_at = ? WHERE id = ? AND user_id = ?`
   ).bind(...binds, Math.floor(Date.now() / 1000), id, owner.id).run();
 
+  // Into or out of a group, the group's share for outside bookings goes on or comes off.
+  if (Object.prototype.hasOwnProperty.call(body, 'groupId')) {
+    const placed = await db.getBooking(env, id, owner.id);
+    await applyGroupTerms(env, owner.id, id, placed ? placed.group_id : null, before.group_id || null);
+  }
   const after = await db.getBooking(env, id, owner.id);
 
   // The schedule follows the reservation, the way the headline totals already
@@ -1044,6 +1059,10 @@ export async function handleUpdateBooking(request, env, id) {
   // and the trip total and the commission were two more that nothing had
   // noticed yet.
   keepWhatWasNotSent(fields, raw, before);
+  if (fields.groupId && fields.groupId !== before.group_id
+    && !await groupGrant(env, owner.id, fields.groupId)) {
+    return badRequest('You cannot sell from that group, or it has been cancelled.');
+  }
   if (fields.depositCents > 0 && !fields.depositRefundable) return badRequest(DEPOSIT_UNSAID);
   // Saving the page back with a status it already had is fine; moving a trip to
   // received is the agency recording money, and an advisor does not.
@@ -1057,6 +1076,9 @@ export async function handleUpdateBooking(request, env, id) {
   fields.vendorId = await resolveVendor(env, owner.id, fields.supplier);
   const booking = await db.updateBooking(env, id, owner.id, fields);
   if (!booking) return notFound('Booking not found.');
+  if ((booking.group_id || null) !== (before.group_id || null)) {
+    await applyGroupTerms(env, owner.id, id, booking.group_id || null, before.group_id || null);
+  }
   await db.logActivity(env, owner.id, 'booking.update',
     db.byHand(`Updated booking for ${booking.client_name}`, user, owner), { id });
 

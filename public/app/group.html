@@ -62,6 +62,40 @@
         <div class="card-pad" id="link-body"></div>
       </section>
 
+      <section class="card" id="selling-card" hidden style="margin-top:1.5rem;">
+        <div class="card-head"><h2>Selling this group</h2><span id="sell-tag"></span></div>
+        <div class="card-pad">
+          <p class="field-hint" style="margin:0 0 .8rem;">Who may put a reservation into this group, and what they are
+            told. Clients never see any of this.</p>
+          <fieldset style="border:0;padding:0;margin:0 0 1rem;" id="sell-choices">
+            <label style="display:flex;gap:.6rem;align-items:flex-start;font-weight:400;margin-bottom:.5rem;">
+              <input type="radio" name="selling" value="private" style="width:auto;margin-top:.25rem;">
+              <span><strong>Private</strong><br><span class="muted">Only I can put reservations into it. Other advisors
+                do not see it.</span></span></label>
+            <label style="display:flex;gap:.6rem;align-items:flex-start;font-weight:400;margin-bottom:.5rem;">
+              <input type="radio" name="selling" value="open" style="width:auto;margin-top:.25rem;">
+              <span><strong>Open to the agency</strong><br><span class="muted">Any advisor can put their clients into it.</span></span></label>
+            <label style="display:flex;gap:.6rem;align-items:flex-start;font-weight:400;">
+              <input type="radio" name="selling" value="request" style="width:auto;margin-top:.25rem;">
+              <span><strong>By request</strong><br><span class="muted">An advisor asks, and I approve who may.</span></span></label>
+          </fieldset>
+          <div class="field"><label for="advisorNotes">Instructions for other advisors</label>
+            <textarea id="advisorNotes" rows="3" maxlength="1500"
+              placeholder="TC credits stay with the group leader. Use group number 4788. Book by 10/25."></textarea>
+            <p class="field-hint">Shown to an advisor when they choose this group on a reservation.</p></div>
+          <div class="field" style="max-width:20rem;"><label for="outsideAdvisorPct">Commission an outside advisor keeps (%)</label>
+            <input id="outsideAdvisorPct" type="number" min="0" max="100" step="0.1" placeholder="Their usual agreement">
+            <p class="field-hint" id="outside-hint">Left empty, an advisor's reservation in this group follows their own
+              agreement. Only an owner sets this. It is copied onto each reservation when it is booked, so changing it
+              later does not change reservations already in the group.</p></div>
+          <p class="field-hint" id="sell-changed"></p>
+          <div id="sell-requests"></div>
+          <div id="sell-others"></div>
+        </div>
+        <div class="card-foot"><span style="flex:1;"></span>
+          <button class="btn btn-primary btn-sm" type="button" id="sell-save">Save</button></div>
+      </section>
+
       <div class="split" style="margin-top:1.5rem;">
         <div>
           <section class="card" id="quote-card" hidden>
@@ -1373,6 +1407,7 @@ async function load() {
     renderLink(group, d.link, d.codeShared);
     drawFiles(d.files || []);
     drawOnPage();
+    drawSelling(group, d.others);
     // Not awaited. The roster decrypts a passport per traveller and the
     // details form above should be editable before that finishes.
     loadRoster();
@@ -1391,6 +1426,65 @@ async function load() {
     }
   } catch (err) { showError(document.getElementById('err'), err); }
 }
+
+// ---------------------------------------------------------------- selling --
+// Who may sell into this group. Not inside either form, so saving the details or the sign-up page leaves
+// it alone, and saving here sends only these.
+const SELL_TAGS = {
+  private: ['Private', 'badge-navy'], open: ['Open to agency', 'badge-green'], request: ['By request', 'badge-amber'],
+};
+const sellBox = document.getElementById('selling-card');
+async function drawSelling(g, others) {
+  sellBox.hidden = !groupId;
+  if (!groupId) return;
+  const [label, tone] = SELL_TAGS[g.selling] || SELL_TAGS.private;
+  document.getElementById('sell-tag').innerHTML = `<span class="badge ${tone}">${esc(label)}</span>`;
+  sellBox.querySelectorAll('[name="selling"]').forEach((r) => { r.checked = r.value === (g.selling || 'private'); });
+  document.getElementById('advisorNotes').value = g.advisor_notes || '';
+  document.getElementById('outsideAdvisorPct').value = g.outside_advisor_pct ?? '';
+  const mayChange = canEdit || IS_OWNER;
+  sellBox.querySelectorAll('input[name="selling"], #advisorNotes').forEach((el) => { el.disabled = !mayChange; });
+  document.getElementById('outsideAdvisorPct').disabled = !IS_OWNER;
+  document.getElementById('sell-save').hidden = !mayChange;
+  document.getElementById('sell-changed').textContent = g.selling_changed_at
+    ? `Last changed${g.selling_changed_by_name ? ` by ${g.selling_changed_by_name}` : ''} on ${
+      new Date(g.selling_changed_at * 1000).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}.`
+    : '';
+  document.getElementById('sell-others').innerHTML = (others || []).length
+    ? `<p class="label" style="margin:1rem 0 .4rem;">Other advisors' guests in this group</p>
+      <ul style="margin:0;padding-left:1.1rem;">${others.map((o) => `<li>${esc(o.client_name)}${
+        o.cabin ? ` <span class="muted">cabin ${esc(o.cabin)}</span>` : ''} <span class="muted">${esc(o.advisor)}</span></li>`).join('')}</ul>` : '';
+
+  const reqBox = document.getElementById('sell-requests');
+  reqBox.innerHTML = '';
+  if (mayChange && g.selling === 'request') {
+    try {
+      const { requests } = await api(`/api/groups/${encodeURIComponent(groupId)}/access`);
+      reqBox.innerHTML = requests.length
+        ? `<p class="label" style="margin:1rem 0 .4rem;">Requests to sell into this group</p>
+          <ul style="list-style:none;margin:0;padding:0;display:grid;gap:.4rem;">${requests.map((r) => `<li style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">
+            <strong>${esc(r.advisor)}</strong> <span class="badge ${r.status === 'approved' ? 'badge-green' : r.status === 'pending' ? 'badge-amber' : 'badge-red'}">${esc(r.status)}</span>
+            ${r.status !== 'approved' ? `<button class="btn btn-ghost btn-sm" type="button" data-decide="approve" data-req="${esc(r.id)}">Approve</button>` : ''}
+            ${r.status === 'pending' ? `<button class="btn btn-ghost btn-sm" type="button" data-decide="decline" data-req="${esc(r.id)}">Decline</button>` : ''}
+            ${r.status === 'approved' ? `<button class="btn btn-ghost btn-sm" type="button" data-decide="revoke" data-req="${esc(r.id)}">Take away</button>` : ''}</li>`).join('')}</ul>`
+        : '<p class="field-hint" style="margin-top:1rem;">Nobody has asked yet.</p>';
+      reqBox.querySelectorAll('[data-decide]').forEach((b) => b.addEventListener('click', async () => {
+        b.disabled = true;
+        try {
+          await api(`/api/groups/${encodeURIComponent(groupId)}/access/${encodeURIComponent(b.dataset.req)}`,
+            { method: 'PUT', body: { decision: b.dataset.decide } });
+          drawSelling(group, others);
+        } catch (e) { showError(document.getElementById('err'), e); b.disabled = false; }
+      }));
+    } catch { /* the rest of the card still works */ }
+  }
+}
+document.getElementById('sell-save').addEventListener('click', async () => {
+  const picked = sellBox.querySelector('[name="selling"]:checked');
+  const body = { selling: picked ? picked.value : 'private', advisorNotes: document.getElementById('advisorNotes').value };
+  if (IS_OWNER) body.outsideAdvisorPct = document.getElementById('outsideAdvisorPct').value;
+  try { await save(body, true); } catch (e) { showError(document.getElementById('err'), e); }
+});
 
 // Both forms save the same group, so each sends what the other holds too.
 // Splitting them into two cards was a layout decision, not a data one.

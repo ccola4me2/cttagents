@@ -10,7 +10,7 @@
 // than stored on it. Two numbers that can disagree eventually will.
 
 import { json, badRequest, notFound, clean, cleanText, cleanDate, oneOf, toCents, uid, now, readJson, usDate } from './util.js';
-import { requireUser } from './auth.js';
+import { requireUser, isAdmin } from './auth.js';
 import * as db from './db.js';
 import { pdfRead } from './pdftext.js';
 import { parseGroupQuote, FIELD_WORDS } from './groupquote.js';
@@ -21,6 +21,7 @@ import { buildSchedule } from './payments.js';
 import { assignSlug, linkInfo, releaseAllFor, cleanSlug, slugProblem, slugState } from './groupslug.js';
 import { listGroupFiles, removeGroupFiles } from './groupfiles.js';
 import { portName } from './ports.js';
+import { SELLING } from './groupaccess.js';
 
 const STATUSES = ['open', 'closed', 'cancelled'];
 
@@ -40,6 +41,7 @@ const COLUMNS = `
   g.faq_json, g.terms, g.agency_fee_cents, g.fee_terms, g.trip_terms,
   g.page_slug, g.headline, g.hero_image_url, g.perks_json, g.itinerary_json, g.repeated_from,
   g.amenities_json, g.drinks_json, g.enhancements_json, g.excursions_url,
+  g.selling, g.advisor_notes, g.outside_advisor_pct, g.selling_changed_by, g.selling_changed_at,
   g.hero_image_key,
   g.created_at, g.updated_at
 `;
@@ -222,6 +224,55 @@ function pageFields(raw, fields) {
 }
 
 /**
+ * Who may sell into the group, what other advisors are told, and what outside bookings pay.
+ *
+ * Only what the save mentioned is changed. The group's advisor sets who may sell it and what the
+ * notes say; the share of commission a reservation from another advisor keeps is an owner's alone,
+ * and is quietly left as it is for anybody else, the same as every other figure that decides who is
+ * paid what.
+ */
+async function saveSelling(env, user, owner, id, raw) {
+  const sets = [];
+  const binds = [];
+  const before = await env.DB.prepare(
+    'SELECT selling, outside_advisor_pct FROM travel_groups WHERE id = ? AND user_id = ?'
+  ).bind(id, owner.id).first();
+  if (!before) return null;
+
+  if (raw.selling !== undefined) {
+    const want = SELLING.includes(raw.selling) ? raw.selling : null;
+    if (!want) return badRequest('Choose Private, Open to the agency, or By request.');
+    if (want !== before.selling) {
+      sets.push('selling = ?', 'selling_changed_by = ?', 'selling_changed_at = ?');
+      binds.push(want, user.id, now());
+      await db.logActivity(env, user.id, 'group.selling', `Set a group to ${want}`,
+        { id, from: before.selling, to: want });
+    }
+  }
+  if (raw.advisorNotes !== undefined) {
+    sets.push('advisor_notes = ?');
+    binds.push(cleanText(raw.advisorNotes, 1500) || null);
+  }
+  if (raw.outsideAdvisorPct !== undefined && isAdmin(user) && !user.acting_as) {
+    const text = String(raw.outsideAdvisorPct === null ? '' : raw.outsideAdvisorPct).trim();
+    let pct = null;
+    if (text !== '') {
+      pct = Number(text);
+      if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+        return badRequest('The share for outside bookings is a percentage from 0 to 100.');
+      }
+    }
+    sets.push('outside_advisor_pct = ?');
+    binds.push(pct);
+  }
+  if (sets.length) {
+    await env.DB.prepare(`UPDATE travel_groups SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`)
+      .bind(...binds, id, owner.id).run();
+  }
+  return null;
+}
+
+/**
  * The FAQ, as a page would write it.
  *
  * Stored as JSON on the group rather than as rows, because it is written and
@@ -371,7 +422,9 @@ export async function handleGetGroup(request, env, id) {
   const scope = db.scopeFor(env, user, request);
   const scoped = db.scopeWhere(scope, 'g.user_id');
   const group = await env.DB.prepare(
-    `SELECT ${COLUMNS}, ${SOLD}, ${ADVISOR}
+    `SELECT ${COLUMNS}, ${SOLD}, ${ADVISOR},
+            (SELECT COALESCE(NULLIF(TRIM(COALESCE(cu.first_name,'') || ' ' || COALESCE(cu.last_name,'')), ''), cu.email)
+               FROM users cu WHERE cu.id = g.selling_changed_by) AS selling_changed_by_name
        FROM travel_groups g LEFT JOIN users u ON u.id = g.user_id
       WHERE g.id = ? AND ${scoped.sql}`
   ).bind(id, ...scoped.binds).first();
@@ -396,8 +449,23 @@ export async function handleGetGroup(request, env, id) {
       ORDER BY r.created_at DESC LIMIT 300`
   ).bind(id, ...rScoped.binds).all();
 
+  // Other advisors' reservations in this group, for its advisor: who and which cabin, and nothing
+  // about money or contact details. An owner already reads the whole book above.
+  let others = [];
+  if (group.user_id === user.id && !isAdmin(user)) {
+    const rows = await env.DB.prepare(
+      `SELECT b.id, b.client_name, b.cabin, b.status,
+              COALESCE(NULLIF(TRIM(COALESCE(ou.first_name,'') || ' ' || COALESCE(ou.last_name,'')), ''), ou.email) AS advisor
+         FROM bookings b JOIN users ou ON ou.id = b.user_id
+        WHERE b.group_id = ? AND b.user_id <> ? AND b.status IN ('quoted','booked','travelled')
+        ORDER BY b.created_at ASC LIMIT 300`
+    ).bind(id, user.id).all().catch(() => ({ results: [] }));
+    others = rows.results || [];
+  }
+
   return json({
     group,
+    others,
     bookings: results || [],
     registrations: registrations || [],
     groupTypes: GROUP_TYPES,
@@ -802,6 +870,8 @@ export async function handleUpdateGroup(request, env, id) {
     await env.DB.prepare(`UPDATE travel_groups SET ${page.sets.join(', ')} WHERE id = ? AND user_id = ?`)
       .bind(...page.binds, id, owner.id).run();
   }
+  const refused = await saveSelling(env, user, owner, id, raw);
+  if (refused) return refused;
   // Only when the caller mentioned them. A save from the details form does not
   // carry rates, and treating that silence as "no grades" would wipe the grid
   // every time somebody corrected a date.

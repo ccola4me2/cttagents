@@ -96,7 +96,8 @@ const ME = (await api('/api/auth/me').catch(() => ({}))).user?.id;
 let groups = [];
 let groupsFailed = '';
 try {
-  groups = (await api('/api/groups?status=open')).groups.filter((x) => x.user_id === ME);
+  // Their own open groups and the ones the agency has opened to them.
+  groups = ((await api('/api/groups/bookable')).groups || []).filter((x) => x.may);
 } catch (e) {
   groupsFailed = e.message || String(e);
 }
@@ -166,7 +167,8 @@ document.getElementById('fields').innerHTML = [
       ? `<div class="field"><label for="f-groupId">Sold from a group</label>
           <select id="f-groupId" name="groupId"><option value="">Not from a group</option>
           ${groups.map((g) => `<option value="${esc(g.id)}">${
-            esc([g.group_code, g.name].filter(Boolean).join(' / '))}</option>`).join('')}</select></div>`
+            esc([g.code, g.name].filter(Boolean).join(' / '))}${g.mine ? '' : esc(` (${g.advisor}'s group)`)}</option>`).join('')}</select>
+          <p class="field-hint" id="group-terms" hidden></p></div>`
       : '',
   // A group the agency does not run itself, such as a TLN group: the name and number
   // off the paperwork, with no group to set up first.
@@ -363,6 +365,22 @@ syncDepositKind();
 
 // The client box means something different on a personal booking, so the
 // label says so rather than asking for a "client" who is the advisor.
+// A group that is another advisor's carries instructions and may carry its own commission share: say both
+// as soon as it is chosen, so nobody finds out after booking.
+const groupPick = document.getElementById('f-groupId');
+if (groupPick) {
+  groupPick.addEventListener('change', () => {
+    const note = document.getElementById('group-terms');
+    const g = groups.find((x) => x.id === groupPick.value);
+    if (!g || g.mine) { note.hidden = true; return; }
+    const pay = g.outsidePct === null || g.outsidePct === undefined
+      ? 'Commission follows your usual agreement.'
+      : `Commission on a reservation in this group: you keep ${g.outsidePct}%.`;
+    note.textContent = `${g.advisor}'s group. ${pay}${g.notes ? ` Instructions: ${g.notes}` : ''}`;
+    note.hidden = false;
+  });
+}
+
 document.getElementById('f-reservation-type').addEventListener('change', (e) => {
   const own = e.target.value === 'personal';
   const label = document.querySelector('label[for="f-clientName"]');

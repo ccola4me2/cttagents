@@ -53,7 +53,7 @@ export async function handleGroupStats(request, env) {
   const scoped = db.scopeWhere(scope, 'g.user_id');
   const { results: groups } = await env.DB.prepare(
     `SELECT g.id, g.user_id, g.name, g.page_slug, g.group_code, g.status, g.registration_open,
-            g.depart_date, g.cabins_held,
+            g.depart_date, g.cabins_held, g.selling, g.selling_changed_at,
             COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''), u.email) AS advisor
        FROM travel_groups g JOIN users u ON u.id = g.user_id
       WHERE ${scoped.sql} AND g.status <> 'cancelled'
@@ -99,6 +99,7 @@ export async function handleGroupStats(request, env) {
     return {
       id: g.id, name: g.name, slug: g.page_slug || '', code: g.group_code || '', advisor: g.advisor,
       status: g.status, pageOn: Boolean(g.registration_open), departs: g.depart_date || '',
+      selling: g.selling || 'private', sellingChangedAt: g.selling_changed_at || null,
       cabins: g.cabins_held || 0,
       visitors, views: v.views || 0,
       signupVisitors: v.signupVisitors || 0,

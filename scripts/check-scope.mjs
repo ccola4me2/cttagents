@@ -137,6 +137,9 @@ const AGENCY_OWNED = new Set([
   // them and every advisor in the agency reads them, so agency_id is the predicate. The going
   // table records who said so, one row per advisor, and every change to it names agency_id too.
   'agency_events', 'agency_event_going',
+  // An advisor's request to sell into another advisor's group, and the answer. The agency is the
+  // predicate; the requester and the group's advisor each read their own side of it.
+  'group_access',
 ]);
 
 // Carries a user_id, and is not reached through one.

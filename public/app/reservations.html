@@ -356,13 +356,14 @@ document.getElementById('pick-change').addEventListener('click', () => {
 async function fillGroups() {
   const sel = document.getElementById('bulk-group');
   try {
-    const d = await api('/api/groups');
+    const d = await api('/api/groups/bookable');
     // The first two options stay; the groups after them are rebuilt each time.
     while (sel.options.length > 2) sel.remove(2);
-    for (const g of (d.groups || []).filter((x) => x.status !== 'cancelled')) {
+    for (const g of (d.groups || []).filter((x) => x.may)) {
       const opt = document.createElement('option');
       opt.value = g.id;
-      opt.textContent = g.depart_date ? `${g.name}, sailing ${dateFmt(g.depart_date)}` : g.name;
+      const who = g.mine ? '' : ` (${g.advisor}'s group)`;
+      opt.textContent = (g.departs ? `${g.name}, sailing ${dateFmt(g.departs)}` : g.name) + who;
       sel.appendChild(opt);
     }
   } catch { /* the rest of the window still works without the list */ }

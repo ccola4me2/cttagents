@@ -16,6 +16,12 @@
       <div><h1>Group pages</h1>
         <p class="sub">Every group in the agency, with who has looked at its page and what came of it.</p></div>
       <div class="toolbar" style="margin:0;">
+        <select id="selling" aria-label="Who may sell it">
+          <option value="">Every group</option>
+          <option value="private">Private</option>
+          <option value="open">Open to agency</option>
+          <option value="request">By request</option>
+        </select>
         <select id="range" aria-label="Period">
           <option value="7">Last 7 days</option>
           <option value="30" selected>Last 30 days</option>
@@ -55,19 +61,23 @@ function render(d) {
   ].map(([label, value]) => `<div class="stat"><p class="label">${esc(label)}</p>
     <p class="value">${esc(String(value))}</p></div>`).join('');
 
-  if (!d.groups.length) {
-    panel.innerHTML = '<div class="card-pad"><p class="muted">No groups yet.</p></div>';
+  const only = document.getElementById('selling').value;
+  const shown = only ? d.groups.filter((g) => g.selling === only) : d.groups;
+  if (!shown.length) {
+    panel.innerHTML = '<div class="card-pad"><p class="muted">No groups to show.</p></div>';
     return;
   }
   panel.innerHTML = `<div class="table-wrap"><table class="table">
-    <thead><tr><th>Group</th><th>Advisor</th><th>Sails</th><th>Page</th><th class="num">Visitors</th>
+    <thead><tr><th>Group</th><th>Advisor</th><th>Sails</th><th>Who may sell it</th><th>Page</th><th class="num">Visitors</th>
       <th class="num">Views</th><th class="num">Sign-up</th><th class="num">Enquiries</th>
       <th class="num">Sign-ups</th><th class="num">Booked</th><th class="num">Rate</th></tr></thead>
-    <tbody>${d.groups.map((g) => `<tr>
+    <tbody>${shown.map((g) => `<tr>
       <td><a class="name" href="/app/group?id=${encodeURIComponent(g.id)}">${esc(g.name)}</a>
         <div class="muted" style="font-size:.82rem;">${g.slug ? esc(`cruisegrouppage.com/${g.slug}`) : 'no short name yet'}</div></td>
       <td>${esc(g.advisor)}</td>
       <td>${g.departs ? esc(dateFmt(g.departs)) : '-'}</td>
+      <td><span class="badge ${g.selling === 'open' ? 'badge-green' : g.selling === 'request' ? 'badge-amber' : 'badge-navy'}">${
+        g.selling === 'open' ? 'Open to agency' : g.selling === 'request' ? 'By request' : 'Private'}</span></td>
       <td>${g.pageOn ? '<span class="badge badge-green">On</span>' : '<span class="badge badge-amber">Off</span>'}</td>
       <td class="num">${g.visitors}</td><td class="num">${g.views}</td><td class="num">${g.signupVisitors}</td>
       <td class="num">${g.enquiries}</td><td class="num">${g.registrations}</td><td class="num">${g.booked}</td>
@@ -81,6 +91,7 @@ async function load() {
   } catch (e) { showError(err, e); panel.innerHTML = ''; }
 }
 document.getElementById('range').addEventListener('change', load);
+document.getElementById('selling').addEventListener('change', load);
 await load();
 </script>
 </body></html>
