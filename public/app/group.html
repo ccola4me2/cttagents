@@ -317,7 +317,7 @@
                   <textarea id="itinerary" name="itinerary" rows="6" maxlength="4000"
                     placeholder="Day 1 | Tampa | Depart 4:00 PM"></textarea>
                   <p class="field-hint">One day per line: the day, the port, and a note, with a
-                    bar between them. The note can be left off.</p></div>
+                    bar between them. The note can be left off. A line typed without bars is kept as it is.</p></div>
               </div>
               <div class="card-foot">
                 <span style="flex:1;"></span>
@@ -700,8 +700,13 @@ function extrasText(json) {
 function readItinerary() {
   return regForm.elements.itinerary.value.split('\n').map((l) => l.trim()).filter(Boolean)
     .map((l) => {
-      const [day = '', port = '', ...rest] = l.split('|').map((x) => x.trim());
-      return { day, port, note: rest.join(' | ') };
+      if (l.includes('|')) {
+        const [day = '', port = '', ...rest] = l.split('|').map((x) => x.trim());
+        return { day, port, note: rest.join(' | ') };
+      }
+      // A line typed without the bars still counts. "Day 3 Grand Turk" is the day and the port.
+      const lead = l.match(/^(day\s*\d+|\d+)\s*[:.\-]?\s*(.*)$/i);
+      return lead && lead[2] ? { day: lead[1], port: lead[2], note: '' } : { day: '', port: l, note: '' };
     });
 }
 

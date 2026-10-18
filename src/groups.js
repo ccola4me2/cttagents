@@ -174,6 +174,9 @@ function itineraryOf(value) {
       port: clean(item && item.port, 80),
       note: clean(item && item.note, 200),
     };
+    // A line with only a day on it was the whole line typed without bars. Dropping it would lose what
+    // somebody wrote, so the words are kept as the heading.
+    if (!row.port && !row.note && row.day) { row.port = clean(item.day, 80); row.day = ''; }
     if (row.port || row.note) rows.push(row);
   }
   return rows.length ? JSON.stringify(rows) : null;

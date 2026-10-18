@@ -860,9 +860,9 @@ export async function renderGroupTripPage(request, env, rawRef) {
     pay: live ? paymentsBlock(g) : '',
     plan: itineraryBlock(g) ? section('itinerary', itineraryBlock(g)) : '',
     drinks: live ? section('extras', extrasBlock('Drink packages',
-      'Ask us to add one to your booking.', g.drinks_json)) : '',
+      'Prices and availability are subject to change. Ask us to add one to your booking.', g.drinks_json)) : '',
     add: live ? extrasBlock('Enhancements and add-ons',
-      'Ask us to add any of these to your booking.', g.enhancements_json) : '',
+      'Prices and availability are subject to change. Ask us to add any of these to your booking.', g.enhancements_json) : '',
     faq: faqBlock(faqOf(g)) ? section('faq', faqBlock(faqOf(g))) : '',
   };
   const nav = [

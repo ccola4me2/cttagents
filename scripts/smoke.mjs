@@ -7177,6 +7177,8 @@ async function main() {
     check(page.raw.includes('Deposit to hold your cabin') && page.raw.includes('$250.00')
       && page.raw.includes('Final payment'),
     'the deposit is shown as an amount per guest with its date, beside the final payment');
+    check(page.raw.includes('Prices and availability are subject to change'),
+      'drink packages and enhancements say that prices and availability can change');
     check(page.raw.includes('Tampa') && !/>TPA</.test(page.raw),
       'the port is the city, not the code', '');
     check(page.raw.includes('Drink packages') && page.raw.includes('Premium drink package')
@@ -7212,6 +7214,12 @@ async function main() {
       && (changed.amenities_json || '').includes('Spa credit') && (changed.drinks_json || '').includes('Beer package')
       && (changed.enhancements_json || '').includes('Dinner') && (changed.perks_json || '').includes('Welcome drink'),
     'and a save that carries them as lists replaces them', `status ${arrays.status}`);
+    const bare = await call(advisor, 'PUT', `/api/groups/${keepId}`, {
+      name: `Keep lists ${stamp}`, itinerary: [{ day: 'Day 3 Grand Turk', port: '', note: '' }],
+    });
+    const bareKept = (await call(advisor, 'GET', `/api/groups/${keepId}`)).data?.group || {};
+    check(bare.status === 200 && (bareKept.itinerary_json || '').includes('Grand Turk'),
+      'an itinerary line typed without bars is kept, not dropped', bareKept.itinerary_json);
     check(page.raw.includes('noindex') && page.raw.includes('og:title') && page.raw.includes('rel="canonical"'),
       'it is kept out of search and carries what a pasted link shows');
     check(page.raw.includes('Book this cabin') && page.raw.includes('/register?rate='),
