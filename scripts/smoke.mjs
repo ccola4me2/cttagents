@@ -7121,7 +7121,10 @@ async function main() {
       headline: 'Four nights, one great crowd', heroImageUrl: 'https://example.com/ship-photo.jpg',
       perks: ['$100 onboard credit', 'Group cocktail party'],
       itinerary: [{ day: 'Day 1', port: 'Tampa', note: 'Depart 4:00 PM' }, { day: '', port: '', note: '' }],
-      depositDue: isoDay(30), finalPaymentDue: isoDay(90),
+      depositDue: isoDay(30), finalPaymentDue: isoDay(90), depositPerGuest: '250',
+      amenities: [{ name: 'Onboard credit', price: '$100 per cabin', note: 'Spend it anywhere onboard' }, { name: '' }],
+      drinks: [{ name: 'Premium drink package', price: '$59.99 per person per day', note: 'Cocktails, wine and beer' }],
+      enhancements: [{ name: 'Wi-Fi', price: '$19.99 per day', note: 'One device' }],
       rates: [{ roomType: 'Interior', occupancy: 'Double', cabins: 3, guests: 2, perGuestCents: 68900, taxesCents: 17240 }],
     });
     const gid = made.data?.group?.id;
@@ -7167,6 +7170,16 @@ async function main() {
       'with the line under the title and the picture across the top');
     check(page.raw.includes('$100 onboard credit') && page.raw.includes('Depart 4:00 PM'),
       'and what the group gets and the day by day');
+    check(page.raw.includes('Onboard credit') && page.raw.includes('$100 per cabin')
+      && page.raw.indexOf('Onboard credit') < page.raw.indexOf('What is still available'),
+    'amenities such as onboard credit are shown, above the cabins');
+    check(page.raw.includes('Deposit to hold your cabin') && page.raw.includes('$250.00')
+      && page.raw.includes('Final payment'),
+    'the deposit is shown as an amount per guest with its date, beside the final payment');
+    check(page.raw.includes('Drink packages') && page.raw.includes('Premium drink package')
+      && page.raw.includes('$59.99 per person per day') && page.raw.includes('Enhancements and add-ons')
+      && page.raw.includes('Wi-Fi'),
+    'and drink packages and enhancements, with their prices');
     check(page.raw.includes('noindex') && page.raw.includes('og:title') && page.raw.includes('rel="canonical"'),
       'it is kept out of search and carries what a pasted link shows');
     check(page.raw.includes('Book this cabin') && page.raw.includes('/register?rate='),
@@ -7275,6 +7288,9 @@ async function main() {
       destination: 'Caribbean', departDate: isoDay(-300), returnDate: isoDay(-296), cabinsHeld: 8,
       registrationOpen: true, registrationBlurb: 'Four nights of sun.', headline: 'Back again',
       heroImageUrl: 'https://example.com/beach.jpg', perks: ['Cocktail party'],
+      amenities: [{ name: 'Spa credit', price: '$50', note: '' }],
+      drinks: [{ name: 'Beer package', price: '$30 a day', note: '' }],
+      enhancements: [{ name: 'Dinner', price: '$40', note: '' }],
       itinerary: [{ day: 'Day 1', port: 'Tampa', note: 'Depart 4:00 PM' }],
       faq: [{ q: 'Passport needed?', a: 'Yes.' }], terms: 'You agree.', agencyFee: '50',
       tripTerms: 'Supplier schedule', feeTerms: 'Non refundable', groupCode: `rp-${stamp}`,
@@ -7312,6 +7328,9 @@ async function main() {
     check((copy?.perks_json || '').includes('Cocktail party') && (copy?.itinerary_json || '').includes('Tampa')
       && (copy?.faq_json || '').includes('Passport needed?'),
       'and the perks, itinerary and questions');
+    check((copy?.amenities_json || '').includes('Spa credit') && (copy?.drinks_json || '').includes('Beer package')
+      && (copy?.enhancements_json || '').includes('Dinner'),
+      'and the amenities, drink packages and enhancements');
     check(!copy?.group_code && !copy?.group_number && !copy?.deposit_due && !copy?.final_payment_due
       && !copy?.passport_due && !copy?.option_date && !copy?.deposit_per_guest_cents && !copy?.cabins_held,
       'the supplier\'s numbers and dates are left blank', JSON.stringify(copy));

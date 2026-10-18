@@ -287,10 +287,26 @@
                   </div>
                   <p class="field-hint" id="file-note">PDF only, up to 10 MB each and six to a group. They show as
                     download buttons on the group's page.</p></div>
-                <div class="field"><label for="perks">What the group gets</label>
+                <div class="field"><label for="amenities">Amenities and onboard credit</label>
+                  <textarea id="amenities" name="amenities" rows="4" maxlength="2400"
+                    placeholder="Onboard credit | $100 per cabin | Spend it on anything onboard"></textarea>
+                  <p class="field-hint">One per line: what it is, what it is worth, and a note, with a bar
+                    between them. They show as highlighted cards near the top of the page, so lead with the
+                    best ones. The value and the note can be left off.</p></div>
+                <div class="field"><label for="drinks">Drink packages</label>
+                  <textarea id="drinks" name="drinks" rows="4" maxlength="2400"
+                    placeholder="Premium drink package | $59.99 per person per day | Cocktails, wine and beer"></textarea>
+                  <p class="field-hint">One per line: the package, its price, and what it covers, with a bar
+                    between them. The price is whatever you write, so it can say "per person per day".</p></div>
+                <div class="field"><label for="enhancements">Enhancements and add-ons</label>
+                  <textarea id="enhancements" name="enhancements" rows="4" maxlength="2400"
+                    placeholder="Wi-Fi | $19.99 per day | One device"></textarea>
+                  <p class="field-hint">Wi-Fi, dining, excursions, the spa: the same way, one per line.</p></div>
+                <div class="field"><label for="perks">Also included</label>
                   <textarea id="perks" name="perks" rows="4" maxlength="1600"
-                    placeholder="$100 onboard credit per cabin"></textarea>
-                  <p class="field-hint">One per line. They show as a short list on the page.</p></div>
+                    placeholder="Group cocktail party"></textarea>
+                  <p class="field-hint">One per line. A plain checklist further down the page, for the smaller
+                    things.</p></div>
                 <div class="field"><label for="itinerary">Itinerary</label>
                   <textarea id="itinerary" name="itinerary" rows="6" maxlength="4000"
                     placeholder="Day 1 | Tampa | Depart 4:00 PM"></textarea>
@@ -596,6 +612,18 @@ function parseList(json) {
 function readPerks() {
   return regForm.elements.perks.value.split('\n').map((l) => l.trim()).filter(Boolean);
 }
+// Amenities, drinks and enhancements: a name, a price in words, a note.
+function readExtras(name) {
+  return regForm.elements[name].value.split('\n').map((l) => l.trim()).filter(Boolean)
+    .map((l) => {
+      const [n = '', price = '', ...rest] = l.split('|').map((x) => x.trim());
+      return { name: n, price, note: rest.join(' | ') };
+    });
+}
+function extrasText(json) {
+  return parseList(json)
+    .map((d) => [d.name || '', d.price || '', d.note || ''].join(' | ').replace(/( \| )+$/, '')).join('\n');
+}
 function readItinerary() {
   return regForm.elements.itinerary.value.split('\n').map((l) => l.trim()).filter(Boolean)
     .map((l) => {
@@ -617,6 +645,9 @@ function fill(g) {
   set('headline', g.headline); set('heroImageUrl', g.hero_image_url);
   showHero(g.hero_image_url);
   set('perks', parseList(g.perks_json).join('\n'));
+  set('amenities', extrasText(g.amenities_json));
+  set('drinks', extrasText(g.drinks_json));
+  set('enhancements', extrasText(g.enhancements_json));
   set('itinerary', parseList(g.itinerary_json)
     .map((d) => [d.day || '', d.port || '', d.note || ''].join(' | ').replace(/( \| )+$/, '')).join('\n'));
   set('proposalId', g.proposal_id); set('sailingId', g.sailing_id);
@@ -1283,6 +1314,9 @@ function allValues(values) {
     heroImageUrl: regForm.elements.heroImageUrl.value,
     perks: readPerks(),
     itinerary: readItinerary(),
+    amenities: readExtras('amenities'),
+    drinks: readExtras('drinks'),
+    enhancements: readExtras('enhancements'),
     name: form.elements.name.value,
     vendor: form.elements.vendor.value,
     groupCode: form.elements.groupCode.value,

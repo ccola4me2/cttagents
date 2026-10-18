@@ -82,6 +82,7 @@ const PAGE_COLUMNS = [
   'deposit_due', 'final_payment_due', 'passport_due', 'faq_json', 'terms',
   'agency_fee_cents', 'fee_terms', 'trip_terms', 'group_type', 'deposit_per_guest_cents',
   'page_slug', 'headline', 'hero_image_url', 'perks_json', 'itinerary_json',
+  'amenities_json', 'drinks_json', 'enhancements_json',
 ].join(', ');
 
 /**
@@ -344,6 +345,27 @@ ${head}
   .files .ft{flex:1}
   .files small{color:var(--soft);font-weight:400}
   .perks .ck{color:#1f7a5a;font-weight:700;margin-right:.6rem}
+  /* What the group is paying and when, and the amenities worth leading with. */
+  .pay{display:grid;gap:.7rem;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))}
+  .pay .cell{border:1px solid var(--line);border-radius:11px;padding:.85rem 1rem}
+  .pay .cell.main{background:var(--navy);border-color:var(--navy);color:#fff}
+  .pay .lbl{display:block;font-size:.68rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--soft)}
+  .pay .main .lbl{color:#c9d8e8}
+  .pay .amt{display:block;font-size:1.7rem;font-weight:800;line-height:1.15;margin:.2rem 0;
+            font-variant-numeric:tabular-nums}
+  .pay .per{font-size:.85rem;font-weight:500}
+  .pay .when{display:block;font-size:.95rem;font-weight:600;font-variant-numeric:tabular-nums}
+  .perk-cards{display:grid;gap:.7rem;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr))}
+  .perk-card{border:1px solid #cfe5dc;background:#f1f9f5;border-radius:11px;padding:.85rem 1rem}
+  .perk-card .pv{display:block;font-size:1.25rem;font-weight:800;color:#1f7a5a;line-height:1.2}
+  .perk-card .pn{display:block;font-weight:700;color:var(--navy);margin-top:.15rem}
+  .perk-card .pt{display:block;font-size:.88rem;color:var(--soft);margin-top:.2rem}
+  .extras{display:grid;gap:0}
+  .extra{display:grid;grid-template-columns:1fr auto;gap:.1rem 1rem;padding:.75rem 0;border-top:1px solid var(--line)}
+  .extra:first-child{border-top:0;padding-top:0}
+  .extra .en{font-weight:700;color:var(--navy)}
+  .extra .ep{font-weight:700;color:var(--navy);text-align:right;font-variant-numeric:tabular-nums}
+  .extra .et{grid-column:1/-1;color:var(--soft);font-size:.9rem}
   .itin .day{display:grid;grid-template-columns:5.2rem 1fr;gap:.1rem .8rem;padding:.65rem 0;
              border-top:1px solid var(--line)}
   .itin .day:first-child{border-top:0;padding-top:0}
@@ -560,7 +582,6 @@ function glance(g, rates) {
   const tiles = [
     g.depart_date ? ['Sails', sayDate(g.depart_date), ''] : null,
     nights ? ['Nights', String(nights), ''] : null,
-    g.deposit_due ? ['Deposit due', sayDate(g.deposit_due), ''] : null,
     held ? ['Cabins available', String(left), left <= 3 ? 'low' : ''] : null,
     g.departure_port ? ['Sailing from', g.departure_port, ''] : null,
   ].filter(Boolean).slice(0, 4);
@@ -625,6 +646,53 @@ function stepsBlock(g, base, state) {
     steps.map(([title, text], i) => `<li><span class="n">${i + 1}</span>
       <span class="s-title">${esc(title)}</span><span class="s-text">${esc(text)}</span></li>`).join('')
   }</ol>${count}</div>`;
+}
+
+/** What is due and when. The deposit leads, with what it is per guest, since that is the question. */
+function paymentsBlock(g) {
+  const cells = [];
+  if (g.deposit_due || g.deposit_per_guest_cents) {
+    cells.push(`<div class="cell main"><span class="lbl">Deposit to hold your cabin</span>${
+      g.deposit_per_guest_cents
+        ? `<span class="amt">${esc(money(g.deposit_per_guest_cents))}<span class="per"> per guest</span></span>`
+        : ''}${g.deposit_due ? `<span class="when">Due ${esc(sayDate(g.deposit_due))}</span>` : ''}</div>`);
+  }
+  if (g.final_payment_due) {
+    cells.push(`<div class="cell"><span class="lbl">Final payment</span>
+      <span class="when">Due ${esc(sayDate(g.final_payment_due))}</span></div>`);
+  }
+  if (g.passport_due) {
+    cells.push(`<div class="cell"><span class="lbl">Passports</span>
+      <span class="when">In by ${esc(sayDate(g.passport_due))}</span></div>`);
+  }
+  if (!cells.length) return '';
+  return `<div class="card"><h2>What you pay and when</h2><div class="pay">${cells.join('')}</div>
+    <p class="muted" style="margin:.8rem 0 0;">Paid to the travel supplier through us, never on this page.</p></div>`;
+}
+
+function extrasList(json) {
+  return listOf(json).filter((x) => x && x.name);
+}
+
+/** Amenities worth leading with, such as onboard credit: the value first, big, then what it is. */
+function amenitiesBlock(g) {
+  const items = extrasList(g.amenities_json);
+  if (!items.length) return '';
+  return `<div class="card"><h2>What your group gets</h2><div class="perk-cards">${
+    items.map((x) => `<div class="perk-card">${x.price ? `<span class="pv">${esc(x.price)}</span>` : ''}
+      <span class="pn">${esc(x.name)}</span>${x.note ? `<span class="pt">${esc(x.note)}</span>` : ''}</div>`).join('')
+  }</div></div>`;
+}
+
+/** A priced list: drink packages, enhancements. */
+function extrasBlock(title, lead, json) {
+  const items = extrasList(json);
+  if (!items.length) return '';
+  return `<div class="card"><h2>${esc(title)}</h2>${lead
+    ? `<p class="muted" style="margin:-.4rem 0 1rem;">${esc(lead)}</p>` : ''}<div class="extras">${
+    items.map((x) => `<div class="extra"><span class="en">${esc(x.name)}</span>
+      <span class="ep">${esc(x.price || '')}</span>${x.note ? `<span class="et">${esc(x.note)}</span>` : ''}</div>`).join('')
+  }</div></div>`;
 }
 
 function perksBlock(g) {
@@ -717,9 +785,15 @@ export async function renderGroupTripPage(request, env, rawRef) {
       : notice ? `<div class="note warn">${esc(notice)}</div>` : '',
     glance(g, rates),
     g.registration_blurb ? `<div class="card blurb">${paragraphs(g.registration_blurb)}</div>` : '',
+    state === 'departed' ? '' : amenitiesBlock(g),
+    state === 'departed' ? '' : paymentsBlock(g),
     state === 'departed' ? '' : rateCards(rates, base, state),
     state === 'departed' ? '' : stepsBlock(g, base, state),
     perksBlock(g),
+    state === 'departed' ? '' : extrasBlock('Drink packages',
+      'Ask us to add one to your booking.', g.drinks_json),
+    state === 'departed' ? '' : extrasBlock('Enhancements and add-ons',
+      'Ask us to add any of these to your booking.', g.enhancements_json),
     itineraryBlock(g),
     filesBlock(files),
     moneyBlock(g),

@@ -38,6 +38,7 @@ const COLUMNS = `
   g.deposit_per_guest_cents, g.reminded_on,
   g.faq_json, g.terms, g.agency_fee_cents, g.fee_terms, g.trip_terms,
   g.page_slug, g.headline, g.hero_image_url, g.perks_json, g.itinerary_json, g.repeated_from,
+  g.amenities_json, g.drinks_json, g.enhancements_json,
   g.hero_image_key,
   g.created_at, g.updated_at
 `;
@@ -123,6 +124,9 @@ function parse(body) {
       heroImageUrl,
       perksJson: perksOf(body.perks),
       itineraryJson: itineraryOf(body.itinerary),
+      amenitiesJson: extrasOf(body.amenities),
+      drinksJson: extrasOf(body.drinks),
+      enhancementsJson: extrasOf(body.enhancements),
     },
   };
 }
@@ -138,6 +142,25 @@ function perksOf(value) {
   if (!Array.isArray(value)) return null;
   const lines = value.slice(0, 12).map((v) => clean(v, 120)).filter(Boolean);
   return lines.length ? JSON.stringify(lines) : null;
+}
+
+/**
+ * Amenities, drink packages and enhancements: a name, a price in words, and a note. A row with no
+ * name says nothing and is dropped. The price is text because what gets written is "$100 per cabin"
+ * or "Included", not an amount the portal would add up.
+ */
+function extrasOf(value) {
+  if (!Array.isArray(value)) return null;
+  const rows = [];
+  for (const item of value.slice(0, 12)) {
+    const row = {
+      name: clean(item && item.name, 80),
+      price: clean(item && item.price, 60),
+      note: clean(item && item.note, 200),
+    };
+    if (row.name) rows.push(row);
+  }
+  return rows.length ? JSON.stringify(rows) : null;
 }
 
 /** Day by day. A row with neither a port nor a note says nothing and is dropped. */
@@ -170,6 +193,9 @@ function pageFields(raw, fields) {
     ['heroImageUrl', 'hero_image_url', fields.heroImageUrl],
     ['perks', 'perks_json', fields.perksJson],
     ['itinerary', 'itinerary_json', fields.itineraryJson],
+    ['amenities', 'amenities_json', fields.amenitiesJson],
+    ['drinks', 'drinks_json', fields.drinksJson],
+    ['enhancements', 'enhancements_json', fields.enhancementsJson],
   ];
   for (const [key, column, value] of pairs) {
     if (raw[key] === undefined) continue;
@@ -588,9 +614,9 @@ async function createGroupRow(env, ownerId, raw) {
        deposit_due, final_payment_due, passport_due, group_number,
        faq_json, terms, agency_fee_cents, fee_terms, trip_terms,
        deposit_per_guest_cents, headline, hero_image_url, perks_json, itinerary_json,
-       created_at, updated_at)
+       amenities_json, drinks_json, enhancements_json, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(id, ownerId, fields.name, fields.vendor, fields.productName, fields.destination,
          fields.groupCode, fields.departDate, fields.returnDate, fields.optionDate,
          fields.cabinsHeld, fields.status, fields.notes,
@@ -600,7 +626,8 @@ async function createGroupRow(env, ownerId, raw) {
          fields.depositDue, fields.finalPaymentDue, fields.passportDue, fields.groupNumber,
          fields.faqJson, fields.terms, fields.agencyFeeCents, fields.feeTerms, fields.tripTerms,
          fields.depositPerGuestCents, fields.headline || null, fields.heroImageUrl,
-         fields.perksJson, fields.itineraryJson, ts, ts).run();
+         fields.perksJson, fields.itineraryJson, fields.amenitiesJson, fields.drinksJson,
+         fields.enhancementsJson, ts, ts).run();
   await saveRates(env, id, ownerId, raw.rates);
   // Best effort: a group that cannot be given a name yet is still a group, and the share box
   // on its page offers one.
@@ -706,6 +733,8 @@ export async function handleRepeatGroup(request, env, id) {
     agencyFee: dollars(src.agency_fee_cents), feeTerms: src.fee_terms, tripTerms: src.trip_terms,
     headline: src.headline, heroImageUrl: src.hero_image_url,
     perks: listOf(src.perks_json), itinerary: listOf(src.itinerary_json),
+    amenities: listOf(src.amenities_json), drinks: listOf(src.drinks_json),
+    enhancements: listOf(src.enhancements_json),
     rates, pageSlug: raw.pageSlug,
   });
   if (made.error) return badRequest(made.error);
