@@ -34,6 +34,7 @@ import { turnstileWidget, verifyTurnstile, TURNSTILE_FAILED } from './turnstile.
 import { sendSignupNoticeEmail } from './email.js';
 import { listGroupFiles } from './groupfiles.js';
 import { portName } from './ports.js';
+import { recordVisit } from './groupstats.js';
 
 // What differs between the two portals, in one place so the rest of the file reads the same
 // in both.
@@ -481,7 +482,8 @@ ${head}
     <span><b>${esc(b.name)}</b><small>${esc(b.tagline || '')}</small></span>`}</div>`}
   ${body}
   ${neutral ? '' : `<p class="foot">&copy; ${new Date().getFullYear()} ${esc(b.name)}
-    &middot; <a href="${esc(home)}/privacy">Privacy policy</a>${POWERED_BY}</p>`}
+    &middot; <a href="${esc(home)}/privacy">Privacy policy</a>${POWERED_BY}
+    &middot; <a href="${esc(home)}/login?next=%2Fadmin%2Fgroups" rel="nofollow">Admin login</a></p>`}
 ${hero ? '' : '</div>'}</body></html>`;
 }
 
@@ -850,6 +852,7 @@ export async function renderGroupTripPage(request, env, rawRef) {
   }
 
   const base = ref.base;
+  await recordVisit(env, request, g, 'page');
   const rates = await loadRates(env, g.id, g.user_id);
   const contact = await contactFor(env, g.user_id);
   const files = await listGroupFiles(env, g.id, g.user_id);
@@ -1070,6 +1073,7 @@ export async function renderRegisterPage(request, env, rawRef) {
     return gone(brand, env, 'Registration for this trip has closed.');
   }
   const wanted = new URL(request.url).searchParams.get('rate') || '';
+  await recordVisit(env, request, g, 'register');
 
   const rates = await loadRates(env, g.id, g.user_id);
   // No key, no boxes. A form that takes a passport number it cannot encrypt

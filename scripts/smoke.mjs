@@ -108,12 +108,13 @@ function jar() {
   };
 }
 
-async function call(cookieJar, method, path, body) {
+async function call(cookieJar, method, path, body, extraHeaders = {}) {
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: {
       'content-type': 'application/json',
       ...(cookieJar && cookieJar.header() ? { cookie: cookieJar.header() } : {}),
+      ...extraHeaders,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
     redirect: 'manual',
@@ -7198,6 +7199,28 @@ async function main() {
       && page.raw.includes('$59.99 per person per day') && page.raw.includes('Enhancements and add-ons')
       && page.raw.includes('Wi-Fi'),
     'and drink packages and enhancements, with their prices');
+    // Visits, and the owner's view of every group.
+    check(page.raw.includes('Admin login') && page.raw.includes('/login?next=%2Fadmin%2Fgroups'),
+      'the footer of a group page has the admin login');
+    await call(null, 'GET', `/gs/${slugA}`);
+    await call(null, 'GET', `/gs/${slugA}`, undefined, { 'User-Agent': 'Googlebot/2.1 (+http://www.google.com/bot.html)' });
+    const stats = await call(admin, 'GET', '/api/admin/group-stats?range=30');
+    const mine = (stats.data?.groups || []).find((x) => x.id === gid);
+    check(stats.status === 200 && Boolean(mine) && mine.visitors >= 1 && mine.views >= 2,
+      'the owner sees the group with the visits it has had', JSON.stringify(mine));
+    check(typeof stats.data?.total?.visitors === 'number' && stats.data.total.visitors >= mine.visitors
+      && 'conversion' in (stats.data?.total || {}),
+    'with totals and a rate', JSON.stringify(stats.data?.total));
+    const botBefore = mine?.views;
+    await call(null, 'GET', `/gs/${slugA}`, undefined, { 'User-Agent': 'Mozilla/5.0 (compatible; bingbot/2.0)' });
+    const statsAfter = await call(admin, 'GET', '/api/admin/group-stats?range=30');
+    const mineAfter = (statsAfter.data?.groups || []).find((x) => x.id === gid);
+    check(mineAfter?.views === botBefore, 'a robot opening the page is not counted', `${botBefore} ${mineAfter?.views}`);
+    const advisorStats = await call(advisor, 'GET', '/api/admin/group-stats');
+    check(advisorStats.status === 403, 'an advisor cannot read the group figures', `status ${advisorStats.status}`);
+    const loggedOut = await call(null, 'GET', '/api/admin/group-stats');
+    check(loggedOut.status === 401, 'nor can somebody who is not signed in', `status ${loggedOut.status}`);
+
     // The sign-up form's boxes are text. A save that carries the lists as text must leave them alone.
     const keep = await call(advisor, 'POST', '/api/groups', {
       name: `Keep lists ${stamp}`, perks: ['Cocktail party'], itinerary: [{ day: 'Day 1', port: 'Tampa', note: '' }],

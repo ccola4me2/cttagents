@@ -106,6 +106,9 @@ const OWNED = new Set([
   // The PDFs a group's page offers for download. Theirs, named by user_id in every statement that
   // changes one; the public download finds one by the id the page handed out.
   'group_files',
+  // Who looked at a group's page. Written by the public page under the group's owner, with user_id in
+  // the statement, and read by an owner across the agency through the same scope as the groups.
+  'group_visits',
 ]);
 
 // Shared by a whole agency, so agency_id is the predicate that matters rather

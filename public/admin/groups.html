@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Group pages | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Group pages</h1>
+        <p class="sub">Every group in the agency, with who has looked at its page and what came of it.</p></div>
+      <div class="toolbar" style="margin:0;">
+        <select id="range" aria-label="Period">
+          <option value="7">Last 7 days</option>
+          <option value="30" selected>Last 30 days</option>
+          <option value="90">Last 90 days</option>
+          <option value="all">All time</option>
+        </select>
+      </div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <section id="totals" class="stat-grid"></section>
+      <section class="card" id="panel" style="margin-top:1.25rem;"><p class="spinner">Loading...</p></section>
+      <p class="muted" style="margin:1rem .2rem 0;">A visitor is counted once a day for each group, from a
+        scrambled address that cannot be traced back to anybody, and robots and link previews are left
+        out. Enquiries are a name and an email left on the page; sign-ups name who is travelling; booked
+        is when an advisor has turned either into a reservation. The rate is enquiries and sign-ups
+        over visitors.</p>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api, mountShell, esc, dateFmt, showError } from '/js/app.js';
+await mountShell({ admin: true });
+
+const panel = document.getElementById('panel');
+const totals = document.getElementById('totals');
+const err = document.getElementById('err');
+const pct = (n) => (n === null || n === undefined ? '-' : `${n}%`);
+
+function render(d) {
+  const t = d.total;
+  totals.innerHTML = [
+    ['Visitors', t.visitors], ['Page views', t.views], ['Opened sign-up', t.signupVisitors],
+    ['Enquiries', t.enquiries], ['Sign-ups', t.registrations], ['Booked', t.booked],
+    ['Rate', pct(t.conversion)],
+  ].map(([label, value]) => `<div class="stat"><p class="label">${esc(label)}</p>
+    <p class="value">${esc(String(value))}</p></div>`).join('');
+
+  if (!d.groups.length) {
+    panel.innerHTML = '<div class="card-pad"><p class="muted">No groups yet.</p></div>';
+    return;
+  }
+  panel.innerHTML = `<div class="table-wrap"><table class="table">
+    <thead><tr><th>Group</th><th>Advisor</th><th>Sails</th><th>Page</th><th class="num">Visitors</th>
+      <th class="num">Views</th><th class="num">Sign-up</th><th class="num">Enquiries</th>
+      <th class="num">Sign-ups</th><th class="num">Booked</th><th class="num">Rate</th></tr></thead>
+    <tbody>${d.groups.map((g) => `<tr>
+      <td><a class="name" href="/app/group?id=${encodeURIComponent(g.id)}">${esc(g.name)}</a>
+        <div class="muted" style="font-size:.82rem;">${g.slug ? esc(`cruisegrouppage.com/${g.slug}`) : 'no short name yet'}</div></td>
+      <td>${esc(g.advisor)}</td>
+      <td>${g.departs ? esc(dateFmt(g.departs)) : '-'}</td>
+      <td>${g.pageOn ? '<span class="badge badge-green">On</span>' : '<span class="badge badge-amber">Off</span>'}</td>
+      <td class="num">${g.visitors}</td><td class="num">${g.views}</td><td class="num">${g.signupVisitors}</td>
+      <td class="num">${g.enquiries}</td><td class="num">${g.registrations}</td><td class="num">${g.booked}</td>
+      <td class="num">${esc(pct(g.conversion))}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+async function load() {
+  try {
+    err.innerHTML = '';
+    render(await api(`/api/admin/group-stats?range=${encodeURIComponent(document.getElementById('range').value)}`));
+  } catch (e) { showError(err, e); panel.innerHTML = ''; }
+}
+document.getElementById('range').addEventListener('change', load);
+await load();
+</script>
+</body></html>

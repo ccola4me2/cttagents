@@ -333,6 +333,7 @@ const ADMIN_NAV = [
   { href: '/admin/agencies', label: 'Agency', icon: I.handshake },
   { href: '/admin/commissions', label: 'Commissions', icon: I.chart },
   { href: '/admin/specials', label: 'Supplier specials', icon: I.megaphone },
+  { href: '/admin/groups', label: 'Group pages', icon: I.chart },
   { href: '/admin/events', label: 'Trainings and events', icon: I.calendar },
   { href: '/admin/training', label: 'Training', icon: I.book },
   { href: '/admin/manual', label: 'Running the agency', icon: I.book },

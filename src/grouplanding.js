@@ -9,6 +9,8 @@
 // answers its own front page and hands /tv to the Trip Vara Worker, which answers its own. See
 // grouphost.js.
 
+import { appUrl } from './share.js';
+
 function esc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;')
@@ -34,6 +36,8 @@ export function renderGroupLanding(env, { area = 'ctt' } = {}) {
   // What a link to a group here starts with, shown in the box and used by the finder.
   const start = tv ? '/tv' : '';
   const year = new Date().getFullYear();
+  // The same sign in as the portal, and only an owner's account gets past it to the group figures.
+  const adminLogin = `${appUrl(env)}/login?next=%2Fadmin%2Fgroups`;
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -168,6 +172,8 @@ export function renderGroupLanding(env, { area = 'ctt' } = {}) {
   .final a { display: inline-block; position: relative; background: linear-gradient(90deg, var(--orange), var(--pink)); color: var(--white); text-decoration: none; font-weight: 700; padding: 0.95rem 2rem; border-radius: 999px; }
 
   footer { padding: 2.6rem 0 3rem; text-align: center; color: var(--soft); font-size: 0.86rem; }
+  footer .admin-link { margin-top: .8rem; font-size: 0.8rem; }
+  footer .admin-link a { color: var(--soft); text-decoration: underline; }
   footer img { display: block; width: 150px; height: auto; margin: 0 auto 1rem; }
 
   @media (max-width: 900px) {
@@ -315,6 +321,7 @@ export function renderGroupLanding(env, { area = 'ctt' } = {}) {
   <div class="wrap">
     <img src="/cgp/logo.png" alt="Cruise Group Page" width="150" height="48">
     &copy; ${year} Cruise Group Page. Group pages are published by travel advisors; each page shows the advisor responsible for that group.
+    <div class="admin-link"><a href="${adminLogin}" rel="nofollow">Admin login</a></div>
   </div>
 </footer>
 

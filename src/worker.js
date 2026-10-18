@@ -275,6 +275,7 @@ import {
   handleBookEnquiry,
   handleDeleteEnquiry,
 } from './specials.js';
+import { handleGroupStats } from './groupstats.js';
 import {
   handleListAgencyEvents,
   handleAdminAgencyEvents,
@@ -525,6 +526,7 @@ const PAGE_FILES = {
   '/admin/specials': '/admin/specials.html',
   '/admin/training': '/admin/training.html',
   '/admin/events': '/admin/events.html',
+  '/admin/groups': '/admin/groups.html',
   '/admin': '/admin/index.html',
   '/admin/': '/admin/index.html',
 };
@@ -1205,6 +1207,7 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/agency-events' && method === 'GET') return handleListAgencyEvents(request, env);
   if (path === '/api/agency-events' && method === 'POST') return handleSaveAgencyEvent(request, env, null);
   if (path === '/api/admin/agency-events' && method === 'GET') return handleAdminAgencyEvents(request, env);
+  if (path === '/api/admin/group-stats' && method === 'GET') return handleGroupStats(request, env);
   if (agencyGoingMatch && method === 'PUT') return handleGoing(request, env, agencyGoingMatch[1]);
   if (agencyEventMatch && method === 'PUT') return handleSaveAgencyEvent(request, env, agencyEventMatch[1]);
   if (agencyEventMatch && method === 'DELETE') return handleDeleteAgencyEvent(request, env, agencyEventMatch[1]);
