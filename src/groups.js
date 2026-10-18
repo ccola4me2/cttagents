@@ -197,8 +197,12 @@ function pageFields(raw, fields) {
     ['drinks', 'drinks_json', fields.drinksJson],
     ['enhancements', 'enhancements_json', fields.enhancementsJson],
   ];
+  // The lists arrive as arrays. Anything else (text from a form box, say) is not a list, and
+  // saving it as one would clear what the group has; it is left alone.
+  const LISTS = new Set(['perks', 'itinerary', 'amenities', 'drinks', 'enhancements']);
   for (const [key, column, value] of pairs) {
     if (raw[key] === undefined) continue;
+    if (LISTS.has(key) && !Array.isArray(raw[key])) continue;
     sets.push(`${column} = ?`);
     binds.push(value || null);
   }

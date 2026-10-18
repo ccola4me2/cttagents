@@ -7181,6 +7181,24 @@ async function main() {
       && page.raw.includes('$59.99 per person per day') && page.raw.includes('Enhancements and add-ons')
       && page.raw.includes('Wi-Fi'),
     'and drink packages and enhancements, with their prices');
+    // The sign-up form's boxes are text. A save that carries the lists as text must leave them alone.
+    const keep = await call(advisor, 'POST', '/api/groups', {
+      name: `Keep lists ${stamp}`, perks: ['Cocktail party'], itinerary: [{ day: 'Day 1', port: 'Tampa', note: '' }],
+      amenities: [{ name: 'Onboard credit', price: '$100', note: '' }],
+      drinks: [{ name: 'Soda package', price: '$9.99', note: '' }],
+      enhancements: [{ name: 'Wi-Fi', price: '$19.99', note: '' }],
+    });
+    const keepId = keep.data?.group?.id;
+    if (keepId) cleanup('the lists group', () => call(advisor, 'DELETE', `/api/groups/${keepId}`));
+    const textSave = await call(advisor, 'PUT', `/api/groups/${keepId}`, {
+      name: `Keep lists ${stamp}`, perks: 'just words', itinerary: 'just words',
+      amenities: 'just words', drinks: 'just words', enhancements: 'just words',
+    });
+    const kept = (await call(advisor, 'GET', `/api/groups/${keepId}`)).data?.group || {};
+    check(textSave.status === 200 && (kept.amenities_json || '').includes('Onboard credit')
+      && (kept.drinks_json || '').includes('Soda package') && (kept.enhancements_json || '').includes('Wi-Fi')
+      && (kept.itinerary_json || '').includes('Tampa') && (kept.perks_json || '').includes('Cocktail party'),
+    'a save that carries the lists as text does not wipe them', `status ${textSave.status}`);
     check(page.raw.includes('noindex') && page.raw.includes('og:title') && page.raw.includes('rel="canonical"'),
       'it is kept out of search and carries what a pasted link shows');
     check(page.raw.includes('Book this cabin') && page.raw.includes('/register?rate='),

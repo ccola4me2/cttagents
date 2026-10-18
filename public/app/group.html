@@ -1491,10 +1491,13 @@ async function save(values, toTop = true) {
 })();
 
 onSubmit(form, (values) => save(values));
-onSubmit(regForm, (values) => save({
-  ...values,
-  registrationOpen: regForm.elements.registrationOpen.checked,
-}, false));
+onSubmit(regForm, (values) => {
+  // The lists are boxes of text here and arrays on the group. allValues() has already read each one
+  // into its array, and the form's own text would be spread over it, which saved the words in place
+  // of the list and cleared what had just been typed.
+  const { perks, itinerary, amenities, drinks, enhancements, ...rest } = values;
+  return save({ ...rest, registrationOpen: regForm.elements.registrationOpen.checked }, false);
+});
 
 deleteBtn.addEventListener('click', async () => {
   if (!confirm('Delete this group? The reservations made from it are kept.')) return;
