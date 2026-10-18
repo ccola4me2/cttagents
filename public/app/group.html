@@ -62,6 +62,12 @@
         <div class="card-pad" id="link-body"></div>
       </section>
 
+      <section class="card" id="onpage-card" hidden style="margin-top:1.5rem;">
+        <div class="card-head"><h2>What is on the group's page</h2>
+          <span id="onpage-state"></span></div>
+        <div class="card-pad" id="onpage-body"></div>
+      </section>
+
       <div class="split" style="margin-top:1.5rem;">
         <div>
           <section class="card" id="quote-card" hidden>
@@ -561,7 +567,73 @@ document.getElementById('hero-remove').addEventListener('click', async () => {
 });
 
 // The PDFs the page offers for download: listed here, added with a name, and taken off one at a time.
+// Everything the group's public page says, gathered in one place so nobody has to open the page, or
+// scroll through the sign-up form, to know what has been put out there. Read from the saved group,
+// and drawn again whenever the group, its rates or its downloads change.
+let lastRates = [];
+let lastFiles = [];
+function drawOnPage() {
+  const card = document.getElementById('onpage-card');
+  if (!groupId || !group) { card.hidden = true; return; }
+  card.hidden = false;
+  const g = group;
+  const list = (json) => parseList(json).filter((x) => x && (x.name || x.port || typeof x === 'string'));
+  const dateOf = (iso) => (iso ? dateFmt(iso) : '');
+  const row = (label, field, inner, empty) => `<div style="display:grid;grid-template-columns:11rem 1fr;gap:.2rem 1rem;padding:.7rem 0;border-top:1px solid var(--navy-100);">
+    <div><strong>${esc(label)}</strong>${canEdit && field
+      ? `<div><a href="#${esc(field)}" data-goto="${esc(field)}" class="muted" style="font-size:.82rem;">${inner ? 'Change' : 'Add'}</a></div>` : ''}</div>
+    <div>${inner || `<span class="muted">${esc(empty || 'Nothing yet.')}</span>`}</div></div>`;
+  const items = (json) => {
+    const xs = list(json);
+    return xs.length ? `<ul style="margin:0;padding-left:1.1rem;">${xs.map((x) => `<li><strong>${esc(x.name)}</strong>${
+      x.price ? ` <span>${esc(x.price)}</span>` : ''}${x.note ? ` <span class="muted">${esc(x.note)}</span>` : ''}</li>`).join('')}</ul>` : '';
+  };
+  const perks = parseList(g.perks_json).filter(Boolean);
+  const days = parseList(g.itinerary_json).filter((d) => d && (d.port || d.note));
+  const faq = parseList(g.faq_json).filter((q) => q && q.q);
+  const dep = g.deposit_per_guest_cents
+    ? `${money(g.deposit_per_guest_cents)} per guest` : '';
+  const dates = [
+    g.deposit_due || dep ? `Deposit ${dep}${dep && g.deposit_due ? ', due ' : (g.deposit_due ? 'due ' : '')}${dateOf(g.deposit_due)}`.trim() : '',
+    g.final_payment_due ? `Final payment due ${dateOf(g.final_payment_due)}` : '',
+    g.passport_due ? `Passports in by ${dateOf(g.passport_due)}` : '',
+  ].filter(Boolean);
+  const rates = (lastRates || []).filter((r) => r.room_type || r.roomType);
+  document.getElementById('onpage-state').innerHTML = g.registration_open
+    ? '<span class="badge badge-green">Page is on</span>' : '<span class="badge badge-amber">Page is off</span>';
+  document.getElementById('onpage-body').innerHTML = `<p class="field-hint" style="margin:0 0 .4rem;">
+    This is what the group's page says now, so you can see it without opening the page.${
+    g.registration_open ? '' : ' The page is switched off, so nobody can see it yet.'}</p>
+    ${row('Line under the title', 'headline', g.headline ? esc(g.headline) : '')}
+    ${row('What you pay and when', 'depositPerGuest', dates.length
+      ? dates.map((d) => `<div>${esc(d)}</div>`).join('') : '', 'No deposit amount or dates set.')}
+    ${row('Cabins and prices', '', rates.length
+      ? `<ul style="margin:0;padding-left:1.1rem;">${rates.map((r) => {
+        const per = (r.per_guest_cents ?? r.perGuestCents ?? 0) + (r.taxes_cents ?? r.taxesCents ?? 0);
+        return `<li>${esc(r.room_type || r.roomType)}: ${per ? `${money(per)} per guest, taxes and fees included` : 'price to come'}</li>`;
+      }).join('')}</ul>` : '', 'No cabin types yet.')}
+    ${row('Amenities and onboard credit', 'amenities', items(g.amenities_json))}
+    ${row('Drink packages', 'drinks', items(g.drinks_json))}
+    ${row('Enhancements and add-ons', 'enhancements', items(g.enhancements_json))}
+    ${row('Also included', 'perks', perks.length
+      ? `<ul style="margin:0;padding-left:1.1rem;">${perks.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>` : '')}
+    ${row('Itinerary', 'itinerary', days.length
+      ? `<ul style="margin:0;padding-left:1.1rem;">${days.map((d) => `<li>${d.day ? `<strong>${esc(d.day)}</strong> ` : ''}${
+        esc(d.port || '')}${d.note ? ` <span class="muted">${esc(d.note)}</span>` : ''}</li>`).join('')}</ul>` : '')}
+    ${row('Downloads', 'file-title', (lastFiles || []).length
+      ? `<ul style="margin:0;padding-left:1.1rem;">${lastFiles.map((f) => `<li><a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.title)}</a></li>`).join('')}</ul>` : '')}
+    ${row('Questions answered', 'faq-add', faq.length ? `${faq.length} question${faq.length === 1 ? '' : 's'}` : '')}`;
+  document.querySelectorAll('[data-goto]').forEach((a) => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    const el = document.getElementById(a.dataset.goto)
+      || document.querySelector(`[name="${a.dataset.goto}"]`);
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus({ preventScroll: true }); }
+  }));
+}
+
 function drawFiles(files) {
+  lastFiles = files;
+  if (typeof group !== 'undefined' && group) drawOnPage();
   const box = document.getElementById('files-list');
   box.innerHTML = files.length ? `<ul style="list-style:none;margin:0 0 .4rem;padding:0;display:grid;gap:.4rem;">${
     files.map((f) => `<li style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">
@@ -1282,9 +1354,11 @@ async function load() {
     // grid from a page that was not reloaded in between.
     pendingRates = null;
     drawRates(d.rates);
+    lastRates = d.rates || [];
     renderHeader(group);
     renderLink(group, d.link, d.codeShared);
     drawFiles(d.files || []);
+    drawOnPage();
     // Not awaited. The roster decrypts a passport per traveller and the
     // details form above should be editable before that finishes.
     loadRoster();
