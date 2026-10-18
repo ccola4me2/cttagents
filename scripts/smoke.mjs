@@ -6669,7 +6669,8 @@ async function main() {
     check(!/\d+ guests?\b/.test(landing.raw.replace(/<script[\s\S]*?<\/script>/g, '')),
       'without a count of guests, which is not what somebody choosing a cabin asks');
     check(landing.raw.includes('Is airfare included?'), 'the FAQ is on it');
-    check(landing.raw.includes('Deposit due') && landing.raw.includes('Passports in by'),
+    check(landing.raw.includes('Deposit to hold your cabin') && landing.raw.includes('Final payment')
+      && landing.raw.includes('Passports') && landing.raw.includes('In by'),
       'and the dates somebody is held to');
     // The one thing this page must never do.
     check(!/type="?(card|cc-number)/i.test(landing.raw) && !landing.raw.includes('cardnumber'),

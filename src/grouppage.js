@@ -132,6 +132,7 @@ async function loadRates(env, groupId, userId) {
   const { results } = await env.DB.prepare(
     `SELECT r.id, r.room_type, r.occupancy, r.guests, r.cabins,
             r.per_guest_cents, r.taxes_cents, r.total_cents, r.sort_order,
+            r.extra_adult_cents, r.extra_child_cents,
             (SELECT COUNT(*) FROM group_registrations gr
               WHERE gr.rate_id = r.id AND gr.user_id = r.user_id
                 AND gr.status <> 'cancelled') AS taken
@@ -294,8 +295,46 @@ ${head}
   .ghost{display:inline-block;border:1px solid rgba(255,255,255,.75);color:#fff;text-decoration:none;
          border-radius:999px;padding:.8rem 1.3rem;font-weight:700}
   .ghost:hover{background:rgba(255,255,255,.12)}
+  /* The bar that stays with you down the page. */
+  html{scroll-behavior:smooth}
+  [id]{scroll-margin-top:4.4rem}
+  .subnav{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.95);
+          -webkit-backdrop-filter:saturate(1.4) blur(10px);backdrop-filter:saturate(1.4) blur(10px);
+          border-bottom:1px solid var(--line)}
+  .subnav-in{max-width:48rem;margin:0 auto;padding:.35rem 1rem;display:flex;align-items:center;gap:.8rem}
+  .subnav .links{display:flex;gap:.2rem;overflow-x:auto;flex:1;scrollbar-width:none}
+  .subnav .links::-webkit-scrollbar{display:none}
+  .subnav .links a{white-space:nowrap;text-decoration:none;color:var(--ink);font-size:.86rem;font-weight:600;
+                   padding:.5rem .7rem;border-radius:8px}
+  .subnav .links a:hover{background:#eef4fa;color:var(--navy)}
+  .nav-cta{flex:none;background:var(--coral);color:#fff;text-decoration:none;border-radius:999px;
+           padding:.5rem 1.05rem;font-size:.86rem;font-weight:700;white-space:nowrap}
+  .nav-cta:hover{background:#c94430}
+  .hero-where{margin:-.9rem 0 1.1rem;color:rgba(255,255,255,.75);font-size:.9rem}
+  .hero-price{margin:0 0 1.2rem;color:rgba(255,255,255,.9);font-size:.95rem}
+  .hero-price b{font-size:1.6rem;color:#fff;font-variant-numeric:tabular-nums;margin:0 .15rem}
+  .hero-price span{display:block;font-size:.78rem;color:rgba(255,255,255,.7)}
+  .facts-list{margin:0;display:grid;gap:.1rem 1.5rem;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr))}
+  .facts-list div{padding:.6rem 0;border-top:1px solid var(--line)}
+  .facts-list dt{font-size:.68rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--soft)}
+  .facts-list dd{margin:.1rem 0 0;font-weight:600;color:var(--navy)}
+  .terms-d summary{cursor:pointer;font-weight:700;color:var(--navy)}
+  .terms-d p{font-size:.9rem;color:var(--soft)}
+  .mbar{display:none}
+  @media (max-width:40rem){
+    .nav-cta{display:none}
+    .extra{grid-template-columns:1fr}
+    .extra .ep{text-align:left}
+    body{padding-bottom:4.6rem}
+    .mbar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:40;align-items:center;gap:1rem;
+          justify-content:space-between;background:#fff;border-top:1px solid var(--line);
+          padding:.7rem 1rem calc(.7rem + env(safe-area-inset-bottom));box-shadow:0 -4px 16px rgba(15,28,43,.08)}
+    .mbar span{font-size:.9rem;color:var(--ink)}
+    .mbar b{font-size:1.1rem;color:var(--navy)}
+    .mbar a{background:var(--coral);color:#fff;text-decoration:none;border-radius:999px;padding:.7rem 1.4rem;font-weight:700}
+  }
   /* Four facts at a glance. */
-  .tiles{display:grid;gap:.6rem;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));margin:-1.1rem 0 1.2rem}
+  .tiles{display:grid;gap:.6rem;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));margin:0 0 1.2rem}
   .tile{background:#fff;border:1px solid var(--line);border-radius:12px;padding:.7rem .9rem;
         box-shadow:0 1px 2px rgba(15,28,43,.05)}
   .tile .lbl{display:block;font-size:.68rem;font-weight:700;letter-spacing:.1em;
@@ -366,9 +405,11 @@ ${head}
   .extra .en{font-weight:700;color:var(--navy)}
   .extra .ep{font-weight:700;color:var(--navy);text-align:right;font-variant-numeric:tabular-nums}
   .extra .et{grid-column:1/-1;color:var(--soft);font-size:.9rem}
-  .itin .day{display:grid;grid-template-columns:5.2rem 1fr;gap:.1rem .8rem;padding:.65rem 0;
-             border-top:1px solid var(--line)}
-  .itin .day:first-child{border-top:0;padding-top:0}
+  .itin{position:relative}
+  .itin .day{display:grid;grid-template-columns:5.2rem 1fr;gap:.1rem .8rem;padding:.65rem 0 .65rem 1.1rem;
+             border-left:2px solid #cfe0ee;margin-left:.3rem;position:relative}
+  .itin .day::before{content:"";position:absolute;left:-.42rem;top:1rem;width:.7rem;height:.7rem;border-radius:50%;
+                     background:var(--coral);border:2px solid #fff}
   .itin .d{font-weight:700;color:var(--navy)}
   .itin .p{font-weight:600}
   .itin .t{grid-column:2;color:var(--soft);font-size:.9rem}
@@ -547,10 +588,11 @@ function prefixOf(env) {
   return String(env.GROUP_PREFIX || '').replace(/\/+$/, '');
 }
 
-function heroBlock(g, brand, contact, state, base, env, next) {
+function heroBlock(g, brand, contact, state, base, env, next, rates = []) {
   const kind = TYPE_WORDS[g.group_type] || TYPE_WORDS.other;
-  const sub = g.headline
-    || [g.vendor, g.product_name, g.destination].filter(Boolean).join(' · ');
+  const where = [g.vendor, g.product_name, g.destination].filter(Boolean).join(' · ');
+  const sub = g.headline || where;
+  const lowest = fromPrice(rates);
   const hasPhoto = Boolean(g.hero_image_url);
   const by = contact.advisor ? `<span class="hero-by">Hosted by ${esc(contact.advisor)}</span>` : '';
   const buttons = state === 'open'
@@ -571,8 +613,35 @@ function heroBlock(g, brand, contact, state, base, env, next) {
       <p class="eyebrow">${esc(kind)}</p>
       <h1>${esc(g.name)}</h1>
       ${sub ? `<p class="hero-sub">${esc(sub)}</p>` : ''}
+      ${g.headline && where ? `<p class="hero-where">${esc(where)}</p>` : ''}
+      ${lowest && state !== 'departed' ? `<p class="hero-price">From <b>${esc(money(lowest))}</b> per guest
+        <span>taxes and fees included</span></p>` : ''}
       <div class="hero-cta">${buttons}</div>
     </div></header>`;
+}
+
+/** The lowest all in price per guest, or 0 when no grade has one yet. */
+function fromPrice(rates) {
+  const all = (rates || []).filter((r) => Number(r.per_guest_cents) > 0)
+    .map((r) => Number(r.per_guest_cents) + (Number(r.taxes_cents) || 0));
+  return all.length ? Math.min(...all) : 0;
+}
+
+/** Everything about the sailing itself, always, whether or not there is a headline over it. */
+function detailsBlock(g) {
+  const nights = nightsOf(g);
+  const rows = [
+    ['Cruise line', g.vendor],
+    ['Ship', g.product_name],
+    ['Itinerary', g.destination],
+    ['Sails', g.depart_date ? sayDate(g.depart_date) : ''],
+    ['Returns', g.return_date ? sayDate(g.return_date) : ''],
+    ['Length', nights ? `${nights} night${nights === 1 ? '' : 's'}` : ''],
+    ['Sailing from', g.departure_port],
+  ].filter(([, v]) => v);
+  if (rows.length < 2) return '';
+  return `<div class="card"><h2>The sailing</h2><dl class="facts-list">${
+    rows.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl></div>`;
 }
 
 function glance(g, rates) {
@@ -608,6 +677,10 @@ function rateCards(rates, base, state) {
       r.occupancy ? `${esc(r.occupancy)} occupancy` : '',
       r.per_guest_cents ? 'taxes and fees included' : '',
     ].filter(Boolean).join(' · ');
+    const extras = [
+      Number(r.extra_adult_cents) > 0 ? `Third or fourth adult: ${esc(money(r.extra_adult_cents))}` : '',
+      Number(r.extra_child_cents) > 0 ? `Child: ${esc(money(r.extra_child_cents))}` : '',
+    ].filter(Boolean).join(' &middot; ');
     const action = state === 'open' || state === 'full'
       ? `<a class="pick-btn${out ? ' wait' : ''}" href="${base}/register?rate=${encodeURIComponent(r.id)}">${
         out ? 'Join the waitlist' : 'Book this cabin'}</a>`
@@ -618,6 +691,7 @@ function rateCards(rates, base, state) {
     ? `<span class="price">${money(r.per_guest_cents + (Number(r.taxes_cents) || 0))}<span class="per"> per guest</span></span>`
     : '<span class="price"><span class="per">Price to come</span></span>'}</div>
       ${meta ? `<p class="meta">${meta}</p>` : ''}
+      ${extras ? `<p class="meta">${extras} per guest</p>` : ''}
       <div class="rate-foot">${tag}${action}</div>
     </div>`;
   }).join('')
@@ -625,27 +699,18 @@ function rateCards(rates, base, state) {
 }
 
 function stepsBlock(g, base, state) {
-  const steps = [];
-  if (state === 'open' || state === 'full') {
-    steps.push(['Reserve your cabin', 'Pick a cabin and register. Nothing is charged on the page.']);
-  }
-  if (g.deposit_due) {
-    steps.push(['Deposit due', `${sayDate(g.deposit_due)}${
-      g.deposit_per_guest_cents ? `, ${money(g.deposit_per_guest_cents)} per guest` : ''}`]);
-  }
-  if (g.passport_due) steps.push(['Passports in by', sayDate(g.passport_due)]);
-  if (g.final_payment_due) steps.push(['Balance due', sayDate(g.final_payment_due)]);
-  if (steps.length < 2) return '';
-  const next = [g.deposit_due, g.final_payment_due, g.passport_due]
-    .filter((d) => d && daysUntil(d) >= 0).sort()[0];
-  const count = next
-    ? `<p class="muted" style="margin:.9rem 0 0;">${daysUntil(next) === 0
-      ? 'The next date is today.' : `The next date is in ${daysUntil(next)} day${
-        daysUntil(next) === 1 ? '' : 's'}.`}</p>` : '';
+  if (state !== 'open' && state !== 'full') return '';
+  const steps = [
+    ['Choose your cabin', 'Pick a cabin below and tell us who is travelling. Nothing is charged on this page.'],
+    ['Pay your deposit', g.deposit_per_guest_cents
+      ? `${money(g.deposit_per_guest_cents)} per guest holds your place${g.deposit_due ? `, due ${sayDate(g.deposit_due)}` : ''}.`
+      : g.deposit_due ? `Due ${sayDate(g.deposit_due)}.` : 'We tell you how much and when.'],
+    ['Pay the balance', g.final_payment_due ? `Due ${sayDate(g.final_payment_due)}.` : 'We confirm the date with you.'],
+  ];
   return `<div class="card"><h2>How to book</h2><ol class="steps">${
     steps.map(([title, text], i) => `<li><span class="n">${i + 1}</span>
       <span class="s-title">${esc(title)}</span><span class="s-text">${esc(text)}</span></li>`).join('')
-  }</ol>${count}</div>`;
+  }</ol></div>`;
 }
 
 /** What is due and when. The deposit leads, with what it is per guest, since that is the question. */
@@ -666,8 +731,13 @@ function paymentsBlock(g) {
       <span class="when">In by ${esc(sayDate(g.passport_due))}</span></div>`);
   }
   if (!cells.length) return '';
+  const next = [g.deposit_due, g.final_payment_due, g.passport_due]
+    .filter((d) => d && daysUntil(d) >= 0).sort()[0];
+  const count = next
+    ? `${daysUntil(next) === 0 ? 'The next date is today. ' : `The next date is in ${daysUntil(next)} day${
+      daysUntil(next) === 1 ? '' : 's'}. `}` : '';
   return `<div class="card"><h2>What you pay and when</h2><div class="pay">${cells.join('')}</div>
-    <p class="muted" style="margin:.8rem 0 0;">Paid to the travel supplier through us, never on this page.</p></div>`;
+    <p class="muted" style="margin:.8rem 0 0;">${count}Paid to the travel supplier through us, never on this page.</p></div>`;
 }
 
 function extrasList(json) {
@@ -705,7 +775,7 @@ function perksBlock(g) {
 function itineraryBlock(g) {
   const days = listOf(g.itinerary_json).filter((d) => d && (d.port || d.note));
   if (!days.length) return '';
-  return `<div class="card"><h2>Itinerary</h2><div class="itin">${
+  return `<div class="card"><h2>Your itinerary</h2><div class="itin">${
     days.map((d) => `<div class="day"><span class="d">${esc(d.day || '')}</span>
       <span class="p">${esc(d.port || '')}</span>${d.note ? `<span class="t">${esc(d.note)}</span>` : ''}</div>`).join('')
   }</div></div>`;
@@ -729,6 +799,11 @@ function moneyBlock(g) {
     ${fee || g.fee_terms ? `<div class="half"><b>Our fee${fee ? `, ${money(fee)} per guest` : ''}</b>
       <p>${esc(g.fee_terms || 'This is the agency\'s own fee.')}</p></div>` : ''}
     </div></div>`;
+}
+
+function termsBlock(g) {
+  if (!g.terms) return '';
+  return `<div class="card"><details class="terms-d"><summary>Group terms</summary>${paragraphs(g.terms)}</details></div>`;
 }
 
 function faqBlock(faq) {
@@ -776,8 +851,40 @@ export async function renderGroupTripPage(request, env, rawRef) {
         ? 'Every cabin in this group is taken. Join the waitlist and we will tell you if one opens up.'
         : '';
 
+  const live = state !== 'departed';
+  const section = (id, html) => (html ? html.replace('<div class="card', `<div id="${id}" class="card`) : '');
+  const parts = {
+    cabins: live ? section('cabins', rateCards(rates, base, state)) : '',
+    group: live ? section('group', amenitiesBlock(g)) : '',
+    pay: live ? paymentsBlock(g) : '',
+    plan: itineraryBlock(g) ? section('itinerary', itineraryBlock(g)) : '',
+    drinks: live ? section('extras', extrasBlock('Drink packages',
+      'Ask us to add one to your booking.', g.drinks_json)) : '',
+    add: live ? extrasBlock('Enhancements and add-ons',
+      'Ask us to add any of these to your booking.', g.enhancements_json) : '',
+    faq: faqBlock(faqOf(g)) ? section('faq', faqBlock(faqOf(g))) : '',
+  };
+  const nav = [
+    parts.group && ['group', 'What you get'],
+    parts.cabins && ['cabins', 'Cabins'],
+    parts.plan && ['itinerary', 'Itinerary'],
+    (parts.drinks || parts.add) && ['extras', 'Extras'],
+    parts.faq && ['faq', 'Questions'],
+    ['ask', 'Contact'],
+  ].filter(Boolean);
+  const reserve = state === 'open' || state === 'full';
+  const subnav = `<nav class="subnav" aria-label="On this page"><div class="subnav-in">
+    <div class="links">${nav.map(([id, label]) => `<a href="#${id}">${esc(label)}</a>`).join('')}</div>${
+  reserve ? `<a class="nav-cta" href="${base}/register">${state === 'full' ? 'Join the waitlist' : 'Reserve your cabin'}</a>` : ''}
+    </div></nav>`;
+  const lowest = fromPrice(rates);
+  const mbar = reserve ? `<div class="mbar"><span>${lowest
+    ? `From <b>${esc(money(lowest))}</b> per guest` : 'Cabins available'}</span>
+    <a href="${base}/register">${state === 'full' ? 'Waitlist' : 'Reserve'}</a></div>` : '';
+
   const body = [
-    heroBlock(g, brand, contact, state, base, env, next),
+    heroBlock(g, brand, contact, state, base, env, next, rates),
+    subnav,
     '<main class="wrap">',
     next
       ? `<div class="note warn">This sailing has departed. The next one is
@@ -785,19 +892,19 @@ export async function renderGroupTripPage(request, env, rawRef) {
       : notice ? `<div class="note warn">${esc(notice)}</div>` : '',
     glance(g, rates),
     g.registration_blurb ? `<div class="card blurb">${paragraphs(g.registration_blurb)}</div>` : '',
-    state === 'departed' ? '' : amenitiesBlock(g),
-    state === 'departed' ? '' : paymentsBlock(g),
-    state === 'departed' ? '' : rateCards(rates, base, state),
-    state === 'departed' ? '' : stepsBlock(g, base, state),
+    detailsBlock(g),
+    parts.group,
+    parts.cabins,
+    parts.pay,
+    live ? stepsBlock(g, base, state) : '',
+    parts.plan,
+    parts.drinks,
+    parts.add,
     perksBlock(g),
-    state === 'departed' ? '' : extrasBlock('Drink packages',
-      'Ask us to add one to your booking.', g.drinks_json),
-    state === 'departed' ? '' : extrasBlock('Enhancements and add-ons',
-      'Ask us to add any of these to your booking.', g.enhancements_json),
-    itineraryBlock(g),
     filesBlock(files),
     moneyBlock(g),
-    faqBlock(faqOf(g)),
+    parts.faq,
+    termsBlock(g),
     // The short enquiry stays. Not everybody reading this is ready to name
     // four passports, and losing "send me more" because the only button was
     // "register" would cost the agency the easier half of the list.
@@ -827,6 +934,7 @@ export async function renderGroupTripPage(request, env, rawRef) {
       <div class="share-row"><button type="button" id="copy" class="alt">Copy link</button>
         <button type="button" id="share" class="alt" hidden>Share</button></div></div>`,
     '</main>',
+    mbar,
     ENQUIRY_SCRIPT,
     shareScript(canonical),
   ].filter(Boolean).join('\n');
