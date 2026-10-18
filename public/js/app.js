@@ -261,6 +261,26 @@ const NAV = [
   // and two clicks away is where it would be missed.
   { href: '/app/chat', label: 'Chat', icon: I.chat, badge: 'chat-count' },
   {
+    // The people first, then the work.
+    //
+    // Clients, Households and Sales opportunities are the same set of people
+    // at three stages: somebody you know, the address they share, and the
+    // trip they have not booked yet. They sit together at the top because
+    // that is the order somebody thinks in. The daily lists follow.
+    hub: 'Clients', icon: I.people, items: [
+      { href: '/app/leads', label: 'Leads' },
+      { href: '/app/clients', label: 'Clients' },
+      { href: '/app/import-clients', label: 'Import clients' },
+      { href: '/app/households', label: 'Households' },
+      { href: '/app/pipeline', label: 'Reservation board' },
+      { href: '/app/segments', label: 'Lists' },
+      { href: '/app/broadcasts', label: 'Emails' },
+      { href: '/app/tasks', label: 'To do' },
+      { href: '/app/hotlists', label: 'Who to call' },
+      { href: '/app/credits', label: 'Client credits' },
+    ],
+  },
+  {
     hub: 'Reservation', icon: I.ship, items: [
       { href: '/app/reservations', label: 'Reservations' },
       { href: '/app/groups', label: 'Group space' },
@@ -281,26 +301,6 @@ const NAV = [
   // than the place you go to find a manager's phone number.
   { href: '/app/vendors', label: 'Vendors', icon: I.handshake },
   { href: '/app/cruise-search', label: 'Cruise search', icon: I.ship },
-  {
-    // The people first, then the work.
-    //
-    // Clients, Households and Sales opportunities are the same set of people
-    // at three stages: somebody you know, the address they share, and the
-    // trip they have not booked yet. They sit together at the top because
-    // that is the order somebody thinks in. The daily lists follow.
-    hub: 'Client', icon: I.people, items: [
-      { href: '/app/leads', label: 'Leads' },
-      { href: '/app/clients', label: 'Clients' },
-      { href: '/app/import-clients', label: 'Import clients' },
-      { href: '/app/households', label: 'Households' },
-      { href: '/app/pipeline', label: 'Reservation board' },
-      { href: '/app/segments', label: 'Lists' },
-      { href: '/app/broadcasts', label: 'Emails' },
-      { href: '/app/tasks', label: 'To do' },
-      { href: '/app/hotlists', label: 'Who to call' },
-      { href: '/app/credits', label: 'Client credits' },
-    ],
-  },
   {
     hub: 'Marketing', icon: I.megaphone, items: [
       { href: '/app/reviews', label: 'Reviews' },
