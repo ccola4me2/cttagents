@@ -321,6 +321,7 @@
               </div>
               <div class="card-foot">
                 <span style="flex:1;"></span>
+                <span id="reg-saved" class="muted" role="status" style="margin-right:.8rem;" hidden></span>
                 <button class="btn btn-primary btn-sm" type="submit">Save page</button>
               </div>
             </form>
@@ -1496,7 +1497,13 @@ onSubmit(regForm, (values) => {
   // into its array, and the form's own text would be spread over it, which saved the words in place
   // of the list and cleared what had just been typed.
   const { perks, itinerary, amenities, drinks, enhancements, ...rest } = values;
-  return save({ ...rest, registrationOpen: regForm.elements.registrationOpen.checked }, false);
+  const said = document.getElementById('reg-saved');
+  said.hidden = true;
+  return save({ ...rest, registrationOpen: regForm.elements.registrationOpen.checked }, false).then(() => {
+    // Saving from here changes nothing you can see, so say so. What is shown above is what was kept.
+    said.textContent = `Saved at ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.`;
+    said.hidden = false;
+  });
 });
 
 deleteBtn.addEventListener('click', async () => {

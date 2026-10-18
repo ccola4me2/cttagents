@@ -7199,6 +7199,17 @@ async function main() {
       && (kept.drinks_json || '').includes('Soda package') && (kept.enhancements_json || '').includes('Wi-Fi')
       && (kept.itinerary_json || '').includes('Tampa') && (kept.perks_json || '').includes('Cocktail party'),
     'a save that carries the lists as text does not wipe them', `status ${textSave.status}`);
+    const arrays = await call(advisor, 'PUT', `/api/groups/${keepId}`, {
+      name: `Keep lists ${stamp}`, itinerary: [{ day: 'Day 2', port: 'Nassau', note: 'All day' }],
+      amenities: [{ name: 'Spa credit', price: '$50', note: '' }],
+      drinks: [{ name: 'Beer package', price: '$30', note: '' }],
+      enhancements: [{ name: 'Dinner', price: '$40', note: '' }], perks: ['Welcome drink'],
+    });
+    const changed = (await call(advisor, 'GET', `/api/groups/${keepId}`)).data?.group || {};
+    check(arrays.status === 200 && (changed.itinerary_json || '').includes('Nassau')
+      && (changed.amenities_json || '').includes('Spa credit') && (changed.drinks_json || '').includes('Beer package')
+      && (changed.enhancements_json || '').includes('Dinner') && (changed.perks_json || '').includes('Welcome drink'),
+    'and a save that carries them as lists replaces them', `status ${arrays.status}`);
     check(page.raw.includes('noindex') && page.raw.includes('og:title') && page.raw.includes('rel="canonical"'),
       'it is kept out of search and carries what a pasted link shows');
     check(page.raw.includes('Book this cabin') && page.raw.includes('/register?rate='),
