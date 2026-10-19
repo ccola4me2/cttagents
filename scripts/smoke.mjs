@@ -3694,6 +3694,10 @@ async function main() {
       const bellItem = (bell.data?.items || []).find((i) => i.kind === 'specials');
       check(Boolean(bellItem) && bellItem.href === '/app/supplier-specials',
         'an advisor\'s bell says the supplier specials have been updated', JSON.stringify(bell.data?.items?.slice(0, 3)));
+      const dashNote = ((await call(advisor, 'GET', '/api/dashboard')).data?.notices || [])
+        .find((n) => String(n.key || '').startsWith('specials:'));
+      check(Boolean(dashNote) && dashNote.href === '/app/supplier-specials',
+        'and the dashboard has a notice that the specials have been updated', JSON.stringify(dashNote));
       const promoSeen = await call(advisor, 'GET', '/api/supplier-specials');
       const promoRow = (promoSeen.data?.specials || []).find((s) => s.brand === `Smoke Cruises ${stamp}`);
       check(promoRow && promoRow.link === promoLink && promoRow.link.includes('agentId=532210'),

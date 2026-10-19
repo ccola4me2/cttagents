@@ -270,10 +270,18 @@ const byClass = (cls) => d.upcomingPayments.filter((x) => (
 // One builder per panel id. The server holds the same list of ids and drops
 // anything it does not recognise, so a panel exists in exactly two places
 // rather than being spelled out again in the layout, the picker and the page.
+// A notice that carries a key goes away once this browser has looked at what it is about: the specials page
+// writes the same key when the list has been seen, so the dashboard stops saying so.
+function shownNotices() {
+  let seen = null;
+  try { seen = localStorage.getItem('ss-seen'); } catch { /* no storage, so everything shows */ }
+  return d.notices.filter((n) => !(n.key && seen && n.key === `specials:${seen}`));
+}
+
 const PANELS = {
   notices: () => widget('Notices', null, [
-    { key: 'all', label: 'All', render: () => d.notices.length
-      ? `<ul class="notice-list">${d.notices.map((n) => `<li class="tone-${esc(n.tone)}">
+    { key: 'all', label: 'All', render: () => shownNotices().length
+      ? `<ul class="notice-list">${shownNotices().map((n) => `<li class="tone-${esc(n.tone)}">
           <div class="t">${esc(n.title)}</div>
           <div class="m">${esc(n.detail)}</div>
           <a href="${esc(n.href)}">${esc(n.label)}</a></li>`).join('')}</ul>`

@@ -569,6 +569,23 @@ async function noticesFor(env, user, scope) {
     });
   }
 
+  // The supplier specials list was updated in the last week. Said to everybody in the agency; the page
+  // itself says what is new, and a browser that has already looked is not told again (see the dashboard).
+  if (user.agency_id) {
+    const latest = await env.DB.prepare(
+      `SELECT id, created_at FROM supplier_special_lists
+        WHERE agency_id = ? AND created_at >= ? ORDER BY created_at DESC LIMIT 1`
+    ).bind(user.agency_id, now() - 7 * 86400).first().catch(() => null);
+    if (latest) {
+      out.push({
+        tone: 'info', key: `specials:${latest.id}`,
+        title: 'The supplier specials have been updated',
+        detail: 'There are new offers to look at, with their links.',
+        href: '/app/supplier-specials', label: 'See the specials',
+      });
+    }
+  }
+
   // Last, deliberately. A vendor deadline that has passed matters more than
   // an advisor's own phone number, and this one never goes away on its own.
   const gap = profileGap(user);
