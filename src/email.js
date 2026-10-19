@@ -385,7 +385,7 @@ export function sendSignupNoticeEmail(env, { to, advisorFirstName, what, href,
  * the part that has gone wrong, and each line says what the task is about:
  * "Ring about the deposit" on its own is not enough to act on from a phone.
  */
-export function sendTaskDigestEmail(env, { to, firstName, due = [], late = [], chat = [] }) {
+export function sendTaskDigestEmail(env, { to, firstName, due = [], late = [], chat = [], groups = [], calls = [] }) {
   const line = (t) => {
     const about = [t.client_name, t.booking_client, t.group_name].filter(Boolean)[0];
     const when = t.due_time ? ` at ${t.due_time}` : '';
@@ -399,21 +399,43 @@ export function sendTaskDigestEmail(env, { to, firstName, due = [], late = [], c
        <ul style="margin:0 0 20px;padding-left:20px;">${rows.map(line).join('')}</ul>`
     : '');
 
+  // The deadlines on groups, one short list per group with a way into it.
+  const groupBlock = groups.length
+    ? `<p style="margin:0 0 8px;font-weight:600;color:${BRAND_NAVY};">Groups to look at</p>`
+      + groups.map(({ group, notices }) => `<p style="margin:0 0 4px;color:#2f4459;"><strong>${
+        escapeHtml(group.name)}</strong> &middot; <a href="${escapeHtml(
+        `${appUrl(env)}/app/group?id=${encodeURIComponent(group.id)}`)}">open the group</a></p>
+        <ul style="margin:0 0 16px;padding-left:20px;">${notices.map((n) =>
+    `<li style="margin:0 0 6px;">${escapeHtml(n.text)}</li>`).join('')}</ul>`).join('')
+    : '';
+
+  // The Monday call list, when there is one this morning.
+  const callTotal = calls.reduce((n, l) => n + l.rows.length, 0);
+  const callBlock = calls.length
+    ? `<p style="margin:8px 0 10px;font-weight:600;color:${BRAND_NAVY};">Who to call this week
+         <span style="font-weight:400;color:#5c7286;">&middot; ${callTotal}</span></p>`
+      + callListBlocks(calls)
+    : '';
+
   const counts = [
     late.length ? `${late.length} overdue` : '',
     due.length ? `${due.length} due today` : '',
+    groups.length ? `${groups.length} group${groups.length === 1 ? '' : 's'} to look at` : '',
     chat.length ? `${chat.length} asking for you` : '',
+    callTotal ? `${callTotal} to call` : '',
   ].filter(Boolean).join(', ');
 
   return send(env, {
     to,
-    subject: `Your list: ${counts}`,
+    subject: `Your morning list: ${counts}`,
     html: layout(env, {
-      heading: 'What is on your list',
-      body: `<p style="margin:0 0 16px;">Morning ${escapeHtml(firstName || 'there')}.</p>`
+      heading: 'Your morning list',
+      body: `<p style="margin:0 0 16px;">Morning ${escapeHtml(firstName || 'there')}. Everything that needs you today, in one place.</p>`
         + block('Overdue', late, '#c2410c')
         + block('Due today', due, BRAND_NAVY)
+        + groupBlock
         + block('Asking for you in chat', chat, BRAND_NAVY)
+        + callBlock
         + `<p style="margin:0;">Ticking anything off stops it appearing here tomorrow${
           chat.length ? ', and reading a conversation stops that one' : ''}.</p>`,
       footer: settingsFooter(env),
@@ -422,21 +444,8 @@ export function sendTaskDigestEmail(env, { to, firstName, due = [], late = [], c
   });
 }
 
-
-/**
- * The Monday call list.
- *
- * Written as five short lists rather than one long one, because the reason to
- * ring is the useful part and it is different in each: a client who has gone
- * quiet wants asking about next year, a credit about to lapse wants using, and
- * somebody with a birthday on Thursday wants nothing except to be remembered.
- * Rolled into one list they all read as "call these people", which is the
- * version nobody acts on.
- *
- * Names only, no phone numbers. The page has those, and putting a client list
- * into an inbox that may be read on a train is a leak looking for a reason.
- */
-export function sendCallListEmail(env, { to, firstName, lists = [] }) {
+/** The call list as email blocks: five short lists, each with its own reason to ring. */
+function callListBlocks(lists) {
   // Grouped, because these run to five figures and $12480.00 is a number you
   // have to count the digits of.
   const money = (cents) => `$${((cents || 0) / 100).toLocaleString('en-US', {
@@ -475,7 +484,23 @@ export function sendCallListEmail(env, { to, firstName, lists = [] }) {
         ${more > 0 ? `<li style="margin:0 0 5px;color:#5c7286;">and ${more} more</li>` : ''}
       </ul>`;
   };
+  return lists.map(block).join('');
+}
 
+/**
+ * The Monday call list.
+ *
+ * Written as five short lists rather than one long one, because the reason to
+ * ring is the useful part and it is different in each: a client who has gone
+ * quiet wants asking about next year, a credit about to lapse wants using, and
+ * somebody with a birthday on Thursday wants nothing except to be remembered.
+ * Rolled into one list they all read as "call these people", which is the
+ * version nobody acts on.
+ *
+ * Names only, no phone numbers. The page has those, and putting a client list
+ * into an inbox that may be read on a train is a leak looking for a reason.
+ */
+export function sendCallListEmail(env, { to, firstName, lists = [] }) {
   const total = lists.reduce((n, l) => n + l.rows.length, 0);
   const headline = lists[0];
 
@@ -487,7 +512,7 @@ export function sendCallListEmail(env, { to, firstName, lists = [] }) {
       heading: 'Who to call this week',
       body: `<p style="margin:0 0 16px;">Morning ${escapeHtml(firstName || 'there')}.`
         + ` Nobody is chasing you for any of these, which is the only reason they need saying.</p>`
-        + lists.map(block).join('')
+        + callListBlocks(lists)
         + `<p style="margin:0;">Ticking a name off on the page keeps it out of next Monday's.</p>`,
       footer: settingsFooter(env),
       cta: { label: 'Open the list', href: `${appUrl(env)}/app/hotlists` },

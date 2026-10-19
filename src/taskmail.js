@@ -22,6 +22,8 @@
 
 import { now } from './util.js';
 import { sendTaskDigestEmail } from './email.js';
+import { groupNoticesByUser, markGroupsTold } from './groupremind.js';
+import { isCallListMorning, callListDue, callListsFor } from './calllist.js';
 
 // The hour, UTC, after which the day's message goes out. Eight in the morning
 // on the east coast in summer, seven in winter. Set REMINDER_HOUR_UTC to move
@@ -141,15 +143,21 @@ export async function remindTasks(env, { at = now(), force = false } = {}) {
     };
   });
 
-  if (!(results || []).length && !leads.length && !appts.length && !mentions.length) {
-    return { sent: 0, tasks: 0 };
-  }
+  // The two things that used to have emails of their own, so an advisor gets one message in the
+  // morning and not three: the deadlines on their groups, and on Mondays the call list.
+  const groupNotices = await groupNoticesByUser(env, { today, force }).catch(() => new Map());
+  const callCandidates = force || isCallListMorning(env, at)
+    ? await callListDue(env, { at }).catch(() => new Set()) : new Set();
 
   const byUser = new Map();
   for (const t of [...(results || []), ...leads, ...appts, ...mentions]) {
     if (!byUser.has(t.user_id)) byUser.set(t.user_id, []);
     byUser.get(t.user_id).push(t);
   }
+  for (const id of [...groupNotices.keys(), ...callCandidates]) {
+    if (!byUser.has(id)) byUser.set(id, []);
+  }
+  if (!byUser.size) return { sent: 0, tasks: 0 };
 
   let sent = 0;
   const stampToday = [];
@@ -157,7 +165,7 @@ export async function remindTasks(env, { at = now(), force = false } = {}) {
 
   for (const [userId, tasks] of byUser) {
     const owner = await env.DB.prepare(
-      `SELECT email, first_name, notify_email, task_digest, task_digest_sent_at
+      `SELECT email, first_name, notify_email, task_digest, task_digest_sent_at, weekly_call_list
          FROM users WHERE id = ?`
     ).bind(userId).first();
 
@@ -179,8 +187,15 @@ export async function remindTasks(env, { at = now(), force = false } = {}) {
 
     // Their own choice, and off means off. A message nobody asked for is the
     // one they learn to ignore, and an advisor who has learned to ignore one
-    // of these has learned to ignore all of them.
-    if (owner && owner.task_digest === 0) continue;
+    // of these has learned to ignore all of them. The call list has its own switch.
+    const wantsList = !(owner && owner.task_digest === 0);
+    const calls = callCandidates.has(userId) && owner && owner.weekly_call_list !== 0
+      ? await callListsFor(env, userId).catch(() => []) : [];
+    const groupsToday = wantsList ? (groupNotices.get(userId) || []) : [];
+    const mine = wantsList ? { due, late, chat } : { due: [], late: [], chat: [] };
+    if (!mine.due.length && !mine.late.length && !mine.chat.length && !groupsToday.length && !calls.length) {
+      continue;
+    }
 
     const to = owner?.notify_email || owner?.email;
     if (!to) continue;
@@ -203,11 +218,20 @@ export async function remindTasks(env, { at = now(), force = false } = {}) {
     await env.DB.prepare('UPDATE users SET task_digest_sent_at = ? WHERE id = ?')
       .bind(at, userId).run();
 
+    // The call list's own stamp, before the send for the same reason.
+    if (calls.length) {
+      await env.DB.prepare('UPDATE users SET call_list_sent_at = ? WHERE id = ?')
+        .bind(at, userId).run();
+    }
+
     try {
       await sendTaskDigestEmail(env, {
-        to, firstName: owner.first_name, due, late, chat,
+        to, firstName: owner.first_name, due: mine.due, late: mine.late, chat: mine.chat,
+        groups: groupsToday, calls,
       });
       sent += 1;
+      // Only after a send that worked: a failure that marked a group as told would lose it.
+      if (groupsToday.length) await markGroupsTold(env, groupsToday, today);
     } catch (e) {
       console.error('task digest', userId, e);
     }

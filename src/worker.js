@@ -50,8 +50,6 @@ import { handleProposals, handleMarkBooked, handleSetDeclined } from './proposal
 } from './quotenudge.js'; import {
   remindDuePayments,
 } from './payremind.js'; import {
-  sendCallLists,
-} from './calllist.js'; import {
   handleShareTrip,
   handleShareDocument,
   handleTripMessages,
@@ -254,7 +252,7 @@ import { handleUploadPicture, handleRemovePicture, serveGroupPicture } from './g
 import { handleUploadGroupFile, handleDeleteGroupFile, serveGroupFile } from './groupfiles.js';
 import { handleSaveWording, handleClearWording } from './wording.js';
 import { isGroupHost, serveGroupHost, serveSlug, redirectForCode } from './grouphost.js';
-import { remindGroups, handleRunGroupReminders } from './groupremind.js';
+import { handleRunGroupReminders } from './groupremind.js';
 import {
   handleListCredits,
   handleCreateCredit,
@@ -653,15 +651,8 @@ export default {
     // advisors who turned it on, and only on real vendor deadlines.
     job('payment reminders', () => remindDuePayments(env));
 
-    // And once a week, the calls nothing else is chasing anybody about. A
-    // no-op on six days in seven, so this costs one query on almost every tick.
-    job('call lists', () => sendCallLists(env));
-
-    // The four group deadlines nothing else chases: the option date, the
-    // proposal expiry, the deposit date and the passport date. One digest per
-    // group per day, and nothing at all on a group with nothing to act on, so
-    // this is a single query on almost every tick.
-    job('group deadlines', () => remindGroups(env));
+    // The call list and the deadlines on groups used to be emails of their own. They go in the one
+    // morning message with the task list now, so there is nothing further to run for either.
 
     // A broadcast is queued as rows and drained here, a batch at a time. A
     // no-op when nothing is sending, which is almost every tick.

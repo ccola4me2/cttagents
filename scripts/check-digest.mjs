@@ -37,7 +37,7 @@ const at = (day, hhmm) => Math.floor(new Date(`${day}T${hhmm}:00Z`).getTime() / 
  * statement rather than parsed, because the point is to exercise taskmail's
  * decisions, not to reimplement SQLite.
  */
-function fakeDb({ tasks = [], leads = [], appts = [], mentions = [], user = {} }) {
+function fakeDb({ tasks = [], leads = [], appts = [], mentions = [], groups = [], user = {} }) {
   const owner = {
     email: 'samantha@example.com', first_name: 'Samantha',
     notify_email: null, task_digest: 1, task_digest_sent_at: null, ...user,
@@ -59,6 +59,7 @@ function fakeDb({ tasks = [], leads = [], appts = [], mentions = [], user = {} }
           if (sql.includes('lead_next_step_on')) return { results: leads };
           if (sql.includes('FROM appointments a')) return { results: appts };
           if (sql.includes('FROM messages m')) return { results: mentions };
+          if (sql.includes('FROM travel_groups g')) return { results: groups };
           return { results: [] };
         },
         async first() {
@@ -67,6 +68,10 @@ function fakeDb({ tasks = [], leads = [], appts = [], mentions = [], user = {} }
         async run() {
           if (sql.includes('UPDATE users SET task_digest_sent_at')) {
             owner.task_digest_sent_at = binds[0];
+          }
+          if (sql.includes('UPDATE travel_groups SET reminded_on')) {
+            const g = groups.find((x) => x.id === binds[1]);
+            if (g) g.reminded_on = binds[0];
           }
           if (sql.includes('UPDATE tasks SET')) {
             const col = sql.includes('overdue_reminded_at') ? 'overdue_reminded_at' : 'reminded_at';
@@ -127,6 +132,32 @@ console.log('\nThe morning digest');
     appts: [{ id: 'ap1', user_id: 'u1', title: 'Zoom', on_date: DAY }],
   });
   is('tasks, a lead and a meeting together still send one', (await morning(db)).length, 1);
+}
+
+
+// Group deadlines ride in the same message. They were an email of their own, one per group, which is
+// how an advisor came to get several every morning.
+const GROUP = (id, name) => ({ id, user_id: 'u1', name, cabins_held: 6, option_date: '2026-03-20',
+  proposal_expires: null, deposit_due: null, passport_due: null, reminded_on: null });
+{
+  const db = fakeDb({ groups: [GROUP('g1', 'Halloween Cruise')] });
+  const sent = await morning(db);
+  is('a group deadline alone sends one email across a morning', sent.length, 1);
+  ok(`and says so in the subject (${sent[0]})`);
+  is('the subject names the group', /group/.test(sent[0] || ''), true);
+}
+{
+  const db = fakeDb({
+    tasks: [{ id: 't1', user_id: 'u1', title: 'Chase the balance', due_date: DAY }],
+    groups: [GROUP('g1', 'Halloween Cruise'), GROUP('g2', 'Alaska Reunion')],
+  });
+  const sent = await morning(db);
+  is('tasks and two groups together are still one email, not three', sent.length, 1);
+  is('with both in the subject', /due today/.test(sent[0] || '') && /2 groups/.test(sent[0] || ''), true);
+}
+{
+  const db = fakeDb({ user: { task_digest: 0 }, groups: [GROUP('g1', 'Halloween Cruise')] });
+  is('an advisor who turned the morning list off gets no group email either', (await morning(db)).length, 0);
 }
 
 // Tomorrow is a new morning; the stamp must not be a permanent off switch.

@@ -218,6 +218,46 @@ export async function remindGroups(env, { today = isoDay(0), force = false } = {
 }
 
 /**
+ * Every advisor's notices for today, for the morning email to carry.
+ *
+ * Reads the same groups the pass above does and says the same things, but sends nothing and
+ * stamps nothing: the morning email is one message for everything an advisor has to act on, and
+ * it marks these as told (markGroupsTold) once it has gone.
+ */
+export async function groupNoticesByUser(env, { today = isoDay(0), force = false } = {}) {
+  const horizon = isoDay(Math.max(...Object.values(WINDOWS)));
+  const floor = isoDay(-14);
+  const { results: groups } = await env.DB.prepare(
+    `SELECT g.id, g.user_id, g.name, g.cabins_held, g.option_date, g.proposal_expires,
+            g.deposit_due, g.passport_due, g.reminded_on
+       FROM travel_groups g
+      WHERE g.status = 'open'
+        AND ((g.option_date BETWEEN ? AND ?) OR (g.proposal_expires BETWEEN ? AND ?)
+          OR (g.deposit_due BETWEEN ? AND ?) OR (g.passport_due BETWEEN ? AND ?))
+      LIMIT 500`
+  ).bind(floor, horizon, floor, horizon, floor, horizon, floor, horizon)
+    .all().catch(() => ({ results: [] }));
+
+  const byUser = new Map();
+  for (const group of groups || []) {
+    if (!force && group.reminded_on === today) continue;
+    const notices = noticesFor(group, await factsFor(env, group), today);
+    if (!notices.length) continue;
+    if (!byUser.has(group.user_id)) byUser.set(group.user_id, []);
+    byUser.get(group.user_id).push({ group: { id: group.id, name: group.name, user_id: group.user_id }, notices });
+  }
+  return byUser;
+}
+
+/** Groups the morning email has now told their advisor about, so a pass that runs again today skips them. */
+export async function markGroupsTold(env, groups, today = isoDay(0)) {
+  for (const { group } of groups) {
+    await env.DB.prepare('UPDATE travel_groups SET reminded_on = ? WHERE id = ? AND user_id = ?')
+      .bind(today, group.id, group.user_id).run();
+  }
+}
+
+/**
  * Run it now, ignoring the hour and whether a group was already told today.
  *
  * Sends for real, so the stamps it writes are the real stamps. The agency

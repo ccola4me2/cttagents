@@ -40,6 +40,39 @@ const AGAIN_AFTER = 6 * 86400;
 // nobody reads to the end of.
 const PER_LIST = 5;
 
+/** Whether this is the morning the call list goes out, for the one message that carries it. */
+export function isCallListMorning(env, at = now()) {
+  const when = new Date(at * 1000);
+  const hour = Number(env.REMINDER_HOUR_UTC ?? DEFAULT_HOUR_UTC);
+  return when.getUTCDay() === SEND_ON && when.getUTCHours() >= hour;
+}
+
+/** Who has a call list due: switched on, and not written to within the week. */
+export async function callListDue(env, { at = now() } = {}) {
+  const { results } = await env.DB.prepare(
+    `SELECT u.id FROM users u
+      WHERE u.status = 'active' AND u.weekly_call_list = 1
+        AND (u.call_list_sent_at IS NULL OR u.call_list_sent_at < ?) LIMIT 200`
+  ).bind(at - AGAIN_AFTER).all().catch(() => ({ results: [] }));
+  return new Set((results || []).map((r) => r.id));
+}
+
+/** Their own book's call lists, as the email shows them: only the lists with somebody in them. */
+export async function callListsFor(env, userId) {
+  // Their own book, never the agency's. An owner who can see everybody on the page should still be
+  // rung about their own clients.
+  const built = await buildHotLists(env, selfScope({ id: userId }), userId);
+  return LISTS
+    .map((l) => ({
+      key: l.key,
+      label: l.label,
+      rows: built.lists[l.key].rows,
+      shown: built.lists[l.key].rows.slice(0, PER_LIST),
+      truncated: built.lists[l.key].truncated,
+    }))
+    .filter((l) => l.rows.length);
+}
+
 /**
  * One pass. Safe to call every five minutes: it does nothing on six days out
  * of seven, nothing before the hour, and nothing for an advisor already
