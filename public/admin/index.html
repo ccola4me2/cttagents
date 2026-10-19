@@ -316,7 +316,11 @@ function drawJobs(j) {
     <tbody>${j.jobs.map((x) => `<tr>
       <td><strong>${esc(x.name)}</strong>${x.last_error
         ? `<div class="muted" style="font-size:.76rem;color:var(--red-600);">${
-            esc(x.last_error)}</div>` : ''}</td>
+            esc(x.last_error)}</div>`
+        : x.failures
+          ? `<div class="muted" style="font-size:.76rem;">${x.last_failure
+            ? `Last failed ${esc(timeAgo(x.last_failure_at))}: ${esc(x.last_failure)}`
+            : 'Failed before the reason was being kept. The next failure will say why.'}</div>` : ''}</td>
       <td>${esc(timeAgo(x.last_run_at))}${x.last_ms != null
         ? `<div class="muted" style="font-size:.74rem;">${x.last_ms} ms</div>` : ''}</td>
       <td${x.last_error ? ' style="color:var(--red-600);"' : ''}>${

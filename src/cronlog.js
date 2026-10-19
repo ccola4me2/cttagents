@@ -34,9 +34,13 @@ export async function runJob(env, name, fn) {
   const at = now();
 
   try {
+    // last_failure and last_failure_at are the one thing here that is never cleared by a good run. A job
+    // that failed once in ten thousand passes leaves nothing else to say what happened, and by the time
+    // anybody looks the next pass has worked and wiped last_error.
     await env.DB.prepare(
-      `INSERT INTO cron_jobs (name, last_run_at, last_ok_at, last_error, last_ms, runs, failures)
-       VALUES (?, ?, ?, ?, ?, 1, ?)
+      `INSERT INTO cron_jobs (name, last_run_at, last_ok_at, last_error, last_ms, runs, failures,
+                              last_failure, last_failure_at)
+       VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
        ON CONFLICT(name) DO UPDATE SET
          last_run_at = excluded.last_run_at,
          -- Kept when this pass threw, so "last worked" survives the failures
@@ -47,8 +51,12 @@ export async function runJob(env, name, fn) {
          last_error = excluded.last_error,
          last_ms = excluded.last_ms,
          runs = cron_jobs.runs + 1,
-         failures = cron_jobs.failures + excluded.failures`
-    ).bind(name, at, error ? null : at, error, ms, error ? 1 : 0).run();
+         failures = cron_jobs.failures + excluded.failures,
+         last_failure = CASE WHEN excluded.last_error IS NOT NULL
+                             THEN excluded.last_error ELSE cron_jobs.last_failure END,
+         last_failure_at = CASE WHEN excluded.last_error IS NOT NULL
+                                THEN excluded.last_run_at ELSE cron_jobs.last_failure_at END`
+    ).bind(name, at, error ? null : at, error, ms, error ? 1 : 0, error, error ? at : null).run();
   } catch (e) {
     console.error('cronlog', name, e);
   }
@@ -65,11 +73,23 @@ export async function runJob(env, name, fn) {
 export async function jobHealth(env) {
   try {
     const { results } = await env.DB.prepare(
-      `SELECT name, last_run_at, last_ok_at, last_error, last_ms, runs, failures
+      `SELECT name, last_run_at, last_ok_at, last_error, last_ms, runs, failures,
+              last_failure, last_failure_at
          FROM cron_jobs
         ORDER BY last_error IS NULL, name`
     ).all();
-    return { jobs: results || [], ok: true };
+    // The times come back as text on some databases ("1792428629.0"), which a page reads as no time at
+    // all. They are seconds, so they are said as numbers.
+    const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+    return {
+      jobs: (results || []).map((r) => ({
+        ...r,
+        last_run_at: num(r.last_run_at),
+        last_ok_at: num(r.last_ok_at),
+        last_failure_at: num(r.last_failure_at),
+      })),
+      ok: true,
+    };
   } catch (e) {
     // Almost always the migration not being applied yet, which is a thing to
     // say rather than an empty card that reads as "nothing has ever run".

@@ -2557,6 +2557,18 @@ async function main() {
   // when it is really a broken automation nobody is being told about.
   const health = await call(admin, 'GET', '/api/admin/health');
 
+  // The scheduled jobs' times are numbers, not text a page cannot read, and each job carries the reason
+  // for its last failure.
+  const jobList = health.data?.jobs?.jobs || [];
+  if (jobList.length) {
+    check(jobList.every((j) => j.last_run_at === null || typeof j.last_run_at === 'number'),
+      'the scheduled jobs report when they last ran as a number', JSON.stringify(jobList[0]));
+    check(jobList.every((j) => 'last_failure' in j && 'last_failure_at' in j),
+      'and each says what its last failure was, once it has had one');
+  } else {
+    skip('the scheduled jobs list', 'no job has run on this database yet');
+  }
+
   // The database against the migrations. CI applies every migration before
   // this runs, so a failure here means the generated schema and real SQLite
   // disagree: the parser in scripts/lib/schema.mjs read something wrong. On a
