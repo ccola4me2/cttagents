@@ -266,12 +266,30 @@ function drawReport(r) {
             <td>${s.contactId
               ? `<a class="muted" href="/app/client?id=${encodeURIComponent(s.contactId)}">open</a>`
               : '<span class="badge badge-amber">not sent</span>'}</td>
-            <td class="num"><button class="btn btn-ghost btn-sm"
-              data-quote="${esc(s.id)}">Start a reservation</button></td>
+            <td class="num" style="white-space:nowrap;"><button class="btn btn-ghost btn-sm"
+              data-quote="${esc(s.id)}">Start a reservation</button>
+              <button class="btn btn-ghost btn-sm" type="button" data-del-lead="${esc(s.id)}"
+                aria-label="Delete this lead">Delete</button></td>
           </tr>`;
         }).join('')}</tbody></table></div>`
     : `<div class="empty"><h3>No leads yet</h3>
         <p>Share a form's link and the people who fill it in appear here.</p></div>`;
+
+  // Taking a lead off the list, such as a test somebody sent through a form. The client or lead it made, if
+  // any, stays on the book; only this entry goes.
+  leadList.querySelectorAll('[data-del-lead]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Delete this lead? The client or lead it made stays on your book; only this entry is removed.')) return;
+      btn.disabled = true;
+      try {
+        await api(`/api/myforms/submissions/${encodeURIComponent(btn.dataset.delLead)}`, { method: 'DELETE' });
+        await load();
+      } catch (e) {
+        showError(document.getElementById('err'), e);
+        btn.disabled = false;
+      }
+    });
+  });
 
   leadList.querySelectorAll('[data-quote]').forEach((btn) => {
     btn.addEventListener('click', async () => {
