@@ -365,7 +365,7 @@ const PANELS = {
     } },
   ], 'expiring'),
 
-  groups: () => widget('Group space', { href: '/app/groups', label: 'All groups' }, [
+  groups: () => widget('Groups', { href: '/app/groups', label: 'All groups' }, [
     { key: 'upcoming', label: 'Open blocks', render: () => {
       const rows = d.groups || [];
       if (!rows.length) return '<p class="wempty">No group space open.</p>';

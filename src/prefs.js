@@ -29,7 +29,7 @@ export const PANELS = [
   { id: 'bookings', title: 'Latest bookings', hint: 'Newest and recently changed reservations' },
   { id: 'travelling', title: "Who's travelling", hint: 'Leaving soon, away now, just back' },
   { id: 'documents', title: 'Before they travel', hint: 'Passports that will be refused, and the ones nobody has recorded' },
-  { id: 'groups', title: 'Group space', hint: 'Blocks of cabins and when they release' },
+  { id: 'groups', title: 'Groups', hint: 'Blocks of cabins and when they release' },
   { id: 'deals', title: 'Deals in play', hint: 'Open opportunities by stage' },
   { id: 'rebook', title: 'Worth a call', hint: 'Past clients with nothing booked, and credits about to lapse' },
   { id: 'pinned', title: 'Pinned clients', hint: 'The ones you are working on now' },
