@@ -60,7 +60,7 @@ export async function gather(env, user) {
   const f = db.scopeWhere(self, 'f.created_by');
   const sc = db.scopeWhere(self, 'cl.user_id');
 
-  const [tasks, leads, appts, forms, mentions, talking] = await Promise.all([
+  const [tasks, leads, appts, forms, mentions, specials, talking] = await Promise.all([
     env.DB.prepare(
       `SELECT t.id, t.title, t.due_date, t.due_time, t.priority, cl.name AS client_name
          FROM tasks t
@@ -124,6 +124,17 @@ export async function gather(env, user) {
           AND m.mentions LIKE ?
         ORDER BY m.created_at DESC LIMIT 25`
     ).bind(since, user.id, `%"${user.id}"%`).all().catch(() => ({ results: [] })),
+
+    // The agency's supplier specials list was updated. One line for the newest list, within the
+    // bell's fortnight: what it says is that there is something new to look at, and the page says what.
+    user.agency_id
+      ? env.DB.prepare(
+        `SELECT id, title, created_at, added_count, updated_count
+           FROM supplier_special_lists
+          WHERE agency_id = ? AND created_at >= ?
+          ORDER BY created_at DESC LIMIT 1`
+      ).bind(user.agency_id, since).all().catch(() => ({ results: [] }))
+      : Promise.resolve({ results: [] }),
 
     // Somebody said something in a room you are in. One row per conversation
     // with the newest of it, because six messages in a room is one thing to
@@ -203,6 +214,21 @@ export async function gather(env, user) {
       href: r.contact_id
         ? `/app/client?id=${encodeURIComponent(r.contact_id)}`
         : '/app/formbuilder',
+    });
+  }
+
+  for (const r of specials.results || []) {
+    const bits = [
+      r.added_count ? `${r.added_count} new` : '',
+      r.updated_count ? `${r.updated_count} changed` : '',
+    ].filter(Boolean);
+    items.push({
+      id: `specials:${r.id}`, kind: 'specials',
+      at: r.created_at,
+      title: 'Supplier specials have been updated',
+      detail: bits.join(', '),
+      late: false,
+      href: '/app/supplier-specials',
     });
   }
 

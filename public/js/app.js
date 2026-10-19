@@ -595,7 +595,7 @@ function mountBell(sidebar) {
 
   const KIND = {
     task: 'Task', lead: 'Lead', appointment: 'Appointment', form: 'Form',
-    mention: 'Chat', chat: 'Chat',
+    mention: 'Chat', chat: 'Chat', specials: 'Specials',
   };
 
   /** "3 days ago", "in 2 hours": how somebody would say it out loud. */

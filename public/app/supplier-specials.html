@@ -118,6 +118,7 @@
     </header>
     <div class="content">
       <div id="err"></div>
+      <div class="notice notice-info" id="ss-banner" role="status" hidden style="margin-bottom:1rem;"></div>
       <section id="stats" class="stat-grid"></section>
 
       <p class="ss-updated" id="updated" hidden></p>
@@ -464,9 +465,30 @@ function draw() {
   }
 }
 
+// Said at the top of the page when the list has been updated since this browser last looked, and put
+// away until the next list. Kept per browser: it is a nudge, not a record.
+function drawBanner() {
+  const box = $('ss-banner');
+  let seen = null;
+  try { seen = localStorage.getItem('ss-seen'); } catch { /* no storage, so the banner just shows */ }
+  if (!d.latestListId || seen === d.latestListId) { box.hidden = true; return; }
+  const fresh = d.specials.filter((s) => s.first_list_id === d.latestListId && isLive(s)).length;
+  box.hidden = false;
+  box.innerHTML = `<div style="display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;">
+    <span style="flex:1;min-width:14rem;"><strong>The specials have been updated${
+    d.updatedOn ? ` (${esc(dateFmt(d.updatedOn))})` : ''}.</strong>${
+    (d.listCount || 0) > 1 && fresh ? ` ${fresh} new offer${fresh === 1 ? '' : 's'} to look at.` : ''}</span>
+    <button class="btn btn-primary btn-sm" type="button" id="ss-banner-show">See the latest list</button>
+    <button class="btn btn-ghost btn-sm" type="button" id="ss-banner-close">Dismiss</button></div>`;
+  const put = () => { try { localStorage.setItem('ss-seen', d.latestListId); } catch { /* fine */ } box.hidden = true; };
+  $('ss-banner-close').addEventListener('click', put);
+  $('ss-banner-show').addEventListener('click', () => { state.status = 'latest'; put(); drawAll(); });
+}
+
 function drawAll() {
   drawStats();
   drawUpdated();
+  drawBanner();
   draw();
 }
 

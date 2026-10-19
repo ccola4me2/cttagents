@@ -3689,6 +3689,11 @@ async function main() {
         rows: [{ ...promo, headline: 'Reworded headline', offer: 'Reworded promotion offer' }] });
       check(promoAgain.data?.added === 0 && promoAgain.data?.updated === 1,
         'the same promotion next week, reworded, is updated and not doubled', JSON.stringify(promoAgain.data));
+      // The bell tells every advisor the list has been updated, without the file names or the history.
+      const bell = await call(advisor, 'GET', '/api/alerts');
+      const bellItem = (bell.data?.items || []).find((i) => i.kind === 'specials');
+      check(Boolean(bellItem) && bellItem.href === '/app/supplier-specials',
+        'an advisor\'s bell says the supplier specials have been updated', JSON.stringify(bell.data?.items?.slice(0, 3)));
       const promoSeen = await call(advisor, 'GET', '/api/supplier-specials');
       const promoRow = (promoSeen.data?.specials || []).find((s) => s.brand === `Smoke Cruises ${stamp}`);
       check(promoRow && promoRow.link === promoLink && promoRow.link.includes('agentId=532210'),
