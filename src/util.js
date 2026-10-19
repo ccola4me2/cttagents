@@ -293,6 +293,19 @@ export function oneOf(value, allowed) {
   return allowed.includes(s) ? s : allowed[0];
 }
 
+/**
+ * One of `allowed`, else null. For a value that may honestly be unknown.
+ *
+ * oneOf hands back the first entry for anything missing, which is right for a
+ * stage that has to be something and wrong for a fact nobody recorded. With the
+ * lead channel it made every client who arrived without one a Referral, and
+ * because Referral is a value it also wrote over the channel somebody had set.
+ */
+export function oneOfOrNull(value, allowed) {
+  const s = String(value ?? '').trim().toLowerCase();
+  return allowed.includes(s) ? s : null;
+}
+
 export async function readJson(request) {
   try {
     const body = await request.json();

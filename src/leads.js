@@ -16,7 +16,7 @@
 // pipeline whose last column has to be maintained by hand is a pipeline whose
 // last column is wrong.
 
-import { json, badRequest, notFound, uid, now, clean, cleanText, cleanDate, oneOf, readJson }
+import { json, badRequest, notFound, uid, now, clean, cleanText, cleanDate, oneOf, oneOfOrNull, readJson }
   from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
@@ -142,7 +142,8 @@ function parse(body) {
       source: clean(body.source, 120) || null,
       // Null rather than a default. Nobody has said where this person came
       // from, and "other" would be the portal saying it for them.
-      sourceKind: oneOf(body.sourceKind, SOURCE_KIND_IDS) || null,
+      sourceKind: oneOfOrNull(body.sourceKind, SOURCE_KIND_IDS),
+      sourceKindGiven: Object.prototype.hasOwnProperty.call(body, 'sourceKind'),
       referredBy: clean(body.referredBy, 64) || null,
       stage: oneOf(body.stage, STAGE_IDS) || 'new',
       askedAbout: cleanText(body.askedAbout, 500) || null,
@@ -217,6 +218,13 @@ export async function handleUpdateLead(request, env, id) {
 
   const { fields, error } = parse(await readJson(request));
   if (error) return badRequest(error);
+
+  // A save that does not mention the channel leaves it alone.
+  if (!fields.sourceKindGiven) {
+    const cur = await env.DB.prepare('SELECT source_kind FROM clients WHERE id = ? AND user_id = ?')
+      .bind(id, owner.id).first();
+    fields.sourceKind = (cur && cur.source_kind) || null;
+  }
 
   const res = await env.DB.prepare(
     `UPDATE clients

@@ -1252,6 +1252,28 @@ async function main() {
   check(sendNoName.status === 400, 'an address with no name is refused, since a lead needs one',
     `status ${sendNoName.status}`);
 
+  // The channel is only ever written when somebody says it. The check on it used to hand back the first
+  // channel, Referral, for anything missing, so a client added with none, or touched by a form's traveller
+  // block or an import, came out a Referral, and a channel already set was written over. A blank is an
+  // honest answer; a guessed channel reads as one.
+  const chanName = `Channel ${stamp}`;
+  const chanFind = async () => {
+    const r = await call(advisor, 'GET', `/api/clients?mine=1&q=${encodeURIComponent(chanName)}`);
+    return (r.data?.clients || []).find((c) => c.name === chanName);
+  };
+  await call(advisor, 'POST', '/api/clients', { name: chanName });
+  const chanNone = await chanFind();
+  check(chanNone && !chanNone.source_kind, 'a client added with no channel has none',
+    chanNone && chanNone.source_kind);
+  await call(advisor, 'POST', '/api/clients', { name: chanName, sourceKind: 'social' });
+  const chanSet = await chanFind();
+  check(chanSet && chanSet.source_kind === 'social', 'a channel that is given is kept',
+    chanSet && chanSet.source_kind);
+  await call(advisor, 'POST', '/api/clients', { name: chanName, email: `channel-${stamp}@test.dev` });
+  const chanAgain = await chanFind();
+  check(chanAgain && chanAgain.source_kind === 'social',
+    'and a later add that does not mention it leaves it alone', chanAgain && chanAgain.source_kind);
+
   // A client with nothing on file can be given an address, which is not the
   // same as redirecting one who has it.
   const sendBlankClient = await call(advisor, 'POST', '/api/clients',

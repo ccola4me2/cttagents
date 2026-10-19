@@ -11,7 +11,7 @@
 // can do the work. Contact details are added afterwards, when there is a
 // reason to.
 
-import { json, badRequest, notFound, clean, cleanDate, oneOf, uid, now, readJson } from './util.js';
+import { json, badRequest, notFound, clean, cleanDate, oneOf, oneOfOrNull, uid, now, readJson } from './util.js';
 import { tenantFor } from './tenant.js';
 import { requireUser } from './auth.js';
 import { statusShown } from './paydates.js';
@@ -483,7 +483,7 @@ export async function upsertClient(env, user, body) {
     // Where somebody came from is a fact about the first time they turned up,
     // so keep() applies here as it does everywhere else on this record: a
     // later import or a second form fills in a blank and overwrites nothing.
-    keep(oneOf(body.sourceKind, SOURCE_KIND_IDS), before?.source_kind),
+    keep(oneOfOrNull(body.sourceKind, SOURCE_KIND_IDS), before?.source_kind),
     keep(clean(body.referredBy, 64), before?.referred_by_client_id),
     now(), existingId, user.id
   ).run();
@@ -661,7 +661,7 @@ export async function handleUpdateClient(request, env, id) {
   // Renaming onto a name that is already on the book. The unique index refuses it, and what it said was a
   // database error. It is nearly always the same person typed twice, such as a corrected spelling, so say
   // which client has the name and let the page offer to merge the two.
-  const before = await env.DB.prepare('SELECT name FROM clients WHERE id = ? AND user_id = ?')
+  const before = await env.DB.prepare('SELECT name, source_kind FROM clients WHERE id = ? AND user_id = ?')
     .bind(id, owner.id).first();
   if (!before) return notFound('Client not found.');
   if (before.name !== name) {
@@ -703,7 +703,11 @@ export async function handleUpdateClient(request, env, id) {
          // The channel and who sent them, editable for the same reason the note
          // beside them is: the first guess at where somebody came from is often
          // wrong, and a field nobody can correct is a field nobody trusts.
-         oneOf(body.sourceKind, SOURCE_KIND_IDS) || null,
+         // A save that does not mention the channel leaves it alone. One that sends
+         // it blank clears it: the field is the advisor's to set or to unset.
+         Object.prototype.hasOwnProperty.call(body, 'sourceKind')
+           ? oneOfOrNull(body.sourceKind, SOURCE_KIND_IDS)
+           : (before.source_kind || null),
          clean(body.referredBy, 64) || null,
          ...travelBinds(travel),
          now(), id, owner.id).run();
