@@ -8388,8 +8388,10 @@ async function main() {
     check(badTo.status === 400, 'sending needs an email address', `status ${badTo.status}`);
 
     const noName = await call(advisor, 'POST', `/api/quick-proposals/${qid}/quote`, { clientName: '' });
-    check(noName.status === 201 || noName.status === 200, 'it can be turned into a quote, in the name it was prepared for', `status ${noName.status}`);
-    const bookingId = noName.data?.bookingId;
+    check(noName.status === 400, 'a quote needs to know whose it is when the proposal was not prepared for anybody', `status ${noName.status}`);
+    const quoteMade = await call(advisor, 'POST', `/api/quick-proposals/${qid}/quote`, { clientName: `Proposal Client ${stamp}` });
+    check(quoteMade.status === 201 && Boolean(quoteMade.data?.bookingId), 'it can be turned into a quote, in the client\'s name', `status ${quoteMade.status}`);
+    const bookingId = quoteMade.data?.bookingId;
     if (bookingId) cleanup('the reservation from the proposal', () => dropBooking(bookingId));
     const booking = await call(advisor, 'GET', `/api/bookings/${bookingId}`);
     check(booking.data?.booking?.status === 'quoted' && /Seven nights from Tampa/.test(booking.data?.booking?.notes || ''),
