@@ -321,12 +321,17 @@ const NAV = [
     ],
   },
   {
+    // Learning the portal, on its own line: the course, the one page of reminders, and the full manual.
+    hub: 'Training', icon: I.book, items: [
+      { href: '/app/training', label: 'Getting started' },
+      { href: '/app/cheatsheet', label: 'Cheat sheet' },
+      { href: '/app/manual', label: 'How this works' },
+    ],
+  },
+  {
     hub: 'Setup', icon: I.gear, items: [
       { href: '/app/settings', label: 'Settings' },
       { href: '/app/membership', label: 'Membership' },
-      { href: '/app/training', label: 'Training' },
-      { href: '/app/cheatsheet', label: 'Cheat sheet' },
-      { href: '/app/manual', label: 'How this works' },
     ],
   },
 ];
