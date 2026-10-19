@@ -8394,11 +8394,14 @@ async function main() {
     const bookingId = quoteMade.data?.bookingId;
     if (bookingId) cleanup('the reservation from the proposal', () => dropBooking(bookingId));
     const booking = await call(advisor, 'GET', `/api/bookings/${bookingId}`);
-    check(booking.data?.booking?.status === 'quoted' && /Seven nights from Tampa/.test(booking.data?.booking?.notes || ''),
+    check(booking.data?.booking?.status === 'quoted' && (booking.data?.booking?.notes || '').includes(title),
       'a quoted reservation that keeps what was written', JSON.stringify(booking.data?.booking?.status));
     const again = await call(advisor, 'POST', `/api/quick-proposals/${qid}/quote`, { clientName: 'Somebody' });
     check(again.data?.already === true && again.data?.bookingId === bookingId, 'and only once');
 
+    // Dropped here rather than at the end of the run: an unsent quote left on the book changes what the
+    // dashboard lists as waiting on the advisor, which a later check reads.
+    if (bookingId) await dropBooking(bookingId);
     await call(advisor, 'DELETE', `/api/quick-proposals/${qid}`);
     const afterDelete = await call(null, 'GET', `/p/${code}`);
     check(afterDelete.status === 404, 'deleting it stops the link working', `status ${afterDelete.status}`);
