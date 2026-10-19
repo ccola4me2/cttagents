@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Corporate targets | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Corporate targets</h1><p class="sub">What the whole agency sets out to do this year, and whether it is on course. Only owners see this.</p></div>
+      <select id="year" aria-label="Year" style="width:auto;"></select>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <section id="progress"></section>
+      <section class="card" id="set-card" style="margin-top:1.25rem;">
+        <div class="card-head"><h2>Set the agency's targets</h2></div>
+        <form id="goal-form" class="card-pad">
+          <div class="notice notice-error" hidden></div>
+          <div class="notice notice-ok" id="saved" hidden>Saved.</div>
+          <div class="field">
+            <label for="basis">Count them by</label>
+            <select id="basis" name="basis">
+              <option value="purchase">When the reservation was taken</option>
+              <option value="departure">When people travel</option>
+            </select>
+            <p class="field-hint">Counting by when reservations were taken measures what the agency sold; counting by
+              travel measures when the commission arrives. They can differ by a whole quarter.</p>
+          </div>
+          <div class="field">
+            <label for="countPersonal">Advisors' own travel</label>
+            <select id="countPersonal" name="countPersonal">
+              <option value="">Does not count towards these targets</option>
+              <option value="1">Counts towards these targets</option>
+            </select>
+          </div>
+          <div class="field-row">
+            <div class="field"><label for="salesGoal">Trips booked (USD)</label>
+              <input id="salesGoal" name="salesGoal" inputmode="decimal" placeholder="2000000"></div>
+            <div class="field"><label for="commissionGoal">Commission earned (USD)</label>
+              <input id="commissionGoal" name="commissionGoal" inputmode="decimal" placeholder="240000"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label for="agencyGoal">Kept by the agency (USD)</label>
+              <input id="agencyGoal" name="agencyGoal" inputmode="decimal" placeholder="40000">
+              <p class="field-hint">What the agency itself keeps of the commission, after its advisors' shares.</p></div>
+            <div class="field"><label for="bookingsGoal">Reservations</label>
+              <input id="bookingsGoal" name="bookingsGoal" type="number" min="0" max="1000000" placeholder="800"></div>
+          </div>
+          <div class="field"><label for="aim">What this year is for</label>
+            <textarea id="aim" name="aim" maxlength="500"
+              placeholder="In your own words. It appears at the top of this page."></textarea></div>
+          <button class="btn btn-primary" type="submit">Save targets</button>
+        </form>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api, mountShell, esc, money, showError, onSubmit } from '/js/app.js';
+const me = await mountShell();
+
+const yearSelect = document.getElementById('year');
+const form = document.getElementById('goal-form');
+const thisYear = new Date().getFullYear();
+for (const y of [thisYear - 1, thisYear, thisYear + 1]) {
+  const opt = document.createElement('option');
+  opt.value = String(y);
+  opt.textContent = String(y);
+  if (y === thisYear) opt.selected = true;
+  yearSelect.appendChild(opt);
+}
+
+// Not an owner: the page says so and shows nothing, whatever way the address was reached.
+if (me.role !== 'admin') {
+  document.getElementById('err').innerHTML = '<div class="notice notice-error">Corporate targets are for the agency\'s owners.</div>';
+  document.getElementById('set-card').hidden = true;
+  yearSelect.hidden = true;
+  throw new Error('Owners only');
+}
+
+/** A bar with two marks on it: where the agency is, and where it should be by today. */
+function bar(label, line, fmt) {
+  if (!line.goal) {
+    return `<div class="goal-row"><p class="goal-label">${esc(label)}
+      <span>${fmt(line.actual)} so far</span></p><p class="goal-none">No target set.</p></div>`;
+  }
+  const pct = Math.min(100, Math.max(0, (line.actual / line.goal) * 100));
+  const pace = Math.min(100, Math.max(0, (line.pace / line.goal) * 100));
+  const ahead = line.ahead >= 0;
+  return `<div class="goal-row">
+    <p class="goal-label">${esc(label)} <span>${fmt(line.actual)} of ${fmt(line.goal)}</span></p>
+    <div class="goal-bar">
+      <span class="fill ${ahead ? 'ahead' : 'behind'}" style="width:${pct}%"></span>
+      <span class="pace" style="left:${pace}%" title="Where the agency should be by today"></span>
+    </div>
+    <p class="goal-meta">
+      <strong class="${ahead ? 'up' : 'down'}">${ahead ? 'Ahead by' : 'Behind by'} ${fmt(Math.abs(line.ahead))}</strong>
+      <span class="muted">on course needs ${fmt(line.pace)} by today &middot; ${line.percent}% of target</span>
+    </p></div>`;
+}
+
+function render(d) {
+  const g = d.targets;
+  const count = (n) => String(n);
+  document.getElementById('progress').innerHTML = `
+    ${g.aim ? `<div class="card card-pad" style="margin-bottom:1rem;"><p class="goal-aim">${esc(g.aim)}</p></div>` : ''}
+    <div class="card">
+      <div class="card-head"><h2>${g.year}</h2>
+        <span class="muted" style="font-size:.8rem;">${g.elapsed}% of the year gone &middot; counted by ${
+          g.basis === 'purchase' ? 'when reservations were taken' : 'when people travel'}${
+          g.countPersonal ? ', advisors\' own travel included' : ''}</span></div>
+      <div class="card-pad">
+        ${g.set ? '' : '<p class="field-hint" style="margin:0 0 1rem;">Nothing set for this year yet. Fill in the form below.</p>'}
+        ${bar('Trips booked', g.sales, money)}
+        ${bar('Commission earned', g.commission, money)}
+        ${bar('Kept by the agency', g.agency, money)}
+        ${bar('Reservations', g.bookings, count)}
+      </div>
+    </div>
+    <div class="card" style="margin-top:1.25rem;">
+      <div class="card-head"><h2>Who it is made of</h2></div>
+      ${g.advisors.length ? `<div class="table-wrap"><table>
+        <thead><tr><th>Advisor</th><th class="num">Reservations</th><th class="num">Trips booked</th>
+          <th class="num">Commission</th><th class="num">Kept by the agency</th></tr></thead>
+        <tbody>${g.advisors.map((a) => `<tr><td>${esc(a.name)}</td><td class="num">${a.bookings}</td>
+          <td class="num">${money(a.grossCents)}</td><td class="num">${money(a.commissionCents)}</td>
+          <td class="num">${money(a.agencyCents)}</td></tr>`).join('')}</tbody></table></div>`
+        : '<div class="card-pad"><p class="muted" style="margin:0;">No reservations counted yet this year.</p></div>'}
+    </div>`;
+
+  const cents = (n) => (n ? (n / 100).toFixed(2) : '');
+  form.elements.basis.value = g.basis;
+  form.elements.countPersonal.value = g.countPersonal ? '1' : '';
+  form.elements.salesGoal.value = cents(g.sales.goal);
+  form.elements.commissionGoal.value = cents(g.commission.goal);
+  form.elements.agencyGoal.value = cents(g.agency.goal);
+  form.elements.bookingsGoal.value = g.bookings.goal || '';
+  form.elements.aim.value = g.aim;
+}
+
+async function load() {
+  try { render(await api(`/api/corporate-targets?year=${yearSelect.value}`)); }
+  catch (err) { showError(document.getElementById('err'), err); }
+}
+
+yearSelect.addEventListener('change', load);
+
+onSubmit(form, async (values) => {
+  render(await api('/api/corporate-targets', { method: 'PUT', body: { ...values, year: yearSelect.value } }));
+  const ok = document.getElementById('saved');
+  ok.hidden = false;
+  setTimeout(() => { ok.hidden = true; }, 2500);
+});
+
+await load();
+</script>
+</body></html>

@@ -1342,8 +1342,11 @@ export async function associateStats(env, scope, { agencyId, yearStart, today })
 }
 
 export async function productionByAdvisor(env, scope, sinceDate,
-  { includePersonal = false, until = null } = {}) {
+  { includePersonal = false, until = null, basis = 'departure' } = {}) {
   const scoped = scopeWhere(scope, 'u.id');
+  // Counted by when people travel unless the caller asks for when the reservation was taken.
+  const byBasis = { departure: 'b.depart_date', purchase: "date(b.created_at, 'unixepoch')" };
+  const col = byBasis[basis] || byBasis.departure;
   const { results } = await env.DB.prepare(
     `SELECT u.id AS user_id, ${ADVISOR_NAME}, u.role, u.status,
             COUNT(b.id) AS bookings,
@@ -1363,8 +1366,8 @@ export async function productionByAdvisor(env, scope, sinceDate,
        LEFT JOIN bookings b
          ON b.user_id = u.id
         AND b.status IN ('booked','travelled')${personalFilter(includePersonal, 'b')}
-        AND b.depart_date IS NOT NULL AND b.depart_date >= ?
-        ${until ? 'AND b.depart_date <= ?' : ''}
+        AND ${col} IS NOT NULL AND ${col} >= ?
+        ${until ? `AND ${col} <= ?` : ''}
       WHERE ${scoped.sql} AND u.status != 'pending'
       GROUP BY u.id
       HAVING u.status = 'active' OR COUNT(b.id) > 0

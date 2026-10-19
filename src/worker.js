@@ -274,6 +274,7 @@ import {
   handleDeleteEnquiry,
 } from './specials.js';
 import { handleGroupStats } from './groupstats.js';
+import { handleGetCorporate, handleSaveCorporate } from './corporate.js';
 import {
   handleBookableGroups, handleRequestAccess, handleGroupAccess, handleDecideAccess,
 } from './groupaccess.js';
@@ -521,6 +522,7 @@ const PAGE_FILES = {
   '/app/form': '/app/form.html',
   '/app/bookings': '/app/reservations.html',
   '/app/reports': '/app/reports.html',
+  '/app/corporate-targets': '/app/corporate-targets.html',
   '/app/settings': '/app/settings.html',
   '/admin/manual': '/admin/manual.html',
   '/admin/commissions': '/admin/commissions.html',
@@ -1209,6 +1211,8 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/agency-events' && method === 'POST') return handleSaveAgencyEvent(request, env, null);
   if (path === '/api/admin/agency-events' && method === 'GET') return handleAdminAgencyEvents(request, env);
   if (path === '/api/admin/group-stats' && method === 'GET') return handleGroupStats(request, env);
+  if (path === '/api/corporate-targets' && method === 'GET') return handleGetCorporate(request, env);
+  if (path === '/api/corporate-targets' && method === 'PUT') return handleSaveCorporate(request, env);
   if (agencyGoingMatch && method === 'PUT') return handleGoing(request, env, agencyGoingMatch[1]);
   if (agencyEventMatch && method === 'PUT') return handleSaveAgencyEvent(request, env, agencyEventMatch[1]);
   if (agencyEventMatch && method === 'DELETE') return handleDeleteAgencyEvent(request, env, agencyEventMatch[1]);

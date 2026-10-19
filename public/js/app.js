@@ -318,6 +318,8 @@ const NAV = [
     hub: 'Report', icon: I.chart, items: [
       { href: '/app/reports', label: 'Production' },
       { href: '/app/goals', label: 'Targets' },
+      // The whole agency's targets: an owner sees the line and sets them, nobody else is offered it.
+      { href: '/app/corporate-targets', label: 'Corporate targets', owner: true },
     ],
   },
   {
@@ -1403,7 +1405,10 @@ export async function mountShell({ admin = false } = {}) {
   if (!sidebar) return user;
 
   const current = location.pathname.replace(/index\.html$/, '');
-  const items = admin ? ADMIN_NAV : NAV;
+  // Lines marked owner are left out for everybody who is not an owner working as themselves.
+  const mayOwn = user.role === 'admin' && !actingAs;
+  const items = (admin ? ADMIN_NAV : NAV).map((e) => (e.hub
+    ? { ...e, items: e.items.filter((i) => !i.owner || mayOwn) } : e));
   const showAdminLink = !admin && user.role === 'admin';
 
   // The hub holding the current page always opens. Otherwise reopen whichever

@@ -21,7 +21,7 @@ function isoDay(offsetDays = 0) {
 }
 
 /** How far through the year today is, as a fraction. */
-function yearProgress(today, year) {
+export function yearProgress(today, year) {
   const start = Date.UTC(year, 0, 1);
   const end = Date.UTC(year + 1, 0, 1);
   const at = Date.parse(`${today}T00:00:00Z`);
@@ -30,7 +30,7 @@ function yearProgress(today, year) {
   return (at - start) / (end - start);
 }
 
-function line(actual, goal, elapsed) {
+export function line(actual, goal, elapsed) {
   if (!goal) return { goal: 0, actual, pace: 0, ahead: null, percent: null };
   const pace = Math.round(goal * elapsed);
   return {

@@ -8283,6 +8283,35 @@ async function main() {
     check(last.data?.wordingSource === 'built-in', 'and with neither it is the portal\'s again', last.data?.wordingSource);
   }
 
+  // Corporate targets: the agency's own, an owner's to see and set.
+  {
+    const noRead = await call(advisor, 'GET', '/api/corporate-targets');
+    check(noRead.status === 403, 'an advisor cannot read the corporate targets', `status ${noRead.status}`);
+    const noSet = await call(advisor, 'PUT', '/api/corporate-targets', { year: 2098, salesGoal: '1000' });
+    check(noSet.status === 403, 'nor set them', `status ${noSet.status}`);
+    const anon = await call(null, 'GET', '/api/corporate-targets');
+    check(anon.status === 401, 'nor can somebody who is not signed in', `status ${anon.status}`);
+
+    cleanup('the corporate targets', () => call(admin, 'PUT', '/api/corporate-targets', { year: 2098 }));
+    const saved = await call(admin, 'PUT', '/api/corporate-targets', {
+      year: 2098, salesGoal: '1000000', commissionGoal: '120000', agencyGoal: '20000',
+      bookingsGoal: 400, basis: 'purchase', aim: 'Smoke year',
+    });
+    const t = saved.data?.targets;
+    check(saved.status === 200 && t?.sales?.goal === 100000000 && t?.commission?.goal === 12000000
+      && t?.agency?.goal === 2000000 && t?.bookings?.goal === 400 && t?.basis === 'purchase' && t?.aim === 'Smoke year',
+    'an owner can set the agency\'s targets', JSON.stringify([saved.status, t?.sales]));
+    const read = await call(admin, 'GET', '/api/corporate-targets?year=2098');
+    check(read.status === 200 && read.data?.targets?.sales?.goal === 100000000
+      && typeof read.data?.targets?.sales?.actual === 'number' && Array.isArray(read.data?.targets?.advisors),
+    'and read them back with how far the agency is, and who it is made of', JSON.stringify(read.data?.targets?.sales));
+    const thisYear = await call(admin, 'GET', '/api/corporate-targets');
+    check(thisYear.status === 200 && thisYear.data?.targets?.year === new Date().getUTCFullYear(),
+      'the year it opens on is this one');
+    const page = await call(null, 'GET', '/app/corporate-targets');
+    check(page.status === 302 || page.status === 200, 'the page is behind the sign in', `status ${page.status}`);
+  }
+
   // Who may sell into a group: private, open, or by request, and what an outside booking pays.
   {
     const made = await call(admin, 'POST', '/api/groups', {
