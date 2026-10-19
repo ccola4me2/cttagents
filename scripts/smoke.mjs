@@ -173,6 +173,18 @@ async function uploadPicture(cookieJar, groupId, bytes, type, filename) {
   return { status: res.status, data: await res.json().catch(() => null) };
 }
 
+/** A picture for a quick proposal, a multipart upload like the group's. */
+async function uploadProposalPicture(cookieJar, id, bytes, type, filename) {
+  const body = new FormData();
+  body.append('file', new Blob([bytes], { type }), filename);
+  const res = await fetch(`${BASE}/api/quick-proposals/${id}/image`, {
+    method: 'POST',
+    headers: { ...(cookieJar.header() ? { cookie: cookieJar.header() } : {}) },
+    body,
+  });
+  return { status: res.status, data: await res.json().catch(() => null) };
+}
+
 /**
  * Make an advisor the way the portal actually makes them: an admin creates the
  * account, and the one-time link that comes back is what gives it a password.
@@ -8303,6 +8315,91 @@ async function main() {
     await call(admin, 'DELETE', `/api/statement-wording?kind=${kindNow}&scope=agency`);
     const last = await call(advisor, 'POST', `/api/bookings/${stId}/statement`, { preview: true });
     check(last.data?.wordingSource === 'built-in', 'and with neither it is the portal\'s again', last.data?.wordingSource);
+  }
+
+  // Quick proposals: built and sent without being a quote, and turned into one later.
+  {
+    const made = await call(advisor, 'POST', '/api/quick-proposals', {});
+    const qid = made.data?.id;
+    check(made.status === 201 && Boolean(qid), 'an advisor can start a proposal with nothing filled in', `status ${made.status}`);
+    cleanup('the quick proposal', () => call(advisor, 'DELETE', `/api/quick-proposals/${qid}`));
+    const got = await call(advisor, 'GET', `/api/quick-proposals/${qid}`);
+    const code = String(got.data?.link || '').split('/p/')[1] || '';
+    check(/^[a-z0-9]{8,}$/.test(code), 'it has an address of its own', got.data?.link);
+
+    const noTitle = await call(advisor, 'PUT', `/api/quick-proposals/${qid}`, { title: '' });
+    check(noTitle.status === 400, 'a proposal needs a title', `status ${noTitle.status}`);
+    const badDays = await call(advisor, 'PUT', `/api/quick-proposals/${qid}`, { title: 'x', expiresInDays: 7 });
+    check(badDays.status === 400, 'and a length of time it offers', `status ${badDays.status}`);
+
+    const title = `Seven nights in the sun ${stamp}`;
+    const saved = await call(advisor, 'PUT', `/api/quick-proposals/${qid}`, {
+      title, forName: 'Sarah and Mike', note: 'A few words from me', totalText: 'From $2,498.00', expiresInDays: 30,
+      sections: [{ heading: 'The ship', body: 'Seven nights from Tampa', price: '$1,249.00 per person' },
+        { heading: '', body: '', price: '' }],
+    });
+    check(saved.status === 200 && saved.data?.proposal?.sections?.length === 1,
+      'it saves, and an empty section is left off', JSON.stringify(saved.data?.proposal?.sections));
+
+    const pub = await call(null, 'GET', `/p/${code}`);
+    check(pub.status === 200 && pub.raw.includes(title) && pub.raw.includes('Prepared for Sarah and Mike')
+      && pub.raw.includes('$1,249.00 per person') && pub.raw.includes('From $2,498.00'),
+    'anybody with the link sees it', `status ${pub.status}`);
+    check(pub.raw.includes('noindex') && pub.raw.includes('subject to change'),
+      'kept out of search, and it says prices can change');
+    check(!/commission|split/i.test(pub.raw.replace(/<style[\s\S]*?<\/style>/g, '')),
+      'and says nothing about what the agency earns');
+    await call(null, 'GET', `/p/${code}`, undefined, { 'User-Agent': 'Googlebot/2.1' });
+    const list = await call(advisor, 'GET', '/api/quick-proposals');
+    const row = (list.data?.proposals || []).find((x) => x.id === qid);
+    check(Boolean(row) && row.viewCount === 1, 'it counts the visit, and not a robot\'s', JSON.stringify(row));
+    const nope = await call(null, 'GET', '/p/zzzzzzzzzzzz');
+    check(nope.status === 404, 'a link that is not one gets a plain page', `status ${nope.status}`);
+
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+    const pic = await uploadProposalPicture(advisor, qid, png, 'image/png', 'ship.png');
+    if (pic.status === 400 && /storage/i.test(pic.data?.error || '')) {
+      skip('pictures on a proposal', 'no document storage is bound here');
+    } else {
+      check(pic.status === 201 && /\/pi\//.test(pic.data?.url || ''), 'a picture can be added', `${pic.status} ${JSON.stringify(pic.data)}`);
+      const shown = await fetch(`${BASE}/pi/${pic.data?.id}`);
+      check(shown.status === 200 && shown.headers.get('content-type') === 'image/png'
+        && shown.headers.get('x-content-type-options') === 'nosniff', 'and it is served as a picture and nothing else', `${shown.status}`);
+      const notPic = await uploadProposalPicture(advisor, qid, Buffer.from('<script>alert(1)</script>'), 'image/png', 'x.png');
+      check(notPic.status === 400, 'a file that is not a picture is refused', `status ${notPic.status}`);
+      const strangerPic = await uploadProposalPicture(admin, qid, png, 'image/png', 'x.png');
+      check(strangerPic.status === 404, 'and nobody else can add one to it', `status ${strangerPic.status}`);
+      const withPic = await call(advisor, 'PUT', `/api/quick-proposals/${qid}`, {
+        title, coverImageId: pic.data?.id, sections: [{ heading: 'The ship', imageId: pic.data?.id }],
+      });
+      check(withPic.data?.proposal?.coverImageId === pic.data?.id && withPic.data?.proposal?.sections?.[0]?.imageId === pic.data?.id,
+        'a picture can be the cover and sit in a section');
+      const foreign = await call(advisor, 'PUT', `/api/quick-proposals/${qid}`, {
+        title, sections: [{ heading: 'x', imageId: 'not-one-of-mine' }],
+      });
+      check(!foreign.data?.proposal?.sections?.[0]?.imageId, 'a picture that is not its own is dropped', JSON.stringify(foreign.data?.proposal?.sections));
+    }
+
+    const stranger = await call(admin, 'GET', `/api/quick-proposals/${qid}`);
+    check(stranger.status === 404, 'another advisor cannot read it', `status ${stranger.status}`);
+    const noSend = await call(admin, 'POST', `/api/quick-proposals/${qid}/send`, { to: 'a@test.dev' });
+    check(noSend.status === 404, 'nor send it', `status ${noSend.status}`);
+    const badTo = await call(advisor, 'POST', `/api/quick-proposals/${qid}/send`, { to: 'not an address' });
+    check(badTo.status === 400, 'sending needs an email address', `status ${badTo.status}`);
+
+    const noName = await call(advisor, 'POST', `/api/quick-proposals/${qid}/quote`, { clientName: '' });
+    check(noName.status === 201 || noName.status === 200, 'it can be turned into a quote, in the name it was prepared for', `status ${noName.status}`);
+    const bookingId = noName.data?.bookingId;
+    if (bookingId) cleanup('the reservation from the proposal', () => dropBooking(bookingId));
+    const booking = await call(advisor, 'GET', `/api/bookings/${bookingId}`);
+    check(booking.data?.booking?.status === 'quoted' && /Seven nights from Tampa/.test(booking.data?.booking?.notes || ''),
+      'a quoted reservation that keeps what was written', JSON.stringify(booking.data?.booking?.status));
+    const again = await call(advisor, 'POST', `/api/quick-proposals/${qid}/quote`, { clientName: 'Somebody' });
+    check(again.data?.already === true && again.data?.bookingId === bookingId, 'and only once');
+
+    await call(advisor, 'DELETE', `/api/quick-proposals/${qid}`);
+    const afterDelete = await call(null, 'GET', `/p/${code}`);
+    check(afterDelete.status === 404, 'deleting it stops the link working', `status ${afterDelete.status}`);
   }
 
   // Corporate targets: the agency's own, an owner's to see and set.

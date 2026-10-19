@@ -109,6 +109,10 @@ const OWNED = new Set([
   // Who looked at a group's page. Written by the public page under the group's owner, with user_id in
   // the statement, and read by an owner across the agency through the same scope as the groups.
   'group_visits',
+  // A proposal an advisor built to send, and its pictures. Theirs, and every statement that reads or
+  // changes one for the advisor names user_id. The public page and picture find one by the code or id
+  // that was handed out in the link, and the housekeeping pass removes expired ones: each is listed below.
+  'quick_proposals', 'quick_proposal_images',
 ]);
 
 // Shared by a whole agency, so agency_id is the predicate that matters rather
@@ -157,6 +161,17 @@ const EXEMPT = new Map([
 // claim that somebody checked, which is the point of writing it down instead
 // of widening the rule until nothing fails.
 const ALLOWED = [
+  ['FROM quick_proposals WHERE code = ?',
+    'a proposal by the code in the link the advisor sent. The code is the credential and is unique; the '
+    + 'row returned names the owner, which the rest of the public page uses. Nothing else is read from it.'],
+  ['UPDATE quick_proposals SET view_count = view_count + 1,',
+    'counting a view of a proposal the public page has just found by its code; by id, after that lookup'],
+  ['JOIN quick_proposals p ON p.id = i.proposal_id',
+    'a picture on a live proposal, found by the id of the picture that the proposal page handed out'],
+  ['FROM quick_proposals WHERE booking_id IS NULL AND expires_at IS NOT NULL AND expires_at < ?',
+    'the housekeeping pass that removes proposals a week after they expired, across every advisor, like the '
+    + 'session purge: it is not a request and has no user'],
+
   // The housekeeping pass that clears confirmations nobody opened. It is not a request and has no
   // user: it removes rows by age, from every advisor, for the same reason the session purge does.
   ['DELETE FROM inbox_confirmations WHERE created_at < ?',

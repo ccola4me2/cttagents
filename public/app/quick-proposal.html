@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proposal | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+<style>
+  .qp-sec { border: 1px solid var(--navy-100); border-radius: 12px; padding: 1rem; margin-bottom: .9rem; background: #fff; }
+  .qp-sec .qp-pic { display: flex; gap: .8rem; align-items: center; flex-wrap: wrap; margin-top: .4rem; }
+  .qp-sec img, .qp-cover img { max-width: 11rem; max-height: 7rem; border-radius: 8px; object-fit: cover; }
+  .qp-bar { display: flex; gap: .5rem; flex-wrap: wrap; }
+  .qp-link { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9rem; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><a class="back-link" href="/app/quick-proposals">&larr; Quick proposals</a>
+        <h1 id="page-title">Proposal</h1>
+        <p class="sub" id="state"></p></div>
+      <div class="toolbar qp-bar" style="margin:0;">
+        <a class="btn btn-ghost btn-sm" id="preview" target="_blank" rel="noopener">Preview</a>
+        <button class="btn btn-ghost btn-sm" type="button" id="copy">Copy link</button>
+        <button class="btn btn-primary btn-sm" type="button" id="send">Send by email</button>
+      </div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <div class="notice notice-ok" id="saved" role="status" hidden>Saved.</div>
+
+      <section class="card">
+        <div class="card-head"><h2>The front</h2></div>
+        <div class="card-pad">
+          <div class="field"><label for="title">Title</label>
+            <input id="title" maxlength="140" placeholder="Seven nights in the Western Caribbean"></div>
+          <div class="field-row">
+            <div class="field"><label for="forName">Who it is for</label>
+              <input id="forName" maxlength="120" placeholder="Sarah and Mike">
+              <p class="field-hint">Shows as "Prepared for Sarah and Mike". Leave it empty to say just "A proposal".</p></div>
+          </div>
+          <div class="field"><label>Cover picture</label>
+            <div class="qp-cover" id="cover"></div>
+            <input type="file" id="cover-file" accept="image/jpeg,image/png,image/webp,image/gif">
+            <p class="field-hint" id="cover-note">JPEG, PNG, WebP or GIF, up to 5 MB. A wide picture works best.</p></div>
+          <div class="field"><label for="note">A few words from you</label>
+            <textarea id="note" rows="4" maxlength="3000" placeholder="It was lovely talking to you. This is what I had in mind."></textarea></div>
+        </div>
+      </section>
+
+      <section class="card" style="margin-top:1.25rem;">
+        <div class="card-head"><h2>What is in it</h2>
+          <button class="btn btn-ghost btn-sm" type="button" id="add-sec">Add a section</button></div>
+        <div class="card-pad">
+          <p class="field-hint" style="margin-top:0;">One section for each thing: the cruise, the hotel, a day, an excursion. Each can
+            have a picture, some words and a price. Anything you leave empty is left off.</p>
+          <div id="secs"></div>
+        </div>
+      </section>
+
+      <section class="card" style="margin-top:1.25rem;">
+        <div class="card-head"><h2>Price and link</h2></div>
+        <div class="card-pad">
+          <div class="field-row">
+            <div class="field"><label for="totalText">Total, if you want one shown</label>
+              <input id="totalText" maxlength="120" placeholder="From $2,899.00 per person"></div>
+            <div class="field"><label for="expires">The link stays open for</label>
+              <select id="expires"><option value="30">30 days</option><option value="60" selected>60 days</option>
+                <option value="90">90 days</option><option value="180">180 days</option></select>
+              <p class="field-hint" id="expires-note"></p></div>
+          </div>
+          <p class="field-hint">Prices are whatever you type, so include the cents yourself. The page says prices and
+            availability are subject to change.</p>
+          <div class="field"><label>Its link</label><p class="qp-link" id="link"></p></div>
+        </div>
+        <div class="card-foot">
+          <button class="btn btn-ghost" type="button" id="drop">Delete</button>
+          <span style="flex:1;"></span>
+          <button class="btn btn-secondary" type="button" id="quote">Turn into a quote</button>
+          <button class="btn btn-primary" type="button" id="save">Save</button>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<dialog id="send-dlg">
+  <form id="send-form" method="dialog">
+    <div class="card-head"><h2>Send it by email</h2>
+      <button class="btn btn-ghost btn-sm" type="button" id="send-close">Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" id="send-err" hidden></div>
+      <div class="field"><label for="to">Send to</label>
+        <input id="to" type="email" required maxlength="254" placeholder="sarah@example.com"></div>
+      <div class="field"><label for="toName">Their first name</label>
+        <input id="toName" maxlength="80" placeholder="Sarah"></div>
+      <div class="field"><label for="message">Your message</label>
+        <textarea id="message" rows="5" maxlength="2000"
+          placeholder="Here is what I put together for you. Have a look and tell me what you think."></textarea>
+        <p class="field-hint">The email carries your words and a button that opens the proposal. It answers to you. Nothing
+          is saved to a client record.</p></div>
+      <label style="display:flex;gap:.5rem;align-items:center;font-weight:400;">
+        <input type="checkbox" id="copyToMe" style="width:auto;"> Send me a copy too</label>
+    </div>
+    <div class="card-foot"><span style="flex:1;"></span><button class="btn btn-primary" type="submit" id="send-go">Send it</button></div>
+  </form>
+</dialog>
+
+<script type="module">
+import { api, mountShell, esc, showError } from '/js/app.js';
+await mountShell();
+
+const id = new URL(location.href).searchParams.get('id');
+const err = document.getElementById('err');
+let p = null;          // the proposal as last saved
+let secs = [];         // the sections being edited
+let cover = '';        // the cover picture's id
+let images = {};       // picture id -> address
+const $ = (x) => document.getElementById(x);
+
+if (!id) { location.href = '/app/quick-proposals'; }
+
+async function upload(file) {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`/api/quick-proposals/${encodeURIComponent(id)}/image`, { method: 'POST', body: form, credentials: 'same-origin' });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(out.error || 'The picture could not be uploaded.');
+  images[out.id] = out.url;
+  return out.id;
+}
+
+function drawCover() {
+  $('cover').innerHTML = cover && images[cover]
+    ? `<img src="${esc(images[cover])}" alt=""> <button class="btn btn-ghost btn-sm" type="button" id="cover-drop">Remove</button>` : '';
+  const drop = $('cover-drop');
+  if (drop) drop.addEventListener('click', () => removePicture(cover).then(() => { cover = ''; drawCover(); }));
+}
+
+async function removePicture(pid) {
+  try { await api(`/api/quick-proposals/${encodeURIComponent(id)}/image/${encodeURIComponent(pid)}`, { method: 'DELETE' }); delete images[pid]; }
+  catch (e) { showError(err, e); }
+}
+
+function readSecs() {
+  document.querySelectorAll('.qp-sec').forEach((el, i) => {
+    secs[i] = { ...secs[i], heading: el.querySelector('.s-heading').value, body: el.querySelector('.s-body').value,
+      price: el.querySelector('.s-price').value };
+  });
+}
+
+function drawSecs() {
+  $('secs').innerHTML = secs.length ? secs.map((s, i) => `<div class="qp-sec" data-i="${i}">
+    <div class="field"><label>Heading</label>
+      <input class="s-heading" maxlength="100" value="${esc(s.heading || '')}" placeholder="Your cabin on Margaritaville at Sea"></div>
+    <div class="field"><label>Words</label>
+      <textarea class="s-body" rows="4" maxlength="2500" placeholder="What it is and why it suits them.">${esc(s.body || '')}</textarea></div>
+    <div class="field" style="max-width:20rem;"><label>Price, if you want one shown</label>
+      <input class="s-price" maxlength="80" value="${esc(s.price || '')}" placeholder="$1,249.00 per person"></div>
+    <div class="qp-pic">${s.imageId && images[s.imageId]
+      ? `<img src="${esc(images[s.imageId])}" alt=""><button class="btn btn-ghost btn-sm" type="button" data-pic-drop="${i}">Remove the picture</button>`
+      : `<label class="btn btn-ghost btn-sm" style="margin:0;cursor:pointer;">Add a picture
+          <input type="file" data-pic="${i}" accept="image/jpeg,image/png,image/webp,image/gif" hidden></label>`}
+      <span style="flex:1;"></span>
+      <button class="btn btn-ghost btn-sm" type="button" data-up="${i}" ${i === 0 ? 'disabled' : ''}>Up</button>
+      <button class="btn btn-ghost btn-sm" type="button" data-down="${i}" ${i === secs.length - 1 ? 'disabled' : ''}>Down</button>
+      <button class="btn btn-ghost btn-sm" type="button" data-del="${i}">Remove this section</button></div>
+  </div>`).join('') : '<p class="muted">No sections yet. Press Add a section.</p>';
+
+  document.querySelectorAll('[data-pic]').forEach((inp) => inp.addEventListener('change', async () => {
+    const i = Number(inp.dataset.pic); if (!inp.files[0]) return;
+    readSecs();
+    try { secs[i].imageId = await upload(inp.files[0]); drawSecs(); } catch (e) { showError(err, e); }
+  }));
+  document.querySelectorAll('[data-pic-drop]').forEach((b) => b.addEventListener('click', async () => {
+    const i = Number(b.dataset.picDrop); readSecs(); await removePicture(secs[i].imageId); secs[i].imageId = ''; drawSecs();
+  }));
+  document.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', async () => {
+    const i = Number(b.dataset.del); readSecs();
+    if (secs[i].imageId) await removePicture(secs[i].imageId);
+    secs.splice(i, 1); drawSecs();
+  }));
+  const move = (i, by) => { readSecs(); const j = i + by; [secs[i], secs[j]] = [secs[j], secs[i]]; drawSecs(); };
+  document.querySelectorAll('[data-up]').forEach((b) => b.addEventListener('click', () => move(Number(b.dataset.up), -1)));
+  document.querySelectorAll('[data-down]').forEach((b) => b.addEventListener('click', () => move(Number(b.dataset.down), 1)));
+}
+
+function fill(d) {
+  p = d.proposal;
+  images = Object.fromEntries((p.images || []).map((i) => [i.id, i.url]));
+  secs = p.sections.map((s) => ({ ...s }));
+  cover = p.coverImageId || '';
+  $('title').value = p.title; $('forName').value = p.forName; $('note').value = p.note;
+  $('totalText').value = p.totalText;
+  $('page-title').textContent = p.title;
+  $('link').textContent = d.link;
+  $('preview').href = d.link;
+  const days = p.expiresAt ? Math.max(0, Math.round((p.expiresAt - Date.now() / 1000) / 86400)) : null;
+  $('expires-note').textContent = days === null ? '' : days === 0 ? 'The link has expired.' : `About ${days} day${days === 1 ? '' : 's'} left. Choose a length and Save to start the count again.`;
+  $('state').textContent = p.bookingId ? 'Turned into a quote.'
+    : p.viewCount ? `Opened ${p.viewCount} time${p.viewCount === 1 ? '' : 's'}.`
+    : p.sentCount ? 'Sent, not opened yet.' : 'Not sent yet.';
+  $('quote').hidden = Boolean(p.bookingId);
+  $('cover-file').disabled = !d.storage;
+  if (!d.storage) $('cover-note').textContent = 'Picture storage is not set up yet, so pictures cannot be added.';
+  drawCover(); drawSecs();
+}
+
+async function load() {
+  try { fill(await api(`/api/quick-proposals/${encodeURIComponent(id)}`)); }
+  catch (e) { showError(err, e); }
+}
+
+async function save(withExpiry = false) {
+  readSecs();
+  const body = { title: $('title').value, forName: $('forName').value, note: $('note').value, coverImageId: cover,
+    sections: secs, totalText: $('totalText').value };
+  if (withExpiry) body.expiresInDays = $('expires').value;
+  const out = await api(`/api/quick-proposals/${encodeURIComponent(id)}`, { method: 'PUT', body });
+  return out;
+}
+
+$('add-sec').addEventListener('click', () => { readSecs(); secs.push({ heading: '', body: '', price: '', imageId: '' }); drawSecs(); });
+
+$('cover-file').addEventListener('change', async (ev) => {
+  const f = ev.target.files[0]; if (!f) return;
+  try { const old = cover; cover = await upload(f); if (old) await removePicture(old); drawCover(); }
+  catch (e) { showError(err, e); }
+  ev.target.value = '';
+});
+
+$('save').addEventListener('click', async () => {
+  err.innerHTML = '';
+  try {
+    await save(true);
+    await load();
+    const ok = $('saved'); ok.hidden = false; setTimeout(() => { ok.hidden = true; }, 2500);
+  } catch (e) { showError(err, e); }
+});
+
+$('copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText($('link').textContent); $('copy').textContent = 'Copied'; setTimeout(() => { $('copy').textContent = 'Copy link'; }, 2000); }
+  catch { prompt('Copy this link', $('link').textContent); }
+});
+
+const dlg = $('send-dlg');
+$('send').addEventListener('click', async () => {
+  try { await save(); } catch (e) { showError(err, e); return; }
+  $('send-err').hidden = true;
+  $('toName').value = (p.forName || '').split(/\s+/)[0] || '';
+  dlg.showModal();
+});
+$('send-close').addEventListener('click', () => dlg.close());
+$('send-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  $('send-go').disabled = true;
+  try {
+    await api(`/api/quick-proposals/${encodeURIComponent(id)}/send`, { method: 'POST',
+      body: { to: $('to').value, name: $('toName').value, message: $('message').value, copyToMe: $('copyToMe').checked } });
+    dlg.close();
+    await load();
+    const ok = $('saved'); ok.textContent = 'Sent.'; ok.hidden = false; setTimeout(() => { ok.hidden = true; ok.textContent = 'Saved.'; }, 3000);
+  } catch (e) { $('send-err').textContent = e.message || 'It could not be sent.'; $('send-err').hidden = false; }
+  finally { $('send-go').disabled = false; }
+});
+
+$('quote').addEventListener('click', async () => {
+  const name = prompt('Who is the quote for?', p.forName || '');
+  if (!name) return;
+  try {
+    await save();
+    const made = await api(`/api/quick-proposals/${encodeURIComponent(id)}/quote`, { method: 'POST', body: { clientName: name } });
+    location.href = `/app/reservation?id=${encodeURIComponent(made.bookingId)}`;
+  } catch (e) { showError(err, e); }
+});
+
+$('drop').addEventListener('click', async () => {
+  if (!confirm('Delete this proposal? Its link stops working and its pictures are removed.')) return;
+  try { await api(`/api/quick-proposals/${encodeURIComponent(id)}`, { method: 'DELETE' }); location.href = '/app/quick-proposals'; }
+  catch (e) { showError(err, e); }
+});
+
+await load();
+</script>
+</body></html>

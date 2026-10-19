@@ -177,6 +177,15 @@ export const LESSONS = [
     doing: 'Look at what is waiting on you rather than on the client, and clear that side first.',
   },
   {
+    key: 'quickproposals',
+    section: 'reservation',
+    title: 'Quick proposals',
+    why: 'A trip with pictures and a few words, sent by link or email, without a client record or a quote behind it. It is for the conversation before a quote, when filling in a reservation would be getting ahead of yourself.',
+    manual: 'reservations',
+    page: '/app/quick-proposals',
+    doing: 'Press New proposal, add a cover picture and one section with a picture and a few words, preview it, and send it to yourself. When a client says yes, press Turn into a quote.',
+  },
+  {
     key: 'groups',
     section: 'reservation',
     title: 'Groups',

@@ -488,6 +488,30 @@ function callListBlocks(lists) {
 }
 
 /**
+ * A proposal's link, sent by an advisor to somebody they are putting a trip in front of.
+ *
+ * One person, one message, answering to the advisor: the link is the point and the words are the advisor's
+ * own. Nothing here is a quote, and it says nothing about price.
+ */
+export function sendQuickProposalEmail(env, { to, replyTo, firstName, advisorName, title, message, url, brand }) {
+  const paras = String(message || '').trim().split(/\n{2,}/).filter(Boolean)
+    .map((p) => `<p style="margin:0 0 14px;">${escapeHtml(p).replace(/\n/g, '<br>')}</p>`).join('');
+  return send(env, {
+    to,
+    replyTo,
+    subject: `${advisorName} sent you a proposal: ${title}`,
+    html: layout(env, {
+      brand,
+      heading: title,
+      body: `<p style="margin:0 0 14px;">Hi ${escapeHtml(firstName || 'there')},</p>`
+        + (paras || `<p style="margin:0 0 14px;">${escapeHtml(advisorName)} has put this together for you.</p>`)
+        + '<p style="margin:0 0 18px;">Open it on any phone or computer. Reply to this email with any questions.</p>',
+      cta: { label: 'Open your proposal', href: url },
+    }),
+  });
+}
+
+/**
  * The Monday call list.
  *
  * Written as five short lists rather than one long one, because the reason to

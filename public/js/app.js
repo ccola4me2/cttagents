@@ -293,6 +293,8 @@ const NAV = [
       // Households and the board, and an advisor looking for the trips they
       // had quoted looked here.
       { href: '/app/proposals', label: 'Proposals out' },
+      // A proposal with pictures, sent by link or email, that is not a quote and is not on the book.
+      { href: '/app/quick-proposals', label: 'Quick proposals', alsoOn: ['/app/quick-proposal'] },
     ],
   },
   // On its own line. A group is where a block of cabins is sold from and where its page, its sign-ups and
@@ -355,7 +357,7 @@ const HUB_KEY = 'tv.nav.hub';
 /** The hub a path belongs to, or null for a top level link. */
 function hubOf(path) {
   for (const entry of NAV) {
-    if (entry.hub && entry.items.some((i) => i.href === path)) return entry.hub;
+    if (entry.hub && entry.items.some((i) => i.href === path || (i.alsoOn || []).includes(path))) return entry.hub;
   }
   return null;
 }

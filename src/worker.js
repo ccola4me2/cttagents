@@ -250,6 +250,12 @@ import { handleGroupList } from './groupmanifest.js';
 import { handleSlugCheck, handleSetSlug, handleReleaseSlug, handlePublicSlugTaken } from './groupslug.js';
 import { handleUploadPicture, handleRemovePicture, serveGroupPicture } from './grouppicture.js';
 import { handleUploadGroupFile, handleDeleteGroupFile, serveGroupFile } from './groupfiles.js';
+import {
+  handleListQuickProposals, handleCreateQuickProposal, handleGetQuickProposal, handleSaveQuickProposal,
+  handleDeleteQuickProposal, handleUploadProposalImage, handleRemoveProposalImage, handleSendQuickProposal,
+  handleProposalToQuote, purgeExpiredProposals,
+} from './quickproposal.js';
+import { renderQuickProposal, serveProposalImage } from './quickproposalpage.js';
 import { handleSaveWording, handleClearWording } from './wording.js';
 import { isGroupHost, serveGroupHost, serveSlug, redirectForCode } from './grouphost.js';
 import { handleRunGroupReminders } from './groupremind.js';
@@ -523,6 +529,8 @@ const PAGE_FILES = {
   '/app/bookings': '/app/reservations.html',
   '/app/reports': '/app/reports.html',
   '/app/corporate-targets': '/app/corporate-targets.html',
+  '/app/quick-proposals': '/app/quick-proposals.html',
+  '/app/quick-proposal': '/app/quick-proposal.html',
   '/app/settings': '/app/settings.html',
   '/admin/manual': '/admin/manual.html',
   '/admin/commissions': '/admin/commissions.html',
@@ -618,7 +626,7 @@ export default {
     const job = (name, fn) => ctx.waitUntil(runJob(env, name, fn));
 
     job('purge sessions', () => purgeExpiredSessions(env));
-    job('purge automation runs', async () => { await purgeOldRuns(env); await purgeInbox(env); });
+    job('purge automation runs', async () => { await purgeOldRuns(env); await purgeInbox(env); await purgeExpiredProposals(env); });
 
     // The catalog import is a no-op once the current monthly snapshot is fully
     // imported, so running it on every tick costs one request a day and the
@@ -763,6 +771,11 @@ async function routeApi(request, env, path, method) {
   const taskItemsMatch = path.match(/^\/api\/tasks\/([^/]+)\/items$/);
   const taskItemMatch = path.match(/^\/api\/task-items\/([^/]+)$/);
   const templateMatch = path.match(/^\/api\/task-templates\/([^/]+)$/);
+  const qpMatch = path.match(/^\/api\/quick-proposals\/([^/]+)$/);
+  const qpImageMatch = path.match(/^\/api\/quick-proposals\/([^/]+)\/image$/);
+  const qpImageDropMatch = path.match(/^\/api\/quick-proposals\/([^/]+)\/image\/([^/]+)$/);
+  const qpSendMatch = path.match(/^\/api\/quick-proposals\/([^/]+)\/send$/);
+  const qpQuoteMatch = path.match(/^\/api\/quick-proposals\/([^/]+)\/quote$/);
   const groupMatch = path.match(/^\/api\/groups\/([^/]+)$/);
   const groupAccessMatch = path.match(/^\/api\/groups\/([^/]+)\/access$/);
   const groupAskMatch = path.match(/^\/api\/groups\/([^/]+)\/access-request$/);
@@ -1211,6 +1224,15 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/agency-events' && method === 'POST') return handleSaveAgencyEvent(request, env, null);
   if (path === '/api/admin/agency-events' && method === 'GET') return handleAdminAgencyEvents(request, env);
   if (path === '/api/admin/group-stats' && method === 'GET') return handleGroupStats(request, env);
+  if (path === '/api/quick-proposals' && method === 'GET') return handleListQuickProposals(request, env);
+  if (path === '/api/quick-proposals' && method === 'POST') return handleCreateQuickProposal(request, env);
+  if (qpImageMatch && method === 'POST') return handleUploadProposalImage(request, env, qpImageMatch[1]);
+  if (qpImageDropMatch && method === 'DELETE') return handleRemoveProposalImage(request, env, qpImageDropMatch[1], qpImageDropMatch[2]);
+  if (qpSendMatch && method === 'POST') return handleSendQuickProposal(request, env, qpSendMatch[1]);
+  if (qpQuoteMatch && method === 'POST') return handleProposalToQuote(request, env, qpQuoteMatch[1]);
+  if (qpMatch && method === 'GET') return handleGetQuickProposal(request, env, qpMatch[1]);
+  if (qpMatch && method === 'PUT') return handleSaveQuickProposal(request, env, qpMatch[1]);
+  if (qpMatch && method === 'DELETE') return handleDeleteQuickProposal(request, env, qpMatch[1]);
   if (path === '/api/corporate-targets' && method === 'GET') return handleGetCorporate(request, env);
   if (path === '/api/corporate-targets' && method === 'PUT') return handleSaveCorporate(request, env);
   if (agencyGoingMatch && method === 'PUT') return handleGoing(request, env, agencyGoingMatch[1]);
@@ -1497,6 +1519,11 @@ async function routePage(request, env, path) {
   // A PDF a group's page offers for download, public while the page is on.
   const fileOf = path.match(/^\/gf\/([^/]+)\/?$/);
   if (fileOf) return serveGroupFile(request, env, decodeURIComponent(fileOf[1]));
+  // A proposal an advisor sent, and its pictures: public for as long as the proposal is live.
+  const proposalOf = path.match(/^\/p\/([a-z0-9]+)\/?$/i);
+  if (proposalOf) return renderQuickProposal(request, env, decodeURIComponent(proposalOf[1]));
+  const proposalPicture = path.match(/^\/pi\/([^/]+)\/?$/);
+  if (proposalPicture) return serveProposalImage(request, env, decodeURIComponent(proposalPicture[1]));
 
   const slugPage = path.match(/^\/gs\/([^/]+)(?:\/(register))?\/?$/);
   if (slugPage) return serveSlug(request, env, slugPage[1], slugPage[2] || '', 'path');

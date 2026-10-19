@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quick proposals | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Quick proposals</h1><p class="sub">Put a trip in front of somebody with pictures and a few words, and send it by link or email. It is not a quote and it is not on your book until you turn it into one.</p></div>
+      <div class="toolbar" style="margin:0;"><button class="btn btn-primary" id="new">New proposal</button></div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <section class="card" id="panel"><p class="spinner">Loading...</p></section>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api, mountShell, esc, timeAgo, showError } from '/js/app.js';
+await mountShell();
+
+const panel = document.getElementById('panel');
+const err = document.getElementById('err');
+
+function status(p) {
+  if (p.bookingId) return '<span class="badge badge-green">Turned into a quote</span>';
+  if (p.expired) return '<span class="badge badge-red">Expired</span>';
+  if (p.viewCount) return `<span class="badge badge-green">Opened ${p.viewCount} time${p.viewCount === 1 ? '' : 's'}</span>`;
+  if (p.sentCount) return '<span class="badge badge-amber">Sent, not opened yet</span>';
+  return '<span class="badge badge-navy">Not sent</span>';
+}
+
+function render(d) {
+  if (!d.proposals.length) {
+    panel.innerHTML = `<div class="empty"><h3>No proposals yet</h3>
+      <p>Press New proposal, add a picture and a few words, and send the link.</p></div>`;
+    return;
+  }
+  panel.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Proposal</th><th>Where it is</th><th>Last sent</th><th>Link</th><th></th></tr></thead>
+    <tbody>${d.proposals.map((p) => `<tr>
+      <td><a class="name" href="/app/quick-proposal?id=${encodeURIComponent(p.id)}">${esc(p.title)}</a>
+        ${p.forName ? `<div class="muted">For ${esc(p.forName)}</div>` : ''}</td>
+      <td>${status(p)}</td>
+      <td class="muted">${p.lastSentAt ? esc(timeAgo(p.lastSentAt)) : '-'}</td>
+      <td><button class="btn btn-ghost btn-sm" type="button" data-copy="${esc(p.link)}">Copy link</button></td>
+      <td class="num"><a class="btn btn-ghost btn-sm" href="/app/quick-proposal?id=${encodeURIComponent(p.id)}">Open</a>
+        <button class="btn btn-ghost btn-sm" type="button" data-drop="${esc(p.id)}">Delete</button></td>
+    </tr>`).join('')}</tbody></table></div>`;
+  panel.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = 'Copied'; }
+    catch { prompt('Copy this link', b.dataset.copy); }
+  }));
+  panel.querySelectorAll('[data-drop]').forEach((b) => b.addEventListener('click', async () => {
+    if (!confirm('Delete this proposal? Its link stops working and its pictures are removed.')) return;
+    b.disabled = true;
+    try { await api(`/api/quick-proposals/${encodeURIComponent(b.dataset.drop)}`, { method: 'DELETE' }); await load(); }
+    catch (e) { showError(err, e); b.disabled = false; }
+  }));
+}
+
+async function load() {
+  try { render(await api('/api/quick-proposals')); }
+  catch (e) { showError(err, e); panel.innerHTML = ''; }
+}
+
+document.getElementById('new').addEventListener('click', async (ev) => {
+  ev.target.disabled = true;
+  try {
+    const made = await api('/api/quick-proposals', { method: 'POST', body: {} });
+    location.href = `/app/quick-proposal?id=${encodeURIComponent(made.id)}`;
+  } catch (e) { showError(err, e); ev.target.disabled = false; }
+});
+
+await load();
+</script>
+</body></html>
