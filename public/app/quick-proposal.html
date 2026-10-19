@@ -11,6 +11,10 @@
   .qp-sec { border: 1px solid var(--navy-100); border-radius: 12px; padding: 1rem; margin-bottom: .9rem; background: #fff; }
   .qp-sec .qp-pic { display: flex; gap: .8rem; align-items: center; flex-wrap: wrap; margin-top: .4rem; }
   .qp-sec img, .qp-cover img { max-width: 11rem; max-height: 7rem; border-radius: 8px; object-fit: cover; }
+  .qp-sub { border-top: 1px solid var(--navy-100); margin-top: .8rem; padding-top: .7rem; }
+  .qp-row { display: grid; gap: .4rem; grid-template-columns: 1fr 1fr 9rem auto auto; align-items: center; margin-bottom: .4rem; }
+  .qp-row.facts { grid-template-columns: 1fr 2fr auto; }
+  @media (max-width: 40rem) { .qp-row, .qp-row.facts { grid-template-columns: 1fr; } }
   .qp-bar { display: flex; gap: .5rem; flex-wrap: wrap; }
   .qp-link { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9rem; }
 </style>
@@ -120,6 +124,7 @@ let p = null;          // the proposal as last saved
 let secs = [];         // the sections being edited
 let cover = '';        // the cover picture's id
 let images = {};       // picture id -> address
+let kinds = [];        // the kinds of section the server offers
 const $ = (x) => document.getElementById(x);
 
 if (!id) { location.href = '/app/quick-proposals'; }
@@ -148,18 +153,40 @@ async function removePicture(pid) {
 
 function readSecs() {
   document.querySelectorAll('.qp-sec').forEach((el, i) => {
-    secs[i] = { ...secs[i], heading: el.querySelector('.s-heading').value, body: el.querySelector('.s-body').value,
-      price: el.querySelector('.s-price').value };
+    secs[i] = { ...secs[i], kind: el.querySelector('.s-kind').value, heading: el.querySelector('.s-heading').value,
+      body: el.querySelector('.s-body').value, price: el.querySelector('.s-price').value,
+      facts: [...el.querySelectorAll('.f-row')].map((r) => ({ label: r.querySelector('.f-label').value, value: r.querySelector('.f-value').value })),
+      options: [...el.querySelectorAll('.o-row')].map((r) => ({ label: r.querySelector('.o-label').value,
+        detail: r.querySelector('.o-detail').value, price: r.querySelector('.o-price').value, pick: r.querySelector('.o-pick').checked })) };
   });
 }
 
 function drawSecs() {
   $('secs').innerHTML = secs.length ? secs.map((s, i) => `<div class="qp-sec" data-i="${i}">
-    <div class="field"><label>Heading</label>
-      <input class="s-heading" maxlength="100" value="${esc(s.heading || '')}" placeholder="Your cabin on Margaritaville at Sea"></div>
+    <div class="field-row">
+      <div class="field"><label>Type</label>
+        <select class="s-kind"><option value="">Choose a type</option>${kinds.map(([k, l]) => `<option value="${esc(k)}"${s.kind === k ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+      <div class="field"><label>Heading</label>
+        <input class="s-heading" maxlength="100" value="${esc(s.heading || '')}" placeholder="Your cabin on Margaritaville at Sea Islander"></div>
+    </div>
     <div class="field"><label>Words</label>
-      <textarea class="s-body" rows="4" maxlength="2500" placeholder="What it is and why it suits them.">${esc(s.body || '')}</textarea></div>
-    <div class="field" style="max-width:20rem;"><label>Price, if you want one shown</label>
+      <textarea class="s-body" rows="3" maxlength="2500" placeholder="What it is and why it suits them.">${esc(s.body || '')}</textarea></div>
+    <div class="qp-sub"><label style="font-weight:600;">Details</label>
+      <p class="field-hint" style="margin:0 0 .4rem;">Short facts, such as Ship: Islander, Sails: 10/30/2027, Nights: 7, Departing: Tampa.</p>
+      ${(s.facts || []).map((f) => `<div class="qp-row facts f-row"><input class="f-label" maxlength="40" value="${esc(f.label || '')}" placeholder="Sails">
+        <input class="f-value" maxlength="120" value="${esc(f.value || '')}" placeholder="10/30/2027">
+        <button class="btn btn-ghost btn-sm" type="button" data-fdel="${i}">Remove</button></div>`).join('')}
+      <button class="btn btn-ghost btn-sm" type="button" data-fadd="${i}">Add a detail</button></div>
+    <div class="qp-sub"><label style="font-weight:600;">Options to compare</label>
+      <p class="field-hint" style="margin:0 0 .4rem;">The choices side by side: cabin categories, hotel rooms, flight times. Tick Our pick on the one you
+        recommend and it is highlighted.</p>
+      ${(s.options || []).map((o) => `<div class="qp-row o-row"><input class="o-label" maxlength="80" value="${esc(o.label || '')}" placeholder="Balcony">
+        <input class="o-detail" maxlength="200" value="${esc(o.detail || '')}" placeholder="Deck 8, forward">
+        <input class="o-price" maxlength="80" value="${esc(o.price || '')}" placeholder="$1,849.00 pp">
+        <label style="display:flex;gap:.3rem;align-items:center;font-weight:400;margin:0;"><input class="o-pick" type="checkbox" style="width:auto;"${o.pick ? ' checked' : ''}> Our pick</label>
+        <button class="btn btn-ghost btn-sm" type="button" data-odel="${i}">Remove</button></div>`).join('')}
+      <button class="btn btn-ghost btn-sm" type="button" data-oadd="${i}">Add an option</button></div>
+    <div class="field" style="max-width:20rem;margin-top:.8rem;"><label>A single price, if you want one shown</label>
       <input class="s-price" maxlength="80" value="${esc(s.price || '')}" placeholder="$1,249.00 per person"></div>
     <div class="qp-pic">${s.imageId && images[s.imageId]
       ? `<img src="${esc(images[s.imageId])}" alt=""><button class="btn btn-ghost btn-sm" type="button" data-pic-drop="${i}">Remove the picture</button>`
@@ -187,9 +214,28 @@ function drawSecs() {
   const move = (i, by) => { readSecs(); const j = i + by; [secs[i], secs[j]] = [secs[j], secs[i]]; drawSecs(); };
   document.querySelectorAll('[data-up]').forEach((b) => b.addEventListener('click', () => move(Number(b.dataset.up), -1)));
   document.querySelectorAll('[data-down]').forEach((b) => b.addEventListener('click', () => move(Number(b.dataset.down), 1)));
+  bindRows();
+}
+
+function bindRows() {
+  const row = (attr, key, blank) => document.querySelectorAll(`[data-${attr}]`).forEach((b) => b.addEventListener('click', () => {
+    const i = Number(b.dataset[attr]); readSecs();
+    if (attr.endsWith('add')) { secs[i][key] = [...(secs[i][key] || []), blank]; }
+    else {
+      const rows = [...b.closest('.qp-sec').querySelectorAll(key === 'facts' ? '.f-row' : '.o-row')];
+      const at = rows.indexOf(b.closest(key === 'facts' ? '.f-row' : '.o-row'));
+      secs[i][key].splice(at, 1);
+    }
+    drawSecs();
+  }));
+  row('fadd', 'facts', { label: '', value: '' });
+  row('fdel', 'facts');
+  row('oadd', 'options', { label: '', detail: '', price: '', pick: false });
+  row('odel', 'options');
 }
 
 function fill(d) {
+  kinds = d.kinds || kinds;
   p = d.proposal;
   images = Object.fromEntries((p.images || []).map((i) => [i.id, i.url]));
   secs = p.sections.map((s) => ({ ...s }));
@@ -224,7 +270,7 @@ async function save(withExpiry = false) {
   return out;
 }
 
-$('add-sec').addEventListener('click', () => { readSecs(); secs.push({ heading: '', body: '', price: '', imageId: '' }); drawSecs(); });
+$('add-sec').addEventListener('click', () => { readSecs(); secs.push({ kind: '', heading: '', body: '', price: '', facts: [], options: [], imageId: '' }); drawSecs(); });
 
 $('cover-file').addEventListener('change', async (ev) => {
   const f = ev.target.files[0]; if (!f) return;

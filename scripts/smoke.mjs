@@ -8335,16 +8335,34 @@ async function main() {
     const title = `Seven nights in the sun ${stamp}`;
     const saved = await call(advisor, 'PUT', `/api/quick-proposals/${qid}`, {
       title, forName: 'Sarah and Mike', note: 'A few words from me', totalText: 'From $2,498.00', expiresInDays: 30,
-      sections: [{ heading: 'The ship', body: 'Seven nights from Tampa', price: '$1,249.00 per person' },
-        { heading: '', body: '', price: '' }],
+      sections: [{ kind: 'cabins', heading: 'The ship', body: 'Seven nights from Tampa', price: '$1,249.00 per person',
+        facts: [{ label: 'Ship', value: 'Islander' }, { label: '', value: 'no label' }],
+        options: [{ label: 'Balcony', detail: 'Deck 8', price: '$1,849.00 pp', pick: true }, { label: '', detail: '', price: '' }] },
+      { heading: '', body: '', price: '' }],
     });
     check(saved.status === 200 && saved.data?.proposal?.sections?.length === 1,
       'it saves, and an empty section is left off', JSON.stringify(saved.data?.proposal?.sections));
+    const sec0 = saved.data?.proposal?.sections?.[0] || {};
+    check(sec0.kind === 'cabins' && sec0.facts?.length === 1 && sec0.options?.length === 1 && sec0.options[0].pick === true,
+      'a section keeps its type, its details and its options, and drops empty ones', JSON.stringify(sec0));
+    const bogus = await call(advisor, 'PUT', `/api/quick-proposals/${qid}`, {
+      title: `Seven nights in the sun ${stamp}`, forName: 'Sarah and Mike', note: 'A few words from me', totalText: 'From $2,498.00',
+      sections: [{ kind: 'not-a-kind', heading: 'x' }],
+    });
+    check(bogus.data?.proposal?.sections?.[0]?.kind === '', 'a type that is not one of the offered is dropped', JSON.stringify(bogus.data?.proposal?.sections?.[0]));
+    await call(advisor, 'PUT', `/api/quick-proposals/${qid}`, {
+      title, forName: 'Sarah and Mike', note: 'A few words from me', totalText: 'From $2,498.00',
+      sections: [{ kind: 'cabins', heading: 'The ship', body: 'Seven nights from Tampa', price: '$1,249.00 per person',
+        facts: [{ label: 'Ship', value: 'Islander' }],
+        options: [{ label: 'Balcony', detail: 'Deck 8', price: '$1,849.00 pp', pick: true }] }],
+    });
 
     const pub = await call(null, 'GET', `/p/${code}`);
     check(pub.status === 200 && pub.raw.includes(title) && pub.raw.includes('Prepared for Sarah and Mike')
       && pub.raw.includes('$1,249.00 per person') && pub.raw.includes('From $2,498.00'),
     'anybody with the link sees it', `status ${pub.status}`);
+    check(pub.raw.includes('Cabin options') && pub.raw.includes('Islander') && pub.raw.includes('Our pick')
+      && pub.raw.includes('$1,849.00 pp'), 'the page shows the type, the details and the options, with the pick marked');
     check(pub.raw.includes('noindex') && pub.raw.includes('subject to change'),
       'kept out of search, and it says prices can change');
     check(!/commission|split/i.test(pub.raw.replace(/<style[\s\S]*?<\/style>/g, '')),

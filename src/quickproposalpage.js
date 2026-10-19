@@ -12,8 +12,10 @@ import { escapeHtml as esc, now } from './util.js';
 import { brandForUser, DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand.js';
 import { appUrl } from './share.js';
 import { docsReady } from './documents.js';
+import { SECTION_KINDS } from './proposalkinds.js';
 
 const TYPE_OF_EXT = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' };
+const KIND_LABEL = Object.fromEntries(SECTION_KINDS);
 const NOT_A_PERSON = /bot|crawl|spider|slurp|preview|facebookexternalhit|whatsapp|telegram|curl|wget|python|monitor/i;
 
 function paragraphs(text) {
@@ -58,6 +60,21 @@ ${head}
   .sec img{display:block;width:100%;max-height:26rem;object-fit:cover}
   .sec h2{margin:0 0 .5rem;font-size:1.25rem;color:var(--navy)}
   .sec p{margin:0 0 .7rem}.sec p:last-child{margin-bottom:0}
+  .kind{display:inline-block;font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;font-weight:700;
+        color:var(--soft);margin-bottom:.35rem}
+  .facts{display:grid;gap:.1rem 1.4rem;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));margin:.2rem 0 .8rem}
+  .facts div{padding:.45rem 0;border-top:1px solid var(--line)}
+  .facts dt{font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;color:var(--soft);font-weight:700}
+  .facts dd{margin:.1rem 0 0;font-weight:600;color:var(--navy)}
+  .opts{display:grid;gap:.6rem;margin-top:.8rem}
+  .opt{display:grid;grid-template-columns:1fr auto;gap:.1rem 1rem;align-items:baseline;border:1px solid var(--line);
+       border-radius:11px;padding:.8rem 1rem}
+  .opt.pick{border-color:#bfe0d2;background:#f1f9f5}
+  .opt .on{font-weight:700;color:var(--navy)}
+  .opt .op{font-weight:800;color:var(--navy);white-space:nowrap}
+  .opt .od{grid-column:1/-1;color:var(--soft);font-size:.9rem}
+  .badge{display:inline-block;margin-left:.5rem;font-size:.66rem;letter-spacing:.08em;text-transform:uppercase;
+         font-weight:800;background:#1f7a5a;color:#fff;border-radius:999px;padding:.12rem .55rem;vertical-align:.1rem}
   .price{display:inline-block;margin-top:.5rem;background:#f1f9f5;border:1px solid #cfe5dc;color:#1f7a5a;
          font-weight:750;border-radius:999px;padding:.3rem .9rem}
   .total{background:var(--navy);color:#fff;border-radius:14px;padding:1.4rem;margin-bottom:1.1rem}
@@ -124,7 +141,12 @@ export async function renderQuickProposal(request, env, code) {
     ${row.note ? `<div class="card pad note">${paragraphs(row.note)}
       <div class="from"><span class="avatar">${esc(initials)}</span><span>${esc(name || brand.name)}</span></div></div>` : ''}
     ${sections.map((s) => `<div class="card sec">${s.imageId ? `<img src="${esc(pic(s.imageId))}" alt="${esc(s.heading || '')}" loading="lazy">` : ''}
-      <div class="pad">${s.heading ? `<h2>${esc(s.heading)}</h2>` : ''}${paragraphs(s.body)}${
+      <div class="pad">${s.kind && s.kind !== 'other' && KIND_LABEL[s.kind] ? `<span class="kind">${esc(KIND_LABEL[s.kind])}</span>` : ''}${
+  s.heading ? `<h2>${esc(s.heading)}</h2>` : ''}${paragraphs(s.body)}${
+  (s.facts || []).length ? `<dl class="facts">${s.facts.map((f) => `<div><dt>${esc(f.label)}</dt><dd>${esc(f.value)}</dd></div>`).join('')}</dl>` : ''}${
+  (s.options || []).length ? `<div class="opts">${s.options.map((o) => `<div class="opt${o.pick ? ' pick' : ''}">
+        <span class="on">${esc(o.label)}${o.pick ? '<span class="badge">Our pick</span>' : ''}</span>
+        <span class="op">${esc(o.price)}</span>${o.detail ? `<span class="od">${esc(o.detail)}</span>` : ''}</div>`).join('')}</div>` : ''}${
   s.price ? `<span class="price">${esc(s.price)}</span>` : ''}</div></div>`).join('')}
     ${row.total_text ? `<div class="total"><div class="lbl">Total</div><div class="amt">${esc(row.total_text)}</div></div>` : ''}
     <div class="card pad contact">

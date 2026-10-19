@@ -15,6 +15,7 @@ import { requireUser } from './auth.js';
 import { appUrl } from './share.js';
 import { docsReady } from './documents.js';
 import { sniffPicture } from './grouppicture.js';
+import { SECTION_KINDS } from './proposalkinds.js';
 import { brandForUser } from './brand.js';
 import { sendQuickProposalEmail } from './email.js';
 import * as db from './db.js';
@@ -31,18 +32,38 @@ function newCode() {
   return [...bytes].map((b) => (b % 36).toString(36)).join('');
 }
 
+const KIND_KEYS = new Set(SECTION_KINDS.map(([k]) => k));
+const MAX_FACTS = 10;
+const MAX_OPTIONS = 10;
+
 function sectionsOf(raw, ownImageIds) {
   if (!Array.isArray(raw)) return [];
   const out = [];
   for (const s of raw.slice(0, MAX_SECTIONS)) {
+    // Details are short pairs, such as Ship and Islander, Sails and 10/30/2027. A pair with no label says
+    // nothing and is dropped.
+    const facts = (Array.isArray(s && s.facts) ? s.facts : []).slice(0, MAX_FACTS)
+      .map((f) => ({ label: clean(f && f.label, 40), value: clean(f && f.value, 120) }))
+      .filter((f) => f.label && f.value);
+    // Options are the choices a client compares: the cabin categories, the hotel rooms, the flight times.
+    // Each is a name, a few words and a price as typed, and one may be marked as the advisor's pick.
+    const options = (Array.isArray(s && s.options) ? s.options : []).slice(0, MAX_OPTIONS)
+      .map((o) => ({
+        label: clean(o && o.label, 80), detail: clean(o && o.detail, 200),
+        price: clean(o && o.price, 80), pick: Boolean(o && o.pick),
+      }))
+      .filter((o) => o.label || o.detail || o.price);
     const row = {
+      kind: KIND_KEYS.has(s && s.kind) ? s.kind : '',
       heading: clean(s && s.heading, 100),
       body: cleanText(s && s.body, 2500),
       price: clean(s && s.price, 80),
+      facts,
+      options,
       // A picture is only ever one of this proposal's own: an id is not a permission.
       imageId: s && ownImageIds.has(s.imageId) ? s.imageId : '',
     };
-    if (row.heading || row.body || row.price || row.imageId) out.push(row);
+    if (row.heading || row.body || row.price || row.imageId || row.facts.length || row.options.length) out.push(row);
   }
   return out;
 }
@@ -119,6 +140,7 @@ export async function handleGetQuickProposal(request, env, id) {
     proposal: shape(row, imageList(env, await loadImages(env, user, id))),
     link: `${appUrl(env)}/p/${row.code}`,
     storage: docsReady(env),
+    kinds: SECTION_KINDS,
   });
 }
 
@@ -289,7 +311,11 @@ export async function handleProposalToQuote(request, env, id) {
   try { sections = JSON.parse(row.sections_json || '[]'); } catch { sections = []; }
   const notes = [
     `From the proposal "${row.title}"${row.total_text ? `, ${row.total_text}` : ''}.`,
-    ...sections.map((s) => [s.heading, s.price ? `(${s.price})` : '', s.body].filter(Boolean).join(' ')),
+    ...sections.flatMap((s) => [
+      [s.heading, s.price ? `(${s.price})` : '', s.body].filter(Boolean).join(' '),
+      ...(s.facts || []).map((f) => `  ${f.label}: ${f.value}`),
+      ...(s.options || []).map((o) => `  ${o.pick ? 'Our pick: ' : ''}${[o.label, o.detail, o.price].filter(Boolean).join(', ')}`),
+    ]),
   ].filter(Boolean).join('\n').slice(0, 3800);
 
   const clientId = await db.resolveClient(env, user.id, clientName, {});
