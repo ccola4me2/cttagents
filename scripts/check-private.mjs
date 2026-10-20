@@ -46,6 +46,7 @@ const CLIENT_FACING = [
   'clientauth.js', // signing a client in at /portal
   'portal.js',     // the signed-in pages at /portal
   'quickproposalpage.js', // a proposal an advisor sent, at /p/<code>
+  'waiver.js',     // the travel insurance waiver a client signs, at /w/<code>
 ];
 
 // What a client must never be shown, by the name the code would use.

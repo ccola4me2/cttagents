@@ -42,6 +42,7 @@ import {
 } from './email.js';
 import { docsReady, safeName, MAX_BYTES } from './documents.js';
 import { submitReview, reviewFor, tripIsOver } from './reviews.js';
+import { ensureWaiver } from './waiverdata.js';
 
 // Both digits, always, including on nought. A client's own page is the last
 // place a column of money should fail to line up.
@@ -246,7 +247,7 @@ async function loadTrip(env, code) {
             b.return_date, b.gross_cents, b.status, b.cabin, b.cabin_category,
             b.options_open, b.share_code, b.shared_at, b.travellers, b.ghl_contact_id,
             b.client_id, b.deposit_cents, b.deposit_due, b.deposit_refundable, b.final_payment_due,
-            b.group_number,
+            b.group_number, b.accepted_at, b.declined_at, b.quote_sent_at,
             u.first_name, u.last_name, u.email AS advisor_email,
             u.notify_email, u.phone AS advisor_phone, u.agency_name,
             u.seller_of_travel, u.agency_id
@@ -261,7 +262,7 @@ async function loadTrip(env, code) {
   // query on a public page that says whose rows it wants can be read once and
   // believed, and one that does not has to be traced back to the lookup above.
   const owner = booking.user_id;
-  const [travellers, components, options, payments, documents, itinerary, messages,
+  const [travellers, components, options, payments, documents, itinerary, messages, waiver,
   ] = await Promise.all([
     // Names only. The row carries passport numbers and dates of birth, and a
     // page that selects * is a page one careless template change away from
@@ -305,6 +306,9 @@ async function loadTrip(env, code) {
     env.DB.prepare(`SELECT id, body, from_advisor, created_at FROM trip_messages
                      WHERE booking_id = ? AND user_id = ? ORDER BY created_at ASC LIMIT 100`)
       .bind(booking.id, owner).all(),
+    // The travel insurance waiver, if there is one: its address and whether it has been signed.
+    env.DB.prepare(`SELECT code, signed_at FROM insurance_waivers WHERE booking_id = ? AND user_id = ?`)
+      .bind(booking.id, owner).first(),
   ]);
 
   return {
@@ -321,6 +325,7 @@ async function loadTrip(env, code) {
     documents: documents.results || [],
     itinerary: itinerary.results || [],
     messages: messages.results || [],
+    waiver: waiver || null,
   };
 }
 
@@ -485,6 +490,36 @@ function decideBlock(trip, advisor) {
       <button class="obtn" type="button" id="decide-send">Send it</button>
     </form>
     <div id="decide-said"></div>
+  </section>`;
+}
+
+/**
+ * The travel insurance step, once the client has said yes.
+ *
+ * Not on a quote still being looked at: asking somebody to decline insurance on a trip they have not agreed to
+ * reads as pressure. It appears when they accept or choose an option, or when the trip is booked, and it
+ * links to the page where they sign. Signed, it says so and links to their copy.
+ */
+function waiverBlock(trip) {
+  const w = trip.waiver;
+  const b = trip.booking;
+  if (!w || b.status === 'cancelled') return '';
+  const chosen = (trip.options || []).some((o) => o.chosen);
+  if (b.status === 'quoted' && !b.accepted_at && !chosen) return '';
+  if (w.signed_at) {
+    return `<section class="card pad" id="insurance">
+      <h2>Travel insurance</h2>
+      <p class="ochose" style="margin:0 0 .6rem;">You declined travel insurance on ${esc(
+    new Date(w.signed_at * 1000).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', timeZone: 'America/New_York' }))}.</p>
+      <p class="small" style="margin:0;"><a href="/w/${esc(w.code)}">View or print your copy</a></p>
+    </section>`;
+  }
+  return `<section class="card pad" id="insurance">
+    <h2>Travel insurance</h2>
+    <p class="dim">One short form: if you would rather not buy travel protection for this trip, we need you to say so in
+      writing. It takes a minute.</p>
+    <p style="margin:.2rem 0 0;"><a class="obtn" style="display:inline-block;width:auto;text-decoration:none;padding:.55rem 1.3rem;"
+      href="/w/${esc(w.code)}">Complete the insurance form</a></p>
   </section>`;
 }
 
@@ -670,6 +705,11 @@ export async function renderTripPage(request, env, code) {
   }
 
   const b = trip.booking;
+
+  // A booked trip always has its insurance step, even if nobody has opened the reservation since this existed.
+  if (!trip.waiver && b.status === 'booked') {
+    trip.waiver = await ensureWaiver(env, b).catch(() => null);
+  }
 
   // Somebody opened it.
   //
@@ -870,6 +910,8 @@ export async function renderTripPage(request, env, code) {
          there each card carries its own price and the options are the
          pricing. -->
     ${decideBlock(trip, advisor)}
+
+    ${waiverBlock(trip)}
 
     <section class="card pad">
       <h2>Your documents</h2>
@@ -1256,6 +1298,9 @@ export async function handleClientAccept(request, env, code) {
   ).bind(uid(), trip.booking.id, owner,
          note ? `Said yes to the quote: ${note}` : 'Said yes to the quote.', ipHash, ts).run();
 
+  // The next step is already there for the page to show when it reloads.
+  await ensureWaiver(env, trip.booking).catch((e) => console.error('waiver on accept', e));
+
   await fireTrigger(env, tenantFor(env, trip.booking), 'quote.accepted', {
     bookingId: trip.booking.id,
     contactId: trip.booking.ghl_contact_id || null,
@@ -1433,6 +1478,8 @@ export async function handleClientChoose(request, env, code) {
      VALUES (?, ?, ?, ?, ?, ?)`
   ).bind(uid(), trip.booking.id, owner,
          `Chose "${option.label}" from the options.`, ipHash, ts).run();
+
+  await ensureWaiver(env, trip.booking).catch((e) => console.error('waiver on choose', e));
 
   // The client has just said yes and is still paying attention, which is the
   // moment to send the form, start the deposit reminder, say thank you. Fired

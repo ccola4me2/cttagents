@@ -8425,6 +8425,74 @@ async function main() {
     check(afterDelete.status === 404, 'deleting it stops the link working', `status ${afterDelete.status}`);
   }
 
+  // The travel insurance waiver: a link on every reservation, signed by the client.
+  {
+    const made = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Waiver Client ${stamp}`, supplier: 'Test Line', productName: 'Waiver Cruise', productType: 'cruise',
+      departDate: isoDay(200), returnDate: isoDay(207), gross: '3000', status: 'booked',
+    });
+    const wid = made.data?.booking?.id;
+    if (wid) cleanup('the reservation for the waiver', () => dropBooking(wid));
+    const got = await call(advisor, 'GET', `/api/bookings/${wid}`);
+    const w = got.data?.waiver;
+    check(made.status === 201 && w && /^[a-z0-9]{18}$/.test(w.code || '') && !w.signedAt
+      && (w.url || '').endsWith(`/w/${w.code}`), 'every reservation has its waiver link already made', JSON.stringify(w));
+    check(got.data?.booking?.insurance_status === 'unknown', 'and insurance is still not discussed until somebody signs');
+
+    const anon = await call(null, 'POST', `/api/bookings/${wid}/waiver`, { action: 'make' });
+    check(anon.status === 401, 'the advisor side needs a sign in', `status ${anon.status}`);
+    const none = await call(null, 'GET', '/w/nosuchcode12345');
+    check(none.status === 404, 'a link that is not one is not found', `status ${none.status}`);
+
+    const renewed = await call(advisor, 'POST', `/api/bookings/${wid}/waiver`, { action: 'renew' });
+    const code = renewed.data?.waiver?.code;
+    check(renewed.status === 200 && code && code !== w.code, 'a link nobody has signed can be replaced', `status ${renewed.status}`);
+    const oldLink = await call(null, 'GET', `/w/${w.code}`);
+    check(oldLink.status === 404, 'and the old one stops working', `status ${oldLink.status}`);
+
+    const form = await call(null, 'GET', `/w/${code}`);
+    check(form.status === 200 && form.raw.includes('Decline travel insurance') && form.raw.includes(`Waiver Client ${stamp}`)
+      && form.raw.includes('id="wv-form"'), 'the client sees the form, with their trip on it', `status ${form.status}`);
+    check(!/commission|advisor_split|lead_source/i.test(form.raw), 'and nothing about what the agency earns');
+
+    const badSend = await call(advisor, 'POST', `/api/bookings/${wid}/waiver`, { action: 'send', to: 'not an address' });
+    check(badSend.status === 400, 'sending needs an email address', `status ${badSend.status}`);
+
+    const shared = await call(advisor, 'POST', `/api/bookings/${wid}/share`, { on: true });
+    const trip = await call(null, 'GET', `/t/${shared.data?.code}`);
+    check(trip.status === 200 && trip.raw.includes('id="insurance"') && trip.raw.includes(`/w/${code}`),
+      'a booked trip shows the insurance step on the client\'s own page', `status ${trip.status}`);
+
+    const noTick = await call(null, 'POST', `/w/${code}`, { agree: false, name: 'Pat Client', email: 'pat@example.com' });
+    check(noTick.status === 400, 'signing needs the box ticked', `status ${noTick.status}`);
+    const noName = await call(null, 'POST', `/w/${code}`, { agree: true, name: '', email: 'pat@example.com' });
+    check(noName.status === 400, 'and a name', `status ${noName.status}`);
+    const noMail = await call(null, 'POST', `/w/${code}`, { agree: true, name: 'Pat Client', email: 'nope' });
+    check(noMail.status === 400, 'and an email address', `status ${noMail.status}`);
+    const bot = await call(null, 'POST', `/w/${code}`, { agree: true, name: 'Bot', email: 'bot@example.com', company_website: 'spam' });
+    const stillOpen = await call(advisor, 'GET', `/api/bookings/${wid}`);
+    check(bot.status === 200 && !stillOpen.data?.waiver?.signedAt, 'a form filled in by a bot is not a signature');
+
+    const signed = await call(null, 'POST', `/w/${code}`, { agree: true, name: 'Pat Client', email: 'Pat@Example.com' });
+    check(signed.status === 200 && signed.data?.ok === true, 'the client can sign', `status ${signed.status} ${signed.raw}`);
+    const after = await call(advisor, 'GET', `/api/bookings/${wid}`);
+    check(Boolean(after.data?.waiver?.signedAt) && after.data?.waiver?.signerName === 'Pat Client'
+      && after.data?.waiver?.signerEmail === 'pat@example.com', 'the reservation records who signed, and when');
+    check(after.data?.booking?.insurance_status === 'declined', 'and marks insurance as declined', after.data?.booking?.insurance_status);
+    const copy = await call(null, 'GET', `/w/${code}`);
+    check(copy.raw.includes('Signed.') && copy.raw.includes('Pat Client') && !copy.raw.includes('id="wv-form"'),
+      'the link then shows the signed copy and not the form');
+    const twice = await call(null, 'POST', `/w/${code}`, { agree: true, name: 'Someone Else', email: 'else@example.com' });
+    check(twice.status === 400, 'a signed waiver cannot be signed again', `status ${twice.status}`);
+    const renewSigned = await call(advisor, 'POST', `/api/bookings/${wid}/waiver`, { action: 'renew' });
+    check(renewSigned.status === 400, 'nor replaced', `status ${renewSigned.status}`);
+    const tripAfter = await call(null, 'GET', `/t/${shared.data?.code}`);
+    check(tripAfter.raw.includes('You declined travel insurance'), 'and the client\'s own page says it is done');
+    await dropBooking(wid);
+    const gone = await call(null, 'GET', `/w/${code}`);
+    check(gone.status === 404, 'deleting the reservation takes its waiver with it', `status ${gone.status}`);
+  }
+
   // Corporate targets: the agency's own, an owner's to see and set.
   {
     const noRead = await call(advisor, 'GET', '/api/corporate-targets');

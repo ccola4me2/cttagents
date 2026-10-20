@@ -34,6 +34,7 @@ import {
 import { settlement } from './reconcile.js';
 import { receiptShown, payDatesFrom, suggestPayDate, todayIso } from './paydates.js';
 import { groupGrant, applyGroupTerms } from './groupaccess.js';
+import { waiverForBooking } from './waiver.js';
 
 // The taxonomy a travel agency actually reports on. Five buckets could not
 // tell a transfer from a tour from travel insurance, which meant "travel by
@@ -633,6 +634,9 @@ export async function handleBookingRecord(request, env, id) {
     messages: await tripMessages(env, booking.id, booking.user_id),
     // Who opened the page and from which link, so "did they see the invoice" has an answer.
     views: await tripViews(env, booking.id, booking.user_id),
+    // The travel insurance waiver's link and whether the client has signed it. Made on the first look by
+    // anybody who may change the reservation, so every quote and reservation already has its link.
+    waiver: await waiverForBooking(env, booking, { make: db.mayWrite(user, booking) }),
     // The agency's card authorization form, when it has one, so the schedule can offer it.
     paymentFormUrl: await paymentFormFor(env, booking.agency_id || user.agency_id),
     // Whether the invoice or quote the client is holding still matches this

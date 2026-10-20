@@ -511,6 +511,63 @@ export function sendQuickProposalEmail(env, { to, replyTo, firstName, advisorNam
   });
 }
 
+/** The travel insurance waiver, sent to the client to sign. */
+export function sendWaiverEmail(env, { to, replyTo, firstName, advisorName, tripName, url, brand, agencyId, agencyName }) {
+  return send(env, {
+    to,
+    replyTo,
+    unsubscribe: { agencyId, agencyName },
+    subject: `One last step for ${tripName}`,
+    html: layout(env, {
+      brand,
+      heading: 'Travel insurance',
+      body: `<p style="margin:0 0 14px;">Hi ${escapeHtml(firstName || 'there')},</p>
+        <p style="margin:0 0 14px;">Before ${escapeHtml(tripName)}, there is one short form to complete: whether you would
+        like travel protection for the trip. If you would rather not have it, the form takes a minute and asks for your
+        name and email.</p>
+        <p style="margin:0 0 18px;">If you would like a quote for insurance instead, just reply to this email.
+        ${escapeHtml(advisorName)}</p>`,
+      cta: { label: 'Open the form', href: url },
+    }),
+  });
+}
+
+/** Told to the advisor the moment a client signs. */
+export function sendWaiverSignedEmail(env, { to, firstName, clientName, signerName, tripName, href }) {
+  if (!to) return Promise.resolve({ skipped: true });
+  return send(env, {
+    to,
+    subject: `${clientName} signed the travel insurance waiver`,
+    html: layout(env, {
+      heading: `${escapeHtml(clientName)} declined travel insurance`,
+      body: `<p style="margin:0 0 12px;">Hi ${escapeHtml(firstName || 'there')},</p>
+        <p style="margin:0 0 12px;">${escapeHtml(signerName)} signed the waiver for <strong>${escapeHtml(tripName)}</strong>.
+        The reservation now shows insurance as declined, and the signed copy is on the reservation.</p>`,
+      cta: { label: 'Open the reservation', href },
+    }),
+  });
+}
+
+/** The client's own copy of what they signed, with the link to print it. */
+export function sendWaiverCopyEmail(env, { to, replyTo, name, advisorName, tripName, signedOn, url, brand, agencyId, agencyName }) {
+  return send(env, {
+    to,
+    replyTo,
+    unsubscribe: { agencyId, agencyName },
+    subject: `Your travel insurance waiver for ${tripName}`,
+    html: layout(env, {
+      brand,
+      heading: 'Your copy',
+      body: `<p style="margin:0 0 14px;">Hi ${escapeHtml(name)},</p>
+        <p style="margin:0 0 14px;">Thank you. On ${escapeHtml(signedOn)} you declined travel protection for
+        ${escapeHtml(tripName)}. The page below is your copy, and you can print or save it from there.</p>
+        <p style="margin:0 0 18px;">If you change your mind, tell ${escapeHtml(advisorName)} and they will send you a
+        quote.</p>`,
+      cta: { label: 'Open your copy', href: url },
+    }),
+  });
+}
+
 /**
  * The Monday call list.
  *

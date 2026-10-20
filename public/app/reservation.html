@@ -111,6 +111,11 @@
               <span id="amenity-actions"></span></div>
             <div id="amenities"></div>
           </section>
+          <section class="card" style="margin-top:1.5rem;" id="waiver-card" hidden>
+            <div class="card-head" id="sec-waiver"><h2>Travel insurance waiver</h2>
+              <span id="waiver-state"></span></div>
+            <div id="waiver" class="card-pad"></div>
+          </section>
           <section class="card" style="margin-top:1.5rem;" id="share-card">
             <div class="card-head" id="sec-share"><h2>The client's own page</h2>
               <span id="share-actions"></span></div>
@@ -503,6 +508,74 @@ const KB = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max
  * it: a link that stops working and then works again months later, pointing at
  * a trip whose details have moved on, is worse than a link that is gone.
  */
+/**
+ * The travel insurance waiver. Every quote and reservation has a link to a short page where the client signs
+ * that they decline travel protection; this is that link, whether it has been opened, and whether it is
+ * signed. Signing marks the reservation's insurance as declined, so nothing here needs typing back in.
+ */
+function drawWaiver() {
+  const w = d.waiver;
+  const card = document.getElementById('waiver-card');
+  card.hidden = !w;
+  if (!w) return;
+  const state = document.getElementById('waiver-state');
+  const host = document.getElementById('waiver');
+  const when = (ts) => new Date(ts * 1000).toLocaleString('en-US', {
+    month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+  if (w.signedAt) {
+    state.innerHTML = '<span class="badge badge-green">Signed</span>';
+    host.innerHTML = `<p style="margin:0 0 .6rem;"><strong>${esc(w.signerName)}</strong> declined travel
+        insurance on ${esc(when(w.signedAt))}${w.signerEmail ? `, from ${esc(w.signerEmail)}` : ''}.</p>
+      <p class="muted" style="margin:0 0 .8rem;font-size:.9rem;">Insurance on this reservation was marked
+        declined when they signed, and they were emailed a copy.</p>
+      <a class="btn btn-ghost btn-sm" href="${esc(w.url)}" target="_blank" rel="noopener">View or print the signed copy</a>`;
+    return;
+  }
+
+  state.innerHTML = '<span class="badge badge-amber">Not signed</span>';
+  host.innerHTML = `
+    <p style="margin:0 0 .7rem;">Send this link to the client to sign that they decline travel insurance. Nothing
+      to log in to: they open it, tick the box, and type their name and email.</p>
+    <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">
+      <code style="font-size:.92rem;">${esc(w.url)}</code>
+      <button class="btn btn-ghost btn-sm" id="waiver-copy">Copy link</button>
+      <a class="btn btn-ghost btn-sm" href="${esc(w.url)}" target="_blank" rel="noopener">Open it</a>
+    </div>
+    <p class="muted" style="margin:.7rem 0 0;font-size:.9rem;">${w.viewCount
+      ? `Opened ${w.viewCount} time${w.viewCount === 1 ? '' : 's'}, first ${esc(timeAgo(w.firstViewedAt))}.`
+      : 'Not opened yet.'}${w.sentAt ? ` Emailed ${esc(timeAgo(w.sentAt))}${w.sentCount > 1 ? `, ${w.sentCount} times` : ''}.` : ''}</p>
+    ${d.editable ? `<div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-top:.9rem;">
+      <input type="email" id="waiver-to" placeholder="Client email" value="${esc(w.clientEmail || '')}"
+        style="flex:1 1 14rem;max-width:22rem;">
+      <button class="btn btn-primary btn-sm" id="waiver-send">${w.sentAt ? 'Send again' : 'Email it to them'}</button>
+      <span class="muted" id="waiver-said" style="font-size:.85rem;"></span>
+    </div>` : ''}`;
+
+  document.getElementById('waiver-copy').addEventListener('click', async (e) => {
+    try {
+      await navigator.clipboard.writeText(w.url);
+      e.target.textContent = 'Copied';
+      setTimeout(() => { e.target.textContent = 'Copy link'; }, 1500);
+    } catch { e.target.textContent = 'Press Cmd-C'; }
+  });
+  const send = document.getElementById('waiver-send');
+  if (send) send.addEventListener('click', async () => {
+    const said = document.getElementById('waiver-said');
+    const to = document.getElementById('waiver-to').value.trim();
+    if (!to) { document.getElementById('waiver-to').focus(); return; }
+    send.disabled = true;
+    said.textContent = 'Sending...';
+    try {
+      await api(`/api/bookings/${encodeURIComponent(id)}/waiver`, { method: 'POST', body: { action: 'send', to } });
+      await load();
+    } catch (e) {
+      said.textContent = e.message || 'That did not send.';
+      send.disabled = false;
+    }
+  });
+}
+
 function drawShare() {
   const host = document.getElementById('share');
   const actions = document.getElementById('share-actions');
@@ -2275,6 +2348,7 @@ function render() {
   drawCommission();
   drawComponents();
   drawOptions();
+  drawWaiver();
   drawShare();
   drawDocuments();
   drawPenalty();
@@ -2348,6 +2422,7 @@ function render() {
     // section whose card is hidden, and that card hides itself when empty.
     ['sec-components', 'Other vendors'],
     ['sec-options', 'Choices'],
+    ['sec-waiver', 'Insurance waiver'],
     ['sec-share', 'Client page'],
     ['sec-docs', 'Documents'],
     ['sec-amenities', 'Amenities'],

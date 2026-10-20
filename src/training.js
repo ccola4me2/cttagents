@@ -111,7 +111,7 @@ export const LESSONS = [
     why: 'Trips, vendor deadlines and commission in one list. This is the page you will have open most.',
     manual: 'reservations',
     page: '/app/reservations',
-    doing: 'Open one and walk every panel: travellers, pricing, payments, documents, the client\'s own page.',
+    doing: 'Open one and walk every panel: travellers, pricing, payments, documents, the travel insurance waiver and the client\'s own page. The waiver card is a link you send so the client can decline insurance in writing; when they sign, the reservation shows insurance declined.',
   },
   {
     key: 'copy-reservation',

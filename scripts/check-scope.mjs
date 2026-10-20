@@ -113,6 +113,9 @@ const OWNED = new Set([
   // changes one for the advisor names user_id. The public page and picture find one by the code or id
   // that was handed out in the link, and the housekeeping pass removes expired ones: each is listed below.
   'quick_proposals', 'quick_proposal_images',
+  // The travel insurance waiver on a reservation. The advisor's, and every statement that reads or changes
+  // one for a request names user_id; the public page finds one by the code in the link, listed in ALLOWED.
+  'insurance_waivers',
 ]);
 
 // Shared by a whole agency, so agency_id is the predicate that matters rather
@@ -161,6 +164,10 @@ const EXEMPT = new Map([
 // claim that somebody checked, which is the point of writing it down instead
 // of widening the rule until nothing fails.
 const ALLOWED = [
+  ['FROM insurance_waivers w',
+    'a waiver by the code in the link the advisor sent. The code is unique and is the credential; the joins '
+    + 'name user_id beside the booking id, and the row returned names the owner, which the rest of the public '
+    + 'page uses. Only the columns a client may read about their own trip are selected.'],
   ['FROM quick_proposals WHERE code = ?',
     'a proposal by the code in the link the advisor sent. The code is the credential and is unique; the '
     + 'row returned names the owner, which the rest of the public page uses. Nothing else is read from it.'],
