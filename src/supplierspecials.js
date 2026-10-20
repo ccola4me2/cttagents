@@ -14,7 +14,7 @@
 // a deal that runs for a month is one row with a fresh date and not four.
 
 import { json, badRequest, notFound, clean, cleanDate, uid, now, readJson } from './util.js';
-import { requireUser, requireAdmin, isAdmin } from './auth.js';
+import { requireUser, requireAdmin, isAdmin, borrowedSeat } from './auth.js';
 import * as db from './db.js';
 import { readSpecialsDocx, readSpecialsJson, matchKey, norm, promoId } from './specialsdoc.js';
 
@@ -167,7 +167,7 @@ export async function handleListSupplierSpecials(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const canEdit = isAdmin(user) && !user.acting_as;
+  const canEdit = isAdmin(user) && !borrowedSeat(user);
   if (!user.agency_id) {
     return json({ specials: [], lists: [], today: today(), canEdit: false, latestListId: null });
   }
