@@ -8534,6 +8534,26 @@ async function main() {
     check(gone.status === 404, 'deleting the reservation takes its waiver with it', `status ${gone.status}`);
   }
 
+  // A quote email carries a button to the travel insurance form, and an invoice does not.
+  {
+    const made = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Waiver Quote ${stamp}`, supplier: 'Test Line', productName: 'Quote Cruise', productType: 'cruise',
+      departDate: isoDay(210), returnDate: isoDay(217), gross: '2000', status: 'quoted',
+    });
+    const qid = made.data?.booking?.id;
+    if (qid) cleanup('the quote for the waiver button', () => dropBooking(qid));
+    const pre = await call(advisor, 'POST', `/api/bookings/${qid}/statement`, { preview: true });
+    const rec = await call(advisor, 'GET', `/api/bookings/${qid}/record`);
+    const wcode = rec.data?.waiver?.code;
+    check(pre.status === 200 && pre.data?.statement?.mode === 'quote' && Boolean(wcode)
+      && (pre.data?.html || '').includes(`/w/${wcode}`) && (pre.data?.html || '').includes('Travel insurance form'),
+    'a quote email has a button to the travel insurance form', `status ${pre.status}`);
+    check(pre.data?.fingerprint && pre.data.fingerprint === (await call(advisor, 'POST', `/api/bookings/${qid}/statement`, { preview: true })).data?.fingerprint,
+      'and the button does not change what the quote says it was sent as');
+    // Dropped here: an unsent quote left on the book changes what the dashboard lists as waiting on the advisor.
+    if (qid) await dropBooking(qid);
+  }
+
   // Corporate targets: the agency's own, an owner's to see and set.
   {
     const noRead = await call(advisor, 'GET', '/api/corporate-targets');

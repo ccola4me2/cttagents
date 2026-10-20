@@ -23,6 +23,7 @@ import * as db from './db.js';
 import { paymentFormFor } from './brand.js';
 import { docsReady, listDocuments, chooseAttachments, looksLikeAgencyCopy, MAX_EMAIL_ATTACH_BYTES } from './documents.js';
 import { savedWording } from './wording.js';
+import { ensureWaiver } from './waiverdata.js';
 
 const KIND_LABEL = {
   deposit: 'Deposit', installment: 'Payment', final: 'Final balance', refund: 'Refund',
@@ -34,7 +35,7 @@ const sum = (rows) => rows.reduce((n, r) => n + (r.amountCents || 0), 0);
  * Assembles what the client is told. Pure, so the boundary can be tested
  * without a database or an inbox.
  */
-export function buildStatement({ booking, pricing, travellers, payments, amenities, options, client, user, paymentFormUrl = null }) {
+export function buildStatement({ booking, pricing, travellers, payments, amenities, options, client, user, paymentFormUrl = null, waiverCode = '' }) {
   // The page this document is about, where the client can answer it. Null when
   // the trip has never been shared, and then nothing is offered rather than a
   // link to a page that would say "not available".
@@ -195,6 +196,9 @@ export function buildStatement({ booking, pricing, travellers, payments, ameniti
     sellerOfTravel: user.seller_of_travel || '',
     // Where the agency takes a card authorization, if it has one. Not this portal: it takes none.
     paymentFormUrl: paymentFormUrl || '',
+    // The address of the travel insurance form for a quote, so the email can carry a button to it. Left out
+    // of the fingerprint: it is a link, not something the client was told about the trip.
+    waiverCode: waiverCode || '',
     confirmationNumber: booking.confirmation_number || '',
   };
 }
@@ -225,7 +229,7 @@ function rows(items, { strike = false } = {}) {
  * `to` is left out on purpose: it is who it went to, not what it said.
  */
 export async function statementFingerprint(statement) {
-  const { to, ...content } = statement;
+  const { to, waiverCode: _w, ...content } = statement;
   return (await sha256Hex(JSON.stringify(content))).slice(0, 32);
 }
 
@@ -236,6 +240,28 @@ export async function statementFingerprint(statement) {
  * form asks for, so nobody is left to work out the amount or the date, and that a card is not charged
  * before the date they give. `scope` says what one form covers when it covers more than one trip.
  */
+/**
+ * The travel insurance form, as a block in a quote. One trip gets a button, several get a link each. It
+ * says what the form is for without presuming a decline: the client may want a quote for insurance
+ * instead, and the answer to that is a reply.
+ */
+function insuranceBlock(env, items) {
+  if (!items.length) return '';
+  const several = items.length > 1;
+  const link = (i) => `${appUrl(env)}/w/${i.code}`;
+  return `<div style="margin:18px 0 0;padding:16px 18px;border:1px solid #e2ebf4;border-radius:10px;">
+      <p style="margin:0 0 8px;font-weight:600;color:#12315e;">Travel insurance</p>
+      <p style="margin:0 0 12px;color:#2f4459;">Travel protection is strongly recommended. If you would like a quote for it, reply
+        to this email. If you would rather decline it, ${several ? 'complete the short form for each trip' : 'complete this short form'},
+        which takes a minute.</p>
+      ${several
+    ? items.map((i) => `<p style="margin:6px 0;"><a href="${escapeHtml(link(i))}" style="color:#12315e;font-weight:600;">${
+      escapeHtml(i.label)}</a></p>`).join('')
+    : `<a href="${escapeHtml(link(items[0]))}" style="display:inline-block;background:#12315e;color:#ffffff;text-decoration:none;
+        font-weight:600;padding:11px 22px;border-radius:8px;">Travel insurance form</a>`}
+    </div>`;
+}
+
 function cardBlock(url, { heading, button, amountCents, dueIso, confirmation, scope = '' }) {
   return `<div style="margin:18px 0 0;padding:16px 18px;border:1px solid #cfe0ee;border-radius:10px;background:#f7fafd;">
       <p style="margin:0 0 8px;font-weight:600;color:#12315e;">${escapeHtml(heading)}</p>
@@ -352,7 +378,8 @@ export function renderStatement(env, s, custom = {}) {
         ? `A deposit of <strong>${money(s.depositCents)}</strong> holds this${
             s.depositDue ? ` and is due by ${escapeHtml(day(s.depositDue))}` : ''}.${depositNote}${finalNote}`
         : `Say the word and I will hold it.${finalNote}`
-      } Prices and space are not held until it is booked.${answerHere}</p>${cardForm(s.depositCents, s.depositDue)}`
+      } Prices and space are not held until it is booked.${answerHere}</p>${cardForm(s.depositCents, s.depositDue)}${
+      insuranceBlock(env, s.waiverCode ? [{ code: s.waiverCode }] : [])}`
     : '';
 
   const body = [
@@ -537,6 +564,11 @@ export function renderCombinedQuote(env, statements, { paymentFormUrl = '', cust
       scope: `One form covers all ${statements.length} trips.`,
     }) : '';
 
+  const insurance = insuranceBlock(env, statements.filter((s) => s.waiverCode).map((s) => ({
+    code: s.waiverCode,
+    label: [s.clientName, [s.tripName, s.vendor].filter(Boolean).join(' with ') || 'Your trip'].filter(Boolean).join(': '),
+  })));
+
   const body = [
     '<p style="margin:0 0 14px;">Hello,</p>',
     paragraphs(custom.intro || combinedIntro(depositTotal > 0)),
@@ -545,6 +577,7 @@ export function renderCombinedQuote(env, statements, { paymentFormUrl = '', cust
        All together: <strong>${money(tripTotal)}</strong>. ${hold}</p>`,
     `<p style="margin:14px 0 0;">Prices and space are not held until they are booked.</p>`,
     card,
+    insurance,
     closing ? `<div style="margin:18px 0 0;">${paragraphs(closing)}</div>` : '',
     `<p style="margin:24px 0 0;">${escapeHtml(first.advisorName)}${
       first.agencyName ? `<br><span style="color:#5c7286;">${escapeHtml(first.agencyName)}</span>` : ''}</p>`,
@@ -985,13 +1018,20 @@ export async function handleStatement(request, env, id) {
   // renaming the variable silently renamed the key: every statement became a
   // 500 that read as a variable rename.
   const paymentFormUrl = await paymentFormFor(env, owner.agency_id);
+  let waiverCode = '';
   const build = () => buildStatement({
     booking, pricing, travellers, amenities, payments, options,
     client: toOverride ? { ...(client || {}), email: toOverride } : client,
-    user: owner, paymentFormUrl,
+    user: owner, paymentFormUrl, waiverCode,
   });
 
   let statement = build();
+  // A quote carries the button to the travel insurance form, so the form has to exist before the message is
+  // built. Made here, on a preview as much as on a send: the address is not known to anybody until it is sent.
+  if (statement.mode === 'quote') {
+    const waiver = await ensureWaiver(env, booking).catch((e) => { console.error('waiver for quote', e); return null; });
+    if (waiver) { waiverCode = waiver.code; statement = build(); }
+  }
   // The opening and closing words the advisor, or the agency, has saved as the standard. What was
   // typed on this one send wins over them, and they win over the wording built in.
   const wording = await savedWording(env, owner, statement.mode === 'quote' ? 'quote' : 'invoice');
