@@ -9,7 +9,7 @@
 
 import { json, badRequest, notFound, forbidden, clean, cleanText, cleanDate, badDate, oneOf, uid, now, readJson }
   from './util.js';
-import { requireUser, requireAdmin } from './auth.js';
+import { requireUser, requireAdmin, borrowedSeat } from './auth.js';
 import * as db from './db.js';
 
 export const KINDS = ['training', 'webinar', 'meeting', 'other'];
@@ -213,7 +213,7 @@ export async function handleDeleteAgencyEvent(request, env, id) {
 export async function handleGoing(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  if (user.acting_as) return forbidden('Stop working as an advisor to answer for yourself.');
+  if (borrowedSeat(user)) return forbidden('Stop working as an advisor to answer for yourself.');
   const agencyId = user.agency_id || '';
 
   const event = await env.DB.prepare(
