@@ -89,6 +89,7 @@ export const EXPECTED_SCHEMA = {
   user_prefs: ['dashboard_json', 'updated_at', 'user_id'],
   users: ['agency_address', 'agency_id', 'agency_name', 'alerts_feed', 'alerts_seen_at', 'approved_at', 'approved_by', 'auto_remind_clients', 'call_list_sent_at', 'chat_toasts', 'created_at', 'default_split_pct', 'email', 'first_name', 'ghl_location_id', 'ghl_user_id', 'id', 'invite_token', 'last_login_at', 'last_name', 'lead_split_pct', 'notify_email', 'password_hash', 'phone', 'platform_owner', 'push_alerts', 'role', 'seller_of_travel', 'status', 'task_digest', 'task_digest_sent_at', 'timezone', 'updated_at', 'weekly_call_list'],
   vendors: ['account_number', 'bdm_email', 'bdm_info', 'bdm_name', 'bdm_phone', 'booking_instructions', 'budget_category', 'categories_json', 'category', 'commission_pct', 'commission_structure', 'created_at', 'deposit_days', 'email', 'favourite', 'final_days', 'id', 'name', 'notes', 'partner_status', 'phone', 'phones_json', 'portal_url', 'registration_instructions', 'signup_url', 'travel_types', 'updated_at', 'user_id', 'vendor_login', 'website'],
+  waiver_wording: ['agency_id', 'decline', 'fine_print', 'intro', 'updated_at', 'updated_by'],
 };
 
 /** "table.column" -> the migration file that adds it. */
@@ -1191,4 +1192,10 @@ export const COLUMN_ORIGIN = {
   'vendors.user_id': '0018_vendors.sql',
   'vendors.vendor_login': '0035_vendor_partner_fields.sql',
   'vendors.website': '0033_vendor_hub.sql',
+  'waiver_wording.agency_id': '0128_waiver_wording.sql',
+  'waiver_wording.decline': '0128_waiver_wording.sql',
+  'waiver_wording.fine_print': '0128_waiver_wording.sql',
+  'waiver_wording.intro': '0128_waiver_wording.sql',
+  'waiver_wording.updated_at': '0128_waiver_wording.sql',
+  'waiver_wording.updated_by': '0128_waiver_wording.sql',
 };

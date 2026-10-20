@@ -19,36 +19,68 @@ export function waiverCode() {
   return [...bytes].map((b) => alphabet[b % alphabet.length]).join('');
 }
 
-/** The reading text, a paragraph each. Written for any agency, so it names the one it is for. */
-export function waiverParagraphs(agency) {
-  const who = agency || 'Your travel advisor';
-  return [
-    'Travel protection insurance is strongly recommended to protect the money you are putting into this '
-      + 'trip. Cruise lines, tour companies, resorts and most other suppliers charge a penalty to cancel, '
-      + 'which can run from the deposit up to the whole price, and in some cases there is no refund at '
-      + 'all. Unforeseen events happen, and they tend to happen close to departure.',
-    'Travel protection can also cover emergency medical and dental care, medical evacuation, delayed '
-      + 'baggage and more. Your own health insurance may not cover you while you are travelling, and an '
-      + 'emergency medical transport can cost many thousands of dollars, which would be yours to pay if '
-      + 'you are not covered.',
-    `${who} has offered you the chance to buy travel protection for this trip. If you choose not to, `
-      + 'please sign this acknowledgement below.',
-  ];
+// The words built into the portal, which an agency may replace field by field. {agency} and {advisor} are
+// filled in when the page is shown, so one text serves every advisor.
+export const DEFAULT_WORDS = {
+  intro: 'Travel protection insurance is strongly recommended to protect the money you are putting into this '
+    + 'trip. Cruise lines, tour companies, resorts and most other suppliers charge a penalty to cancel, '
+    + 'which can run from the deposit up to the whole price, and in some cases there is no refund at '
+    + 'all. Unforeseen events happen, and they tend to happen close to departure.\n\n'
+    + 'Travel protection can also cover emergency medical and dental care, medical evacuation, delayed '
+    + 'baggage and more. Your own health insurance may not cover you while you are travelling, and an '
+    + 'emergency medical transport can cost many thousands of dollars, which would be yours to pay if '
+    + 'you are not covered.\n\n'
+    + '{agency} has offered you the chance to buy travel protection for this trip. If you choose not to, '
+    + 'please sign this acknowledgement below.',
+  decline: 'I DECLINE the travel protection insurance that has been offered to me. '
+    + 'I am aware of the advantages and benefits of travel insurance and I choose to decline the purchase '
+    + 'of a protection plan.',
+  finePrint: 'By submitting this form you are declining travel protection for this trip. If you would like a '
+    + 'quote for insurance, which is highly recommended, please contact {advisor}.',
+};
+
+export const WORD_FIELDS = ['intro', 'decline', 'finePrint'];
+const COLUMN = { intro: 'intro', decline: 'decline', finePrint: 'fine_print' };
+
+/** {agency} and {advisor} filled in, with a plain fallback so a missing name never prints a brace. */
+export function fillWords(text, { agency, advisor }) {
+  return String(text || '')
+    .replace(/\{agency\}/gi, agency || 'Your travel advisor')
+    .replace(/\{advisor\}/gi, advisor || 'your travel advisor');
 }
 
-/** The line the client ticks, and the warning under it. Both go onto the signed row. */
-export const DECLINE_STATEMENT = 'I DECLINE the travel protection insurance that has been offered to me. '
-  + 'I am aware of the advantages and benefits of travel insurance and I choose to decline the purchase '
-  + 'of a protection plan.';
+/**
+ * What an agency has saved, field by field. A field it left blank is the built-in text, so an owner can
+ * change only the closing line and keep the rest. Raw, with the placeholders still in.
+ */
+export async function waiverWords(env, agencyId) {
+  const row = agencyId
+    ? await env.DB.prepare('SELECT intro, decline, fine_print, updated_at FROM waiver_wording WHERE agency_id = ?')
+      .bind(agencyId).first().catch(() => null)
+    : null;
+  const words = {};
+  const custom = {};
+  for (const f of WORD_FIELDS) {
+    const saved = row && String(row[COLUMN[f]] || '').trim();
+    words[f] = saved || DEFAULT_WORDS[f];
+    custom[f] = Boolean(saved);
+  }
+  const anyCustom = Object.values(custom).some(Boolean);
+  return { words, custom, version: anyCustom ? `agency-${row.updated_at}` : WAIVER_VERSION };
+}
 
-export function waiverFinePrint(advisor) {
-  return 'By submitting this form you are declining travel protection for this trip. If you would like a '
-    + `quote for insurance, which is highly recommended, please contact ${advisor || 'your travel advisor'}.`;
+/** The words as a client reads them, split for the page. */
+export function waiverView(words, names) {
+  return {
+    paragraphs: fillWords(words.intro, names).split(/\n{2,}/).map((p) => p.trim()).filter(Boolean),
+    decline: fillWords(words.decline, names),
+    finePrint: fillWords(words.finePrint, names),
+  };
 }
 
 /** Everything the client agreed to, as one block of text for the record. */
-export function waiverRecord(agency, advisor) {
-  return [...waiverParagraphs(agency), DECLINE_STATEMENT, waiverFinePrint(advisor)].join('\n\n');
+export function waiverRecord(view) {
+  return [...view.paragraphs, view.decline, view.finePrint].join('\n\n');
 }
 
 /**

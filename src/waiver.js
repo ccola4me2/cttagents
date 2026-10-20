@@ -17,7 +17,7 @@ import { requireUser, borrowedSeat, SESSION_COOKIE } from './auth.js';
 import { brandForUser } from './brand.js';
 import { appUrl, page, looksAutomatic } from './share.js';
 import {
-  WAIVER_VERSION, waiverCode, waiverParagraphs, waiverFinePrint, waiverRecord, DECLINE_STATEMENT, ensureWaiver,
+  waiverCode, waiverWords, waiverView, waiverRecord, ensureWaiver,
 } from './waiverdata.js';
 import { sendWaiverEmail, sendWaiverSignedEmail, sendWaiverCopyEmail } from './email.js';
 import * as db from './db.js';
@@ -227,6 +227,8 @@ export async function renderWaiverPage(request, env, code) {
   const brand = await brandForUser(env, w.user_id);
   const advisor = [w.first_name, w.last_name].filter(Boolean).join(' ') || brand.name;
   const agency = w.agency_name || brand.name;
+  const { words } = await waiverWords(env, w.agency_id);
+  const view = waiverView(words, { agency, advisor });
 
   // Counted when a person opens it, and not for the advisor's own look or a mail scanner.
   try {
@@ -252,7 +254,7 @@ export async function renderWaiverPage(request, env, code) {
   if (w.signed_at) {
     // The record, as it was signed. The stored words, not today's: a later edit to the wording must not
     // change what somebody agreed to.
-    const paragraphs = String(w.wording_text || waiverRecord(agency, advisor)).split(/\n{2,}/);
+    const paragraphs = String(w.wording_text || waiverRecord(view)).split(/\n{2,}/);
     main = `<div class="wv-done"><strong>Signed.</strong> ${esc(w.signer_name)} declined travel protection for this trip on ${esc(sayWhen(w.signed_at))} (Eastern time).</div>
       ${trip}
       <div class="wv-text dim">${paragraphs.map((p) => `<p>${esc(p)}</p>`).join('')}</div>
@@ -261,9 +263,9 @@ export async function renderWaiverPage(request, env, code) {
   contact ? ` <a href="mailto:${esc(contact)}">${esc(contact)}</a>` : ''}</p>`;
   } else {
     main = `${trip}
-      <div class="wv-text">${waiverParagraphs(agency).map((p) => `<p>${esc(p)}</p>`).join('')}</div>
+      <div class="wv-text">${view.paragraphs.map((p) => `<p>${esc(p)}</p>`).join('')}</div>
       <form id="wv-form" novalidate>
-        <label class="wv-tick"><input type="checkbox" id="wv-agree"><span>${esc(DECLINE_STATEMENT)}</span></label>
+        <label class="wv-tick"><input type="checkbox" id="wv-agree"><span>${esc(view.decline)}</span></label>
         <p class="dim small" style="margin:0 0 .8rem;"><span style="color:#b3382a;">*</span> required</p>
         <div class="wv-field"><label for="wv-name"><span style="color:#b3382a;">*</span> Your name</label>
           <input id="wv-name" autocomplete="name" maxlength="120"></div>
@@ -271,7 +273,7 @@ export async function renderWaiverPage(request, env, code) {
           <input id="wv-email" type="email" autocomplete="email" maxlength="254" inputmode="email"></div>
         <div class="wv-field"><label>Date</label><div>${esc(sayWhen(now()))}</div></div>
         <div class="wv-hp" aria-hidden="true"><label>Company website<input id="wv-hp" tabindex="-1" autocomplete="off"></label></div>
-        <p class="wv-warn">${esc(waiverFinePrint(advisor))}</p>
+        <p class="wv-warn">${esc(view.finePrint)}</p>
         <button class="wv-go" id="wv-go" type="submit">Submit</button>
         <p class="wv-err" id="wv-err" hidden></p>
       </form>
@@ -302,6 +304,8 @@ export async function handleSignWaiver(request, env, code) {
   const brand = await brandForUser(env, w.user_id);
   const advisor = [w.first_name, w.last_name].filter(Boolean).join(' ') || brand.name;
   const agency = w.agency_name || brand.name;
+  const { words, version } = await waiverWords(env, w.agency_id);
+  const view = waiverView(words, { agency, advisor });
   const ip = request.headers.get('CF-Connecting-IP') || '';
   const ipHash = ip ? (await sha256Hex(`waiver:${code}:${ip}`)).slice(0, 32) : null;
   const ts = now();
@@ -311,7 +315,7 @@ export async function handleSignWaiver(request, env, code) {
     `UPDATE insurance_waivers SET signed_at = ?, signer_name = ?, signer_email = ?, ip_hash = ?,
             wording_version = ?, wording_text = ?
       WHERE id = ? AND user_id = ? AND signed_at IS NULL`
-  ).bind(ts, name, email, ipHash, WAIVER_VERSION, waiverRecord(agency, advisor), w.id, w.user_id).run();
+  ).bind(ts, name, email, ipHash, version, waiverRecord(view), w.id, w.user_id).run();
   if (!res.meta || !res.meta.changes) return badRequest('This has already been signed.');
 
   // Declined, unless something firmer is already on the reservation: a policy bought is not undone by a

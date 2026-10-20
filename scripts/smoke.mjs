@@ -8455,6 +8455,41 @@ async function main() {
       && form.raw.includes('id="wv-form"'), 'the client sees the form, with their trip on it', `status ${form.status}`);
     check(!/commission|advisor_split|lead_source/i.test(form.raw), 'and nothing about what the agency earns');
 
+    // The agency's own words replace the built-in ones, are an owner's to set, and a signed copy keeps what was shown.
+    const wAdvisor = await call(advisor, 'GET', '/api/waiver-wording');
+    check(wAdvisor.status === 403, 'an advisor cannot read the waiver wording', `status ${wAdvisor.status}`);
+    const wAdvisorSave = await call(advisor, 'PUT', '/api/waiver-wording', { intro: 'Mine.' });
+    check(wAdvisorSave.status === 403, 'nor change it', `status ${wAdvisorSave.status}`);
+    const wAnon = await call(null, 'GET', '/api/waiver-wording');
+    check(wAnon.status === 401, 'nor can somebody who is not signed in', `status ${wAnon.status}`);
+    cleanup('the waiver wording', () => call(admin, 'DELETE', '/api/waiver-wording'));
+    const wOwner = await call(admin, 'GET', '/api/waiver-wording');
+    check(wOwner.status === 200 && /strongly recommended/.test(wOwner.data?.words?.intro || '')
+      && !Object.values(wOwner.data?.custom || { x: true }).some(Boolean), 'an owner reads the built-in wording to start from', `status ${wOwner.status}`);
+    const wShort = await call(admin, 'PUT', '/api/waiver-wording', { decline: 'No' });
+    check(wShort.status === 400, 'a line to tick that is too short to be a decline is refused', `status ${wShort.status}`);
+    const wSet = await call(admin, 'PUT', '/api/waiver-wording', {
+      intro: 'Smoke intro for {agency}.\n\nSecond paragraph.',
+      decline: `I decline the smoke insurance ${stamp} that my advisor offered me.`,
+      finePrint: 'Contact {advisor} for a quote.',
+    });
+    check(wSet.status === 200 && wSet.data?.custom?.intro && wSet.data?.custom?.decline && wSet.data?.custom?.finePrint,
+      'an owner can set their own words', `status ${wSet.status}`);
+    const mine = await call(null, 'GET', `/w/${code}`);
+    check(mine.raw.includes('Smoke intro for') && mine.raw.includes('Second paragraph.')
+      && mine.raw.includes(`I decline the smoke insurance ${stamp}`) && mine.raw.includes('Contact ')
+      && !mine.raw.includes('strongly recommended') && !mine.raw.includes('{agency}') && !mine.raw.includes('{advisor}'),
+    'and the client reads them, with the names filled in');
+    const keepOne = await call(admin, 'PUT', '/api/waiver-wording', { intro: '', decline: '', finePrint: 'Only this one changes {advisor}.' });
+    const mixed = await call(null, 'GET', `/w/${code}`);
+    check(keepOne.status === 200 && mixed.raw.includes('strongly recommended') && mixed.raw.includes('Only this one changes'),
+      'a box left blank keeps the built-in text beside the ones that were changed');
+    await call(admin, 'PUT', '/api/waiver-wording', {
+      intro: 'Smoke intro for {agency}.\n\nSecond paragraph.',
+      decline: `I decline the smoke insurance ${stamp} that my advisor offered me.`,
+      finePrint: 'Contact {advisor} for a quote.',
+    });
+
     const badSend = await call(advisor, 'POST', `/api/bookings/${wid}/waiver`, { action: 'send', to: 'not an address' });
     check(badSend.status === 400, 'sending needs an email address', `status ${badSend.status}`);
 
@@ -8482,6 +8517,12 @@ async function main() {
     const copy = await call(null, 'GET', `/w/${code}`);
     check(copy.raw.includes('Signed.') && copy.raw.includes('Pat Client') && !copy.raw.includes('id="wv-form"'),
       'the link then shows the signed copy and not the form');
+    await call(admin, 'DELETE', '/api/waiver-wording');
+    const kept = await call(null, 'GET', `/w/${code}`);
+    check(kept.raw.includes('Smoke intro for') && !kept.raw.includes('strongly recommended'),
+      'and changing the wording afterwards leaves a signed copy as it was signed');
+    const back = await call(admin, 'GET', '/api/waiver-wording');
+    check(!Object.values(back.data?.custom || { x: true }).some(Boolean), 'going back to the built-in wording works');
     const twice = await call(null, 'POST', `/w/${code}`, { agree: true, name: 'Someone Else', email: 'else@example.com' });
     check(twice.status === 400, 'a signed waiver cannot be signed again', `status ${twice.status}`);
     const renewSigned = await call(advisor, 'POST', `/api/bookings/${wid}/waiver`, { action: 'renew' });
