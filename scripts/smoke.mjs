@@ -8433,7 +8433,7 @@ async function main() {
     });
     const wid = made.data?.booking?.id;
     if (wid) cleanup('the reservation for the waiver', () => dropBooking(wid));
-    const got = await call(advisor, 'GET', `/api/bookings/${wid}`);
+    const got = await call(advisor, 'GET', `/api/bookings/${wid}/record`);
     const w = got.data?.waiver;
     check(made.status === 201 && w && /^[a-z0-9]{18}$/.test(w.code || '') && !w.signedAt
       && (w.url || '').endsWith(`/w/${w.code}`), 'every reservation has its waiver link already made', JSON.stringify(w));
@@ -8470,12 +8470,12 @@ async function main() {
     const noMail = await call(null, 'POST', `/w/${code}`, { agree: true, name: 'Pat Client', email: 'nope' });
     check(noMail.status === 400, 'and an email address', `status ${noMail.status}`);
     const bot = await call(null, 'POST', `/w/${code}`, { agree: true, name: 'Bot', email: 'bot@example.com', company_website: 'spam' });
-    const stillOpen = await call(advisor, 'GET', `/api/bookings/${wid}`);
+    const stillOpen = await call(advisor, 'GET', `/api/bookings/${wid}/record`);
     check(bot.status === 200 && !stillOpen.data?.waiver?.signedAt, 'a form filled in by a bot is not a signature');
 
     const signed = await call(null, 'POST', `/w/${code}`, { agree: true, name: 'Pat Client', email: 'Pat@Example.com' });
     check(signed.status === 200 && signed.data?.ok === true, 'the client can sign', `status ${signed.status} ${signed.raw}`);
-    const after = await call(advisor, 'GET', `/api/bookings/${wid}`);
+    const after = await call(advisor, 'GET', `/api/bookings/${wid}/record`);
     check(Boolean(after.data?.waiver?.signedAt) && after.data?.waiver?.signerName === 'Pat Client'
       && after.data?.waiver?.signerEmail === 'pat@example.com', 'the reservation records who signed, and when');
     check(after.data?.booking?.insurance_status === 'declined', 'and marks insurance as declined', after.data?.booking?.insurance_status);
