@@ -18,7 +18,34 @@
     </header>
     <div class="content">
       <div id="err"></div>
-      <section class="card" id="panel"><p class="spinner">Loading...</p></section>
+      <section class="card" id="panel" hidden>
+        <div class="card-pad">
+          <p style="margin:0 0 .6rem;" id="status"></p>
+          <p class="muted" style="margin:0 0 1rem;font-size:.9rem;">Write <code>{agency}</code> where the agency's name should go and
+            <code>{advisor}</code> where the advisor's own name should go: each client sees their own advisor's. A box you clear goes
+            back to the built-in text. Waivers already signed keep the words their client saw, and changing these never alters them.</p>
+          <form id="form">
+            <div class="field"><label for="w-intro">Why travel insurance is recommended</label>
+              <textarea id="w-intro" rows="12" maxlength="4000" style="width:100%;"></textarea>
+              <p class="muted" style="margin:.2rem 0 0;font-size:.82rem;">Leave a blank line between paragraphs.</p></div>
+            <div class="field"><label for="w-decline">The line the client ticks</label>
+              <textarea id="w-decline" rows="3" maxlength="800" style="width:100%;"></textarea>
+              <p class="muted" style="margin:.2rem 0 0;font-size:.82rem;">This is what they are agreeing to, so it must say they decline.</p></div>
+            <div class="field"><label for="w-finePrint">The warning under the form</label>
+              <textarea id="w-finePrint" rows="3" maxlength="800" style="width:100%;"></textarea>
+              <p class="muted" style="margin:.2rem 0 0;font-size:.82rem;">Shown in red capitals under the form, above the Submit button.</p></div>
+            <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">
+              <button class="btn btn-primary" type="submit">Save the wording</button>
+              <button class="btn btn-ghost" type="button" id="reset">Go back to the built-in wording</button>
+              <span class="muted" id="said"></span>
+            </div>
+          </form>
+          <h2 style="margin:1.6rem 0 .6rem;font-size:1.05rem;">How it reads to a client</h2>
+          <p class="muted" style="margin:0 0 .6rem;font-size:.85rem;" id="names"></p>
+          <div id="prev" style="border:1px solid var(--navy-100);border-radius:10px;padding:1rem 1.2rem;max-width:44rem;"></div>
+        </div>
+      </section>
+      <p class="spinner" id="loading">Loading...</p>
     </div>
   </div>
 </div>
@@ -29,16 +56,13 @@ await mountShell({ admin: true });
 
 const panel = document.getElementById('panel');
 const err = document.getElementById('err');
+const said = document.getElementById('said');
+const box = {
+  intro: document.getElementById('w-intro'),
+  decline: document.getElementById('w-decline'),
+  finePrint: document.getElementById('w-finePrint'),
+};
 let data = null;
-
-const FIELDS = [
-  { key: 'intro', label: 'Why travel insurance is recommended', rows: 12,
-    hint: 'Leave a blank line between paragraphs.' },
-  { key: 'decline', label: 'The line the client ticks', rows: 3,
-    hint: 'This is what they are agreeing to, so it must say they decline.' },
-  { key: 'finePrint', label: 'The warning under the form', rows: 3,
-    hint: 'Shown in red capitals under the form, above the Submit button.' },
-];
 
 function fill(text) {
   return String(text || '')
@@ -47,7 +71,7 @@ function fill(text) {
 }
 
 function preview() {
-  const val = (k) => document.getElementById(`w-${k}`).value.trim() || data.defaults[k];
+  const val = (k) => box[k].value.trim() || data.defaults[k];
   const paras = fill(val('intro')).split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
   document.getElementById('prev').innerHTML = `
     ${paras.map((p) => `<p>${esc(p)}</p>`).join('')}
@@ -57,61 +81,44 @@ function preview() {
 
 function draw() {
   const custom = Object.values(data.custom).some(Boolean);
-  panel.innerHTML = `<div class="card-pad">
-    <p style="margin:0 0 .6rem;">${custom
-      ? '<span class="badge badge-navy">Your wording</span> is in use.'
-      : '<span class="badge badge-amber">Built-in wording</span> is in use. Change anything below and save to replace it.'}</p>
-    <p class="muted" style="margin:0 0 1rem;font-size:.9rem;">Write <code>{agency}</code> where the agency's name should go and
-      <code>{advisor}</code> where the advisor's own name should go: each client sees their own advisor's. A field you clear goes
-      back to the built-in text. Waivers already signed keep the words their client saw, and changing these never alters them.</p>
-    <form id="form">
-      ${FIELDS.map((f) => `<div class="field"><label for="w-${f.key}">${esc(f.label)}</label>
-        <textarea id="w-${f.key}" rows="${f.rows}" maxlength="${f.key === 'intro' ? 4000 : 800}"
-          style="width:100%;">${esc(data.words[f.key])}</textarea>
-        <p class="muted" style="margin:.2rem 0 0;font-size:.82rem;">${esc(f.hint)}</p></div>`).join('')}
-      <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">
-        <button class="btn btn-primary" type="submit">Save the wording</button>
-        <button class="btn btn-ghost" type="button" id="reset"${custom ? '' : ' disabled'}>Go back to the built-in wording</button>
-        <span class="muted" id="said"></span>
-      </div>
-    </form>
-    <h2 style="margin:1.6rem 0 .6rem;font-size:1.05rem;">How it reads to a client</h2>
-    <p class="muted" style="margin:0 0 .6rem;font-size:.85rem;">Shown with ${esc(data.names.agency)} and ${esc(data.names.advisor)} filled in.</p>
-    <div id="prev" style="border:1px solid var(--navy-100);border-radius:10px;padding:1rem 1.2rem;max-width:44rem;"></div>
-  </div>`;
-
+  document.getElementById('status').innerHTML = custom
+    ? '<span class="badge badge-navy">Your wording</span> is in use.'
+    : '<span class="badge badge-amber">Built-in wording</span> is in use. Change anything below and save to replace it.';
+  for (const k of Object.keys(box)) box[k].value = data.words[k];
+  document.getElementById('reset').disabled = !custom;
+  document.getElementById('names').textContent = `Shown with ${data.names.agency} and ${data.names.advisor} filled in.`;
+  document.getElementById('loading').hidden = true;
+  panel.hidden = false;
   preview();
-  FIELDS.forEach((f) => document.getElementById(`w-${f.key}`).addEventListener('input', preview));
-  const said = document.getElementById('said');
-
-  document.getElementById('form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    said.textContent = 'Saving...';
-    try {
-      data = await api('/api/waiver-wording', { method: 'PUT', body: {
-        intro: document.getElementById('w-intro').value,
-        decline: document.getElementById('w-decline').value,
-        finePrint: document.getElementById('w-finePrint').value,
-      } });
-      draw();
-      document.getElementById('said').textContent = 'Saved.';
-    } catch (ex) { said.textContent = ''; showError(err, ex); }
-  });
-
-  document.getElementById('reset').addEventListener('click', async () => {
-    if (!confirm('Go back to the built-in wording in all three boxes? Waivers already signed are not changed.')) return;
-    try {
-      data = await api('/api/waiver-wording', { method: 'DELETE' });
-      draw();
-      document.getElementById('said').textContent = 'Back to the built-in wording.';
-    } catch (ex) { showError(err, ex); }
-  });
 }
+
+Object.values(box).forEach((el) => el.addEventListener('input', preview));
+
+document.getElementById('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  said.textContent = 'Saving...';
+  try {
+    data = await api('/api/waiver-wording', { method: 'PUT', body: {
+      intro: box.intro.value, decline: box.decline.value, finePrint: box.finePrint.value,
+    } });
+    draw();
+    said.textContent = 'Saved.';
+  } catch (ex) { said.textContent = ''; showError(err, ex); }
+});
+
+document.getElementById('reset').addEventListener('click', async () => {
+  if (!confirm('Go back to the built-in wording in all three boxes? Waivers already signed are not changed.')) return;
+  try {
+    data = await api('/api/waiver-wording', { method: 'DELETE' });
+    draw();
+    said.textContent = 'Back to the built-in wording.';
+  } catch (ex) { showError(err, ex); }
+});
 
 try {
   data = await api('/api/waiver-wording');
   draw();
-} catch (ex) { panel.innerHTML = ''; showError(err, ex); }
+} catch (ex) { document.getElementById('loading').hidden = true; showError(err, ex); }
 </script>
 </body>
 </html>
