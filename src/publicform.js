@@ -110,6 +110,7 @@ function fieldMarkup(f, invite) {
       passport_number: ['Passport number', 'text'],
       passport_expiry: ['Passport expires', 'date'],
       passport_country: ['Passport country', 'text'],
+      state_id: ['State ID number, if using a birth certificate', 'text'],
       known_traveler: ['Known traveller number', 'text'],
     };
     const block = (n) => `<fieldset class="guest" data-guest="${n}"${n > 1 ? ' hidden' : ''}>

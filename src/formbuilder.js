@@ -32,7 +32,7 @@ const FIELD_TYPES = ['text', 'email', 'tel', 'textarea', 'select',
 // free text, because every one of these lands on a client record by name and
 // an unknown key would land nowhere.
 export const TRAVELLER_DETAILS = ['dob', 'gender', 'email', 'phone',
-  'passport_number', 'passport_expiry', 'passport_country', 'known_traveler'];
+  'passport_number', 'passport_expiry', 'passport_country', 'state_id', 'known_traveler'];
 
 function slugify(s) {
   return String(s || '').toLowerCase().trim()

@@ -141,7 +141,7 @@ function sayValue(v) {
   if (v && typeof v === 'object') {
     const { name, ...rest } = v;
     const more = Object.entries(rest).filter(([, x]) => x)
-      .map(([k, x]) => `${k === 'dob' ? 'born' : k} ${sayValue(x)}`).join(', ');
+      .map(([k, x]) => `${k === 'dob' ? 'born' : k.replace(/_/g, ' ')} ${sayValue(x)}`).join(', ');
     return [name, more && `(${more})`].filter(Boolean).join(' ') || Object.values(v).filter(Boolean).join(', ');
   }
   return String(v).replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, '$2/$3/$1');

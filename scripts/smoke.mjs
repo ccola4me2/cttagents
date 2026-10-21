@@ -1355,6 +1355,24 @@ async function main() {
     check(reopened.data?.form?.inviteOnly === false && nowOpen.status === 200, 'turning it off makes it an ordinary open form', `status ${nowOpen.status}`);
   }
 
+  // A traveller block can ask for a State ID, for somebody travelling on a birth certificate.
+  {
+    const made = await call(advisor, 'POST', '/api/myforms', {
+      name: `Smoke state id ${stamp}`,
+      fields: [
+        { label: 'Full name', type: 'text', required: true },
+        { label: 'Email', type: 'email', required: true },
+        { label: 'Who is travelling', type: 'travellers', details: ['dob', 'passport_number', 'state_id'] },
+      ],
+    });
+    const sf = made.data?.form;
+    if (sf?.id) cleanup('the state id form', () => call(advisor, 'DELETE', `/api/myforms/${sf.id}`));
+    const asked = (sf?.fields || []).find((f) => f.type === 'travellers');
+    check(made.status === 201 && (asked?.details || []).includes('state_id'), 'a traveller block can ask for a State ID', JSON.stringify(asked?.details));
+    const shown = sf ? await fetch(`${BASE}/f/${sf.slug}`) : { text: async () => '' };
+    check((await shown.text()).includes('State ID number, if using a birth certificate'), 'and the client is asked for it on the form');
+  }
+
   // -------------------------------------------- a lead that is due ----
   //
   // lead_next_step_on was read by the lead board and by nothing else, so a
