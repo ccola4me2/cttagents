@@ -154,11 +154,19 @@
                 <div class="field">
                   <label style="display:flex;align-items:center;gap:.5rem;font-weight:400;">
                     <input type="checkbox" id="inviteOnly" name="inviteOnly">
-                    Private: only people I send it to can open it
+                    Invite only: only people I send it to can open it
                   </label>
-                  <p class="field-hint" style="margin-top:.2rem;">Nobody can open a private form from its address. Use
+                  <p class="field-hint" style="margin-top:.2rem;">Nobody can open an invite only form from its address. Use
                     <strong>Send to a client</strong> on the Lead forms page and they get their own link, which works once.
                     Leave it off for a form you share publicly or put on a website.</p>
+                </div>
+                <div class="field">
+                  <label style="display:flex;align-items:center;gap:.5rem;font-weight:400;">
+                    <input type="checkbox" id="isPrivate" name="isPrivate">
+                    Private: only I can see and edit this form
+                  </label>
+                  <p class="field-hint" style="margin-top:.2rem;" id="private-hint">Nobody else in the agency sees it in their list or
+                    opens it to edit it, and that includes whoever runs the agency. Its link still works for anybody you give it to.</p>
                 </div>
               </div>
             </section>
@@ -176,7 +184,7 @@
 
 <script type="module">
 import { api, mountShell, esc, showError } from '/js/app.js';
-await mountShell();
+const me = await mountShell();
 
 const params = new URLSearchParams(location.search);
 const id = params.get('id');
@@ -543,6 +551,7 @@ document.getElementById('save').addEventListener('click', async () => {
     startsOn: f.startsOn.value, endsOn: f.endsOn.value,
     active: f.active.checked,
     inviteOnly: f.inviteOnly.checked,
+    private: f.isPrivate.checked,
     // Every part, not only the parts this screen shows. It edits a label and a
     // tick; the hint under the question, the placeholder inside it and the
     // choices behind a dropdown are all invisible here, and mapping only what
@@ -594,6 +603,12 @@ async function load() {
       form.elements.endsOn.value = f.endsOn || '';
       form.elements.active.checked = f.active;
       form.elements.inviteOnly.checked = Boolean(f.inviteOnly);
+      form.elements.isPrivate.checked = Boolean(f.private);
+      // Only whoever made a form can make it private or take that back.
+      if (f.createdBy && f.createdBy !== me.id) {
+        form.elements.isPrivate.disabled = true;
+        document.getElementById('private-hint').textContent = 'Only the advisor who made this form can make it private.';
+      }
       chosen = (f.fields || []).map((x) => ({ ...x }));
       if (params.get('saved')) {
         err.innerHTML = '<div class="notice notice-ok">Saved.</div>';

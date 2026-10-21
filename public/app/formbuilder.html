@@ -104,9 +104,10 @@ function render(forms) {
     <tbody>${forms.map((f) => `<tr>
       <td><span class="name">${esc(f.name)}</span>
         <div><span class="badge ${f.active ? 'badge-green' : 'badge-navy'}">${f.active ? 'live' : 'off'}</span>${
-          f.inviteOnly ? ' <span class="badge badge-amber">private</span>' : ''}</div></td>
+          f.private ? ' <span class="badge badge-amber">private</span>' : ''}${
+          f.inviteOnly ? ' <span class="badge badge-navy">invite only</span>' : ''}</div></td>
       <td>${f.inviteOnly
-        ? '<span class="muted">Private: only people you send it to can open it.</span>'
+        ? '<span class="muted">Invite only: only people you send it to can open it.</span>'
         : `<a href="/f/${esc(f.slug)}" target="_blank" rel="noopener">/f/${esc(f.slug)}</a>`}
         <div>${f.inviteOnly ? '' : `<button class="btn btn-ghost btn-sm" data-copy="${esc(f.slug)}">Copy link</button>`}
           ${f.active ? `<button class="btn btn-ghost btn-sm" data-send="${esc(f.id)}"

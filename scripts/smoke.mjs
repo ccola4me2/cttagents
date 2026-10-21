@@ -1305,15 +1305,15 @@ async function main() {
   }
 
 
-  // A private form opens only through the link it was sent with, and only once.
+  // An invite only form opens only through the link it was sent with, and only once.
   {
     const made = await call(advisor, 'POST', '/api/myforms', {
-      name: `Smoke private ${stamp}`, inviteOnly: true,
+      name: `Smoke invite only ${stamp}`, inviteOnly: true,
       fields: [{ label: 'Full name', type: 'text', required: true }, { label: 'Email', type: 'email', required: true }],
     });
     const pf = made.data?.form;
-    if (pf?.id) cleanup('the private form', () => call(advisor, 'DELETE', `/api/myforms/${pf.id}`));
-    check(made.status === 201 && pf?.inviteOnly === true, 'a form can be made private', `status ${made.status}`);
+    if (pf?.id) cleanup('the invite only form', () => call(advisor, 'DELETE', `/api/myforms/${pf.id}`));
+    check(made.status === 201 && pf?.inviteOnly === true, 'a form can be made invite only', `status ${made.status}`);
 
     const bare = await fetch(`${BASE}/f/${pf.slug}`);
     check(bare.status === 404, 'its address opens nothing', `status ${bare.status}`);
@@ -1331,9 +1331,9 @@ async function main() {
       'the link sent to a client opens it', `status ${sentOne.status}/${opens.status}`);
 
     const keep = await call(advisor, 'PUT', `/api/myforms/${pf.id}`, {
-      name: `Smoke private ${stamp}`, fields: [{ label: 'Full name', type: 'text', required: true }, { label: 'Email', type: 'email', required: true }],
+      name: `Smoke invite only ${stamp}`, fields: [{ label: 'Full name', type: 'text', required: true }, { label: 'Email', type: 'email', required: true }],
     });
-    check(keep.data?.form?.inviteOnly === true, 'a save that does not mention it leaves the form private', JSON.stringify(keep.data?.form?.inviteOnly));
+    check(keep.data?.form?.inviteOnly === true, 'a save that does not mention it leaves the form invite only', JSON.stringify(keep.data?.form?.inviteOnly));
 
     const answered = await call(null, 'POST', `/api/public/forms/${pf.slug}`, {
       invite: sentOne.data?.inviteId, full_name: `Invited Person ${stamp}`, email: `invited-${stamp}@test.dev`,
@@ -1348,11 +1348,46 @@ async function main() {
     check(twice.status === 404, 'and takes no second set of answers', `status ${twice.status}`);
 
     const reopened = await call(advisor, 'PUT', `/api/myforms/${pf.id}`, {
-      name: `Smoke private ${stamp}`, inviteOnly: false,
+      name: `Smoke invite only ${stamp}`, inviteOnly: false,
       fields: [{ label: 'Full name', type: 'text', required: true }, { label: 'Email', type: 'email', required: true }],
     });
     const nowOpen = await fetch(`${BASE}/f/${pf.slug}`);
     check(reopened.data?.form?.inviteOnly === false && nowOpen.status === 200, 'turning it off makes it an ordinary open form', `status ${nowOpen.status}`);
+  }
+
+  // A private form is its creator's alone, owners included.
+  {
+    const fields = [{ label: 'Full name', type: 'text', required: true }, { label: 'Email', type: 'email', required: true }];
+    const made = await call(advisor, 'POST', '/api/myforms', { name: `Smoke mine ${stamp}`, private: true, fields });
+    const mf = made.data?.form;
+    if (mf?.id) cleanup('the private form', () => call(advisor, 'DELETE', `/api/myforms/${mf.id}`));
+    check(made.status === 201 && mf?.private === true, 'an advisor can make a form private', `status ${made.status}`);
+    const mine = await call(advisor, 'GET', '/api/myforms');
+    check((mine.data?.forms || []).some((f) => f.id === mf?.id), 'and sees it in their own list');
+    const theirs = await call(admin, 'GET', '/api/myforms');
+    check(!(theirs.data?.forms || []).some((f) => f.id === mf?.id), 'nobody else sees it in theirs, the owner included');
+    const ownerGet = await call(admin, 'GET', `/api/myforms/${mf?.id}`);
+    check(ownerGet.status === 404, 'nor can they open it', `status ${ownerGet.status}`);
+    const ownerEdit = await call(admin, 'PUT', `/api/myforms/${mf?.id}`, { name: 'Taken over', fields });
+    check(ownerEdit.status === 404, 'nor change it', `status ${ownerEdit.status}`);
+    const ownerSend = await call(admin, 'POST', `/api/myforms/${mf?.id}/send`, { email: `x-${stamp}@test.dev`, name: 'X' });
+    check(ownerSend.status === 404, 'nor send it', `status ${ownerSend.status}`);
+    const ownerDelete = await call(admin, 'DELETE', `/api/myforms/${mf?.id}`);
+    const stillThere = await call(advisor, 'GET', `/api/myforms/${mf?.id}`);
+    check(ownerDelete.status === 404 && stillThere.status === 200, 'nor delete it', `status ${ownerDelete.status}/${stillThere.status}`);
+    const shared = await fetch(`${BASE}/f/${mf?.slug}`);
+    check(shared.status === 200, 'the link still opens for whoever the advisor gives it to', `status ${shared.status}`);
+
+    // Only the maker can turn it on or off.
+    const open = await call(advisor, 'POST', '/api/myforms', { name: `Smoke shared ${stamp}`, fields });
+    const of = open.data?.form;
+    if (of?.id) cleanup('the shared form', () => call(advisor, 'DELETE', `/api/myforms/${of.id}`));
+    await call(admin, 'PUT', `/api/myforms/${of?.id}`, { name: `Smoke shared ${stamp}`, private: true, fields });
+    const afterOwner = await call(advisor, 'GET', `/api/myforms/${of?.id}`);
+    check(afterOwner.data?.form?.private === false, 'somebody who did not make a form cannot make it private', JSON.stringify(afterOwner.data?.form?.private));
+    await call(advisor, 'PUT', `/api/myforms/${mf?.id}`, { name: `Smoke mine ${stamp}`, private: false, fields });
+    const nowSeen = await call(admin, 'GET', '/api/myforms');
+    check((nowSeen.data?.forms || []).some((f) => f.id === mf?.id), 'and turning it off puts it back in everybody\'s list');
   }
 
   // A traveller block can ask for a State ID, for somebody travelling on a birth certificate.

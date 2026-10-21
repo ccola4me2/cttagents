@@ -111,6 +111,9 @@ function hydrate(row) {
     active: row.active === 1,
     // Only people who were sent the link may open it. The open address shows nothing.
     inviteOnly: row.invite_only === 1,
+    // Seen and changed only by the advisor who made it. Not the same as inviteOnly, which is about the address.
+    private: row.is_private === 1,
+    createdBy: row.created_by || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -768,8 +771,8 @@ export async function handleSaveMyTemplate(request, env, id = null) {
   let source = body;
 
   if (body.fromForm) {
-    const row = await env.DB.prepare('SELECT * FROM forms WHERE id = ? AND agency_id = ?')
-      .bind(clean(body.fromForm, 64), tenantFor(env, user)).first();
+    const row = await env.DB.prepare('SELECT * FROM forms WHERE id = ? AND agency_id = ? AND (is_private = 0 OR created_by = ?)')
+      .bind(clean(body.fromForm, 64), tenantFor(env, user), user.id).first();
     if (!row) return notFound('Form not found.');
     const form = hydrate(row);
     source = {
@@ -843,8 +846,8 @@ export async function handleListForms(request, env) {
 
   const { results } = await env.DB.prepare(
     `SELECT f.*, (SELECT COUNT(*) FROM form_submissions s WHERE s.form_id = f.id) AS submissions
-       FROM forms f WHERE f.agency_id = ? ORDER BY f.updated_at DESC`
-  ).bind(agencyId).all();
+       FROM forms f WHERE f.agency_id = ? AND (f.is_private = 0 OR f.created_by = ?) ORDER BY f.updated_at DESC`
+  ).bind(agencyId, user.id).all();
 
   return json({
     forms: (results || []).map((r) => ({ ...hydrate(r), submissions: r.submissions || 0 })),
@@ -895,8 +898,8 @@ export async function handleSendForm(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const row = await env.DB.prepare('SELECT * FROM forms WHERE id = ? AND agency_id = ?')
-    .bind(id, tenantFor(env, user)).first();
+  const row = await env.DB.prepare('SELECT * FROM forms WHERE id = ? AND agency_id = ? AND (is_private = 0 OR created_by = ?)')
+    .bind(id, tenantFor(env, user), user.id).first();
   if (!row) return notFound('Form not found.');
   const form = hydrate(row);
   if (!form.active) {
@@ -1010,8 +1013,8 @@ export async function handleFormInvites(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
-  const row = await env.DB.prepare('SELECT * FROM forms WHERE id = ? AND agency_id = ?')
-    .bind(id, tenantFor(env, user)).first();
+  const row = await env.DB.prepare('SELECT * FROM forms WHERE id = ? AND agency_id = ? AND (is_private = 0 OR created_by = ?)')
+    .bind(id, tenantFor(env, user), user.id).first();
   if (!row) return notFound('Form not found.');
 
   const { results } = await env.DB.prepare(
@@ -1041,8 +1044,8 @@ export async function handleGetForm(request, env, id) {
   // Scoped by location, not just id. This returns every submission on the
   // form, which is client names, emails and phone numbers, and an id is not a
   // permission.
-  const row = await env.DB.prepare('SELECT * FROM forms WHERE id = ? AND agency_id = ?')
-    .bind(id, tenantFor(env, user)).first();
+  const row = await env.DB.prepare('SELECT * FROM forms WHERE id = ? AND agency_id = ? AND (is_private = 0 OR created_by = ?)')
+    .bind(id, tenantFor(env, user), user.id).first();
   if (!row) return notFound('Form not found.');
 
   const { results } = await env.DB.prepare(
@@ -1105,6 +1108,7 @@ export async function handleFormsReport(request, env) {
        JOIN forms f ON f.id = s.form_id
        LEFT JOIN clients c ON c.id = s.contact_id
       WHERE s.agency_id = ? AND s.created_at >= ?
+        AND (f.is_private = 0 OR f.created_by = ?)
         -- Theirs, plus everything that became nobody's. A submission with no
         -- client behind it was never picked up, and hiding those from the
         -- people who could pick them up is how a lead goes cold in a list
@@ -1112,7 +1116,7 @@ export async function handleFormsReport(request, env) {
         AND (? = '' OR c.user_id = ? OR (s.contact_id IS NULL AND ? = 1))
       ORDER BY s.created_at DESC
       LIMIT 500`
-  ).bind(agencyId, since, only, only, unclaimed).all();
+  ).bind(agencyId, since, user.id, only, only, unclaimed).all();
 
   const submissions = (rows || []).map((r) => {
     let data = {};
@@ -1128,9 +1132,9 @@ export async function handleFormsReport(request, env) {
     `SELECT f.id, f.name, f.slug, f.active,
             (SELECT COUNT(*) FROM form_submissions s WHERE s.form_id = f.id) AS total,
             (SELECT MAX(created_at) FROM form_submissions s WHERE s.form_id = f.id) AS last_at
-       FROM forms f WHERE f.agency_id = ?
+       FROM forms f WHERE f.agency_id = ? AND (f.is_private = 0 OR f.created_by = ?)
       ORDER BY total DESC, f.name ASC`
-  ).bind(agencyId).all();
+  ).bind(agencyId, user.id).all();
 
   const byMonth = {};
   for (const s of submissions) {
@@ -1319,6 +1323,9 @@ export async function handleSaveForm(request, env, id = null) {
     return badRequest('That notification address does not look right.');
   }
 
+  // Only the advisor who made a form can make it private, or take it back. Left alone when a save does not say.
+  const makePrivate = body.private === undefined ? null : (body.private ? 1 : 0);
+
   const shared = [
     slug, name, clean(body.headline, 160), clean(body.description, 600),
     JSON.stringify(fields), clean(body.submitLabel, 40) || 'Send',
@@ -1334,9 +1341,10 @@ export async function handleSaveForm(request, env, id = null) {
     const res = await env.DB.prepare(
       `UPDATE forms SET slug=?, name=?, headline=?, description=?, fields_json=?,
          submit_label=?, success_message=?, redirect_url=?, active=?,
-         starts_on=?, ends_on=?, notify_email=?, source=?, invite_only=COALESCE(?, invite_only), updated_at=?
-       WHERE id = ? AND agency_id = ?`
-    ).bind(...shared, id, agencyId).run();
+         starts_on=?, ends_on=?, notify_email=?, source=?, invite_only=COALESCE(?, invite_only),
+         is_private = CASE WHEN created_by = ? THEN COALESCE(?, is_private) ELSE is_private END, updated_at=?
+       WHERE id = ? AND agency_id = ? AND (is_private = 0 OR created_by = ?)`
+    ).bind(...shared.slice(0, 14), user.id, makePrivate, ts, id, agencyId, user.id).run();
     if (!res.meta || res.meta.changes === 0) return notFound('Form not found.');
     await db.logActivity(env, user.id, 'form.update', `Updated form ${name}`, { id });
   } else {
@@ -1344,9 +1352,9 @@ export async function handleSaveForm(request, env, id = null) {
     await env.DB.prepare(
       `INSERT INTO forms (id, agency_id, slug, name, headline, description, fields_json,
          submit_label, success_message, redirect_url, active,
-         starts_on, ends_on, notify_email, source, invite_only, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0), ?, ?, ?)`
-    ).bind(id, agencyId, ...shared.slice(0, 14), user.id, ts, ts).run();
+         starts_on, ends_on, notify_email, source, invite_only, is_private, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0), COALESCE(?, 0), ?, ?, ?)`
+    ).bind(id, agencyId, ...shared.slice(0, 14), makePrivate, user.id, ts, ts).run();
     await db.logActivity(env, user.id, 'form.create', `Created form ${name}`, { id });
   }
 
@@ -1387,8 +1395,8 @@ export async function handleDeleteSubmission(request, env, id) {
 export async function handleDeleteForm(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
-  const res = await env.DB.prepare('DELETE FROM forms WHERE id = ? AND agency_id = ?')
-    .bind(id, tenantFor(env, user)).run();
+  const res = await env.DB.prepare('DELETE FROM forms WHERE id = ? AND agency_id = ? AND (is_private = 0 OR created_by = ?)')
+    .bind(id, tenantFor(env, user), user.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Form not found.');
   await db.logActivity(env, user.id, 'form.delete', 'Deleted a form', { id });
   return json({ ok: true });
