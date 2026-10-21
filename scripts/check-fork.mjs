@@ -58,6 +58,7 @@ const ALLOWED = new Map([
   ['auth.js:realUserOf', ['cttagents', 'who you really are while acting as somebody else']],
   ['auth.js:handleSignup', ['trip-vara-website', 'the join link, which cttagents does not offer']],
   ['email.js:sendTrialNoticeEmail', ['trip-vara-website', 'telling somebody their fourteen day demo is running out. cttagents has no demos to run out']],
+  ['email.js:sendDemoStartedEmail', ['trip-vara-website', 'telling whoever runs the portal that somebody has started a demo. cttagents has no self serve signup, so there is no demo to start and nobody standing outside the agency to be told about']],
   ['auth.js:requirePlatformOwner', ['trip-vara-website', 'the second admin gate, needed because trip-vara signs demo agencies up on their own: role admin stopped meaning somebody approved by hand. cttagents creates every advisor by invitation, so its admins are all trusted and the gate would guard nothing. If cttagents ever opens a self serve signup it inherits this hole and wants this gate on the same ten handlers']],
   ['auth.js:trialOver', ['trip-vara-website', 'the fourteen day demo, which only trip-vara offers: cttagents has no self serve signup to run one from']],
   ['agencies.js:handleJoinInfo', ['trip-vara-website', 'what the join page shows before somebody applies']],
