@@ -1305,6 +1305,56 @@ async function main() {
   }
 
 
+  // A private form opens only through the link it was sent with, and only once.
+  {
+    const made = await call(advisor, 'POST', '/api/myforms', {
+      name: `Smoke private ${stamp}`, inviteOnly: true,
+      fields: [{ label: 'Full name', type: 'text', required: true }, { label: 'Email', type: 'email', required: true }],
+    });
+    const pf = made.data?.form;
+    if (pf?.id) cleanup('the private form', () => call(advisor, 'DELETE', `/api/myforms/${pf.id}`));
+    check(made.status === 201 && pf?.inviteOnly === true, 'a form can be made private', `status ${made.status}`);
+
+    const bare = await fetch(`${BASE}/f/${pf.slug}`);
+    check(bare.status === 404, 'its address opens nothing', `status ${bare.status}`);
+    const bareSubmit = await call(null, 'POST', `/api/public/forms/${pf.slug}`, { full_name: 'Nobody', email: `nobody-${stamp}@test.dev` });
+    check(bareSubmit.status === 404, 'and takes no answers', `status ${bareSubmit.status}`);
+    if (inviteId) {
+      const otherFormsLink = await fetch(`${BASE}/f/${pf.slug}?i=${inviteId}`);
+      check(otherFormsLink.status === 404, 'a link that was sent for a different form does not open it', `status ${otherFormsLink.status}`);
+    }
+
+    const sentOne = await call(advisor, 'POST', `/api/myforms/${pf.id}/send`, { clientId: inviteeId });
+    const link = sentOne.data?.href || '';
+    const opens = link ? await fetch(link) : { status: 0, text: async () => '' };
+    check(sentOne.status === 201 && opens.status === 200 && (await opens.text()).includes('id="form"'),
+      'the link sent to a client opens it', `status ${sentOne.status}/${opens.status}`);
+
+    const keep = await call(advisor, 'PUT', `/api/myforms/${pf.id}`, {
+      name: `Smoke private ${stamp}`, fields: [{ label: 'Full name', type: 'text', required: true }, { label: 'Email', type: 'email', required: true }],
+    });
+    check(keep.data?.form?.inviteOnly === true, 'a save that does not mention it leaves the form private', JSON.stringify(keep.data?.form?.inviteOnly));
+
+    const answered = await call(null, 'POST', `/api/public/forms/${pf.slug}`, {
+      invite: sentOne.data?.inviteId, full_name: `Invited Person ${stamp}`, email: `invited-${stamp}@test.dev`,
+    });
+    check(answered.status === 200 || answered.status === 201, 'they can answer it', `status ${answered.status}`);
+    const again = link ? await fetch(link) : { status: 0, text: async () => '' };
+    check(again.status === 200 && (await again.text()).includes('we already have this'),
+      'and the link then says it has been received', `status ${again.status}`);
+    const twice = await call(null, 'POST', `/api/public/forms/${pf.slug}`, {
+      invite: sentOne.data?.inviteId, full_name: 'Second Try', email: `second-${stamp}@test.dev`,
+    });
+    check(twice.status === 404, 'and takes no second set of answers', `status ${twice.status}`);
+
+    const reopened = await call(advisor, 'PUT', `/api/myforms/${pf.id}`, {
+      name: `Smoke private ${stamp}`, inviteOnly: false,
+      fields: [{ label: 'Full name', type: 'text', required: true }, { label: 'Email', type: 'email', required: true }],
+    });
+    const nowOpen = await fetch(`${BASE}/f/${pf.slug}`);
+    check(reopened.data?.form?.inviteOnly === false && nowOpen.status === 200, 'turning it off makes it an ordinary open form', `status ${nowOpen.status}`);
+  }
+
   // -------------------------------------------- a lead that is due ----
   //
   // lead_next_step_on was read by the lead board and by nothing else, so a

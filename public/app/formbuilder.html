@@ -103,9 +103,12 @@ function render(forms) {
     <thead><tr><th>Form</th><th>Link</th><th class="num">Submissions</th><th>Updated</th><th></th></tr></thead>
     <tbody>${forms.map((f) => `<tr>
       <td><span class="name">${esc(f.name)}</span>
-        <div><span class="badge ${f.active ? 'badge-green' : 'badge-navy'}">${f.active ? 'live' : 'off'}</span></div></td>
-      <td><a href="/f/${esc(f.slug)}" target="_blank" rel="noopener">/f/${esc(f.slug)}</a>
-        <div><button class="btn btn-ghost btn-sm" data-copy="${esc(f.slug)}">Copy link</button>
+        <div><span class="badge ${f.active ? 'badge-green' : 'badge-navy'}">${f.active ? 'live' : 'off'}</span>${
+          f.inviteOnly ? ' <span class="badge badge-amber">private</span>' : ''}</div></td>
+      <td>${f.inviteOnly
+        ? '<span class="muted">Private: only people you send it to can open it.</span>'
+        : `<a href="/f/${esc(f.slug)}" target="_blank" rel="noopener">/f/${esc(f.slug)}</a>`}
+        <div>${f.inviteOnly ? '' : `<button class="btn btn-ghost btn-sm" data-copy="${esc(f.slug)}">Copy link</button>`}
           ${f.active ? `<button class="btn btn-ghost btn-sm" data-send="${esc(f.id)}"
             data-name="${esc(f.name)}">Send to a client</button>` : ''}</div></td>
       <td class="num"><button class="btn btn-ghost btn-sm" data-subs="${esc(f.id)}">${f.submissions}</button></td>

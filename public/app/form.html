@@ -151,6 +151,15 @@
                     Accepting submissions
                   </label>
                 </div>
+                <div class="field">
+                  <label style="display:flex;align-items:center;gap:.5rem;font-weight:400;">
+                    <input type="checkbox" id="inviteOnly" name="inviteOnly">
+                    Private: only people I send it to can open it
+                  </label>
+                  <p class="field-hint" style="margin-top:.2rem;">Nobody can open a private form from its address. Use
+                    <strong>Send to a client</strong> on the Lead forms page and they get their own link, which works once.
+                    Leave it off for a form you share publicly or put on a website.</p>
+                </div>
               </div>
             </section>
 
@@ -532,6 +541,7 @@ document.getElementById('save').addEventListener('click', async () => {
     notifyEmail: f.notifyEmail.value, source: f.source.value,
     startsOn: f.startsOn.value, endsOn: f.endsOn.value,
     active: f.active.checked,
+    inviteOnly: f.inviteOnly.checked,
     // Every part, not only the parts this screen shows. It edits a label and a
     // tick; the hint under the question, the placeholder inside it and the
     // choices behind a dropdown are all invisible here, and mapping only what
@@ -582,6 +592,7 @@ async function load() {
       form.elements.startsOn.value = f.startsOn || '';
       form.elements.endsOn.value = f.endsOn || '';
       form.elements.active.checked = f.active;
+      form.elements.inviteOnly.checked = Boolean(f.inviteOnly);
       chosen = (f.fields || []).map((x) => ({ ...x }));
       if (params.get('saved')) {
         err.innerHTML = '<div class="notice notice-ok">Saved.</div>';

@@ -169,6 +169,21 @@ export async function renderPublicForm(request, env, slug) {
 
   const f = found.form;
 
+  // A private form opens only through the link it was sent with. The bare address says nothing about it, the
+  // same words as a form that is switched off, so nobody learns that one exists by trying addresses. Once the
+  // person it was sent to has answered, the link says so rather than taking a second set of answers.
+  const invite = await loadInvite(env, f.id, new URL(request.url).searchParams.get('i'));
+  if (f.inviteOnly && !invite) {
+    return new Response(page('Form unavailable',
+      '<h1>This form is not available</h1><p>The link may be out of date. Please get in touch and we will send you a new one.</p>'),
+    { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  }
+  if (f.inviteOnly && invite.submitted_at) {
+    return new Response(page('Already received',
+      '<h1>Thank you, we already have this</h1><p>Your answers came through. If something needs changing, get in touch and we will sort it out.</p>'),
+    { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  }
+
   // How much of this is actually compulsory, said before anybody starts.
   //
   // Nothing on a form here is required beyond a name and an address, and a
@@ -192,7 +207,6 @@ export async function renderPublicForm(request, env, slug) {
   // Followed from an invite rather than off an open link. Their name and
   // address are already known, so the form says hello and fills those two in
   // rather than asking somebody for their own name.
-  const invite = await loadInvite(env, f.id, new URL(request.url).searchParams.get('i'));
   if (invite && !invite.opened_at) {
     await env.DB.prepare('UPDATE form_invites SET opened_at = ?, updated_at = ? WHERE id = ?')
       .bind(now(), now(), invite.id).run().catch(() => null);
@@ -590,6 +604,12 @@ export async function handlePublicSubmit(request, env, slug) {
 
   let body = {};
   try { body = await request.json(); } catch { body = {}; }
+
+  // A private form takes answers only from the link it was sent with, and only once.
+  if (form.inviteOnly) {
+    const sentTo = await loadInvite(env, form.id, body.invite);
+    if (!sentTo || sentTo.submitted_at) return notFound('This form is not available.');
+  }
 
   // Rate limit before doing any work. These pages are unauthenticated, so the
   // honeypot below is the only other thing standing between them and a script.

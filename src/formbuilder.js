@@ -109,6 +109,8 @@ function hydrate(row) {
     notifyEmail: row.notify_email || '',
     source: row.source || '',
     active: row.active === 1,
+    // Only people who were sent the link may open it. The open address shows nothing.
+    inviteOnly: row.invite_only === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -1322,14 +1324,17 @@ export async function handleSaveForm(request, env, id = null) {
     JSON.stringify(fields), clean(body.submitLabel, 40) || 'Send',
     clean(body.successMessage, 400), clean(body.redirectUrl, 300),
     body.active === false ? 0 : 1,
-    startsOn, endsOn, notifyEmail || null, clean(body.source, 80) || null, ts,
+    startsOn, endsOn, notifyEmail || null, clean(body.source, 80) || null,
+    // Left alone when a save does not mention it, so a client that does not know the setting cannot reopen a private form.
+    body.inviteOnly === undefined ? null : (body.inviteOnly ? 1 : 0),
+    ts,
   ];
 
   if (id) {
     const res = await env.DB.prepare(
       `UPDATE forms SET slug=?, name=?, headline=?, description=?, fields_json=?,
          submit_label=?, success_message=?, redirect_url=?, active=?,
-         starts_on=?, ends_on=?, notify_email=?, source=?, updated_at=?
+         starts_on=?, ends_on=?, notify_email=?, source=?, invite_only=COALESCE(?, invite_only), updated_at=?
        WHERE id = ? AND agency_id = ?`
     ).bind(...shared, id, agencyId).run();
     if (!res.meta || res.meta.changes === 0) return notFound('Form not found.');
@@ -1339,9 +1344,9 @@ export async function handleSaveForm(request, env, id = null) {
     await env.DB.prepare(
       `INSERT INTO forms (id, agency_id, slug, name, headline, description, fields_json,
          submit_label, success_message, redirect_url, active,
-         starts_on, ends_on, notify_email, source, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(id, agencyId, ...shared.slice(0, 13), user.id, ts, ts).run();
+         starts_on, ends_on, notify_email, source, invite_only, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0), ?, ?, ?)`
+    ).bind(id, agencyId, ...shared.slice(0, 14), user.id, ts, ts).run();
     await db.logActivity(env, user.id, 'form.create', `Created form ${name}`, { id });
   }
 
