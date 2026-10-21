@@ -162,7 +162,7 @@
                 </div>
                 <div class="field">
                   <label style="display:flex;align-items:center;gap:.5rem;font-weight:400;">
-                    <input type="checkbox" id="isPrivate" name="isPrivate">
+                    <input type="checkbox" id="isPrivate" name="private">
                     Private: only I can see and edit this form
                   </label>
                   <p class="field-hint" style="margin-top:.2rem;" id="private-hint">Nobody else in the agency sees it in their list or
@@ -551,7 +551,7 @@ document.getElementById('save').addEventListener('click', async () => {
     startsOn: f.startsOn.value, endsOn: f.endsOn.value,
     active: f.active.checked,
     inviteOnly: f.inviteOnly.checked,
-    private: f.isPrivate.checked,
+    private: f.private.checked,
     // Every part, not only the parts this screen shows. It edits a label and a
     // tick; the hint under the question, the placeholder inside it and the
     // choices behind a dropdown are all invisible here, and mapping only what
@@ -603,10 +603,10 @@ async function load() {
       form.elements.endsOn.value = f.endsOn || '';
       form.elements.active.checked = f.active;
       form.elements.inviteOnly.checked = Boolean(f.inviteOnly);
-      form.elements.isPrivate.checked = Boolean(f.private);
+      form.elements.private.checked = Boolean(f.private);
       // Only whoever made a form can make it private or take that back.
       if (f.createdBy && f.createdBy !== me.id) {
-        form.elements.isPrivate.disabled = true;
+        form.elements.private.disabled = true;
         document.getElementById('private-hint').textContent = 'Only the advisor who made this form can make it private.';
       }
       chosen = (f.fields || []).map((x) => ({ ...x }));
