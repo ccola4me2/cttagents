@@ -271,6 +271,9 @@ export async function handleDeskBringGroups(request, env) {
   for (const g of wanted) {
     const made = await copyGroupTo(env, g.id, mine.id, user.id);
     if (made.error) return badRequest(`${g.name}: ${made.error}`);
+    // Remembers where it came from, so the desk can show that group's client page.
+    await env.DB.prepare('UPDATE travel_groups SET ctt_group_id = ?, ctt_owner_id = ? WHERE id = ? AND user_id = ?')
+      .bind(g.id, mine.id, made.id, user.id).run();
     brought.push({ id: made.id, name: g.name });
   }
   await db.logActivity(env, user.id, 'desk.bring',

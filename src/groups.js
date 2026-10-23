@@ -42,7 +42,7 @@ const COLUMNS = `
   g.page_slug, g.headline, g.hero_image_url, g.perks_json, g.itinerary_json, g.repeated_from,
   g.amenities_json, g.drinks_json, g.enhancements_json, g.excursions_url,
   g.selling, g.advisor_notes, g.outside_advisor_pct, g.selling_changed_by, g.selling_changed_at,
-  g.hero_image_key,
+  g.hero_image_key, g.ctt_group_id, g.ctt_owner_id,
   g.created_at, g.updated_at
 `;
 
@@ -415,6 +415,25 @@ async function getGroup(env, id, userId) {
   ).bind(id, userId).first();
 }
 
+/** The client page of the group a desk group was brought from: its address, whether it takes names, who has signed up. */
+async function cttPageOf(env, group) {
+  const src = await env.DB.prepare(
+    `SELECT id, user_id, name, page_slug, depart_date, registration_open, headline
+       FROM travel_groups WHERE id = ? AND user_id = ?`
+  ).bind(group.ctt_group_id, group.ctt_owner_id).first();
+  if (!src) return null;
+  const link = await linkInfo(env, src);
+  const seen = await env.DB.prepare(
+    `SELECT COUNT(*) AS n, COALESCE(SUM(party_size), 0) AS people
+       FROM group_registrations WHERE group_id = ? AND user_id = ?`
+  ).bind(src.id, src.user_id).first();
+  return {
+    name: src.name, open: src.registration_open === 1, headline: src.headline || '',
+    url: link.url || '', slug: link.slug || '',
+    signups: Number(seen && seen.n) || 0, people: Number(seen && seen.people) || 0,
+  };
+}
+
 export async function handleGetGroup(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
@@ -463,8 +482,15 @@ export async function handleGetGroup(request, env, id) {
     others = rows.results || [];
   }
 
+  // A group brought onto the desk shows the client page of the group it came from, not one of its own.
+  let cttPage = null;
+  if (group.ctt_group_id && group.ctt_owner_id && user.agency_is_desk) cttPage = await cttPageOf(env, group);
+  delete group.ctt_group_id;
+  delete group.ctt_owner_id;
+
   return json({
     group,
+    cttPage,
     others,
     bookings: results || [],
     registrations: registrations || [],

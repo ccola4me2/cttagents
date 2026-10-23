@@ -8896,6 +8896,15 @@ async function main() {
       'the copy keeps its details, takes the supplier number as its group number, and has its sign-up page off', JSON.stringify(copy));
     const original = await call(admin, 'GET', `/api/groups/${live.data?.group?.id}`);
     check(original.data?.group?.registration_open === 1 && original.data?.group?.page_slug, 'and the live one is untouched');
+    // The copy shows the page the group already has, with its address, rather than a page of its own.
+    const copyView = await call(aliasJar, 'GET', `/api/groups/${broughtId}`, undefined, asHost);
+    const livePage = copyView.data?.cttPage;
+    check(livePage && livePage.open === true && livePage.slug === original.data?.group?.page_slug
+      && (!livePage.url || livePage.url.endsWith(`/${original.data?.group?.page_slug}`)) && livePage.signups === 0
+      && copyView.data?.group?.ctt_group_id === undefined && copyView.data?.group?.ctt_owner_id === undefined,
+    'a brought group shows the client page of the one it came from, and not the ids behind it', JSON.stringify(copyView.data?.cttPage));
+    const portalView = await call(admin, 'GET', `/api/groups/${live.data?.group?.id}`);
+    check(portalView.status === 200 && portalView.data?.cttPage === null, 'and the group in CTT shows no such card');
     const bringTwice = await call(aliasJar, 'POST', '/api/desk/ctt-groups/bring', { groupId: live.data?.group?.id }, asHost);
     const offeredAfter = (await call(aliasJar, 'GET', '/api/desk/ctt-groups', undefined, asHost)).data?.groups?.find((g) => g.id === live.data?.group?.id);
     check(bringTwice.status === 400 && offeredAfter?.onDesk === true, 'it cannot be brought twice', `status ${bringTwice.status}`);

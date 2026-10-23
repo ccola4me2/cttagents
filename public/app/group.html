@@ -59,6 +59,17 @@
         </div>
       </section>
 
+      <section class="card" id="ctt-page-card" hidden style="margin-top:1.5rem;">
+        <div class="card-head"><h2>Client page</h2><span class="badge" id="ctt-page-state"></span></div>
+        <div class="card-pad">
+          <p class="label" style="margin:0 0 .4rem;">The page people sign up on</p>
+          <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;" id="ctt-page-link"></div>
+          <p class="field-hint" id="ctt-page-note"></p>
+          <iframe id="ctt-page-frame" title="The group's client page" hidden loading="lazy"
+            style="width:100%;height:36rem;border:1px solid var(--navy-100);border-radius:.5rem;margin-top:.8rem;"></iframe>
+        </div>
+      </section>
+
       <section class="card" id="link-card" hidden style="margin-top:1.5rem;">
         <div class="card-pad" id="link-body"></div>
       </section>
@@ -276,7 +287,7 @@
         </div>
 
         <div>
-          <section class="card">
+          <section class="card" id="page-card">
             <div class="card-head"><h2>Sign-up page</h2></div>
             <form id="reg-form">
               <div class="card-pad">
@@ -881,6 +892,37 @@ function shortUrl(link) {
 
 let lastShared = false;
 
+/**
+ * A group brought onto the desk from CTT has no sign-up page of its own: it shows the page the group already has,
+ * with the address people use, whether it is taking names, and what it looks like.
+ */
+function drawCttPage(p) {
+  const card = document.getElementById('ctt-page-card');
+  card.hidden = !p;
+  // One page for the group, so the desk's own switch for a page is not offered next to it.
+  document.getElementById('page-card').hidden = Boolean(p);
+  if (!p) return;
+  const state = document.getElementById('ctt-page-state');
+  state.className = `badge ${p.open ? 'badge-green' : 'badge-navy'}`;
+  state.textContent = p.open ? 'Taking names' : 'Not taking names';
+  const link = document.getElementById('ctt-page-link');
+  const frame = document.getElementById('ctt-page-frame');
+  if (p.url) {
+    link.innerHTML = `<code style="font-size:1rem;">${esc(p.url)}</code>
+      <button class="btn btn-ghost btn-sm" id="ctt-copy" type="button">Copy link</button>
+      <a class="btn btn-ghost btn-sm" href="${esc(p.url)}" target="_blank" rel="noopener">Open it</a>`;
+    document.getElementById('ctt-copy').addEventListener('click', async (e) => {
+      try { await navigator.clipboard.writeText(p.url); e.target.textContent = 'Copied'; } catch { e.target.textContent = 'Copy it from the box'; }
+    });
+  } else {
+    link.innerHTML = '<span class="muted">This group has no short link yet.</span>';
+  }
+  document.getElementById('ctt-page-note').textContent = p.open
+    ? `${p.signups} ${p.signups === 1 ? 'person has' : 'people have'} signed up so far${p.people ? `, ${p.people} ${p.people === 1 ? 'guest' : 'guests'} in all` : ''}. The page is run from the CTT group, ${p.name}, so what is on it and who signs up are there.`
+    : 'The page is switched off in CTT, so a visit to this link shows nothing yet. It is run from the CTT group, which is where it is turned on.';
+  if (p.open && p.url) { frame.src = p.url; frame.hidden = false; } else { frame.hidden = true; }
+}
+
 function renderLink(g, link, codeShared) {
   const card = document.getElementById('link-card');
   const body = document.getElementById('link-body');
@@ -1408,6 +1450,7 @@ async function load() {
     lastRates = d.rates || [];
     renderHeader(group);
     renderLink(group, d.link, d.codeShared);
+    drawCttPage(d.cttPage);
     drawFiles(d.files || []);
     drawOnPage();
     drawSelling(group, d.others);
