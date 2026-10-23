@@ -20,6 +20,7 @@ import {
 } from './util.js';
 import { requireUser, requireAdmin, publicUser } from './auth.js';
 import { appUrl } from './share.js';
+import { refreshBridge } from './groupcabins.js';
 import * as db from './db.js';
 
 const DESK_AGENCY = 'agency-desk';
@@ -144,16 +145,29 @@ export async function handleDeskOverview(request, env) {
   const scope = db.scopeFor(env, user, request);
   const scoped = db.scopeWhere(scope, 'g.user_id');
   const showAll = new URL(request.url).searchParams.get('all') === '1';
+
+  // The owner's own reservations, brought up to date on every sheet before anything is counted, so the totals on
+  // this page are the same as the ones on the sheets. Best effort: a failure here is totals from the last time.
+  try {
+    const { results: ids } = await env.DB.prepare(
+      `SELECT g.id, g.user_id, g.group_number, g.group_code, g.depart_date FROM travel_groups g
+        WHERE ${scoped.sql} AND (? = 1 OR g.status = 'open')`
+    ).bind(...scoped.binds, showAll ? 1 : 0).all();
+    for (const g of ids || []) await refreshBridge(env, g);
+  } catch (e) {
+    console.error('desk bridge', e);
+  }
+
   const { results } = await env.DB.prepare(
     `SELECT g.id, g.user_id, g.name, g.vendor, g.product_name, g.group_number, g.group_code, g.depart_date,
             g.option_date, g.final_payment_due, g.cabins_held, g.status, g.page_slug, g.registration_open,
             u.first_name, u.last_name,
             (SELECT COUNT(*) FROM group_cabins c
-               WHERE c.group_id = g.id AND c.user_id = g.user_id AND c.status <> 'cancelled') AS cabins,
+               WHERE c.group_id = g.id AND c.user_id = g.user_id AND c.hidden = 0 AND c.status <> 'cancelled') AS cabins,
             (SELECT COALESCE(SUM(c.guests), 0) FROM group_cabins c
-               WHERE c.group_id = g.id AND c.user_id = g.user_id AND c.status <> 'cancelled') AS guests,
+               WHERE c.group_id = g.id AND c.user_id = g.user_id AND c.hidden = 0 AND c.status <> 'cancelled') AS guests,
             (SELECT COALESCE(SUM(c.guests), 0) FROM group_cabins c
-               WHERE c.group_id = g.id AND c.user_id = g.user_id AND c.status = 'paid') AS paid_guests,
+               WHERE c.group_id = g.id AND c.user_id = g.user_id AND c.hidden = 0 AND c.status = 'paid') AS paid_guests,
             (SELECT COUNT(*) FROM group_registrations r
                WHERE r.group_id = g.id AND r.user_id = g.user_id AND r.status <> 'cancelled'
                  AND NOT EXISTS (SELECT 1 FROM group_cabins c2

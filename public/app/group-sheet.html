@@ -45,6 +45,12 @@
         <div id="signups"></div>
       </section>
 
+      <section class="card" style="margin-top:1.25rem;" id="ctt-card" hidden>
+        <div class="card-head"><h2>Your CTT reservations that sail the same day</h2>
+          <span class="muted">No group number on them, so they were not added by themselves</span></div>
+        <div id="ctt"></div>
+      </section>
+
       <section class="card" style="margin-top:1.25rem;">
         <div class="card-head"><h2>The cabins</h2>
           <span class="muted" id="saved"></span></div>
@@ -128,7 +134,25 @@ function drawSignups() {
   }));
 }
 
-const FIELD_OF = { cabinNo: 'text', category: 'text', guests: 'number', guestNames: 'text', bookedBy: 'text', bookingNo: 'text' };
+function drawCtt() {
+  const list = (data.ctt && data.ctt.suggestions) || [];
+  document.getElementById('ctt-card').hidden = !list.length;
+  document.getElementById('ctt').innerHTML = list.length
+    ? `<div class="table-wrap"><table><thead><tr><th>Client</th><th>Cabin</th><th>Category</th><th>Booking number</th><th class="num">Guests</th><th></th></tr></thead>
+      <tbody>${list.map((r) => `<tr><td>${esc(r.client)}</td><td>${esc(r.cabin)}</td><td>${esc(r.category)}</td><td>${esc(r.confirmation)}</td>
+        <td class="num">${r.guests}</td>
+        <td class="num"><button class="btn btn-ghost btn-sm" data-ctt="${esc(r.id)}">Add to the sheet</button></td></tr>`).join('')}
+      </tbody></table></div>` : '';
+  document.querySelectorAll('[data-ctt]').forEach((b) => b.addEventListener('click', async () => {
+    b.disabled = true;
+    try {
+      await api(`/api/groups/${encodeURIComponent(groupId)}/cabins/from-ctt`,
+        { method: 'POST', body: { bookingId: b.dataset.ctt } });
+      await load();
+    } catch (e) { showError(err, e); b.disabled = false; }
+  }));
+}
+
 
 function drawSheet() {
   const rows = data.cabins;
@@ -140,17 +164,18 @@ function drawSheet() {
     <thead><tr><th>Cabin</th><th>Category</th><th>Guests</th><th>Guest names</th><th>Booked by</th>
       <th>Booking number</th><th>Status</th><th title="The cabin the tour conductor credit is used in">TC</th><th>Notes</th><th></th></tr></thead>
     <tbody>${rows.map((r) => `<tr data-row="${esc(r.id)}" class="${r.status === 'cancelled' ? 'cancelled' : ''}">
-      <td><input data-field="cabinNo" value="${esc(r.cabinNo)}" maxlength="20" aria-label="Cabin number"></td>
-      <td><input data-field="category" value="${esc(r.category)}" maxlength="60" aria-label="Category"></td>
-      <td><input data-field="guests" type="number" min="0" max="12" value="${r.guests}" aria-label="Guests"></td>
-      <td class="wide"><input data-field="guestNames" value="${esc(r.guestNames)}" maxlength="600" aria-label="Guest names"></td>
-      <td><input data-field="bookedBy" value="${esc(r.bookedBy)}" maxlength="80" list="bookers-list" aria-label="Booked by"></td>
-      <td><input data-field="bookingNo" value="${esc(r.bookingNo)}" maxlength="40" aria-label="Booking number"></td>
-      <td><select data-field="status" aria-label="Status">${data.statuses.map((s) =>
+      <td><input data-field="cabinNo" value="${esc(r.cabinNo)}" maxlength="20" aria-label="Cabin number"${r.linked ? ' disabled' : ''}>${
+        r.linked ? '<div class="muted" style="font-size:.7rem;" title="Kept up to date from the CTT reservation. Change it there.">from CTT</div>' : ''}</td>
+      <td><input data-field="category" value="${esc(r.category)}" maxlength="60" aria-label="Category"${r.linked ? ' disabled' : ''}></td>
+      <td><input data-field="guests" type="number" min="0" max="12" value="${r.guests}" aria-label="Guests"${r.linked ? ' disabled' : ''}></td>
+      <td class="wide"><input data-field="guestNames" value="${esc(r.guestNames)}" maxlength="600" aria-label="Guest names"${r.linked ? ' disabled' : ''}></td>
+      <td><input data-field="bookedBy" value="${esc(r.bookedBy)}" maxlength="80" list="bookers-list" aria-label="Booked by"${r.linked ? ' disabled' : ''}></td>
+      <td><input data-field="bookingNo" value="${esc(r.bookingNo)}" maxlength="40" aria-label="Booking number"${r.linked ? ' disabled' : ''}></td>
+      <td><select data-field="status" aria-label="Status"${r.linked ? ' disabled' : ''}>${data.statuses.map((s) =>
         `<option value="${s}"${s === r.status ? ' selected' : ''}>${STATUS_WORDS[s]}</option>`).join('')}</select></td>
       <td><input data-field="tc" type="checkbox"${r.tc ? ' checked' : ''} aria-label="TC cabin"></td>
       <td class="wide"><input data-field="notes" value="${esc(r.notes)}" maxlength="1000" aria-label="Notes"></td>
-      <td><button class="btn btn-ghost btn-sm" data-drop="${esc(r.id)}" title="Take this cabin off the sheet">Remove</button></td>
+      <td><button class="btn btn-ghost btn-sm" data-drop="${esc(r.id)}" title="Take this cabin off the sheet">${r.linked ? 'Take off' : 'Remove'}</button></td>
     </tr>`).join('')}</tbody></table></div>
     <datalist id="bookers-list">${data.bookers.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>`;
 
@@ -197,6 +222,7 @@ async function load() {
   document.getElementById('csv').href = `/api/groups/${encodeURIComponent(groupId)}/cabins.csv`;
   drawSummary();
   drawSignups();
+  drawCtt();
   drawSheet();
 }
 

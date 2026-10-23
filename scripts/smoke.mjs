@@ -8683,7 +8683,7 @@ async function main() {
     check((theirClients.data?.clients || []).length === 0, 'they see none of the agency\'s clients', `${(theirClients.data?.clients || []).length}`);
 
     const made = await call(desk, 'POST', '/api/groups', {
-      name: `Desk Group ${stamp}`, groupCode: `dk-${stamp}`, vendor: 'Margaritaville at Sea', productName: 'Islander',
+      name: `Desk Group ${stamp}`, groupCode: `dk-${stamp}`, groupNumber: `GN-${stamp}`, vendor: 'Margaritaville at Sea', productName: 'Islander',
       destination: 'Bahamas', departDate: isoDay(300), returnDate: isoDay(307), cabinsHeld: 20, groupType: 'cruise',
       registrationOpen: true, registrationBlurb: 'Come with us.',
     });
@@ -8778,6 +8778,53 @@ async function main() {
     check((members.data?.members || []).some((m) => m.email === email), 'the operator sees who is on the desk');
     const asAdvisor = await call(advisor, 'GET', '/api/admin/desk');
     check(asAdvisor.status === 403, 'and nobody else does', `status ${asAdvisor.status}`);
+
+    // The owner's own CTT reservations come onto a sheet by their group number, and stay true to the reservation.
+    const bookingNo = `MAS-${stamp}`;
+    const resv = (extra) => call(admin, 'POST', '/api/bookings', {
+      clientName: `Bridge Client ${stamp}`, supplier: 'Margaritaville at Sea', productName: 'Islander', productType: 'cruise',
+      cabin: '9101', cabinCategory: 'Balcony', departDate: isoDay(300), returnDate: isoDay(307), gross: '4000', status: 'booked', ...extra,
+    });
+    const tied = await resv({ confirmationNumber: bookingNo, groupNumber: `GN-${stamp}` });
+    const loose = await resv({ clientName: `Loose Client ${stamp}`, confirmationNumber: `LOOSE-${stamp}` });
+    const otherLine = await resv({ supplier: 'Carnival', productName: 'Other', confirmationNumber: `CCL-${stamp}`, groupNumber: `GN-${stamp}` });
+    if (tied.data?.booking?.id) cleanup('the bridged reservation', () => dropBooking(tied.data.booking.id));
+    if (loose.data?.booking?.id) cleanup('the unnumbered reservation', () => dropBooking(loose.data.booking.id));
+    if (otherLine.data?.booking?.id) cleanup('the other line reservation', () => dropBooking(otherLine.data.booking.id));
+
+    const bridged = await call(desk, 'GET', base);
+    const linkedRow = (bridged.data?.cabins || []).find((c) => c.bookingNo === bookingNo);
+    check(tied.status === 201 && linkedRow?.linked === true && linkedRow?.cabinNo === '9101' && linkedRow?.category === 'Balcony',
+      'a Margaritaville reservation with the group\'s number turns up on its sheet by itself', JSON.stringify(linkedRow));
+    check(!(bridged.data?.cabins || []).some((c) => c.bookingNo === `CCL-${stamp}` || c.bookingNo === `LOOSE-${stamp}`),
+      'one from another line, or with no number, does not', '');
+    check(linkedRow?.bookedBy && !JSON.stringify(bridged.data).includes('commission'), 'it says who booked it, and carries nothing about money');
+    const offered = (bridged.data?.ctt?.suggestions || []).find((x) => x.confirmation === `LOOSE-${stamp}`);
+    check(Boolean(offered) && !(bridged.data?.ctt?.suggestions || []).some((x) => x.confirmation === `CCL-${stamp}`),
+      'a reservation that sails the same day with no number is offered', JSON.stringify(bridged.data?.ctt));
+
+    const editGuests = await call(desk, 'PUT', `${base}/${linkedRow?.id}`, { guests: 9 });
+    const editTc = await call(desk, 'PUT', `${base}/${linkedRow?.id}`, { tc: true, notes: 'TC cabin' });
+    check(editGuests.status === 400 && editTc.status === 200, 'its details are changed on the reservation, its TC flag and note here', `${editGuests.status}/${editTc.status}`);
+
+    await call(admin, 'PUT', `/api/bookings/${tied.data?.booking?.id}`, { clientName: `Bridge Client ${stamp}`, supplier: 'Margaritaville at Sea', productName: 'Islander',
+      productType: 'cruise', cabin: '9202', cabinCategory: 'Suite', departDate: isoDay(300), returnDate: isoDay(307), status: 'booked', groupNumber: `GN-${stamp}`, confirmationNumber: bookingNo });
+    const followed = (await call(desk, 'GET', base)).data?.cabins?.find((c) => c.bookingNo === bookingNo);
+    check(followed?.cabinNo === '9202' && followed?.category === 'Suite', 'and the sheet follows when the reservation changes', JSON.stringify(followed));
+
+    const putOn = await call(desk, 'POST', `${base}/from-ctt`, { bookingId: offered?.id });
+    const afterAdd = (await call(desk, 'GET', base)).data;
+    check(putOn.status === 201 && (afterAdd?.cabins || []).some((c) => c.bookingNo === `LOOSE-${stamp}` && c.linked)
+      && !(afterAdd?.ctt?.suggestions || []).some((x) => x.confirmation === `LOOSE-${stamp}`), 'an offered one goes on with a click', `status ${putOn.status}`);
+    const refused = await call(desk, 'POST', `${base}/from-ctt`, { bookingId: otherLine.data?.booking?.id });
+    check(refused.status === 404, 'but nothing else can be put on that way', `status ${refused.status}`);
+
+    const off = await call(desk, 'DELETE', `${base}/${linkedRow?.id}`);
+    const afterOff = (await call(desk, 'GET', base)).data;
+    check(off.status === 200 && off.data?.hidden === true && !(afterOff?.cabins || []).some((c) => c.bookingNo === bookingNo),
+      'taking one off the sheet keeps it off', `status ${off.status}`);
+    const countsAfter = await call(desk, 'GET', '/api/desk/overview');
+    check((countsAfter.data?.groups || []).find((g) => g.id === gid)?.cabins === afterOff?.summary?.cabins, 'and the totals on the desk agree with the sheet');
   }
 
   // Corporate targets: the agency's own, an owner's to see and set.

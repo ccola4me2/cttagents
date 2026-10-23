@@ -56,6 +56,8 @@ function shape(r) {
     guestNames: r.guest_names || '', bookedBy: r.booked_by || '', bookingNo: r.booking_no || '',
     status: r.status || 'held', tc: Number(r.tc) === 1, notes: r.notes || '',
     registrationId: r.registration_id || null, updatedAt: r.updated_at,
+    // One of the owner's own CTT reservations, kept up to date from it and not changed here.
+    linked: Boolean(r.booking_id),
   };
 }
 
@@ -88,8 +90,8 @@ async function groupFor(env, user, groupId) {
 async function loadRows(env, groupId, ownerId) {
   const { results } = await env.DB.prepare(
     `SELECT id, cabin_no, category, guests, guest_names, booked_by, booking_no, status, tc, notes,
-            registration_id, updated_at
-       FROM group_cabins WHERE group_id = ? AND user_id = ? ORDER BY sort_order ASC, created_at ASC`
+            registration_id, booking_id, updated_at
+       FROM group_cabins WHERE group_id = ? AND user_id = ? AND hidden = 0 ORDER BY sort_order ASC, created_at ASC`
   ).bind(groupId, ownerId).all();
   return results || [];
 }
@@ -124,6 +126,143 @@ async function bookerNames(env, user, rows) {
   return [...names].sort((a, b) => a.localeCompare(b));
 }
 
+// ---------------------------------------------------------------------------
+// The portal owner's own reservations
+// ---------------------------------------------------------------------------
+//
+// The owner books cabins into these groups from their own CTT account, and those reservations are the record of
+// what they have booked. Typing each one onto a sheet a second time is the job this removes: a Margaritaville at
+// Sea reservation whose group number is the sheet's group number turns up on it by itself, as a row that stays
+// true to the reservation. One that has no group number but sails the same day is offered, for a click.
+//
+// A narrow door, on purpose. Only the portal owner's own account is ever read, only reservations with
+// Margaritaville at Sea on them, and only the cabin, category, guests, booking number and whether it is paid.
+// Never money, commission, contact details or anything about the agency. It finds the owner's account through the
+// address the owner uses for both, so nobody else's reservations can be reached by adding somebody to the desk.
+
+const norm = (v) => String(v === undefined || v === null ? '' : v).trim().toLowerCase();
+const MAS = '%margaritaville%';
+
+/** The desk members who are also the portal owner, with the CTT account that is theirs. */
+async function bridges(env) {
+  const { results } = await env.DB.prepare(
+    `SELECT c.id AS ctt_id, d.first_name, d.last_name
+       FROM users d JOIN users c ON c.email = d.desk_email
+      WHERE d.agency_id IN (SELECT id FROM agencies WHERE is_desk = 1) AND d.desk_email IS NOT NULL
+        AND c.platform_owner = 1 AND c.status = 'active'
+        AND c.agency_id NOT IN (SELECT id FROM agencies WHERE is_desk = 1)`
+  ).all().catch(() => ({ results: [] }));
+  return (results || []).map((r) => ({
+    cttId: r.ctt_id, name: `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+  }));
+}
+
+/** The person's booked Margaritaville at Sea reservations. */
+async function masBookings(env, cttId) {
+  const { results } = await env.DB.prepare(
+    `SELECT b.id, b.client_name, b.cabin, b.cabin_category, b.confirmation_number, b.travellers, b.status,
+            b.depart_date, b.group_number
+       FROM bookings b
+      WHERE b.user_id = ? AND b.status IN ('booked', 'travelled')
+        AND (LOWER(b.supplier) LIKE ? OR LOWER(b.product_name) LIKE ?)
+      ORDER BY b.depart_date ASC`
+  ).bind(cttId, MAS, MAS).all().catch(() => ({ results: [] }));
+  return results || [];
+}
+
+/** One of the person's reservations, of any status, or null when it is not theirs. */
+async function bookingOf(env, cttId, bookingId) {
+  return env.DB.prepare(
+    `SELECT b.id, b.client_name, b.cabin, b.cabin_category, b.confirmation_number, b.travellers, b.status
+       FROM bookings b WHERE b.id = ? AND b.user_id = ?`
+  ).bind(bookingId, cttId).first().catch(() => null);
+}
+
+/** What a reservation says about the cabin, in the sheet's own terms. */
+async function describe(env, cttId, b) {
+  const { results: people } = await env.DB.prepare(
+    'SELECT name FROM travellers WHERE booking_id = ? AND user_id = ? ORDER BY is_lead DESC, name ASC'
+  ).bind(b.id, cttId).all().catch(() => ({ results: [] }));
+  const names = (people || []).map((p) => p.name).filter(Boolean);
+  const pay = await env.DB.prepare(
+    `SELECT COUNT(*) AS total, SUM(CASE WHEN paid_date IS NOT NULL THEN 1 ELSE 0 END) AS paid
+       FROM booking_payments WHERE booking_id = ? AND user_id = ? AND payment_class = 'hard'`
+  ).bind(b.id, cttId).first().catch(() => null);
+  const total = (pay && pay.total) || 0;
+  const paid = (pay && pay.paid) || 0;
+  let status = 'held';
+  if (b.status === 'cancelled') status = 'cancelled';
+  else if (total > 0 && paid >= total) status = 'paid';
+  else if (paid > 0) status = 'deposit';
+  return {
+    cabinNo: clean(b.cabin, 20), category: clean(b.cabin_category, 60),
+    guests: Math.max(1, Math.min(names.length || Number(b.travellers) || 1, 12)),
+    guestNames: cleanText(names.length ? names.join(', ') : b.client_name, 600),
+    bookingNo: clean(b.confirmation_number, 40), status,
+  };
+}
+
+/** Puts a reservation's present facts onto its row. */
+async function applyReservation(env, group, rowId, d) {
+  await env.DB.prepare(
+    `UPDATE group_cabins SET cabin_no = ?, category = ?, guests = ?, guest_names = ?, booking_no = ?, status = ?,
+            updated_at = ?
+      WHERE id = ? AND group_id = ? AND user_id = ?`
+  ).bind(d.cabinNo, d.category, d.guests, d.guestNames, d.bookingNo, d.status, now(), rowId, group.id, group.user_id).run();
+}
+
+/**
+ * Brings the owner's reservations onto a group's sheet and keeps them true.
+ *
+ * Every linked row is refreshed from its reservation, and every booked Margaritaville at Sea reservation whose
+ * group number is this group's is added if it is not there. A row somebody took off is hidden, not deleted, so it
+ * is not added again.
+ */
+export async function refreshBridge(env, group) {
+  const people = await bridges(env);
+  if (!people.length) return;
+  const number = norm(group.group_number) || norm(group.group_code);
+  const { results: linked } = await env.DB.prepare(
+    'SELECT id, booking_id FROM group_cabins WHERE group_id = ? AND user_id = ? AND booking_id IS NOT NULL'
+  ).bind(group.id, group.user_id).all();
+  const have = new Map((linked || []).map((r) => [r.booking_id, r.id]));
+
+  for (const person of people) {
+    for (const [bookingId, rowId] of have) {
+      const b = await bookingOf(env, person.cttId, bookingId);
+      if (b) await applyReservation(env, group, rowId, await describe(env, person.cttId, b));
+    }
+    if (!number) continue;
+    for (const b of await masBookings(env, person.cttId)) {
+      if (have.has(b.id) || norm(b.group_number) !== number) continue;
+      const d = await describe(env, person.cttId, b);
+      await insertRow(env, group, { id: group.user_id }, null, { ...d, bookedBy: person.name }, { bookingId: b.id });
+      have.set(b.id, true);
+    }
+  }
+}
+
+/** Reservations that sail the same day with no group number, offered for a click. */
+async function suggestionsFor(env, group) {
+  const out = [];
+  if (!group.depart_date) return out;
+  const { results: linked } = await env.DB.prepare(
+    'SELECT booking_id FROM group_cabins WHERE group_id = ? AND user_id = ? AND booking_id IS NOT NULL'
+  ).bind(group.id, group.user_id).all();
+  const have = new Set((linked || []).map((r) => r.booking_id));
+  for (const person of await bridges(env)) {
+    for (const b of await masBookings(env, person.cttId)) {
+      if (have.has(b.id) || b.depart_date !== group.depart_date || norm(b.group_number)) continue;
+      out.push({
+        id: b.id, person: person.name, client: b.client_name || '', cabin: b.cabin || '',
+        category: b.cabin_category || '', confirmation: b.confirmation_number || '',
+        guests: Number(b.travellers) || 1, cttId: person.cttId,
+      });
+    }
+  }
+  return out;
+}
+
 /** GET /api/groups/:id/cabins */
 export async function handleListCabins(request, env, groupId) {
   const { user, response } = await requireUser(request, env);
@@ -132,7 +271,9 @@ export async function handleListCabins(request, env, groupId) {
   if (!found) return notFound('Group not found.');
   const { group, owner } = found;
 
+  await refreshBridge(env, group);
   const rows = await loadRows(env, group.id, owner.id);
+  const suggestions = (await suggestionsFor(env, group)).map(({ cttId: _c, ...s }) => s);
   return json({
     group: {
       id: group.id, name: group.name, vendor: group.vendor || '', ship: group.product_name || '',
@@ -144,6 +285,7 @@ export async function handleListCabins(request, env, groupId) {
     cabins: rows.map(shape),
     summary: summarise(rows),
     signups: await waitingSignups(env, group.id, owner.id),
+    ctt: { suggestions },
     bookers: await bookerNames(env, user, rows),
     statuses: CABIN_STATUSES,
   });
@@ -162,11 +304,12 @@ async function insertRow(env, group, owner, user, values, extra = {}) {
   const get = (key, fallback) => (values[key] === undefined ? fallback : FIELDS[key][1](values[key]));
   await env.DB.prepare(
     `INSERT INTO group_cabins (id, group_id, user_id, cabin_no, category, guests, guest_names, booked_by,
-       booking_no, status, tc, notes, registration_id, sort_order, updated_by, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       booking_no, status, tc, notes, registration_id, booking_id, sort_order, updated_by, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(id, group.id, owner.id, get('cabinNo', ''), get('category', ''), get('guests', 0), get('guestNames', ''),
     get('bookedBy', ''), get('bookingNo', ''), get('status', 'held'), get('tc', 0), get('notes', ''),
-    extra.registrationId || null, extra.order || await nextOrder(env, group.id, owner.id), user.id, ts, ts).run();
+    extra.registrationId || null, extra.bookingId || null, extra.order || await nextOrder(env, group.id, owner.id),
+    user ? user.id : owner.id, ts, ts).run();
   return id;
 }
 
@@ -193,10 +336,18 @@ export async function handleUpdateCabin(request, env, groupId, cabinId) {
   if (!found) return notFound('Group not found.');
 
   const body = await readJson(request);
+  const row = await env.DB.prepare('SELECT booking_id FROM group_cabins WHERE id = ? AND group_id = ? AND user_id = ?')
+    .bind(cabinId, found.group.id, found.owner.id).first();
+  if (!row) return notFound('That cabin is not on the sheet.');
   const sets = [];
   const binds = [];
   for (const [key, [column, tidy]] of Object.entries(FIELDS)) {
     if (body[key] === undefined) continue;
+    // A reservation's own details are changed on the reservation. What is the group's own, the TC flag and a
+    // note, stays editable here.
+    if (row.booking_id && key !== 'tc' && key !== 'notes') {
+      return badRequest('That comes from the CTT reservation. Change it there and it follows here.');
+    }
     sets.push(`${column} = ?`);
     binds.push(tidy(body[key]));
   }
@@ -215,6 +366,12 @@ export async function handleDeleteCabin(request, env, groupId, cabinId) {
   if (response) return response;
   const found = await groupFor(env, user, groupId);
   if (!found) return notFound('Group not found.');
+  // A linked cabin is hidden and not deleted, so the next load does not bring it straight back.
+  const hid = await env.DB.prepare(
+    `UPDATE group_cabins SET hidden = 1, updated_at = ?
+      WHERE id = ? AND group_id = ? AND user_id = ? AND booking_id IS NOT NULL`
+  ).bind(now(), cabinId, found.group.id, found.owner.id).run();
+  if (hid.meta && hid.meta.changes) return json({ ok: true, hidden: true });
   const res = await env.DB.prepare('DELETE FROM group_cabins WHERE id = ? AND group_id = ? AND user_id = ?')
     .bind(cabinId, found.group.id, found.owner.id).run();
   if (!res.meta || !res.meta.changes) return notFound('That cabin is not on the sheet.');
@@ -362,4 +519,21 @@ export async function handleCabinsCsv(request, env, groupId) {
       'Content-Disposition': `attachment; filename="${safe || 'group'}-cabins.csv"`,
     },
   });
+}
+
+/** POST /api/groups/:id/cabins/from-ctt { bookingId } : one of the offered reservations goes on the sheet. */
+export async function handleCabinFromCtt(request, env, groupId) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  const found = await groupFor(env, user, groupId);
+  if (!found) return notFound('Group not found.');
+
+  const body = await readJson(request);
+  const offered = (await suggestionsFor(env, found.group)).find((s) => s.id === clean(body.bookingId, 64));
+  if (!offered) return notFound('That reservation is not one this sheet can take.');
+  const b = await bookingOf(env, offered.cttId, offered.id);
+  if (!b) return notFound('That reservation is not one this sheet can take.');
+  const d = await describe(env, offered.cttId, b);
+  const id = await insertRow(env, found.group, found.owner, user, { ...d, bookedBy: offered.person }, { bookingId: offered.id });
+  return json({ ok: true, id }, 201);
 }
