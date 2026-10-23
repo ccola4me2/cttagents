@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Group desk</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Group desk</h1><p class="sub">Every group at a glance: who owns it, how many guests, and how close each is to its next tour conductor credit.</p></div>
+      <div class="toolbar" style="margin:0;padding:0;">
+        <label style="display:flex;align-items:center;gap:.4rem;font-weight:400;margin:0;">
+          <input type="checkbox" id="all" style="width:auto;"> Include closed groups</label>
+        <a class="btn btn-primary btn-sm" href="/app/groups">Groups and new group</a>
+      </div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <section id="owners" class="stat-grid"></section>
+      <section class="card" style="margin-top:1.25rem;">
+        <div class="card-head"><h2>The groups</h2></div>
+        <div id="groups"><p class="spinner">Loading...</p></div>
+      </section>
+      <section class="card" style="margin-top:1.25rem;">
+        <div class="card-head"><h2>How this works</h2></div>
+        <div class="card-pad">
+          <ul class="plain">
+            <li><strong>Start a group</strong> under Groups. Upload the cruise line's group proposal or contract and the details fill in for you to check, then set up the
+              group's page and its sign-up form.</li>
+            <li><strong>Each group has an owner,</strong> the person who started it. The owner's name, logo and phone and email are on the group's page and receive its sign-ups, and the owner
+              earns the tour conductor credits. Set how your own pages read under <strong>My pages</strong>.</li>
+            <li><strong>Open a group's cabin sheet</strong> from this list to see every cabin, who booked it and their own booking number. Anybody on the desk can work on any group's sheet.</li>
+            <li><strong>Credits</strong> are one for every twelve guests across everybody's bookings, and cancelled cabins do not count.</li>
+          </ul>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+<script type="module">
+import { api, mountShell, esc, dateFmt, showError } from '/js/app.js';
+await mountShell();
+const err = document.getElementById('err');
+
+function when(iso, today) {
+  if (!iso) return '';
+  const days = Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000);
+  const soon = days >= 0 && days <= 30 ? ` <span class="badge badge-amber">${days === 0 ? 'today' : `${days} day${days === 1 ? '' : 's'}`}</span>` : '';
+  const late = days < 0 ? ' <span class="muted">passed</span>' : '';
+  return `${esc(dateFmt(iso))}${soon}${late}`;
+}
+
+async function load() {
+  err.innerHTML = '';
+  let d;
+  try {
+    d = await api(`/api/desk/overview${document.getElementById('all').checked ? '?all=1' : ''}`);
+  } catch (e) { document.getElementById('groups').innerHTML = ''; showError(err, e); return; }
+
+  const names = Object.keys(d.owners);
+  document.getElementById('owners').innerHTML = names.map((n) => `
+    <div class="stat"><p class="label">${esc(n)}</p><p class="value">${d.owners[n].tcEarned}</p>
+      <p class="meta">tour conductor credit${d.owners[n].tcEarned === 1 ? '' : 's'} earned across ${d.owners[n].groups}
+        group${d.owners[n].groups === 1 ? '' : 's'}, ${d.owners[n].guests} guests</p></div>`).join('');
+
+  document.getElementById('groups').innerHTML = d.groups.length
+    ? `<div class="table-wrap"><table>
+      <thead><tr><th>Group</th><th>Owner</th><th>Sails</th><th>Option</th><th>Final payment</th>
+        <th class="num">Cabins</th><th class="num">Guests</th><th class="num">TC earned</th><th>Next TC</th><th></th></tr></thead>
+      <tbody>${d.groups.map((g) => `<tr>
+        <td><a href="/app/group-sheet?id=${encodeURIComponent(g.id)}"><strong>${esc(g.name)}</strong></a>
+          <div class="muted" style="font-size:.84rem;">${esc(g.ship)}${g.groupNumber ? ` &middot; Group ${esc(g.groupNumber)}` : ''}${
+            g.status !== 'open' ? ` &middot; ${esc(g.status)}` : ''}</div></td>
+        <td>${esc(g.owner)}</td>
+        <td>${when(g.departDate, d.today)}</td>
+        <td>${when(g.optionDate, d.today)}</td>
+        <td>${when(g.finalPaymentDue, d.today)}</td>
+        <td class="num">${g.cabins}${g.cabinsHeld ? ` of ${g.cabinsHeld}` : ''}${
+          g.minimumMet ? '' : ' <span class="badge badge-amber" title="Under the minimum of 6">under 6</span>'}</td>
+        <td class="num">${g.guests}</td>
+        <td class="num"><strong>${g.tcEarned}</strong></td>
+        <td class="muted">${g.toNextTc} guest${g.toNextTc === 1 ? '' : 's'} to go</td>
+        <td class="num">${g.waiting ? `<a class="badge badge-amber" href="/app/group-sheet?id=${encodeURIComponent(g.id)}">${g.waiting} sign-up${g.waiting === 1 ? '' : 's'} to add</a>` : ''}</td>
+      </tr>`).join('')}</tbody></table></div>`
+    : '<div class="card-pad"><p class="muted">No groups on the desk yet. Start one under Groups: upload the cruise line’s group proposal and the details fill in for you to check.</p></div>';
+}
+
+document.getElementById('all').addEventListener('change', load);
+await load();
+</script>
+</body>
+</html>

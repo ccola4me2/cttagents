@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Group Desk</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="auth-page">
+  <div class="auth-brand">
+    <img src="/logo-mark.png" alt="">
+    <span><b>Group Desk</b><small>Margaritaville at Sea groups</small></span>
+  </div>
+  <div class="auth-card">
+    <div class="auth-card-head">
+      <h1>Sign in</h1>
+      <p>For the people who run the groups.</p>
+    </div>
+    <div class="auth-card-body">
+      <div class="notice notice-error" hidden></div>
+      <form id="login-form" novalidate>
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <button class="btn btn-primary" type="submit">Sign in</button>
+      </form>
+      <p class="auth-foot">Access is by invitation. If you need a link, ask whoever set the desk up.</p>
+    </div>
+  </div>
+</div>
+<script type="module">
+import { api, onSubmit, enhancePasswordFields } from '/js/app.js';
+enhancePasswordFields();
+onSubmit(document.getElementById('login-form'), async (values) => {
+  const res = await api('/api/auth/login', { method: 'POST', body: values });
+  location.href = res.redirect || '/app/desk';
+});
+</script>
+</body></html>

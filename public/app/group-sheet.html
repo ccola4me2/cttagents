@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cabin sheet | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+<style>
+  .sheet td, .sheet th { padding: .3rem .4rem; vertical-align: middle; }
+  .sheet input, .sheet select { width: 100%; min-width: 4rem; padding: .35rem .45rem; font-size: .9rem; }
+  .sheet input[type="number"] { width: 4.2rem; min-width: 0; }
+  .sheet input[type="checkbox"] { width: auto; min-width: 0; }
+  .sheet tr.cancelled td { opacity: .5; }
+  .sheet .wide input { min-width: 11rem; }
+  .pills { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1 id="title">Cabin sheet</h1><p class="sub" id="sub"></p></div>
+      <div class="toolbar" style="margin:0;padding:0;">
+        <a class="btn btn-ghost btn-sm" id="back" href="/app/groups">Back to the group</a>
+        <a class="btn btn-ghost btn-sm" id="csv" href="#">Download as a spreadsheet</a>
+        <button class="btn btn-ghost btn-sm" id="paste-open" type="button">Paste from a spreadsheet</button>
+        <button class="btn btn-primary btn-sm" id="add" type="button">Add a cabin</button>
+      </div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <section id="stats" class="stat-grid"></section>
+
+      <section class="card" style="margin-top:1.25rem;" id="booker-card" hidden>
+        <div class="card-head"><h2>Who has booked what</h2></div>
+        <div id="bookers"></div>
+      </section>
+
+      <section class="card" style="margin-top:1.25rem;" id="signup-card" hidden>
+        <div class="card-head"><h2>Sign-ups not on the sheet yet</h2>
+          <span class="muted">People who registered on the group's page</span></div>
+        <div id="signups"></div>
+      </section>
+
+      <section class="card" style="margin-top:1.25rem;">
+        <div class="card-head"><h2>The cabins</h2>
+          <span class="muted" id="saved"></span></div>
+        <div id="sheet"><p class="spinner">Loading...</p></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<dialog id="paste-dlg">
+  <form id="paste-form" method="dialog">
+    <div class="card-head"><h2>Paste from a spreadsheet</h2>
+      <button class="btn btn-ghost btn-sm" type="button" id="paste-cancel">Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" id="paste-err" hidden></div>
+      <p class="field-hint" style="margin-top:0;">Copy the rows out of a spreadsheet and paste them here, one cabin to a line.
+        If the first line has headings (Cabin, Category, Guests, Guest names, Booked by, Booking number, Status, TC, Notes) they
+        are read for what each column is. Without headings the columns are taken in that order. They are added to
+        what is already on the sheet.</p>
+      <div class="field"><label for="paste-text">Rows</label>
+        <textarea id="paste-text" name="text" rows="10" style="width:100%;font-family:monospace;"></textarea></div>
+    </div>
+    <div class="card-foot"><button class="btn btn-primary" type="submit">Add them to the sheet</button></div>
+  </form>
+</dialog>
+
+<script type="module">
+import { api, mountShell, esc, dateFmt, showError } from '/js/app.js';
+await mountShell();
+
+const groupId = new URLSearchParams(location.search).get('id');
+const err = document.getElementById('err');
+const sheet = document.getElementById('sheet');
+const saved = document.getElementById('saved');
+let data = null;
+
+if (!groupId) {
+  sheet.innerHTML = '<div class="card-pad"><p class="muted">Open a cabin sheet from a group.</p></div>';
+}
+
+const STATUS_WORDS = { held: 'Held', deposit: 'Deposit paid', paid: 'Paid in full', cancelled: 'Cancelled' };
+
+function drawSummary() {
+  const s = data.summary;
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><p class="label">Tour conductor credits</p><p class="value">${s.tcEarned}</p>
+      <p class="meta">${s.toNextTc} more guest${s.toNextTc === 1 ? '' : 's'} for the next. One for every ${s.perTc} guests,
+        to ${esc(data.group.owner || 'the owner')}</p></div>
+    <div class="stat"><p class="label">Guests</p><p class="value">${s.guests}</p>
+      <p class="meta">${s.paidGuests} paid in full${s.cancelled ? `, ${s.cancelled} cancelled cabin${s.cancelled === 1 ? '' : 's'} not counted` : ''}</p></div>
+    <div class="stat"><p class="label">Cabins</p><p class="value">${s.cabins}</p>
+      <p class="meta">${s.minimumMet ? `The group is live (needs ${s.minimum})`
+        : `${s.minimum - s.cabins} more for the group minimum of ${s.minimum}`}${
+        data.group.cabinsHeld ? `. ${Math.max(0, data.group.cabinsHeld - s.cabins)} of ${data.group.cabinsHeld} held still open` : ''}</p></div>
+    <div class="stat"><p class="label">Paid in full</p><p class="value">${s.paidCabins}</p>
+      <p class="meta">of ${s.cabins} cabin${s.cabins === 1 ? '' : 's'}</p></div>`;
+
+  const names = Object.keys(s.byBooker);
+  document.getElementById('booker-card').hidden = !names.length;
+  document.getElementById('bookers').innerHTML = names.length
+    ? `<div class="table-wrap"><table><thead><tr><th>Booked by</th><th class="num">Cabins</th><th class="num">Guests</th></tr></thead>
+      <tbody>${names.map((n) => `<tr><td>${esc(n)}</td><td class="num">${s.byBooker[n].cabins}</td>
+        <td class="num">${s.byBooker[n].guests}</td></tr>`).join('')}</tbody></table></div>` : '';
+}
+
+function drawSignups() {
+  const list = data.signups || [];
+  document.getElementById('signup-card').hidden = !list.length;
+  document.getElementById('signups').innerHTML = list.length
+    ? `<div class="table-wrap"><table><thead><tr><th>Name</th><th>Party</th><th>Cabin type</th><th></th></tr></thead>
+      <tbody>${list.map((r) => `<tr><td>${esc(r.name)}</td><td>${r.party}</td><td>${esc(r.category)}</td>
+        <td class="num"><button class="btn btn-ghost btn-sm" data-signup="${esc(r.id)}">Add to the sheet</button></td></tr>`).join('')}
+      </tbody></table></div>` : '';
+  document.querySelectorAll('[data-signup]').forEach((b) => b.addEventListener('click', async () => {
+    b.disabled = true;
+    try {
+      await api(`/api/groups/${encodeURIComponent(groupId)}/cabins/from-signup`,
+        { method: 'POST', body: { registrationId: b.dataset.signup } });
+      await load();
+    } catch (e) { showError(err, e); b.disabled = false; }
+  }));
+}
+
+const FIELD_OF = { cabinNo: 'text', category: 'text', guests: 'number', guestNames: 'text', bookedBy: 'text', bookingNo: 'text' };
+
+function drawSheet() {
+  const rows = data.cabins;
+  if (!rows.length) {
+    sheet.innerHTML = '<div class="card-pad"><p class="muted">Nothing on the sheet yet. Add a cabin, paste rows from a spreadsheet, or add a sign-up above.</p></div>';
+    return;
+  }
+  sheet.innerHTML = `<div class="table-wrap"><table class="sheet">
+    <thead><tr><th>Cabin</th><th>Category</th><th>Guests</th><th>Guest names</th><th>Booked by</th>
+      <th>Booking number</th><th>Status</th><th title="The cabin the tour conductor credit is used in">TC</th><th>Notes</th><th></th></tr></thead>
+    <tbody>${rows.map((r) => `<tr data-row="${esc(r.id)}" class="${r.status === 'cancelled' ? 'cancelled' : ''}">
+      <td><input data-field="cabinNo" value="${esc(r.cabinNo)}" maxlength="20" aria-label="Cabin number"></td>
+      <td><input data-field="category" value="${esc(r.category)}" maxlength="60" aria-label="Category"></td>
+      <td><input data-field="guests" type="number" min="0" max="12" value="${r.guests}" aria-label="Guests"></td>
+      <td class="wide"><input data-field="guestNames" value="${esc(r.guestNames)}" maxlength="600" aria-label="Guest names"></td>
+      <td><input data-field="bookedBy" value="${esc(r.bookedBy)}" maxlength="80" list="bookers-list" aria-label="Booked by"></td>
+      <td><input data-field="bookingNo" value="${esc(r.bookingNo)}" maxlength="40" aria-label="Booking number"></td>
+      <td><select data-field="status" aria-label="Status">${data.statuses.map((s) =>
+        `<option value="${s}"${s === r.status ? ' selected' : ''}>${STATUS_WORDS[s]}</option>`).join('')}</select></td>
+      <td><input data-field="tc" type="checkbox"${r.tc ? ' checked' : ''} aria-label="TC cabin"></td>
+      <td class="wide"><input data-field="notes" value="${esc(r.notes)}" maxlength="1000" aria-label="Notes"></td>
+      <td><button class="btn btn-ghost btn-sm" data-drop="${esc(r.id)}" title="Take this cabin off the sheet">Remove</button></td>
+    </tr>`).join('')}</tbody></table></div>
+    <datalist id="bookers-list">${data.bookers.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>`;
+
+  sheet.querySelectorAll('[data-field]').forEach((input) => {
+    input.addEventListener('change', async () => {
+      const tr = input.closest('tr');
+      const field = input.dataset.field;
+      const value = input.type === 'checkbox' ? input.checked : input.value;
+      saved.textContent = 'Saving...';
+      try {
+        await api(`/api/groups/${encodeURIComponent(groupId)}/cabins/${encodeURIComponent(tr.dataset.row)}`,
+          { method: 'PUT', body: { [field]: value } });
+        if (field === 'status') tr.classList.toggle('cancelled', value === 'cancelled');
+        saved.textContent = 'Saved';
+        // The totals only, so a row somebody is typing in is never redrawn under them.
+        const fresh = await api(`/api/groups/${encodeURIComponent(groupId)}/cabins`);
+        data.summary = fresh.summary;
+        data.bookers = fresh.bookers;
+        drawSummary();
+      } catch (e) { saved.textContent = ''; showError(err, e); }
+    });
+  });
+  sheet.querySelectorAll('[data-drop]').forEach((b) => b.addEventListener('click', async () => {
+    if (!confirm('Take this cabin off the sheet?')) return;
+    try {
+      await api(`/api/groups/${encodeURIComponent(groupId)}/cabins/${encodeURIComponent(b.dataset.drop)}`, { method: 'DELETE' });
+      await load();
+    } catch (e) { showError(err, e); }
+  }));
+}
+
+async function load() {
+  err.innerHTML = '';
+  try {
+    data = await api(`/api/groups/${encodeURIComponent(groupId)}/cabins`);
+  } catch (e) { sheet.innerHTML = ''; showError(err, e); return; }
+  const g = data.group;
+  document.getElementById('title').textContent = g.name || 'Cabin sheet';
+  document.getElementById('sub').textContent = [g.ship || g.vendor, g.groupCode ? `Group ${g.groupCode}` : '',
+    g.departDate ? `sails ${dateFmt(g.departDate)}` : '', g.owner ? `owned by ${g.owner}` : '',
+    g.optionDate ? `option ${dateFmt(g.optionDate)}` : '', g.finalPaymentDue ? `final payment ${dateFmt(g.finalPaymentDue)}` : '']
+    .filter(Boolean).join(' · ');
+  document.getElementById('back').href = `/app/group?id=${encodeURIComponent(groupId)}`;
+  document.getElementById('csv').href = `/api/groups/${encodeURIComponent(groupId)}/cabins.csv`;
+  drawSummary();
+  drawSignups();
+  drawSheet();
+}
+
+document.getElementById('add').addEventListener('click', async () => {
+  try {
+    await api(`/api/groups/${encodeURIComponent(groupId)}/cabins`, { method: 'POST', body: {} });
+    await load();
+    const last = sheet.querySelector('tbody tr:last-child input');
+    if (last) last.focus();
+  } catch (e) { showError(err, e); }
+});
+
+const dlg = document.getElementById('paste-dlg');
+document.getElementById('paste-open').addEventListener('click', () => dlg.showModal());
+document.getElementById('paste-cancel').addEventListener('click', () => dlg.close());
+document.getElementById('paste-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const box = document.getElementById('paste-err');
+  box.hidden = true;
+  try {
+    await api(`/api/groups/${encodeURIComponent(groupId)}/cabins/import`,
+      { method: 'POST', body: { text: document.getElementById('paste-text').value } });
+    document.getElementById('paste-text').value = '';
+    dlg.close();
+    await load();
+  } catch (ex) { box.textContent = ex.message; box.hidden = false; }
+});
+
+if (groupId) await load();
+</script>
+</body>
+</html>

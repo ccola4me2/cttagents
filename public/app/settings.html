@@ -81,6 +81,46 @@
           </form>
         </div>
       </section>
+      <section class="card" id="brand-card">
+        <div class="card-head"><h2>How your pages read</h2></div>
+        <div class="card-pad">
+          <p class="field-hint" style="margin-top:0;">What a client sees at the top of your group pages and in the
+            messages sent for you: your own name, logo and way to reach you, in place of the agency's. Anything you
+            leave blank stays the agency's.</p>
+          <div class="notice notice-ok" id="brand-ok" hidden>Saved.</div>
+          <div class="notice notice-error" id="brand-err" hidden></div>
+          <form id="brand-form">
+            <div class="field"><label for="brandName">Name on your pages</label>
+              <input id="brandName" name="name" maxlength="120" placeholder="Your agency or your own name"></div>
+            <div class="field"><label for="brandTagline">A line under the name</label>
+              <input id="brandTagline" name="tagline" maxlength="160"></div>
+            <div class="field-row">
+              <div class="field"><label for="brandPhone">Phone</label>
+                <input id="brandPhone" name="phone" type="tel" maxlength="40"></div>
+              <div class="field"><label for="brandEmail">Email</label>
+                <input id="brandEmail" name="email" type="email" maxlength="254"></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label for="brandWebsite">Website</label>
+                <input id="brandWebsite" name="website" maxlength="200" placeholder="https://"></div>
+              <div class="field"><label for="brandColor">Colour</label>
+                <input id="brandColor" name="color" maxlength="7" placeholder="#1b3a5f">
+                <p class="field-hint">Six digits after a hash. Dark enough to read on white.</p></div>
+            </div>
+            <button class="btn btn-primary" type="submit">Save</button>
+          </form>
+          <div style="margin-top:1.2rem;">
+            <label for="brand-file" style="font-weight:600;">Your logo</label>
+            <input type="file" id="brand-file" accept="image/jpeg,image/png,image/webp,image/gif">
+            <p class="field-hint" id="brand-note">JPEG, PNG, WebP or GIF, up to 2 MB. A logo with a plain or
+              transparent background works best.</p>
+            <div id="brand-shown" hidden style="display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;">
+              <img id="brand-thumb" alt="" style="max-width:12rem;max-height:6rem;background:#fff;border:1px solid var(--navy-100);border-radius:.5rem;padding:.3rem;">
+              <button class="btn btn-ghost btn-sm" type="button" id="brand-remove">Remove the logo</button>
+            </div>
+          </div>
+        </div>
+      </section>
       <section class="card" id="chase-card">
         <div class="card-head"><h2>Chasing clients for payment</h2>
           <span id="chase-state" class="muted"></span></div>
@@ -322,6 +362,54 @@ onSubmit(pf, async (values) => {
   ok.hidden = false;
   setTimeout(() => { ok.hidden = true; }, 3000);
 }, { errorBox: document.getElementById('profile-err') });
+
+
+// ---------------------------------------------------------- your pages -----
+//
+// Your own name, logo and contact on the pages a client opens. A blank field is the agency's.
+const bf = document.getElementById('brand-form');
+function drawBrand(b) {
+  bf.elements.name.value = b.name || '';
+  bf.elements.tagline.value = b.tagline || '';
+  bf.elements.phone.value = b.phone || '';
+  bf.elements.email.value = b.email || '';
+  bf.elements.website.value = b.website || '';
+  bf.elements.color.value = b.color || '';
+  document.getElementById('brand-shown').hidden = !b.hasLogo;
+  document.getElementById('brand-thumb').src = b.logoUrl || '';
+}
+try { drawBrand((await api('/api/brand')).brand); } catch { /* the card stays empty */ }
+
+onSubmit(bf, async (values) => {
+  drawBrand((await api('/api/brand', { method: 'PUT', body: values })).brand);
+  const ok = document.getElementById('brand-ok');
+  ok.hidden = false;
+  setTimeout(() => { ok.hidden = true; }, 3000);
+}, { errorBox: document.getElementById('brand-err') });
+
+document.getElementById('brand-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  const note = document.getElementById('brand-note');
+  if (!file) return;
+  note.textContent = 'Uploading...';
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/api/brand/logo', { method: 'POST', body: form, credentials: 'same-origin' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'That logo could not be uploaded.');
+    drawBrand(data.brand);
+    note.textContent = 'Uploaded. It is on your pages now.';
+  } catch (err) { note.textContent = err.message; }
+  e.target.value = '';
+});
+
+document.getElementById('brand-remove').addEventListener('click', async () => {
+  try {
+    drawBrand((await api('/api/brand/logo', { method: 'DELETE' })).brand);
+    document.getElementById('brand-note').textContent = 'Removed.';
+  } catch (err) { document.getElementById('brand-note').textContent = err.message; }
+});
 
 // ------------------------------------------------- chasing for payment -----
 //

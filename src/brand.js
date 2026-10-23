@@ -124,7 +124,26 @@ export async function brandForUser(env, userId) {
     const row = await env.DB.prepare(
       'SELECT a.* FROM users u JOIN agencies a ON a.id = u.agency_id WHERE u.id = ?'
     ).bind(userId).first();
-    return brandOf(row);
+    const brand = brandOf(row);
+    // A person's own page identity, where they have set one: their name, tagline, colour and logo in place of
+    // the agency's. Each field is optional and a blank one stays the agency's. Never throws: a missing table
+    // or a failed read is a page in the agency's own name.
+    try {
+      const mine = await env.DB.prepare(
+        'SELECT name, tagline, color, website, logo_key, updated_at FROM user_brand WHERE user_id = ?'
+      ).bind(userId).first();
+      if (mine) {
+        if (mine.name) brand.name = mine.name;
+        if (mine.name || mine.tagline) brand.tagline = mine.tagline || '';
+        if (readableOnWhite(mine.color)) brand.color = mine.color;
+        if (mine.website) brand.website = mine.website;
+        if (mine.logo_key) {
+          const base = String(env.APP_URL || 'https://cttagents.com').replace(/\/$/, '');
+          brand.logoUrl = `${base}/ub/${encodeURIComponent(userId)}?v=${mine.updated_at}`;
+        }
+      }
+    } catch { /* the agency's own */ }
+    return brand;
   } catch {
     return { ...DEFAULT_BRAND };
   }

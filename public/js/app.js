@@ -347,10 +347,20 @@ const ADMIN_NAV = [
   { href: '/admin/specials', label: 'Supplier specials', icon: I.megaphone },
   { href: '/admin/groups', label: 'Group pages', icon: I.chart },
   { href: '/admin/events', label: 'Trainings and events', icon: I.calendar },
+  // Only the person who runs the portal sees that the desk exists.
+  { href: '/admin/desk', label: 'Group desk', icon: I.groups, platformOwner: true },
   { href: '/admin/waiver', label: 'Waiver wording', icon: I.shield },
   { href: '/admin/training', label: 'Training', icon: I.book },
   { href: '/admin/manual', label: 'Running the agency', icon: I.book },
   { href: '/app/', label: 'Back to portal', icon: I.back },
+];
+
+// What somebody on the Group Desk sees: the groups they share and the sheet behind each, and how their own pages
+// read. Nothing else of the portal is offered to them.
+const DESK_NAV = [
+  { href: '/app/desk', label: 'Group desk', icon: I.chart },
+  { href: '/app/groups', label: 'Groups', icon: I.groups, alsoOn: ['/app/group', '/app/group-sheet'] },
+  { href: '/app/settings', label: 'My pages', icon: I.gear },
 ];
 
 const HUB_KEY = 'tv.nav.hub';
@@ -1395,6 +1405,8 @@ function mountActingBanner({ user, admin }) {
 
 export async function mountShell({ admin = false } = {}) {
   const { user, actingAs } = await api('/api/auth/me');
+  // The Group Desk has its own front door, and its own place to land when signed out.
+  const isDesk = Boolean(user && user.desk);
   if (!user) { window.location.href = '/login'; throw new Error('Signed out'); }
   // An owner not sitting in somebody else's seat. Everybody else has no choice of scope to remember.
   scopeOwner = user.role === 'admin' && !actingAs ? user.id : null;
@@ -1410,9 +1422,9 @@ export async function mountShell({ admin = false } = {}) {
   const current = location.pathname.replace(/index\.html$/, '');
   // Lines marked agencyOwner are left out for everybody who is not an owner working as themselves.
   const mayOwn = user.role === 'admin' && !actingAs;
-  const items = (admin ? ADMIN_NAV : NAV).map((e) => (e.hub
+  const items = (isDesk ? DESK_NAV : (admin ? ADMIN_NAV : NAV)).filter((e) => !e.platformOwner || user.platformOwner).map((e) => (e.hub
     ? { ...e, items: e.items.filter((i) => !i.agencyOwner || mayOwn) } : e));
-  const showAdminLink = !admin && user.role === 'admin';
+  const showAdminLink = !admin && !isDesk && user.role === 'admin';
 
   // The hub holding the current page always opens. Otherwise reopen whichever
   // hub the advisor last worked in, so the sidebar looks the same each visit.
@@ -1422,16 +1434,17 @@ export async function mountShell({ admin = false } = {}) {
   }
 
   sidebar.innerHTML = `
-    <a class="wordmark on-dark" href="${admin ? '/admin/' : '/app/'}">
+    <a class="wordmark on-dark" href="${isDesk ? '/app/desk' : (admin ? '/admin/' : '/app/')}">
       <img src="/logo-mark.png" alt="">
-      <span><b>Cruises Tours &amp; Travel</b><small>${admin ? 'Admin' : 'Travel Advisor Portal'}</small></span>
+      <span><b>${isDesk ? 'Group Desk' : 'Cruises Tours &amp; Travel'}</b><small>${
+        isDesk ? 'Margaritaville at Sea groups' : (admin ? 'Admin' : 'Travel Advisor Portal')}</small></span>
     </a>
     <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="sidebar-nav">
       <span class="sr-only">Menu</span>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
            stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
     </button>
-    ${admin ? '' : `<button type="button" class="nav-todo" id="open-todo">
+    ${admin || isDesk ? '' : `<button type="button" class="nav-todo" id="open-todo">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>
@@ -1463,12 +1476,12 @@ export async function mountShell({ admin = false } = {}) {
 
   sidebar.querySelector('#signout').addEventListener('click', async () => {
     await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
-    window.location.href = '/login';
+    window.location.href = isDesk ? '/desk' : '/login';
   });
 
   // The bell rides with the To do count: both are an advisor's own, and an
   // admin screen has neither.
-  if (!admin) {
+  if (!admin && !isDesk) {
     mountSearch(sidebar);
     mountTodo(sidebar, user);
     mountBell(sidebar);

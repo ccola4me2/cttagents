@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Choose a password | Group Desk</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="auth-page">
+  <div class="auth-brand">
+    <img src="/logo-mark.png" alt="">
+    <span><b>Group Desk</b><small>Margaritaville at Sea groups</small></span>
+  </div>
+  <div class="auth-card">
+    <div class="auth-card-head">
+      <h1>Choose a password</h1>
+      <p>Something nobody else knows. You will use it to sign in.</p>
+    </div>
+    <div class="auth-card-body">
+      <div class="notice notice-error" hidden></div>
+      <div class="notice notice-ok" id="done" hidden>
+        Your password is set. <a href="/desk">Sign in</a>.
+      </div>
+      <form id="reset-form" novalidate>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="new-password" minlength="10" required>
+          <p class="field-hint">At least 10 characters.</p>
+        </div>
+        <div class="field">
+          <label for="confirmPassword">Confirm password</label>
+          <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" minlength="10" required>
+        </div>
+        <button class="btn btn-primary" type="submit">Save password</button>
+      </form>
+      <p class="auth-foot"><a href="/desk">Back to sign in</a></p>
+    </div>
+  </div>
+</div>
+<script type="module">
+import { api, onSubmit, enhancePasswordFields } from '/js/app.js';
+enhancePasswordFields();
+const token = new URLSearchParams(location.search).get('token') || '';
+const form = document.getElementById('reset-form');
+const box = form.parentElement.querySelector('.notice-error');
+if (!token) { box.textContent = 'This link is missing its token. Ask for a new one.'; box.hidden = false; }
+onSubmit(form, async (values) => {
+  if (values.password !== values.confirmPassword) {
+    throw new Error('The two passwords do not match.');
+  }
+  await api('/api/auth/reset', { method: 'POST', body: { token, password: values.password } });
+  form.hidden = true;
+  document.getElementById('done').hidden = false;
+});
+</script>
+</body></html>

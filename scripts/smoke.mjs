@@ -8657,6 +8657,118 @@ async function main() {
     if (qid) await dropBooking(qid);
   }
 
+  // The Group Desk: members who are not advisors, a sheet behind each group, and their own names on their pages.
+  {
+    const email = `desk-${stamp}@test.dev`;
+    const password = 'a-long-desk-password-1';
+    const notOperator = await call(advisor, 'POST', '/api/admin/desk', { email, firstName: 'Desk', lastName: 'Host' });
+    check(notOperator.status === 403, 'an advisor cannot add anybody to the desk', `status ${notOperator.status}`);
+
+    const added = await call(admin, 'POST', '/api/admin/desk', { email, firstName: 'Desk', lastName: `Host ${stamp}`, phone: '555-0100' });
+    check(added.status === 200 && /\/desk\/reset\?token=/.test(added.data?.invite?.url || ''), 'the operator can add a member and gets their link',
+      `status ${added.status} ${JSON.stringify(added.data?.error || '')}`);
+    const token = new URL(added.data?.invite?.url || 'https://x.test/?token=').searchParams.get('token');
+    const chosen = await call(null, 'POST', '/api/auth/reset', { token, password });
+    check(chosen.status === 200, 'the member chooses their own password from the link', `status ${chosen.status}`);
+    const again = await call(null, 'POST', '/api/auth/reset', { token, password: 'another-long-password-2' });
+    check(again.status === 400, 'and the link works once', `status ${again.status}`);
+
+    const desk = jar();
+    const login = await call(desk, 'POST', '/api/auth/login', { email, password });
+    check(login.status === 200 && login.data?.user?.desk === true && login.data?.redirect === '/app/desk',
+      'they sign in and land on the desk', `status ${login.status} ${login.data?.redirect}`);
+    const me = await call(desk, 'GET', '/api/auth/me');
+    check(me.data?.user?.desk === true, 'and every page knows they are on the desk');
+    const theirClients = await call(desk, 'GET', '/api/clients?mine=1');
+    check((theirClients.data?.clients || []).length === 0, 'they see none of the agency\'s clients', `${(theirClients.data?.clients || []).length}`);
+
+    const made = await call(desk, 'POST', '/api/groups', {
+      name: `Desk Group ${stamp}`, groupCode: `dk-${stamp}`, vendor: 'Margaritaville at Sea', productName: 'Islander',
+      destination: 'Bahamas', departDate: isoDay(300), returnDate: isoDay(307), cabinsHeld: 20, groupType: 'cruise',
+      registrationOpen: true, registrationBlurb: 'Come with us.',
+    });
+    const gid = made.data?.group?.id;
+    const slug = made.data?.group?.page_slug;
+    check(made.status === 201 && gid, 'a member can start a group', `status ${made.status} ${JSON.stringify(made.data?.error || '')}`);
+    if (gid) cleanup('the desk group', () => call(desk, 'DELETE', `/api/groups/${gid}`));
+
+    const advisorSees = await call(advisor, 'GET', `/api/groups/${gid}/cabins`);
+    const adminSees = await call(admin, 'GET', `/api/groups/${gid}/cabins`);
+    check(advisorSees.status === 404 && adminSees.status === 404, 'nobody in the agency that runs the portal can see it',
+      `${advisorSees.status}/${adminSees.status}`);
+    const ownList = await call(admin, 'GET', '/api/desk/overview');
+    check(!(ownList.data?.groups || []).some((g) => g.id === gid), 'nor on their own overview');
+
+    const base = `/api/groups/${gid}/cabins`;
+    const add = (v) => call(desk, 'POST', base, v);
+    const one = await add({ cabinNo: '7001', category: 'Balcony', guests: 4, guestNames: 'A, B, C, D', bookedBy: 'Brent', status: 'paid' });
+    await add({ cabinNo: '7002', category: 'Balcony', guests: 4, bookedBy: 'Lori', status: 'deposit' });
+    await add({ cabinNo: '7003', category: 'Suite', guests: 5, bookedBy: 'Lori', status: 'held', tc: true });
+    const gone = await add({ cabinNo: '7004', category: 'Interior', guests: 2, bookedBy: 'Dawn', status: 'cancelled' });
+    check(one.status === 201 && gone.status === 201, 'cabins go on the sheet', `status ${one.status}`);
+    const sheet = await call(desk, 'GET', base);
+    const sum = sheet.data?.summary || {};
+    check(sum.guests === 13 && sum.cabins === 3 && sum.cancelled === 1, 'a cancelled cabin does not count', JSON.stringify(sum));
+    check(sum.tcEarned === 1 && sum.toNextTc === 11 && sum.perTc === 12, 'one credit for every twelve guests, and how many to the next', JSON.stringify([sum.tcEarned, sum.toNextTc]));
+    check(sum.byBooker?.Lori?.guests === 9 && sum.byBooker?.Brent?.cabins === 1 && !sum.byBooker?.Dawn,
+      'and who has booked what', JSON.stringify(sum.byBooker));
+    check(sum.minimumMet === false && sum.minimum === 6, 'under six cabins is not yet a group');
+
+    const first = sheet.data?.cabins?.[0];
+    const edit = await call(desk, 'PUT', `${base}/${first?.id}`, { guests: 12 });
+    const afterEdit = await call(desk, 'GET', base);
+    check(edit.status === 200 && afterEdit.data?.summary?.guests === 21 && afterEdit.data?.summary?.tcEarned === 1
+      && afterEdit.data?.summary?.toNextTc === 3, 'changing one cell changes the totals', JSON.stringify(afterEdit.data?.summary));
+    const nothing = await call(desk, 'PUT', `${base}/${first?.id}`, {});
+    check(nothing.status === 400, 'a change that names nothing is refused', `status ${nothing.status}`);
+
+    const pasted = await call(desk, 'POST', `${base}/import`, {
+      text: 'Cabin\tCategory\tGuests\tGuest names\tBooked by\tBooking number\tStatus\tTC\n8001\tBalcony\t2\tP Q, R S\tDawn\tR-100\tPaid in full\t\n8002\tInterior\t3\tT U\tBrent\tR-101\tDeposit\tyes',
+    });
+    const afterPaste = await call(desk, 'GET', base);
+    const pastedRow = (afterPaste.data?.cabins || []).find((c) => c.cabinNo === '8002');
+    check(pasted.status === 201 && pasted.data?.added === 2 && pastedRow?.status === 'deposit' && pastedRow?.tc === true && pastedRow?.bookingNo === 'R-101',
+      'rows pasted from a spreadsheet are read by their headings', `status ${pasted.status} ${JSON.stringify(pastedRow)}`);
+    const csv = await fetch(`${BASE}${base}.csv`, { headers: { cookie: desk.header() } });
+    const csvText = await csv.text();
+    check(csv.status === 200 && csvText.startsWith('Cabin,Category,Guests') && csvText.includes('R-101'), 'and it can be downloaded as a spreadsheet', `status ${csv.status}`);
+
+    const overview = await call(desk, 'GET', '/api/desk/overview');
+    const row = (overview.data?.groups || []).find((g) => g.id === gid);
+    check(row && row.owner.includes('Host') && row.guests === 26 && row.tcEarned === 2, 'the desk lists the group with its owner and credits',
+      JSON.stringify(row && [row.owner, row.guests, row.tcEarned]));
+
+    const brand = await call(desk, 'PUT', '/api/brand', { name: `Smoke Host Agency ${stamp}`, phone: '555-0101', email: `host-${stamp}@test.dev`, color: '#1b3a5f' });
+    check(brand.status === 200 && brand.data?.brand?.name === `Smoke Host Agency ${stamp}`, 'a member sets how their own pages read', `status ${brand.status}`);
+    const badColor = await call(desk, 'PUT', '/api/brand', { color: '#ffff00' });
+    check(badColor.status === 400, 'a colour too pale to read is refused', `status ${badColor.status}`);
+    const hostPage = await call(null, 'GET', `/gs/${slug}`);
+    check(hostPage.status === 200 && hostPage.raw.includes(`Smoke Host Agency ${stamp}`) && hostPage.raw.includes('555-0101'),
+      'and the group\'s public page carries their name and number', `status ${hostPage.status}`);
+
+    const form = new FormData();
+    form.append('file', new Blob([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64')], { type: 'image/png' }), 'logo.png');
+    const logo = await fetch(`${BASE}/api/brand/logo`, { method: 'POST', headers: { cookie: desk.header() }, body: form });
+    if (logo.status === 400) {
+      skip('a logo on their pages', 'no document storage is bound here');
+    } else {
+      const logoBody = await logo.json().catch(() => ({}));
+      check(logo.status === 200 && logoBody.brand?.hasLogo === true, 'a member can upload a logo', `status ${logo.status}`);
+      const served = await fetch(`${BASE}/ub/${me.data?.user?.id}`);
+      check(served.status === 200 && served.headers.get('content-type') === 'image/png' && served.headers.get('x-content-type-options') === 'nosniff',
+        'and it is served as a picture to anybody', `status ${served.status}`);
+      const notPic = new FormData();
+      notPic.append('file', new Blob(['<script>alert(1)</script>'], { type: 'image/png' }), 'x.png');
+      const bad = await fetch(`${BASE}/api/brand/logo`, { method: 'POST', headers: { cookie: desk.header() }, body: notPic });
+      check(bad.status === 400, 'a file that is not a picture is refused', `status ${bad.status}`);
+    }
+
+    const members = await call(admin, 'GET', '/api/admin/desk');
+    check((members.data?.members || []).some((m) => m.email === email), 'the operator sees who is on the desk');
+    const asAdvisor = await call(advisor, 'GET', '/api/admin/desk');
+    check(asAdvisor.status === 403, 'and nobody else does', `status ${asAdvisor.status}`);
+  }
+
   // Corporate targets: the agency's own, an owner's to see and set.
   {
     const noRead = await call(advisor, 'GET', '/api/corporate-targets');

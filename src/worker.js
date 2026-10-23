@@ -257,6 +257,16 @@ import {
 } from './quickproposal.js';
 import { renderQuickProposal, serveProposalImage } from './quickproposalpage.js';
 import { handleWaiver, renderWaiverPage, handleSignWaiver } from './waiver.js';
+import {
+  handleDeskMembers, handleAddDeskMember, handleDeskInvite, handleDeskOverview, isDeskUser,
+} from './desk.js';
+import {
+  handleListCabins, handleAddCabin, handleUpdateCabin, handleDeleteCabin, handleImportCabins,
+  handleCabinFromSignup, handleCabinsCsv,
+} from './groupcabins.js';
+import {
+  handleGetBrand, handleSaveBrand, handleUploadLogo, handleRemoveLogo, serveUserLogo,
+} from './userbrand.js';
 import { handleGetWaiverWording, handleSaveWaiverWording, handleResetWaiverWording } from './waiverwording.js';
 import { handleSaveWording, handleClearWording } from './wording.js';
 import { isGroupHost, serveGroupHost, serveSlug, redirectForCode } from './grouphost.js';
@@ -525,6 +535,9 @@ const PAGE_FILES = {
   '/app/vendors': '/app/vendors.html',
   '/app/vendor': '/app/vendor.html',
   '/app/group': '/app/group.html',
+  '/app/group-sheet': '/app/group-sheet.html',
+  '/app/desk': '/app/desk.html',
+  '/admin/desk': '/admin/desk.html',
   '/app/trip': '/app/trip.html',
   '/app/cruise-search': '/app/cruise-search.html',
   '/app/form': '/app/form.html',
@@ -702,13 +715,59 @@ async function routeRequest(request, env, ctx) {
   const path = url.pathname.replace(/\/{2,}/g, '/');
   const method = request.method.toUpperCase();
 
-  // The shared group domain serves group pages and nothing else: no portal, no sign in.
-  if (isGroupHost(request, env)) return serveGroupHost(request, env);
+  // The shared group domain serves group pages and nothing else: no portal, and no sign in except the one door
+  // for the Group Desk, which opens for its own members only.
+  if (isGroupHost(request, env)) {
+    const desk = await serveDeskHost(request, env, path, method);
+    return desk || serveGroupHost(request, env);
+  }
 
   if (path.startsWith('/api/')) return routeApi(request, env, path, method);
 
   // Everything else is a page or a static file.
   return routePage(request, env, path);
+}
+
+// The pages a desk member may open on the group domain, and the few API calls that need no sign in. Anything
+// else under /api needs a signed in desk member, and anything not listed here is not served on that domain at all.
+const DESK_APP_PAGES = new Set(['/app/desk', '/app/groups', '/app/group', '/app/group-sheet', '/app/settings']);
+const DESK_OPEN_API = new Set(['/api/auth/login', '/api/auth/logout', '/api/auth/me', '/api/auth/reset']);
+
+/**
+ * The one door on the shared group domain: cruisegrouppage.com/desk.
+ *
+ * Returns a response for the desk's own addresses and null for everything else, which then goes to the group
+ * pages as it always did. The desk's pages and API are the portal's own, so nothing is duplicated; what this
+ * adds is the gate. A page needs a signed in member of the desk, and so does every API call except signing in,
+ * out and choosing a password. Somebody from the agency that runs the portal cannot sign in here at all.
+ */
+async function serveDeskHost(request, env, path, method) {
+  if (path === '/login') return redirect('/desk');
+  if (path === '/desk' || path === '/desk/') {
+    const user = await getCurrentUser(request, env);
+    if (isDeskUser(user)) return redirect('/app/desk');
+    return serveAsset(request, env, '/desk/index.html');
+  }
+  if (path === '/desk/reset') return serveAsset(request, env, '/desk/reset.html');
+  // Files every page needs. Nothing in them is anybody's.
+  if (path.startsWith('/css/') || path.startsWith('/js/') || path === '/logo-mark.png' || path === '/logo-mark.svg') {
+    return serveAsset(request, env, path);
+  }
+  const logo = path.match(/^\/ub\/([^/]+)\/?$/);
+  if (logo) return serveUserLogo(request, env, decodeURIComponent(logo[1]));
+  if (DESK_APP_PAGES.has(path)) {
+    const user = await getCurrentUser(request, env);
+    if (!isDeskUser(user)) return redirect('/desk');
+    return serveAsset(request, env, path);
+  }
+  if (path.startsWith('/api/')) {
+    if (!DESK_OPEN_API.has(path)) {
+      const user = await getCurrentUser(request, env);
+      if (!isDeskUser(user)) return json({ error: 'Sign in to the Group Desk first.' }, 401);
+    }
+    return routeApi(request, env, path, method);
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -787,6 +846,11 @@ async function routeApi(request, env, path, method) {
   const groupSlugMatch = path.match(/^\/api\/groups\/([^/]+)\/slug$/);
   const groupRepeatMatch = path.match(/^\/api\/groups\/([^/]+)\/repeat$/);
   const groupPictureMatch = path.match(/^\/api\/groups\/([^/]+)\/picture$/);
+  const cabinsMatch = path.match(/^\/api\/groups\/([^/]+)\/cabins$/);
+  const cabinsCsvMatch = path.match(/^\/api\/groups\/([^/]+)\/cabins\.csv$/);
+  const cabinsImportMatch = path.match(/^\/api\/groups\/([^/]+)\/cabins\/import$/);
+  const cabinsSignupMatch = path.match(/^\/api\/groups\/([^/]+)\/cabins\/from-signup$/);
+  const cabinOneMatch = path.match(/^\/api\/groups\/([^/]+)\/cabins\/([^/]+)$/);
   const groupFilesMatch = path.match(/^\/api\/groups\/([^/]+)\/files$/);
   const groupFileMatch = path.match(/^\/api\/groups\/([^/]+)\/files\/([^/]+)$/);
   const groupBookMatch = path.match(/^\/api\/groups\/registrations\/([^/]+)\/book$/);
@@ -1140,6 +1204,14 @@ async function routeApi(request, env, path, method) {
   if (groupRepeatMatch && method === 'POST') return handleRepeatGroup(request, env, groupRepeatMatch[1]);
   if (groupFilesMatch && method === 'POST') return handleUploadGroupFile(request, env, groupFilesMatch[1]);
   if (groupFileMatch && method === 'DELETE') return handleDeleteGroupFile(request, env, groupFileMatch[1], groupFileMatch[2]);
+  // The sheet behind a group: who booked which cabin, and the tour conductor credits the guests have earned.
+  if (cabinsMatch && method === 'GET') return handleListCabins(request, env, cabinsMatch[1]);
+  if (cabinsMatch && method === 'POST') return handleAddCabin(request, env, cabinsMatch[1]);
+  if (cabinsCsvMatch && method === 'GET') return handleCabinsCsv(request, env, cabinsCsvMatch[1]);
+  if (cabinsImportMatch && method === 'POST') return handleImportCabins(request, env, cabinsImportMatch[1]);
+  if (cabinsSignupMatch && method === 'POST') return handleCabinFromSignup(request, env, cabinsSignupMatch[1]);
+  if (cabinOneMatch && method === 'PUT') return handleUpdateCabin(request, env, cabinOneMatch[1], cabinOneMatch[2]);
+  if (cabinOneMatch && method === 'DELETE') return handleDeleteCabin(request, env, cabinOneMatch[1], cabinOneMatch[2]);
   if (groupPictureMatch && method === 'POST') return handleUploadPicture(request, env, groupPictureMatch[1]);
   if (groupPictureMatch && method === 'DELETE') return handleRemovePicture(request, env, groupPictureMatch[1]);
   if (path === '/api/statement-wording' && method === 'PUT') return handleSaveWording(request, env);
@@ -1240,6 +1312,17 @@ async function routeApi(request, env, path, method) {
   if (qpMatch && method === 'PUT') return handleSaveQuickProposal(request, env, qpMatch[1]);
   if (qpMatch && method === 'DELETE') return handleDeleteQuickProposal(request, env, qpMatch[1]);
   // The words of the travel insurance waiver, an owner's to read and set for their own agency.
+  // The Group Desk: who is on it, added by the portal's operator, and every group on it at a glance.
+  if (path === '/api/admin/desk' && method === 'GET') return handleDeskMembers(request, env);
+  if (path === '/api/admin/desk' && method === 'POST') return handleAddDeskMember(request, env);
+  const deskInvite = path.match(/^\/api\/admin\/desk\/([^/]+)\/invite$/);
+  if (deskInvite && method === 'POST') return handleDeskInvite(request, env, deskInvite[1]);
+  if (path === '/api/desk/overview' && method === 'GET') return handleDeskOverview(request, env);
+  // How one person's own pages read: their name, logo and contact in place of the agency's.
+  if (path === '/api/brand' && method === 'GET') return handleGetBrand(request, env);
+  if (path === '/api/brand' && method === 'PUT') return handleSaveBrand(request, env);
+  if (path === '/api/brand/logo' && method === 'POST') return handleUploadLogo(request, env);
+  if (path === '/api/brand/logo' && method === 'DELETE') return handleRemoveLogo(request, env);
   if (path === '/api/waiver-wording' && method === 'GET') return handleGetWaiverWording(request, env);
   if (path === '/api/waiver-wording' && method === 'PUT') return handleSaveWaiverWording(request, env);
   if (path === '/api/waiver-wording' && method === 'DELETE') return handleResetWaiverWording(request, env);
@@ -1526,6 +1609,9 @@ async function routePage(request, env, path) {
   // An uploaded picture for a group's page, public while the page is on.
   const pictureOf = path.match(/^\/gi\/([^/]+)\/?$/);
   if (pictureOf) return serveGroupPicture(request, env, decodeURIComponent(pictureOf[1]));
+  // A person's own logo on the pages they host, public because those pages are.
+  const logoOf = path.match(/^\/ub\/([^/]+)\/?$/);
+  if (logoOf) return serveUserLogo(request, env, decodeURIComponent(logoOf[1]));
   // A PDF a group's page offers for download, public while the page is on.
   const fileOf = path.match(/^\/gf\/([^/]+)\/?$/);
   if (fileOf) return serveGroupFile(request, env, decodeURIComponent(fileOf[1]));

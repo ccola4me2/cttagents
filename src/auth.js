@@ -70,6 +70,8 @@ function publicUser(u) {
     // Which agency they are in, and whether they run the portal itself.
     agencyId: u.agency_id || null,
     platformOwner: Boolean(u.platform_owner),
+    // A member of the Group Desk: sees the desk and nothing else of the portal.
+    desk: Boolean(u.agency_is_desk),
     // Written when an admin approves the account and read by nobody until
     // now, which made it a fact the database kept to itself.
     approvedAt: u.approved_at,
@@ -125,7 +127,8 @@ export async function requireUser(request, env) {
   // pass untouched, and the whole thing short-circuits to nothing while the
   // fee is not being enforced, so it costs no query until somebody turns it
   // on.
-  if (request.method !== 'GET' && billingRequired(env)) {
+  // The Group Desk is not a paying advisor's account, so the fee does not apply to it.
+  if (request.method !== 'GET' && billingRequired(env) && !user.agency_is_desk) {
     const path = new URL(request.url).pathname;
     if (!exemptFromGate(path)) {
       const state = writeState(env, user, await db.getBilling(env, user.id));
@@ -197,13 +200,23 @@ export async function handleLogin(request, env) {
     return json({ error: 'This account has been suspended.', status: row.status }, 403);
   }
 
+  // The Group Desk is signed into on its own address, and nobody else is let in there: the shared group
+  // domain has no portal, and the one door on it is for the desk's own members.
+  const desk = row.agency_id
+    ? await env.DB.prepare('SELECT is_desk FROM agencies WHERE id = ?').bind(row.agency_id).first()
+      .then((a) => Boolean(a && a.is_desk)).catch(() => false)
+    : false;
+  const onGroupHost = String(env.GROUP_HOST || '').trim()
+    && new URL(request.url).hostname.toLowerCase() === String(env.GROUP_HOST).trim().toLowerCase();
+  if (onGroupHost && !desk) return json({ error: 'Email or password is incorrect.' }, 401);
+
   const token = randomToken(32);
   await db.createSession(env, row.id, await sha256Hex(token), sessionTtlSeconds(env));
   await db.setLastLogin(env, row.id);
   await db.logActivity(env, row.id, 'account.login', 'Signed in');
 
   return json(
-    { ok: true, user: publicUser(row), redirect: row.role === 'admin' ? '/admin/' : '/app/' },
+    { ok: true, user: { ...publicUser(row), desk }, redirect: desk ? '/app/desk' : (row.role === 'admin' ? '/admin/' : '/app/') },
     200,
     { 'Set-Cookie': cookieHeader(SESSION_COOKIE, token, { maxAge: sessionTtlSeconds(env) }) }
   );

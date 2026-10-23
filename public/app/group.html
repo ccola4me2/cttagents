@@ -19,6 +19,7 @@
         <p class="sub" id="sub">A vendor is holding cabins for you. This is where you track them.</p>
       </div>
       <div class="toolbar" style="margin:0;" id="actions">
+        <a class="btn btn-primary" id="sheet-link" href="#" hidden>Cabin sheet</a>
         <button class="btn btn-ghost" type="button" id="repeat-btn" hidden>Repeat this group</button>
       </div>
     </header>
@@ -1414,6 +1415,10 @@ async function load() {
     renderBookings(d.bookings);
     deleteBtn.hidden = !canEdit;
     document.getElementById('repeat-btn').hidden = !canEdit;
+    // The sheet behind the group: who booked which cabin, and the tour conductor credits earned.
+    const sheetLink = document.getElementById('sheet-link');
+    sheetLink.href = `/app/group-sheet?id=${encodeURIComponent(group.id)}`;
+    sheetLink.hidden = !canEdit;
     document.getElementById('repeat-note').hidden = !(canEdit
       && new URL(location.href).searchParams.get('repeated') === '1');
 

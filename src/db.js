@@ -294,7 +294,9 @@ export async function getSessionUser(env, tokenHash) {
             ru.last_name AS real_last_name,
             ru.role AS real_role,
             ru.platform_owner AS real_platform_owner,
-            ru.agency_id AS real_agency_id
+            ru.agency_id AS real_agency_id,
+            -- Whether this person is on the Group Desk, so every page can show them the desk and nothing else.
+            (SELECT a.is_desk FROM agencies a WHERE a.id = u.agency_id) AS agency_is_desk
        FROM sessions s
        JOIN users u ON u.id = COALESCE(s.acting_as, s.user_id)
        JOIN users ru ON ru.id = s.user_id

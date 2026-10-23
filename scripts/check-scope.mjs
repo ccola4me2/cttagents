@@ -116,6 +116,10 @@ const OWNED = new Set([
   // The travel insurance waiver on a reservation. The advisor's, and every statement that reads or changes
   // one for a request names user_id; the public page finds one by the code in the link, listed in ALLOWED.
   'insurance_waivers',
+  // A person's own page identity, and the sheet behind a group. Theirs by user_id: the sheet's user_id is the
+  // group's owner, and every statement that reads or changes one names it. The public logo is found by the
+  // person's id, which is the address the page was given.
+  'user_brand', 'group_cabins',
 ]);
 
 // Shared by a whole agency, so agency_id is the predicate that matters rather

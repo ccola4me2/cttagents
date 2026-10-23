@@ -190,10 +190,13 @@ async function contactFor(env, userId) {
       `SELECT u.first_name, u.last_name, a.phone, a.email
          FROM users u LEFT JOIN agencies a ON a.id = u.agency_id WHERE u.id = ?`
     ).bind(userId).first();
+    // The host's own phone and email, where they have set them, in place of the agency's.
+    const mine = await env.DB.prepare('SELECT phone, email FROM user_brand WHERE user_id = ?')
+      .bind(userId).first().catch(() => null);
     return {
       advisor: row ? `${row.first_name || ''} ${row.last_name || ''}`.trim() : '',
-      phone: (row && row.phone) || '',
-      email: (row && row.email) || '',
+      phone: (mine && mine.phone) || (row && row.phone) || '',
+      email: (mine && mine.email) || (row && row.email) || '',
     };
   } catch {
     return { advisor: '', phone: '', email: '' };

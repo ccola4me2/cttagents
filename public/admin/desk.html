@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Group desk | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Group desk</h1><p class="sub">The private place for the people who share groups. Each person gets a link and chooses their own password.</p></div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <section class="card">
+        <div class="card-head"><h2>Who is on it</h2><span class="muted" id="address"></span></div>
+        <div id="members"><p class="spinner">Loading...</p></div>
+      </section>
+      <section class="card" style="margin-top:1.25rem;">
+        <div class="card-head"><h2>Add somebody</h2></div>
+        <div class="card-pad">
+          <div class="notice notice-error" id="add-err" hidden></div>
+          <form id="add-form">
+            <div class="field-row">
+              <div class="field"><label for="firstName">First name</label><input id="firstName" name="firstName" required></div>
+              <div class="field"><label for="lastName">Last name</label><input id="lastName" name="lastName" required></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label for="email">Email</label><input id="email" name="email" type="email" required></div>
+              <div class="field"><label for="phone">Phone</label><input id="phone" name="phone" type="tel"></div>
+            </div>
+            <button class="btn btn-primary" type="submit">Add them and get their link</button>
+          </form>
+          <div class="notice notice-ok" id="link-box" hidden style="margin-top:1rem;">
+            <strong id="link-who"></strong>
+            <p style="margin:.4rem 0;">Send this link. It works for a week, once, and lets them choose their own password.</p>
+            <code id="link-url" style="word-break:break-all;"></code>
+            <p><button class="btn btn-ghost btn-sm" type="button" id="link-copy">Copy the link</button></p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+<script type="module">
+import { api, mountShell, esc, showError, onSubmit, timeAgo } from '/js/app.js';
+await mountShell({ admin: true });
+const err = document.getElementById('err');
+
+function showLink(who, invite) {
+  document.getElementById('link-who').textContent = `The link for ${who}`;
+  document.getElementById('link-url').textContent = invite.url;
+  document.getElementById('link-box').hidden = false;
+}
+
+async function load() {
+  let d;
+  try { d = await api('/api/admin/desk'); } catch (e) { document.getElementById('members').innerHTML = ''; showError(err, e); return; }
+  document.getElementById('address').textContent = d.address;
+  document.getElementById('members').innerHTML = d.members.length
+    ? `<div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Last signed in</th><th></th></tr></thead>
+      <tbody>${d.members.map((m) => `<tr><td>${esc(m.name)}</td><td>${esc(m.email)}</td>
+        <td>${m.lastLoginAt ? esc(timeAgo(m.lastLoginAt)) : '<span class="muted">not yet</span>'}</td>
+        <td class="num"><button class="btn btn-ghost btn-sm" data-invite="${esc(m.id)}" data-name="${esc(m.name)}">New link</button></td></tr>`).join('')}
+      </tbody></table></div>`
+    : '<div class="card-pad"><p class="muted">Nobody yet. Add the first person below.</p></div>';
+  document.querySelectorAll('[data-invite]').forEach((b) => b.addEventListener('click', async () => {
+    try {
+      const r = await api(`/api/admin/desk/${encodeURIComponent(b.dataset.invite)}/invite`, { method: 'POST', body: {} });
+      showLink(b.dataset.name, r.invite);
+    } catch (e) { showError(err, e); }
+  }));
+}
+
+onSubmit(document.getElementById('add-form'), async (values) => {
+  const r = await api('/api/admin/desk', { method: 'POST', body: values });
+  document.getElementById('add-form').reset();
+  showLink(r.member.name, r.invite);
+  await load();
+}, { errorBox: document.getElementById('add-err') });
+
+document.getElementById('link-copy').addEventListener('click', async (e) => {
+  try { await navigator.clipboard.writeText(document.getElementById('link-url').textContent); e.target.textContent = 'Copied'; }
+  catch { e.target.textContent = 'Select it and press Cmd-C'; }
+});
+
+await load();
+</script>
+</body>
+</html>
