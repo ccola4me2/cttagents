@@ -484,6 +484,8 @@ const PUBLIC_PAGES = new Set([
   '/reset-password', '/reset-password.html',
   '/pending', '/pending.html',
   '/privacy', '/privacy.html',
+  // The desk's own sign in and password pages. Anybody may open them: what they lead to needs a desk account.
+  '/desk', '/desk/', '/desk/reset',
 ]);
 
 // Extension-less page paths mapped to the file that serves them.
@@ -494,6 +496,9 @@ const PAGE_FILES = {
   '/reset-password': '/reset-password.html',
   '/pending': '/pending.html',
   '/privacy': '/privacy.html',
+  '/desk': '/desk/index.html',
+  '/desk/': '/desk/index.html',
+  '/desk/reset': '/desk/reset.html',
   '/app': '/app/index.html',
   '/app/': '/app/index.html',
   '/app/payments': '/app/payments.html',
