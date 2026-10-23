@@ -184,7 +184,8 @@ export async function handleDeskOverview(request, env) {
     return {
       id: g.id, name: g.name, ship: g.product_name || g.vendor || '', groupNumber: g.group_number || g.group_code || '',
       departDate: g.depart_date || '', optionDate: g.option_date || '', finalPaymentDue: g.final_payment_due || '',
-      cabinsHeld: g.cabins_held || 0, status: g.status, pageSlug: g.page_slug || '', pageOpen: g.registration_open === 1,
+      cabinsHeld: g.cabins_held || 0, status: g.status,
+      available: Math.max(0, (g.cabins_held || 0) - (Number(g.cabins) || 0)), pageSlug: g.page_slug || '', pageOpen: g.registration_open === 1,
       owner: `${g.first_name || ''} ${g.last_name || ''}`.trim(), ownerId: g.user_id,
       cabins: Number(g.cabins) || 0, guests, paidGuests: Number(g.paid_guests) || 0, waiting: Number(g.waiting) || 0,
       tcEarned: Math.floor(guests / 12), toNextTc: 12 - (guests % 12),
@@ -201,7 +202,10 @@ export async function handleDeskOverview(request, env) {
     owners[g.owner].guests += g.guests;
     owners[g.owner].tcEarned += g.tcEarned;
   }
-  return json({ groups, owners, today });
+  const totals = groups.reduce((t, g) => ({
+    held: t.held + g.cabinsHeld, booked: t.booked + g.cabins, available: t.available + g.available,
+  }), { held: 0, booked: 0, available: 0 });
+  return json({ groups, owners, totals, today });
 }
 
 // ---------------------------------------------------------------------------

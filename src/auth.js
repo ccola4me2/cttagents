@@ -11,6 +11,7 @@ import {
   hashPassword, verifyPassword, randomToken, sha256Hex,
   isValidEmail, normalizeEmail, clean, readJson,
 } from './util.js';
+import { hostOf } from './hostname.js';
 import * as db from './db.js';
 import { sendPasswordResetEmail } from './email.js';
 import { required as billingRequired, writeState, exemptFromGate } from './billinggate.js';
@@ -193,7 +194,7 @@ export async function handleLogin(request, env) {
   // On the shared group domain only the Group Desk's own people can sign in, and they are found there by the
   // address they use for the desk, which may be one the same person also has an account under elsewhere.
   const onGroupHost = String(env.GROUP_HOST || '').trim()
-    && new URL(request.url).hostname.toLowerCase() === String(env.GROUP_HOST).trim().toLowerCase();
+    && hostOf(request, env) === String(env.GROUP_HOST).trim().toLowerCase();
   const row = onGroupHost ? await db.getDeskUserForLogin(env, email) : await db.getUserForLogin(env, email);
   const ok = row ? await verifyPassword(password, row.password_hash) : false;
   if (!row || !ok) return json({ error: 'Email or password is incorrect.' }, 401);

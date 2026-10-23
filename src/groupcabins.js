@@ -263,6 +263,44 @@ async function suggestionsFor(env, group) {
   return out;
 }
 
+/**
+ * How many cabins the group has, how many are booked and how many are left, overall and by cabin type.
+ *
+ * The group's size is what the supplier is holding, and the by type counts come from the rate grid on the group,
+ * where each cabin type says how many of it the block holds. A booked cabin is counted under the type its row names,
+ * matched loosely (Balcony matches Balcony, Ocean View Balcony), and any that match no type are counted apart rather
+ * than lost. A cancelled cabin is back on the shelf.
+ */
+export async function availabilityOf(env, group, ownerId, rows) {
+  const { results } = await env.DB.prepare(
+    'SELECT room_type, cabins FROM group_rates WHERE group_id = ? AND user_id = ? ORDER BY sort_order ASC'
+  ).bind(group.id, ownerId).all().catch(() => ({ results: [] }));
+  const held = Number(group.cabins_held) || 0;
+  const live = rows.filter((r) => r.status !== 'cancelled');
+  const key = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+  const types = new Map();
+  for (const r of results || []) {
+    const k = key(r.room_type);
+    if (!k) continue;
+    const t = types.get(k) || { name: r.room_type, held: 0, booked: 0 };
+    t.held += Number(r.cabins) || 0;
+    types.set(k, t);
+  }
+  let unmatched = 0;
+  for (const r of live) {
+    const k = key(r.category);
+    const hit = k && (types.get(k) || [...types.entries()].find(([tk]) => tk.includes(k) || k.includes(tk)));
+    const t = hit && (Array.isArray(hit) ? hit[1] : hit);
+    if (t) t.booked += 1; else unmatched += 1;
+  }
+  return {
+    held, booked: live.length, available: Math.max(0, held - live.length), over: Math.max(0, live.length - held),
+    types: [...types.values()].map((t) => ({ ...t, available: Math.max(0, t.held - t.booked) })),
+    unmatched,
+  };
+}
+
 /** GET /api/groups/:id/cabins */
 export async function handleListCabins(request, env, groupId) {
   const { user, response } = await requireUser(request, env);
@@ -284,6 +322,7 @@ export async function handleListCabins(request, env, groupId) {
     },
     cabins: rows.map(shape),
     summary: summarise(rows),
+    availability: await availabilityOf(env, group, owner.id, rows),
     signups: await waitingSignups(env, group.id, owner.id),
     ctt: { suggestions },
     bookers: await bookerNames(env, user, rows),

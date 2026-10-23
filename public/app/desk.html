@@ -22,7 +22,8 @@
     </header>
     <div class="content">
       <div id="err"></div>
-      <section id="owners" class="stat-grid"></section>
+      <section id="totals" class="stat-grid"></section>
+      <section id="owners" class="stat-grid" style="margin-top:1rem;"></section>
       <section class="card" style="margin-top:1.25rem;" id="ctt-groups-card" hidden>
         <div class="card-head"><h2>Your Margaritaville at Sea groups in CTT</h2>
           <button class="btn btn-primary btn-sm" id="bring-all" type="button">Bring them all onto the desk</button></div>
@@ -73,6 +74,14 @@ async function load() {
     d = await api(`/api/desk/overview${document.getElementById('all').checked ? '?all=1' : ''}`);
   } catch (e) { document.getElementById('groups').innerHTML = ''; showError(err, e); return; }
 
+  document.getElementById('totals').innerHTML = `
+    <div class="stat"><p class="label">Cabins available</p><p class="value">${d.totals.available}</p>
+      <p class="meta">across ${d.groups.length} group${d.groups.length === 1 ? '' : 's'}</p></div>
+    <div class="stat"><p class="label">Cabins in the groups</p><p class="value">${d.totals.held}</p>
+      <p class="meta">what the cruise line is holding</p></div>
+    <div class="stat"><p class="label">Cabins booked</p><p class="value">${d.totals.booked}</p>
+      <p class="meta">by all of you together</p></div>`;
+
   const names = Object.keys(d.owners);
   document.getElementById('owners').innerHTML = names.map((n) => `
     <div class="stat"><p class="label">${esc(n)}</p><p class="value">${d.owners[n].tcEarned}</p>
@@ -82,7 +91,7 @@ async function load() {
   document.getElementById('groups').innerHTML = d.groups.length
     ? `<div class="table-wrap"><table>
       <thead><tr><th>Group</th><th>Owner</th><th>Sails</th><th>Option</th><th>Final payment</th>
-        <th class="num">Cabins</th><th class="num">Guests</th><th class="num">TC earned</th><th>Next TC</th><th></th></tr></thead>
+        <th class="num">In group</th><th class="num">Booked</th><th class="num">Open</th><th class="num">Guests</th><th class="num">TC earned</th><th>Next TC</th><th></th></tr></thead>
       <tbody>${d.groups.map((g) => `<tr>
         <td><a href="/app/group-sheet?id=${encodeURIComponent(g.id)}"><strong>${esc(g.name)}</strong></a>
           <div class="muted" style="font-size:.84rem;">${esc(g.ship)}${g.groupNumber ? ` &middot; Group ${esc(g.groupNumber)}` : ''}${
@@ -91,8 +100,9 @@ async function load() {
         <td>${when(g.departDate, d.today)}</td>
         <td>${when(g.optionDate, d.today)}</td>
         <td>${when(g.finalPaymentDue, d.today)}</td>
-        <td class="num">${g.cabins}${g.cabinsHeld ? ` of ${g.cabinsHeld}` : ''}${
-          g.minimumMet ? '' : ' <span class="badge badge-amber" title="Under the minimum of 6">under 6</span>'}</td>
+        <td class="num">${g.cabinsHeld || '-'}</td>
+        <td class="num">${g.cabins}${g.minimumMet ? '' : ' <span class="badge badge-amber" title="Under the minimum of 6">under 6</span>'}</td>
+        <td class="num"><strong${g.cabinsHeld && !g.available ? ' style="color:#b3382a;"' : ''}>${g.cabinsHeld ? g.available : '-'}</strong></td>
         <td class="num">${g.guests}</td>
         <td class="num"><strong>${g.tcEarned}</strong></td>
         <td class="muted">${g.toNextTc} guest${g.toNextTc === 1 ? '' : 's'} to go</td>

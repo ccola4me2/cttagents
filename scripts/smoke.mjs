@@ -8686,6 +8686,10 @@ async function main() {
       name: `Desk Group ${stamp}`, groupCode: `dk-${stamp}`, groupNumber: `GN-${stamp}`, vendor: 'Margaritaville at Sea', productName: 'Islander',
       destination: 'Bahamas', departDate: isoDay(300), returnDate: isoDay(307), cabinsHeld: 20, groupType: 'cruise',
       registrationOpen: true, registrationBlurb: 'Come with us.',
+      rates: [
+        { roomType: 'Balcony', occupancy: 'Double', cabins: 6, guests: 12, perGuestCents: 100000 },
+        { roomType: 'Suite', occupancy: 'Double', cabins: 2, guests: 4, perGuestCents: 200000 },
+      ],
     });
     const gid = made.data?.group?.id;
     const slug = made.data?.group?.page_slug;
@@ -8714,6 +8718,14 @@ async function main() {
       'and who has booked what', JSON.stringify(sum.byBooker));
     check(sum.minimumMet === false && sum.minimum === 6, 'under six cabins is not yet a group');
 
+    const avail = sheet.data?.availability || {};
+    const balcony = (avail.types || []).find((t) => t.name === 'Balcony');
+    const suite = (avail.types || []).find((t) => t.name === 'Suite');
+    check(avail.held === 20 && avail.booked === 3 && avail.available === 17 && avail.over === 0,
+      'the sheet says how many cabins the group has, how many are booked and how many are left', JSON.stringify([avail.held, avail.booked, avail.available]));
+    check(balcony?.held === 6 && balcony?.booked === 2 && balcony?.available === 4 && suite?.held === 2 && suite?.booked === 1 && suite?.available === 1,
+      'and the same by cabin type, from the rate grid, with a cancelled cabin back on the shelf', JSON.stringify(avail.types));
+
     const first = sheet.data?.cabins?.[0];
     const edit = await call(desk, 'PUT', `${base}/${first?.id}`, { guests: 12 });
     const afterEdit = await call(desk, 'GET', base);
@@ -8735,6 +8747,8 @@ async function main() {
 
     const overview = await call(desk, 'GET', '/api/desk/overview');
     const row = (overview.data?.groups || []).find((g) => g.id === gid);
+    check(overview.data?.totals?.held >= 20 && overview.data?.totals?.available >= 0 && row?.available === 20 - row?.cabins,
+      'the desk home totals what is held, booked and left across the groups', JSON.stringify(overview.data?.totals));
     check(row && row.owner.includes('Host') && row.guests === 26 && row.tcEarned === 2, 'the desk lists the group with its owner and credits',
       JSON.stringify(row && [row.owner, row.guests, row.tcEarned]));
 
@@ -8827,7 +8841,7 @@ async function main() {
     check((countsAfter.data?.groups || []).find((g) => g.id === gid)?.cabins === afterOff?.summary?.cabins, 'and the totals on the desk agree with the sheet');
 
     // The group domain's own door, exercised by sending its hostname.
-    const asHost = { host: 'cruisegrouppage.com' };
+    const asHost = { 'x-test-host': 'cruisegrouppage.com' };
     const doorOpen = await call(null, 'GET', '/desk', undefined, asHost);
     check(doorOpen.status === 200 && doorOpen.raw.includes('Group Desk'), 'the desk\'s sign in answers on the group domain', `status ${doorOpen.status}`);
     const pageShut = await call(null, 'GET', '/app/desk', undefined, asHost);

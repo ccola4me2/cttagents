@@ -249,6 +249,9 @@ jobs:
 
       - name: Start the Worker
         run: |
+          # Lets a test say which host a request is for, so the group domain's own door can be exercised on
+          # one address. Written here and nowhere else: the live Worker is never given it.
+          echo "TEST_HOSTS=1" > .dev.vars
           # --test-scheduled exposes /__scheduled, so the smoke suite can run
           # the cron rather than leaving the whole scheduled handler as the one
           # part of this Worker nothing ever executes.

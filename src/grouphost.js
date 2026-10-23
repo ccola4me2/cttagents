@@ -18,6 +18,7 @@
 // gets a plain page saying so.
 
 import { cleanSlug, findSlug, withTimeout } from './groupslug.js';
+import { hostOf } from './hostname.js';
 import { renderGroupPage, handleGroupRegistration } from './publicform.js';
 import { renderRegisterPage, handleRegister, noGroupPage } from './grouppage.js';
 import { renderGroupLanding } from './grouplanding.js';
@@ -30,7 +31,7 @@ const HOP = 'x-group-hop';
 export function isGroupHost(request, env) {
   const host = String(env.GROUP_HOST || '').trim().toLowerCase();
   if (!host) return false;
-  return new URL(request.url).hostname.toLowerCase() === host;
+  return hostOf(request, env) === host;
 }
 
 /** What this portal's links on the shared domain start with: nothing for CTT, /tv for Trip Vara. */

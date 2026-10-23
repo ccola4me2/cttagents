@@ -34,6 +34,11 @@
       <div id="err"></div>
       <section id="stats" class="stat-grid"></section>
 
+      <section class="card" style="margin-top:1.25rem;" id="types-card" hidden>
+        <div class="card-head"><h2>Cabins by type</h2><span class="muted">What the group holds, what is booked, what is left</span></div>
+        <div id="types"></div>
+      </section>
+
       <section class="card" style="margin-top:1.25rem;" id="booker-card" hidden>
         <div class="card-head"><h2>Who has booked what</h2></div>
         <div id="bookers"></div>
@@ -95,18 +100,29 @@ const STATUS_WORDS = { held: 'Held', deposit: 'Deposit paid', paid: 'Paid in ful
 
 function drawSummary() {
   const s = data.summary;
+  const a = data.availability;
   document.getElementById('stats').innerHTML = `
     <div class="stat"><p class="label">Tour conductor credits</p><p class="value">${s.tcEarned}</p>
       <p class="meta">${s.toNextTc} more guest${s.toNextTc === 1 ? '' : 's'} for the next. One for every ${s.perTc} guests,
         to ${esc(data.group.owner || 'the owner')}</p></div>
     <div class="stat"><p class="label">Guests</p><p class="value">${s.guests}</p>
       <p class="meta">${s.paidGuests} paid in full${s.cancelled ? `, ${s.cancelled} cancelled cabin${s.cancelled === 1 ? '' : 's'} not counted` : ''}</p></div>
-    <div class="stat"><p class="label">Cabins</p><p class="value">${s.cabins}</p>
-      <p class="meta">${s.minimumMet ? `The group minimum of ${s.minimum} is met`
-        : `${s.minimum - s.cabins} more for the group minimum of ${s.minimum}`}${
-        data.group.cabinsHeld ? `. ${Math.max(0, data.group.cabinsHeld - s.cabins)} of ${data.group.cabinsHeld} held still open` : ''}</p></div>
+    <div class="stat"><p class="label">Cabins available</p><p class="value">${a.held ? a.available : '-'}</p>
+      <p class="meta">${a.held
+        ? `${a.booked} booked of ${a.held} in the group${a.over ? `, ${a.over} over what is held` : ''}`
+        : `${s.cabins} booked. Say how many the group holds, on the group, to see how many are left`}.
+        ${s.minimumMet ? `The minimum of ${s.minimum} is met` : `${s.minimum - s.cabins} more for the minimum of ${s.minimum}`}</p></div>
     <div class="stat"><p class="label">Paid in full</p><p class="value">${s.paidCabins}</p>
       <p class="meta">of ${s.cabins} cabin${s.cabins === 1 ? '' : 's'}</p></div>`;
+
+  const types = a.types || [];
+  document.getElementById('types-card').hidden = !types.length;
+  document.getElementById('types').innerHTML = types.length
+    ? `<div class="table-wrap"><table><thead><tr><th>Cabin type</th><th class="num">In the group</th><th class="num">Booked</th><th class="num">Available</th></tr></thead>
+      <tbody>${types.map((t) => `<tr><td>${esc(t.name)}</td><td class="num">${t.held}</td><td class="num">${t.booked}</td>
+        <td class="num"><strong${t.held && !t.available ? ' style="color:#b3382a;"' : ''}>${t.available}</strong></td></tr>`).join('')}
+        ${a.unmatched ? `<tr><td class="muted">Booked, not matched to a type above</td><td class="num"></td><td class="num">${a.unmatched}</td><td class="num"></td></tr>` : ''}
+      </tbody></table></div>` : '';
 
   const names = Object.keys(s.byBooker);
   document.getElementById('booker-card').hidden = !names.length;
