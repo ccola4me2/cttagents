@@ -75,6 +75,29 @@ const FIELD_OPTIONS = {
   depositKinds: DEPOSIT_KINDS,
 };
 
+/**
+ * The group a typed group number belongs to.
+ *
+ * A reservation with a group number on it is in that group's block, and should count against it: one cabin fewer
+ * left. Typing the number used to leave it a bare label, and the group kept saying every cabin was still free.
+ * So the number finds the group, among those this person may sell from, by the number the supplier issued or the
+ * code the group is filed under. Exactly one match, or nothing: two groups with the same number is a question for
+ * a person, not something to guess.
+ */
+async function groupForNumber(env, user, number) {
+  const n = String(number === undefined || number === null ? '' : number).trim().toLowerCase();
+  if (!n) return null;
+  const admin = user.role === 'admin' ? 1 : 0;
+  const { results } = await env.DB.prepare(
+    `SELECT g.id, g.name FROM travel_groups g JOIN users u ON u.id = g.user_id
+      WHERE g.status = 'open' AND (LOWER(TRIM(g.group_number)) = ? OR LOWER(TRIM(g.group_code)) = ?)
+        AND (g.user_id = ? OR (u.agency_id = ? AND (g.selling <> 'private' OR ? = 1)))
+      LIMIT 3`
+  ).bind(n, n, user.id, user.agency_id || '', admin).all().catch(() => ({ results: [] }));
+  if ((results || []).length !== 1) return null;
+  return (await groupGrant(env, user.id, results[0].id)) ? results[0] : null;
+}
+
 /** Shared parse and validate for create and update. */
 function parseBooking(body) {
   const clientName = clean(body.clientName, 120);
@@ -756,6 +779,15 @@ export async function handleCreateBooking(request, env) {
   // booking with one attached, which is the same hole as editing it after.
   fields.advisorSplitPct = null;
 
+  // A group number typed in with no group chosen finds its group.
+  if (!fields.groupId && fields.groupNumber) {
+    const found = await groupForNumber(env, user, fields.groupNumber);
+    if (found) {
+      fields.groupId = found.id;
+      if (!fields.groupLabel) fields.groupLabel = found.name;
+    }
+  }
+
   // A group has to be one this advisor may sell from.
   if (fields.groupId && !await groupGrant(env, user.id, fields.groupId)) {
     return badRequest('You cannot sell from that group, or it has been cancelled.');
@@ -951,6 +983,17 @@ export async function handleQuickUpdate(request, env, id) {
   }
   if (!sets.length) return badRequest('Nothing to change.');
 
+  // A group number typed on its own finds the group, as it does on the full form.
+  if (Object.prototype.hasOwnProperty.call(body, 'groupNumber')
+    && !Object.prototype.hasOwnProperty.call(body, 'groupId')) {
+    const found = await groupForNumber(env, owner, body.groupNumber);
+    if (found) {
+      sets.push('group_id = ?');
+      binds.push(found.id);
+      body.groupId = found.id;
+    }
+  }
+
   // A group it is moved into has to be one this advisor may sell from: their own, or one the agency
   // has opened to them. A group id is not a permission, and pointing a reservation at somebody else's
   // block would count it in their cabins sold.
@@ -1063,6 +1106,14 @@ export async function handleUpdateBooking(request, env, id) {
   // and the trip total and the commission were two more that nothing had
   // noticed yet.
   keepWhatWasNotSent(fields, raw, before);
+  // A group number newly typed, with no group chosen, finds its group, and takes the reservation into its count.
+  if (!fields.groupId && fields.groupNumber && fields.groupNumber !== before.group_number) {
+    const found = await groupForNumber(env, owner, fields.groupNumber);
+    if (found) {
+      fields.groupId = found.id;
+      if (!fields.groupLabel) fields.groupLabel = found.name;
+    }
+  }
   if (fields.groupId && fields.groupId !== before.group_id
     && !await groupGrant(env, owner.id, fields.groupId)) {
     return badRequest('You cannot sell from that group, or it has been cancelled.');

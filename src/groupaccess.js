@@ -81,7 +81,7 @@ export async function handleBookableGroups(request, env) {
   const admin = user.role === 'admin' ? 1 : 0;
 
   const { results } = await env.DB.prepare(
-    `SELECT g.id, g.user_id, g.name, g.vendor, g.group_code, g.depart_date, g.status, g.selling,
+    `SELECT g.id, g.user_id, g.name, g.vendor, g.group_code, g.group_number, g.depart_date, g.status, g.selling,
             g.advisor_notes, g.outside_advisor_pct, g.cabins_held,
             (SELECT COUNT(*) FROM bookings b WHERE b.group_id = g.id
                AND b.status IN ('quoted','booked','travelled')) AS cabins_sold,
@@ -98,7 +98,8 @@ export async function handleBookableGroups(request, env) {
     const mine = g.user_id === user.id;
     const may = mine || admin === 1 || g.selling === 'open' || (g.selling === 'request' && g.access === 'approved');
     return {
-      id: g.id, name: g.name, vendor: g.vendor || '', code: g.group_code || '', departs: g.depart_date || '',
+      id: g.id, name: g.name, vendor: g.vendor || '', code: g.group_code || '', number: g.group_number || '',
+      departs: g.depart_date || '',
       advisor: g.advisor_name, mine, selling: g.selling, may,
       access: mine ? 'own' : (g.selling === 'open' ? 'open' : (g.access || 'none')),
       // What the advisor needs to sell it. Never prices or anybody else's clients.

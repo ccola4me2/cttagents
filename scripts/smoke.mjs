@@ -8901,6 +8901,53 @@ async function main() {
     check(bringTwice.status === 400 && offeredAfter?.onDesk === true, 'it cannot be brought twice', `status ${bringTwice.status}`);
   }
 
+  // A group number typed on a reservation finds its group, and counts the reservation against it.
+  {
+    const num = `GRP-${stamp}`;
+    const made = await call(advisor, 'POST', '/api/groups', {
+      name: `Linked Group ${stamp}`, groupCode: `lk-${stamp}`, groupNumber: num, vendor: 'Test Line',
+      departDate: isoDay(260), returnDate: isoDay(267), cabinsHeld: 5, groupType: 'cruise',
+    });
+    const gid = made.data?.group?.id;
+    if (gid) cleanup('the group for the number test', () => call(advisor, 'DELETE', `/api/groups/${gid}`));
+    const resv = (extra) => call(advisor, 'POST', '/api/bookings', {
+      clientName: `Linked Client ${stamp}`, supplier: 'Test Line', productName: 'Linked Ship', productType: 'cruise',
+      departDate: isoDay(260), returnDate: isoDay(267), gross: '1000', status: 'booked', ...extra,
+    });
+    const sold = async () => (await call(advisor, 'GET', `/api/groups/${gid}`)).data?.group?.cabins_sold;
+    check(made.status === 201 && gid && (await sold()) === 0, 'a group with five cabins held and none sold', `status ${made.status}`);
+
+    const typed = await resv({ groupNumber: num });
+    if (typed.data?.booking?.id) cleanup('the numbered reservation', () => dropBooking(typed.data.booking.id));
+    check(typed.data?.booking?.group_id === gid && typed.data?.booking?.group_label === `Linked Group ${stamp}`,
+      'a reservation taken with the group\'s number is put in the group, and takes its name', JSON.stringify([typed.data?.booking?.group_id, typed.data?.booking?.group_label]));
+    check((await sold()) === 1, 'and counts against its cabins', `${await sold()}`);
+
+    const byCode = await resv({ groupNumber: `LK-${stamp}`.toUpperCase() });
+    if (byCode.data?.booking?.id) cleanup('the reservation typed with the code', () => dropBooking(byCode.data.booking.id));
+    check(byCode.data?.booking?.group_id === gid && (await sold()) === 2, 'the group\'s code finds it as well, in any case', `${await sold()}`);
+
+    const stray = await resv({ groupNumber: `NOPE-${stamp}` });
+    if (stray.data?.booking?.id) cleanup('the reservation with a number nobody holds', () => dropBooking(stray.data.booking.id));
+    check(!stray.data?.booking?.group_id && stray.data?.booking?.group_number === `NOPE-${stamp}`, 'a number no group holds stays a plain label');
+
+    const later = await resv({});
+    if (later.data?.booking?.id) cleanup('the reservation numbered afterwards', () => dropBooking(later.data.booking.id));
+    const quick = await call(advisor, 'POST', `/api/bookings/${later.data?.booking?.id}/quick`, { groupNumber: num });
+    check(quick.status === 200 && (await sold()) === 3, 'a number typed onto a reservation afterwards links it too', `status ${quick.status} sold ${await sold()}`);
+
+    const stray2 = stray.data?.booking?.id;
+    const full = await call(advisor, 'PUT', `/api/bookings/${stray2}`, {
+      clientName: `Linked Client ${stamp}`, supplier: 'Test Line', productName: 'Linked Ship', productType: 'cruise',
+      departDate: isoDay(260), returnDate: isoDay(267), status: 'booked', groupNumber: num,
+    });
+    check(full.status === 200 && full.data?.booking?.group_id === gid && (await sold()) === 4, 'and so does saving the whole reservation', `status ${full.status} sold ${await sold()}`);
+
+    const list = await call(advisor, 'GET', '/api/groups/bookable');
+    const entry = (list.data?.groups || []).find((g) => g.id === gid);
+    check(entry?.number === num && entry?.left === 1, 'the groups to choose from carry their number and how many cabins are left', JSON.stringify(entry));
+  }
+
   // Corporate targets: the agency's own, an owner's to see and set.
   {
     const noRead = await call(advisor, 'GET', '/api/corporate-targets');

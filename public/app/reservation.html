@@ -376,6 +376,9 @@ const me = await mountShell();
 const id = new URLSearchParams(location.search).get('id') || '';
 const err = document.getElementById('err');
 let d = null;
+// The groups this reservation could be put in, fetched once.
+let groupChoices = [];
+let groupsLoaded = false;
 
 // The conversation about this booking. Mounted here rather than inside
 // render(), which runs again after every save: a second thread on the same
@@ -853,6 +856,7 @@ function drawDetail() {
   // Empty unless the reader is an owner: the server sends no list otherwise,
   // so there is nothing to draw rather than a control that would be refused.
   const movable = (d.advisors || []).filter((a) => a.id !== b.user_id);
+  const g0 = groupChoices.find((g) => g.id === b.group_id);
 
   const text = (name, label, value, extra = '') => `
     <div class="field"><label for="f-${name}">${esc(label)}</label>
@@ -888,6 +892,15 @@ function drawDetail() {
         text('productName', 'Ship, hotel or product', b.product_name)),
     row(text('confirmationNumber', 'Confirmation number', b.confirmation_number),
         select('insuranceStatus', 'Insurance', o.insuranceStatuses, b.insurance_status || 'unknown')),
+    // The groups open to this reservation. Choosing one puts it in that group's count, one cabin fewer left,
+    // and fills in the name and number. A number typed instead finds its group by itself.
+    ro || !groupChoices.length ? '' : `<div class="field"><label for="f-groupId">Group</label>
+      <select id="f-groupId" name="groupId"><option value="">Not in one of my groups</option>
+      ${b.group_id && !g0 ? `<option value="${esc(b.group_id)}" selected>Its current group</option>` : ''}
+      ${groupChoices.map((g) => `<option value="${esc(g.id)}"${g.id === b.group_id ? ' selected' : ''}>${
+        esc([g.number || g.code, g.name].filter(Boolean).join(' / '))}${g.mine ? '' : esc(` (${g.advisor}'s group)`)}${
+        g.departs ? esc(` - sails ${dateFmt(g.departs)}`) : ''}</option>`).join('')}</select>
+      <p class="field-hint">${g0 ? `In ${esc(g0.name)}, and counted in its cabins.` : 'Pick one to count this reservation in its cabins, or type a group number below.'}</p></div>`,
     // A group the agency does not run itself, such as a TLN group.
     row(text('groupLabel', 'Group name', b.group_label),
         text('groupNumber', 'Group number', b.group_number)),
@@ -1010,6 +1023,18 @@ function drawDetail() {
   // is rebuilt each time and the host with it. Only what a pick decides is written: the vendor, the
   // ship, the itinerary, the destination and the dates, and the type when a cruise is chosen. All of it
   // can still be typed over, since a charter or a private group will not be in the catalog.
+  // Choosing a group fills in its name and number, the way the new reservation form does.
+  const groupSelect = document.getElementById('f-groupId');
+  if (!ro && groupSelect) {
+    const editForm = document.getElementById('detail-form');
+    groupSelect.addEventListener('change', () => {
+      const g = groupChoices.find((x) => x.id === groupSelect.value);
+      if (!g) return;
+      if (editForm.elements.groupLabel) editForm.elements.groupLabel.value = g.name || '';
+      if (editForm.elements.groupNumber) editForm.elements.groupNumber.value = g.number || g.code || '';
+    });
+  }
+
   const pickHost = document.getElementById('vendor-pick-field');
   if (!ro && pickHost) {
     const editForm = document.getElementById('detail-form');
@@ -2821,6 +2846,10 @@ async function load() {
   try {
     d = await api(`/api/bookings/${encodeURIComponent(id)}/record`);
     err.innerHTML = '';
+    if (!groupsLoaded && d.editable) {
+      groupsLoaded = true;
+      groupChoices = ((await api('/api/groups/bookable').catch(() => ({ groups: [] }))).groups || []).filter((g) => g.may);
+    }
     render();
     // After the record, not with it: the itinerary is its own fetch so a save
     // redraws one card rather than the whole page.

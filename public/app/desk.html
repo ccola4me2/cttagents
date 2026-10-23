@@ -115,18 +115,18 @@ async function loadCtt() {
   let d;
   try { d = await api('/api/desk/ctt-groups'); } catch { return; }
   const card = document.getElementById('ctt-groups-card');
-  const list = (d.groups || []);
+  // Only what has not been brought across yet, and nothing at all once it has. This is the owner's alone: the
+  // list is only ever offered to the desk account that is theirs.
+  const list = (d.groups || []).filter((g) => !g.onDesk);
   card.hidden = !d.available || !list.length;
   if (card.hidden) return;
-  document.getElementById('bring-all').hidden = !list.some((g) => !g.onDesk);
   document.getElementById('ctt-groups').innerHTML = `<div class="table-wrap"><table>
     <thead><tr><th>Group</th><th>Sails</th><th class="num">Cabins held</th><th>In CTT</th><th></th></tr></thead>
     <tbody>${list.map((g) => `<tr><td><strong>${esc(g.name)}</strong>
       <div class="muted" style="font-size:.84rem;">${esc(g.ship)}${g.number ? ` &middot; ${esc(g.number)}` : ''}</div></td>
       <td>${esc(dateFmt(g.departDate))}</td><td class="num">${g.cabinsHeld}</td>
       <td>${g.pageOpen ? 'Sign-up page live' : 'Page off'}</td>
-      <td class="num">${g.onDesk ? '<span class="muted">On the desk</span>'
-        : `<button class="btn btn-ghost btn-sm" data-bring="${esc(g.id)}">Bring onto the desk</button>`}</td></tr>`).join('')}
+      <td class="num"><button class="btn btn-ghost btn-sm" data-bring="${esc(g.id)}">Bring onto the desk</button></td></tr>`).join('')}
     </tbody></table></div>`;
   document.querySelectorAll('[data-bring]').forEach((b) => b.addEventListener('click', () => bring({ groupId: b.dataset.bring }, b)));
 }
