@@ -96,7 +96,7 @@ function drawSummary() {
     <div class="stat"><p class="label">Guests</p><p class="value">${s.guests}</p>
       <p class="meta">${s.paidGuests} paid in full${s.cancelled ? `, ${s.cancelled} cancelled cabin${s.cancelled === 1 ? '' : 's'} not counted` : ''}</p></div>
     <div class="stat"><p class="label">Cabins</p><p class="value">${s.cabins}</p>
-      <p class="meta">${s.minimumMet ? `The group is live (needs ${s.minimum})`
+      <p class="meta">${s.minimumMet ? `The group minimum of ${s.minimum} is met`
         : `${s.minimum - s.cabins} more for the group minimum of ${s.minimum}`}${
         data.group.cabinsHeld ? `. ${Math.max(0, data.group.cabinsHeld - s.cabins)} of ${data.group.cabinsHeld} held still open` : ''}</p></div>
     <div class="stat"><p class="label">Paid in full</p><p class="value">${s.paidCabins}</p>
