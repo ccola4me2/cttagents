@@ -8825,6 +8825,66 @@ async function main() {
       'taking one off the sheet keeps it off', `status ${off.status}`);
     const countsAfter = await call(desk, 'GET', '/api/desk/overview');
     check((countsAfter.data?.groups || []).find((g) => g.id === gid)?.cabins === afterOff?.summary?.cabins, 'and the totals on the desk agree with the sheet');
+
+    // The group domain's own door, exercised by sending its hostname.
+    const asHost = { host: 'cruisegrouppage.com' };
+    const doorOpen = await call(null, 'GET', '/desk', undefined, asHost);
+    check(doorOpen.status === 200 && doorOpen.raw.includes('Group Desk'), 'the desk\'s sign in answers on the group domain', `status ${doorOpen.status}`);
+    const pageShut = await call(null, 'GET', '/app/desk', undefined, asHost);
+    check(pageShut.status === 302 && (pageShut.location || '').endsWith('/desk'), 'its pages send somebody who is not signed in back to it', `status ${pageShut.status}`);
+    const apiShut = await call(null, 'GET', '/api/groups', undefined, asHost);
+    const apiShut2 = await call(null, 'GET', '/api/bookings', undefined, asHost);
+    check(apiShut.status === 401 && apiShut2.status === 401, 'and nothing of the portal answers there without a desk sign in', `${apiShut.status}/${apiShut2.status}`);
+    const notDesk = await call(null, 'GET', '/app/reservations', undefined, asHost);
+    check(notDesk.status === 404, 'the portal\'s own pages are not served on that domain at all', `status ${notDesk.status}`);
+    const agentIn = await call(jar(), 'POST', '/api/auth/login', { email: ADMIN_EMAIL, password: ADMIN_PASSWORD }, asHost);
+    check(agentIn.status === 401, 'the portal password does not open the desk, even for the same address', `status ${agentIn.status}`);
+
+    // The same person at the desk, with the address they use for the portal.
+    const aliasToken = new URL(sameAddress.data?.invite?.url || 'https://x.test/?token=').searchParams.get('token');
+    const aliasPassword = 'alias-desk-password-1';
+    await call(null, 'POST', '/api/auth/reset', { token: aliasToken, password: aliasPassword });
+    const aliasJar = jar();
+    const aliasIn = await call(aliasJar, 'POST', '/api/auth/login', { email: ownEmail, password: aliasPassword }, asHost);
+    check(aliasIn.status === 200 && aliasIn.data?.user?.desk === true && aliasIn.data?.user?.email === ownEmail,
+      'at the desk, the same address signs in to the desk account', `status ${aliasIn.status}`);
+    const portalIn = await call(jar(), 'POST', '/api/auth/login', { email: ownEmail, password: aliasPassword });
+    check(portalIn.status === 401, 'and the desk password is not the portal\'s', `status ${portalIn.status}`);
+    const inside = await call(aliasJar, 'GET', '/api/desk/overview', undefined, asHost);
+    check(inside.status === 200, 'signed in, the desk answers', `status ${inside.status}`);
+
+    // A group already running in their own account comes across as theirs.
+    const live = await call(admin, 'POST', '/api/groups', {
+      name: `Live MAS ${stamp}`, groupCode: `lv-${stamp}`, vendor: 'Margaritaville at Sea', productName: 'Beachcomber',
+      departDate: isoDay(320), returnDate: isoDay(327), cabinsHeld: 9, groupType: 'cruise',
+      registrationOpen: true, registrationBlurb: 'Come along.',
+    });
+    const otherGroup = await call(admin, 'POST', '/api/groups', {
+      name: `Live Other ${stamp}`, groupCode: `lo-${stamp}`, vendor: 'Carnival', productName: 'Other', departDate: isoDay(330),
+      returnDate: isoDay(337), cabinsHeld: 5, groupType: 'cruise',
+    });
+    if (live.data?.group?.id) cleanup('the live group', () => call(admin, 'DELETE', `/api/groups/${live.data.group.id}`));
+    if (otherGroup.data?.group?.id) cleanup('the other line group', () => call(admin, 'DELETE', `/api/groups/${otherGroup.data.group.id}`));
+    const offeredGroups = await call(aliasJar, 'GET', '/api/desk/ctt-groups', undefined, asHost);
+    const offeredOne = (offeredGroups.data?.groups || []).find((g) => g.id === live.data?.group?.id);
+    check(offeredGroups.data?.available === true && offeredOne && offeredOne.onDesk === false
+      && !(offeredGroups.data?.groups || []).some((g) => g.id === otherGroup.data?.group?.id),
+    'their live Margaritaville groups are offered, and nothing else', JSON.stringify(offeredGroups.data?.groups));
+    const strangerGroups = await call(desk, 'GET', '/api/desk/ctt-groups');
+    check(strangerGroups.data?.available === false, 'somebody else on the desk is offered nothing');
+
+    const brought = await call(aliasJar, 'POST', '/api/desk/ctt-groups/bring', { groupId: live.data?.group?.id }, asHost);
+    const broughtId = brought.data?.brought?.[0]?.id;
+    if (broughtId) cleanup('the group brought onto the desk', () => call(aliasJar, 'DELETE', `/api/groups/${broughtId}`, undefined, asHost));
+    check(brought.status === 201 && broughtId, 'one is brought onto the desk', `status ${brought.status} ${JSON.stringify(brought.data?.error || '')}`);
+    const copy = (await call(aliasJar, 'GET', '/api/desk/overview', undefined, asHost)).data?.groups?.find((g) => g.id === broughtId);
+    check(copy && copy.cabinsHeld === 9 && copy.groupNumber === `lv-${stamp}` && copy.pageOpen === false && copy.owner.includes('Same'),
+      'the copy keeps its details, takes the supplier number as its group number, and has its sign-up page off', JSON.stringify(copy));
+    const original = await call(admin, 'GET', `/api/groups/${live.data?.group?.id}`);
+    check(original.data?.group?.registration_open === 1 && original.data?.group?.page_slug, 'and the live one is untouched');
+    const bringTwice = await call(aliasJar, 'POST', '/api/desk/ctt-groups/bring', { groupId: live.data?.group?.id }, asHost);
+    const offeredAfter = (await call(aliasJar, 'GET', '/api/desk/ctt-groups', undefined, asHost)).data?.groups?.find((g) => g.id === live.data?.group?.id);
+    check(bringTwice.status === 400 && offeredAfter?.onDesk === true, 'it cannot be brought twice', `status ${bringTwice.status}`);
   }
 
   // Corporate targets: the agency's own, an owner's to see and set.

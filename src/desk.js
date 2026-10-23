@@ -21,6 +21,7 @@ import {
 import { requireUser, requireAdmin, publicUser } from './auth.js';
 import { appUrl } from './share.js';
 import { refreshBridge } from './groupcabins.js';
+import { copyGroupTo } from './groups.js';
 import * as db from './db.js';
 
 const DESK_AGENCY = 'agency-desk';
@@ -201,4 +202,74 @@ export async function handleDeskOverview(request, env) {
     owners[g.owner].tcEarned += g.tcEarned;
   }
   return json({ groups, owners, today });
+}
+
+// ---------------------------------------------------------------------------
+// Groups already running in the portal owner's own account
+// ---------------------------------------------------------------------------
+
+/** The portal owner's own account, for a desk member who is that person: found by the address they use for both. */
+async function myCttAccount(env, user) {
+  if (!user.desk_email) return null;
+  return env.DB.prepare(
+    `SELECT c.id FROM users c
+      WHERE c.email = ? AND c.platform_owner = 1 AND c.status = 'active'
+        AND c.agency_id NOT IN (SELECT id FROM agencies WHERE is_desk = 1)`
+  ).bind(user.desk_email).first();
+}
+
+/** Their open Margaritaville at Sea groups, and which are already on the desk (the same name and sailing). */
+async function cttGroupsFor(env, user, cttId) {
+  const { results } = await env.DB.prepare(
+    `SELECT g.id, g.name, g.product_name, g.group_code, g.group_number, g.depart_date, g.cabins_held,
+            g.registration_open
+       FROM travel_groups g
+      WHERE g.user_id = ? AND g.status = 'open' AND LOWER(g.vendor) LIKE '%margaritaville%'
+      ORDER BY g.depart_date ASC`
+  ).bind(cttId).all();
+  const { results: have } = await env.DB.prepare(
+    'SELECT name, depart_date FROM travel_groups WHERE user_id = ?'
+  ).bind(user.id).all();
+  const onDesk = new Set((have || []).map((g) => `${g.name}|${g.depart_date || ''}`));
+  return (results || []).map((g) => ({
+    id: g.id, name: g.name, ship: g.product_name || '', number: g.group_number || g.group_code || '',
+    departDate: g.depart_date || '', cabinsHeld: g.cabins_held || 0, pageOpen: g.registration_open === 1,
+    onDesk: onDesk.has(`${g.name}|${g.depart_date || ''}`),
+  }));
+}
+
+/** GET /api/desk/ctt-groups : the groups they could bring across. Empty for anybody it does not apply to. */
+export async function handleDeskCttGroups(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  if (!isDeskUser(user)) return forbidden('This is for the Group Desk.');
+  const mine = await myCttAccount(env, user);
+  if (!mine) return json({ available: false, groups: [] });
+  return json({ available: true, groups: await cttGroupsFor(env, user, mine.id) });
+}
+
+/** POST /api/desk/ctt-groups/bring { groupId } or { all: true } : copies them onto the desk as the member's own. */
+export async function handleDeskBringGroups(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  if (!isDeskUser(user)) return forbidden('This is for the Group Desk.');
+  const mine = await myCttAccount(env, user);
+  if (!mine) return badRequest('There are no groups of yours to bring across.');
+
+  const body = await readJson(request);
+  const all = await cttGroupsFor(env, user, mine.id);
+  const wanted = body.all === true
+    ? all.filter((g) => !g.onDesk)
+    : all.filter((g) => g.id === clean(body.groupId, 64) && !g.onDesk);
+  if (!wanted.length) return badRequest('That group is already on the desk, or is not one that can be brought across.');
+
+  const brought = [];
+  for (const g of wanted) {
+    const made = await copyGroupTo(env, g.id, mine.id, user.id);
+    if (made.error) return badRequest(`${g.name}: ${made.error}`);
+    brought.push({ id: made.id, name: g.name });
+  }
+  await db.logActivity(env, user.id, 'desk.bring',
+    `Brought ${brought.length} group${brought.length === 1 ? '' : 's'} onto the desk`, { count: brought.length });
+  return json({ ok: true, brought }, 201);
 }

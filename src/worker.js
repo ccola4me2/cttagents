@@ -259,6 +259,7 @@ import { renderQuickProposal, serveProposalImage } from './quickproposalpage.js'
 import { handleWaiver, renderWaiverPage, handleSignWaiver } from './waiver.js';
 import {
   handleDeskMembers, handleAddDeskMember, handleDeskInvite, handleDeskOverview, isDeskUser,
+  handleDeskCttGroups, handleDeskBringGroups,
 } from './desk.js';
 import {
   handleListCabins, handleAddCabin, handleUpdateCabin, handleDeleteCabin, handleImportCabins,
@@ -1325,6 +1326,8 @@ async function routeApi(request, env, path, method) {
   const deskInvite = path.match(/^\/api\/admin\/desk\/([^/]+)\/invite$/);
   if (deskInvite && method === 'POST') return handleDeskInvite(request, env, deskInvite[1]);
   if (path === '/api/desk/overview' && method === 'GET') return handleDeskOverview(request, env);
+  if (path === '/api/desk/ctt-groups' && method === 'GET') return handleDeskCttGroups(request, env);
+  if (path === '/api/desk/ctt-groups/bring' && method === 'POST') return handleDeskBringGroups(request, env);
   // How one person's own pages read: their name, logo and contact in place of the agency's.
   if (path === '/api/brand' && method === 'GET') return handleGetBrand(request, env);
   if (path === '/api/brand' && method === 'PUT') return handleSaveBrand(request, env);

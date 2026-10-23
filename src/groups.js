@@ -831,6 +831,45 @@ export async function handleRepeatGroup(request, env, id) {
   return json({ ok: true, group: await getGroup(env, made.id, owner.id), from: src.name }, 201);
 }
 
+/**
+ * A copy of one group as another person's, for the Group Desk.
+ *
+ * Everything that describes the group comes across: the dates and what the supplier is holding, the rate grid,
+ * the wording, the itinerary, what it includes and what it costs. What does not is anything that is the original's
+ * alone: the supplier's code (a public address that belongs to one group), the sign-up page (switched off, so the
+ * original stays the one people find), the people who have registered, and the reservations booked into it. The
+ * supplier's number is kept as the copy's group number, which is what reservations are matched to it by.
+ * Returns { error } or { id, fields }.
+ */
+export async function copyGroupTo(env, srcId, srcOwnerId, destOwnerId) {
+  const src = await env.DB.prepare(
+    `SELECT ${COLUMNS} FROM travel_groups g WHERE g.id = ? AND g.user_id = ?`
+  ).bind(srcId, srcOwnerId).first();
+  if (!src) return { error: 'Group not found.' };
+
+  const dollars = (cents) => (cents ? (cents / 100).toFixed(2) : '');
+  const rates = (await ratesFor(env, srcId, srcOwnerId)).map((r) => ({
+    roomType: r.room_type, occupancy: r.occupancy, guests: r.guests, cabins: r.cabins,
+    perGuestCents: r.per_guest_cents, extraAdultCents: r.extra_adult_cents,
+    extraChildCents: r.extra_child_cents, taxesCents: r.taxes_cents, totalCents: r.total_cents,
+  }));
+  return createGroupRow(env, destOwnerId, {
+    name: src.name, vendor: src.vendor, productName: src.product_name, destination: src.destination,
+    departDate: src.depart_date, returnDate: src.return_date || '', optionDate: src.option_date,
+    cabinsHeld: src.cabins_held, status: 'open', groupType: src.group_type,
+    registrationOpen: false, registrationBlurb: src.registration_blurb, vendorContact: src.vendor_contact,
+    departurePort: src.departure_port, passengers: src.passengers, proposalId: src.proposal_id,
+    sailingId: src.sailing_id, proposalExpires: src.proposal_expires, depositDue: src.deposit_due,
+    depositPerGuest: dollars(src.deposit_per_guest_cents), finalPaymentDue: src.final_payment_due,
+    passportDue: src.passport_due, groupNumber: src.group_number || src.group_code || '',
+    faq: listOf(src.faq_json), terms: src.terms, agencyFee: dollars(src.agency_fee_cents),
+    feeTerms: src.fee_terms, tripTerms: src.trip_terms, headline: src.headline,
+    heroImageUrl: src.hero_image_url, perks: listOf(src.perks_json), itinerary: listOf(src.itinerary_json),
+    amenities: listOf(src.amenities_json), drinks: listOf(src.drinks_json),
+    enhancements: listOf(src.enhancements_json), excursionsUrl: src.excursions_url, rates,
+  });
+}
+
 export async function handleUpdateGroup(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;

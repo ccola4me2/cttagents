@@ -58,6 +58,7 @@ const ALLOWED = new Map([
   ['auth.js:realUserOf', ['cttagents', 'who you really are while acting as somebody else']],
   ['auth.js:handleSignup', ['trip-vara-website', 'the join link, which cttagents does not offer']],
   ['email.js:sendTrialNoticeEmail', ['trip-vara-website', 'telling somebody their fourteen day demo is running out. cttagents has no demos to run out']],
+  ['groups.js:copyGroupTo', ['cttagents', 'copying a group onto the Group Desk, which is cttagents only: trip-vara has its own agencies and no such desk']],
   ['db.js:getDeskUserForLogin', ['cttagents', 'signing in to the Group Desk on the shared group domain, which is cttagents only: trip-vara has its own agencies and no such desk']],
   ['email.js:sendSupportEmail', ['trip-vara-website', 'the Get in touch form, which exists because trip-vara has strangers on demos who need a way to reach whoever runs the portal and cannot sign in once their trial has ended. cttagents is one agency run by the same person, so there is nobody outside it to write in']],
   ['email.js:sendDemoStartedEmail', ['trip-vara-website', 'telling whoever runs the portal that somebody has started a demo. cttagents has no self serve signup, so there is no demo to start and nobody standing outside the agency to be told about']],
