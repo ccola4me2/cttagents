@@ -12,7 +12,9 @@
 export const AGENCY_COLUMNS = `
   id, name, slug, address, phone, email, website,
   seller_of_travel, logo_url, brand_color, tagline, join_open,
-  created_at, updated_at, payment_form_url
+  created_at, updated_at, payment_form_url,
+  -- The one agency whose members use the Group Desk.
+  is_desk
 `;
 
 /**
