@@ -8765,6 +8765,28 @@ async function main() {
     check(hostPage.status === 200 && hostPage.raw.includes(`Smoke Host Agency ${stamp}`) && hostPage.raw.includes('555-0101'),
       'and the group\'s public page carries their name and number', `status ${hostPage.status}`);
 
+    // Somebody who registers on a desk group's page lands in the desk's lead list.
+    const regForm = await call(null, 'GET', `/gs/${slug}/register`);
+    check(regForm.status === 200 && regForm.raw.includes(`Smoke Host Agency ${stamp}`), 'the register form carries the owner\'s name too', `status ${regForm.status}`);
+    const lead = await call(null, 'POST', `/g/dk-${stamp}/register`, {
+      leadName: `Desk Lead ${stamp}`, leadEmail: `deskl-${stamp}@test.dev`, leadPhone: '555-0123', agree: true,
+      travellers: [{ name: `Desk Lead ${stamp}` }, { name: 'Plus One' }],
+    });
+    check(lead.status === 200 && lead.data?.ok, 'somebody can register on a desk group\'s page', `status ${lead.status} ${JSON.stringify(lead.data)}`);
+    const leads = await call(desk, 'GET', '/api/desk/leads');
+    const got = (leads.data?.leads || []).find((l) => l.name === `Desk Lead ${stamp}`);
+    check(got && got.status === 'new' && got.groupId === gid && got.party === 2 && got.onSheet === false && got.travellers.includes('Plus One'),
+      'and they show in the desk\'s leads, new, with the party', JSON.stringify(got));
+    const strangerLeads = await call(admin, 'GET', '/api/desk/leads');
+    check(strangerLeads.status === 403, 'nobody in the agency that runs the portal can read the desk\'s leads', `status ${strangerLeads.status}`);
+    const moved = await call(desk, 'PUT', `/api/group-registrations/${got?.id}`, { status: 'contacted', notes: 'Called, wants a balcony' });
+    const sheeted = await call(desk, 'POST', `/api/groups/${gid}/cabins/from-signup`, { registrationId: got?.id });
+    const after = ((await call(desk, 'GET', '/api/desk/leads')).data?.leads || []).find((l) => l.id === got?.id);
+    check(moved.status === 200 && sheeted.status === 201 && after?.status === 'contacted' && after?.notes === 'Called, wants a balcony' && after?.onSheet === true,
+      'a lead can be marked contacted, noted, and put on the cabin sheet', `${moved.status}/${sheeted.status} ${JSON.stringify(after)}`);
+    // Taken off again, so the sheet counts below are about the cabins they set up.
+    if (sheeted.data?.id) await call(desk, 'DELETE', `/api/groups/${gid}/cabins/${sheeted.data.id}`);
+
     const form = new FormData();
     form.append('file', new Blob([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64')], { type: 'image/png' }), 'logo.png');
     const logo = await fetch(`${BASE}/api/brand/logo`, { method: 'POST', headers: { cookie: desk.header() }, body: form });

@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leads</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Leads</h1><p class="sub">Everybody who asked to reserve a cabin on one of your group pages, newest first.</p></div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <section id="counts" class="stat-grid"></section>
+      <section class="card" style="margin-top:1.25rem;">
+        <div class="toolbar" style="padding:.8rem 1.25rem;display:flex;gap:.8rem;flex-wrap:wrap;align-items:center;">
+          <label for="f-status" style="margin:0;">Show</label>
+          <select id="f-status" style="width:auto;">
+            <option value="open">New and contacted</option>
+            <option value="new">New only</option>
+            <option value="contacted">Contacted</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="all">Everybody</option>
+          </select>
+          <label for="f-group" style="margin:0;">Group</label>
+          <select id="f-group" style="width:auto;max-width:22rem;"><option value="">All groups</option></select>
+        </div>
+        <div id="leads"><p class="spinner">Loading...</p></div>
+      </section>
+      <section class="card" style="margin-top:1.25rem;">
+        <div class="card-head"><h2>How this works</h2></div>
+        <div class="card-pad">
+          <ul class="plain">
+            <li>Somebody who fills in the register form on a group's page appears here at once, and the group's owner gets an email.</li>
+            <li>Mark where each one stands: <strong>New</strong>, <strong>Contacted</strong>, <strong>Confirmed</strong> or <strong>Cancelled</strong>, and keep your notes with it.</li>
+            <li><strong>Put on the cabin sheet</strong> turns a lead into a cabin row with the party's names, ready for the booking number and payments.</li>
+          </ul>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+<script type="module">
+import { api, mountShell, esc, dateFmt, showError } from '/js/app.js';
+await mountShell();
+const err = document.getElementById('err');
+const listEl = document.getElementById('leads');
+const statusPick = document.getElementById('f-status');
+const groupPick = document.getElementById('f-group');
+let all = [];
+
+const LABEL = { new: 'New', contacted: 'Contacted', confirmed: 'Confirmed', cancelled: 'Cancelled' };
+const BADGE = { new: 'badge-amber', contacted: 'badge-navy', confirmed: 'badge-green', cancelled: '' };
+
+const dayOf = (secs) => dateFmt(new Date(secs * 1000).toISOString().slice(0, 10));
+
+function visible() {
+  const want = statusPick.value;
+  const group = groupPick.value;
+  return all.filter((l) => (!group || l.groupId === group)
+    && (want === 'all' ? true : want === 'open' ? (l.status === 'new' || l.status === 'contacted') : l.status === want));
+}
+
+function draw() {
+  const rows = visible();
+  if (!rows.length) {
+    listEl.innerHTML = '<div class="card-pad"><p class="muted">Nobody here yet. When somebody registers on a group page they will show up in this list.</p></div>';
+    return;
+  }
+  listEl.innerHTML = rows.map((l) => `<div class="card-pad lead" data-id="${esc(l.id)}" style="border-top:1px solid var(--navy-100);">
+    <div style="display:flex;gap:1rem;justify-content:space-between;flex-wrap:wrap;">
+      <div>
+        <strong style="font-size:1.05rem;">${esc(l.name)}</strong>
+        <span class="badge ${BADGE[l.status] || ''}" style="margin-left:.4rem;">${esc(LABEL[l.status] || l.status)}</span>
+        ${l.onSheet ? '<span class="badge badge-green" style="margin-left:.3rem;">On the cabin sheet</span>' : ''}
+        <div class="muted" style="font-size:.88rem;margin-top:.15rem;">
+          <a href="/app/group-sheet?id=${encodeURIComponent(l.groupId)}">${esc(l.groupName)}</a>${l.ship ? ` &middot; ${esc(l.ship)}` : ''}${
+  l.departDate ? ` &middot; sails ${esc(dateFmt(l.departDate))}` : ''}${l.owner ? ` &middot; ${esc(l.owner)}'s group` : ''}</div>
+        <div style="margin-top:.4rem;font-size:.95rem;">
+          ${l.email ? `<a href="mailto:${esc(l.email)}">${esc(l.email)}</a>` : ''}${l.email && l.phone ? ' &middot; ' : ''}${
+  l.phone ? `<a href="tel:${esc(l.phone)}">${esc(l.phone)}</a>` : ''}</div>
+        <div class="muted" style="font-size:.9rem;margin-top:.2rem;">
+          ${l.party} ${l.party === 1 ? 'guest' : 'guests'}${l.category ? ` &middot; ${esc(l.category)}` : ''}${
+  l.travellers ? ` &middot; ${esc(l.travellers)}` : ''}</div>
+      </div>
+      <div class="muted" style="font-size:.85rem;text-align:right;">Asked ${esc(dayOf(l.createdAt))}</div>
+    </div>
+    <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-start;margin-top:.7rem;">
+      <select class="lead-status" aria-label="Where this lead stands" style="width:auto;">
+        ${Object.keys(LABEL).map((k) => `<option value="${k}"${k === l.status ? ' selected' : ''}>${LABEL[k]}</option>`).join('')}
+      </select>
+      <textarea class="lead-notes" rows="2" maxlength="1000" placeholder="Notes" aria-label="Notes"
+        style="flex:1;min-width:14rem;">${esc(l.notes)}</textarea>
+      <button class="btn btn-ghost btn-sm lead-save" type="button">Save</button>
+      ${l.onSheet ? '' : '<button class="btn btn-primary btn-sm lead-sheet" type="button">Put on the cabin sheet</button>'}
+    </div>
+    <p class="field-hint lead-msg" hidden></p>
+  </div>`).join('');
+
+  listEl.querySelectorAll('.lead').forEach((el) => {
+    const lead = all.find((l) => l.id === el.dataset.id);
+    const msg = el.querySelector('.lead-msg');
+    const say = (t, bad) => { msg.hidden = false; msg.textContent = t; msg.style.color = bad ? '#b3382a' : ''; };
+    el.querySelector('.lead-save').addEventListener('click', async () => {
+      try {
+        await api(`/api/group-registrations/${encodeURIComponent(lead.id)}`, { method: 'PUT', body: {
+          status: el.querySelector('.lead-status').value, notes: el.querySelector('.lead-notes').value, supplierRef: lead.supplierRef,
+        } });
+        await load(false);
+      } catch (e) { say(e.message || 'That did not save.', true); }
+    });
+    const sheet = el.querySelector('.lead-sheet');
+    if (sheet) sheet.addEventListener('click', async () => {
+      sheet.disabled = true;
+      try {
+        await api(`/api/groups/${encodeURIComponent(lead.groupId)}/cabins/from-signup`, { method: 'POST', body: { registrationId: lead.id } });
+        await load(false);
+      } catch (e) { sheet.disabled = false; say(e.message || 'That could not be added.', true); }
+    });
+  });
+}
+
+async function load(first) {
+  err.innerHTML = '';
+  let d;
+  try { d = await api('/api/desk/leads'); } catch (e) { listEl.innerHTML = ''; showError(err, e); return; }
+  all = d.leads;
+  document.getElementById('counts').innerHTML = ['new', 'contacted', 'confirmed'].map((k) => `
+    <div class="stat"><p class="label">${LABEL[k]}</p><p class="value">${d.counts[k]}</p></div>`).join('');
+  if (first || !groupPick.dataset.filled) {
+    const seen = new Map(all.map((l) => [l.groupId, l.groupName]));
+    groupPick.innerHTML = '<option value="">All groups</option>'
+      + [...seen].map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join('');
+    groupPick.dataset.filled = '1';
+  }
+  draw();
+}
+
+statusPick.addEventListener('change', draw);
+groupPick.addEventListener('change', draw);
+await load(true);
+</script>
+</body>
+</html>

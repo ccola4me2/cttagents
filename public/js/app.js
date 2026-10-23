@@ -360,6 +360,7 @@ const ADMIN_NAV = [
 const DESK_NAV = [
   { href: '/app/desk', label: 'Group desk', icon: I.chart },
   { href: '/app/groups', label: 'Groups', icon: I.groups, alsoOn: ['/app/group', '/app/group-sheet'] },
+  { href: '/app/desk-leads', label: 'Leads', icon: I.people },
   { href: '/app/settings', label: 'My pages', icon: I.gear },
 ];
 

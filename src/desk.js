@@ -208,6 +208,47 @@ export async function handleDeskOverview(request, env) {
   return json({ groups, owners, totals, today });
 }
 
+/**
+ * GET /api/desk/leads : everybody who has put their name down on any group's page, newest first.
+ *
+ * The desk's counterpart of a lead list: a person who asks to reserve a cabin on a group page lands here for the
+ * group's owner and the rest of the desk to follow up, with what they asked for, who is travelling and where it
+ * stands. Whatever the reader may see, which on the desk is every group.
+ */
+export async function handleDeskLeads(request, env) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  if (!isDeskUser(user)) return forbidden('This is for the Group Desk.');
+
+  const scope = db.scopeFor(env, user, request);
+  const scoped = db.scopeWhere(scope, 'r.user_id');
+  const { results } = await env.DB.prepare(
+    `SELECT r.id, r.group_id, r.name, r.email, r.phone, r.party_size, r.notes, r.status, r.supplier_ref, r.created_at,
+            g.name AS group_name, g.depart_date, g.product_name, rt.room_type AS rate_name,
+            u.first_name, u.last_name,
+            (SELECT COUNT(*) FROM group_cabins c WHERE c.registration_id = r.id AND c.user_id = r.user_id) AS on_sheet,
+            (SELECT GROUP_CONCAT(t.name, ', ') FROM group_travellers t
+               WHERE t.registration_id = r.id AND t.user_id = r.user_id) AS travellers
+       FROM group_registrations r
+       JOIN travel_groups g ON g.id = r.group_id AND g.user_id = r.user_id
+       LEFT JOIN group_rates rt ON rt.id = r.rate_id
+       LEFT JOIN users u ON u.id = r.user_id
+      WHERE ${scoped.sql}
+      ORDER BY r.created_at DESC LIMIT 500`
+  ).bind(...scoped.binds).all();
+
+  const leads = (results || []).map((r) => ({
+    id: r.id, groupId: r.group_id, groupName: r.group_name, ship: r.product_name || '', departDate: r.depart_date || '',
+    owner: `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+    name: r.name, email: r.email || '', phone: r.phone || '', party: Number(r.party_size) || 1,
+    travellers: r.travellers || '', category: r.rate_name || '', status: r.status || 'new',
+    notes: r.notes || '', supplierRef: r.supplier_ref || '', createdAt: r.created_at, onSheet: Number(r.on_sheet) > 0,
+  }));
+  const counts = { new: 0, contacted: 0, confirmed: 0, cancelled: 0 };
+  for (const l of leads) if (l.status in counts) counts[l.status] += 1;
+  return json({ leads, counts });
+}
+
 // ---------------------------------------------------------------------------
 // Groups already running in the portal owner's own account
 // ---------------------------------------------------------------------------

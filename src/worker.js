@@ -258,7 +258,7 @@ import {
 import { renderQuickProposal, serveProposalImage } from './quickproposalpage.js';
 import { handleWaiver, renderWaiverPage, handleSignWaiver } from './waiver.js';
 import {
-  handleDeskMembers, handleAddDeskMember, handleDeskInvite, handleDeskOverview, isDeskUser,
+  handleDeskMembers, handleAddDeskMember, handleDeskInvite, handleDeskOverview, handleDeskLeads, isDeskUser,
   handleDeskCttGroups, handleDeskBringGroups,
 } from './desk.js';
 import {
@@ -736,7 +736,7 @@ async function routeRequest(request, env, ctx) {
 
 // The pages a desk member may open on the group domain, and the few API calls that need no sign in. Anything
 // else under /api needs a signed in desk member, and anything not listed here is not served on that domain at all.
-const DESK_APP_PAGES = new Set(['/app/desk', '/app/groups', '/app/group', '/app/group-sheet', '/app/settings']);
+const DESK_APP_PAGES = new Set(['/app/desk', '/app/desk-leads', '/app/groups', '/app/group', '/app/group-sheet', '/app/settings']);
 const DESK_OPEN_API = new Set(['/api/auth/login', '/api/auth/logout', '/api/auth/me', '/api/auth/reset']);
 
 /**
@@ -1328,6 +1328,7 @@ async function routeApi(request, env, path, method) {
   const deskInvite = path.match(/^\/api\/admin\/desk\/([^/]+)\/invite$/);
   if (deskInvite && method === 'POST') return handleDeskInvite(request, env, deskInvite[1]);
   if (path === '/api/desk/overview' && method === 'GET') return handleDeskOverview(request, env);
+  if (path === '/api/desk/leads' && method === 'GET') return handleDeskLeads(request, env);
   if (path === '/api/desk/ctt-groups' && method === 'GET') return handleDeskCttGroups(request, env);
   if (path === '/api/desk/ctt-groups/bring' && method === 'POST') return handleDeskBringGroups(request, env);
   // How one person's own pages read: their name, logo and contact in place of the agency's.

@@ -83,7 +83,9 @@ async function load() {
     <div class="stat"><p class="label">Cabins in the groups</p><p class="value">${d.totals.held}</p>
       <p class="meta">what the cruise line is holding</p></div>
     <div class="stat"><p class="label">Cabins booked</p><p class="value">${d.totals.booked}</p>
-      <p class="meta">by all of you together</p></div>`;
+      <p class="meta">by all of you together</p></div>
+    <div class="stat"><p class="label">Sign-ups to add</p><p class="value">${d.groups.reduce((n, g) => n + (g.waiting || 0), 0)}</p>
+      <p class="meta"><a href="/app/desk-leads">Open the leads</a></p></div>`;
 
   const names = Object.keys(d.owners);
   document.getElementById('owners').innerHTML = names.map((n) => `

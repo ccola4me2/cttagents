@@ -1287,15 +1287,22 @@ async function tooMany(env, group, ipHash) {
 async function notifyOwner(env, group, details) {
   try {
     const owner = await env.DB.prepare(
-      'SELECT email, first_name, notify_email FROM users WHERE id = ?'
+      `SELECT u.email, u.first_name, u.notify_email, a.is_desk
+         FROM users u LEFT JOIN agencies a ON a.id = u.agency_id WHERE u.id = ?`
     ).bind(group.user_id).first();
     const address = owner?.notify_email || owner?.email;
     if (!address) return;
+    // A group on the Group Desk is worked there: its owner cannot sign in to the portal itself, so the link
+    // goes to the desk's lead list on the group domain.
+    const host = String(env.GROUP_HOST || '').trim();
+    const href = owner?.is_desk && host
+      ? `https://${host}/app/desk-leads`
+      : `${appUrl(env)}/app/group?id=${encodeURIComponent(group.id)}`;
     await sendSignupNoticeEmail(env, {
       to: address,
       advisorFirstName: owner?.first_name,
       what: group.name,
-      href: `${appUrl(env)}/app/group?id=${encodeURIComponent(group.id)}`,
+      href,
       ...details,
     });
   } catch (e) {
