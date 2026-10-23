@@ -27,11 +27,18 @@
         <a class="btn btn-ghost btn-sm" id="back" href="/app/groups">Back to the group</a>
         <a class="btn btn-ghost btn-sm" id="csv" href="#">Download as a spreadsheet</a>
         <button class="btn btn-ghost btn-sm" id="paste-open" type="button">Paste from a spreadsheet</button>
+        <input type="file" id="conf-file" accept="application/pdf,.pdf" hidden>
+        <button class="btn btn-primary btn-sm" id="conf-open" type="button">Upload an agent confirmation</button>
         <button class="btn btn-primary btn-sm" id="add" type="button">Add a cabin</button>
       </div>
     </header>
     <div class="content">
       <div id="err"></div>
+      <section class="card" style="margin-top:0;margin-bottom:1.25rem;" id="conf-card" hidden>
+        <div class="card-head"><h2>Read from the confirmation</h2>
+          <button class="btn btn-ghost btn-sm" id="conf-close" type="button">Close</button></div>
+        <div class="card-pad" id="conf-result"></div>
+      </section>
       <section id="stats" class="stat-grid"></section>
 
       <section class="card" style="margin-top:1.25rem;" id="types-card" hidden>
@@ -96,6 +103,10 @@ if (!groupId) {
   sheet.innerHTML = '<div class="card-pad"><p class="muted">Open a cabin sheet from a group.</p></div>';
 }
 
+// Two decimals always, nought included.
+const dollars = (cents) => `$${((Number(cents) || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const plain = (cents) => (Number(cents) ? (Number(cents) / 100).toFixed(2) : '');
+
 const STATUS_WORDS = { held: 'Held', deposit: 'Deposit paid', paid: 'Paid in full', cancelled: 'Cancelled' };
 
 function drawSummary() {
@@ -113,7 +124,9 @@ function drawSummary() {
         : `${s.cabins} booked. Say how many the group holds, on the group, to see how many are left`}.
         ${s.minimumMet ? `The minimum of ${s.minimum} is met` : `${s.minimum - s.cabins} more for the minimum of ${s.minimum}`}</p></div>
     <div class="stat"><p class="label">Paid in full</p><p class="value">${s.paidCabins}</p>
-      <p class="meta">of ${s.cabins} cabin${s.cabins === 1 ? '' : 's'}</p></div>`;
+      <p class="meta">of ${s.cabins} cabin${s.cabins === 1 ? '' : 's'}</p></div>${s.totalCents ? `
+    <div class="stat"><p class="label">Paid so far</p><p class="value">${dollars(s.paidCents)}</p>
+      <p class="meta">of ${dollars(s.totalCents)}, ${dollars(s.balanceCents)} still to come</p></div>` : ''}`;
 
   const types = a.types || [];
   document.getElementById('types-card').hidden = !types.length;
@@ -178,7 +191,7 @@ function drawSheet() {
   }
   sheet.innerHTML = `<div class="table-wrap"><table class="sheet">
     <thead><tr><th>Cabin</th><th>Category</th><th>Guests</th><th>Guest names</th><th>Booked by</th>
-      <th>Booking number</th><th>Status</th><th title="The cabin the tour conductor credit is used in">TC</th><th>Notes</th><th></th></tr></thead>
+      <th>Booking number</th><th class="num">Total</th><th class="num">Paid</th><th class="num">Balance</th><th>Status</th><th title="The cabin the tour conductor credit is used in">TC</th><th>Notes</th><th></th></tr></thead>
     <tbody>${rows.map((r) => `<tr data-row="${esc(r.id)}" class="${r.status === 'cancelled' ? 'cancelled' : ''}">
       <td><input data-field="cabinNo" value="${esc(r.cabinNo)}" maxlength="20" aria-label="Cabin number"${r.linked ? ' disabled' : ''}>${
         r.linked ? '<div class="muted" style="font-size:.7rem;" title="Kept up to date from the CTT reservation. Change it there.">from CTT</div>' : ''}</td>
@@ -187,6 +200,9 @@ function drawSheet() {
       <td class="wide"><input data-field="guestNames" value="${esc(r.guestNames)}" maxlength="600" aria-label="Guest names"${r.linked ? ' disabled' : ''}></td>
       <td><input data-field="bookedBy" value="${esc(r.bookedBy)}" maxlength="80" list="bookers-list" aria-label="Booked by"${r.linked ? ' disabled' : ''}></td>
       <td><input data-field="bookingNo" value="${esc(r.bookingNo)}" maxlength="40" aria-label="Booking number"${r.linked ? ' disabled' : ''}></td>
+      <td><input data-field="totalCents" data-money="1" value="${plain(r.totalCents)}" inputmode="decimal" aria-label="Total"${r.linked ? ' disabled' : ''}></td>
+      <td><input data-field="paidCents" data-money="1" value="${plain(r.paidCents)}" inputmode="decimal" aria-label="Paid"${r.linked ? ' disabled' : ''}></td>
+      <td class="num" data-balance="${esc(r.id)}">${r.totalCents ? dollars(Math.max(0, r.totalCents - r.paidCents)) : ''}</td>
       <td><select data-field="status" aria-label="Status"${r.linked ? ' disabled' : ''}>${data.statuses.map((s) =>
         `<option value="${s}"${s === r.status ? ' selected' : ''}>${STATUS_WORDS[s]}</option>`).join('')}</select></td>
       <td><input data-field="tc" type="checkbox"${r.tc ? ' checked' : ''} aria-label="TC cabin"></td>
@@ -199,7 +215,9 @@ function drawSheet() {
     input.addEventListener('change', async () => {
       const tr = input.closest('tr');
       const field = input.dataset.field;
-      const value = input.type === 'checkbox' ? input.checked : input.value;
+      // Money is typed in dollars and kept in cents.
+      const value = input.type === 'checkbox' ? input.checked
+        : (input.dataset.money ? Math.round((parseFloat(String(input.value).replace(/[^0-9.]/g, '')) || 0) * 100) : input.value);
       saved.textContent = 'Saving...';
       try {
         await api(`/api/groups/${encodeURIComponent(groupId)}/cabins/${encodeURIComponent(tr.dataset.row)}`,
@@ -249,6 +267,38 @@ document.getElementById('add').addEventListener('click', async () => {
     const last = sheet.querySelector('tbody tr:last-child input');
     if (last) last.focus();
   } catch (e) { showError(err, e); }
+});
+
+// The cruise line's agent confirmation, as a PDF: everything for the booking is read out of it.
+const confFile = document.getElementById('conf-file');
+document.getElementById('conf-open').addEventListener('click', () => confFile.click());
+document.getElementById('conf-close').addEventListener('click', () => { document.getElementById('conf-card').hidden = true; });
+confFile.addEventListener('change', async () => {
+  const file = confFile.files[0];
+  confFile.value = '';
+  if (!file) return;
+  const card = document.getElementById('conf-card');
+  const out = document.getElementById('conf-result');
+  card.hidden = false;
+  out.innerHTML = '<p class="spinner">Reading the confirmation...</p>';
+  try {
+    const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}/cabins/confirmation`,
+      { method: 'POST', body: file, headers: { 'content-type': 'application/pdf' }, credentials: 'same-origin' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'That confirmation could not be read.');
+    const r = data.read;
+    out.innerHTML = `<p style="margin:0 0 .5rem;"><strong>Booking ${esc(r.bookingId)}</strong> is on the sheet${
+      data.rows.every((x) => !x.created) ? ', brought up to date' : ''}. Check it reads right.</p>
+      <ul class="plain" style="margin:0 0 .6rem;">
+        <li>${esc(r.ship)}${r.itinerary ? `, ${esc(r.itinerary)}` : ''}${r.sails ? `, sails ${esc(dateFmt(r.sails))}` : ''}</li>
+        ${r.cabins.map((c) => `<li>Cabin ${esc(c.cabin)}, ${esc(c.category)}: ${esc(c.guests.join(', ') || 'no names found')}</li>`).join('')}
+        <li>${dollars(r.paidCents)} paid of ${dollars(r.totalCents)}${r.dueCents ? `, ${dollars(r.dueCents)} still due` : ', nothing due'}. Booked by ${esc(r.bookedBy)}.</li>
+      </ul>
+      ${(data.warnings || []).map((w) => `<p class="notice notice-error" style="margin:.3rem 0;">${esc(w)}</p>`).join('')}`;
+    await load();
+  } catch (e) {
+    out.innerHTML = `<p class="notice notice-error" style="margin:0;">${esc(e.message)}</p>`;
+  }
 });
 
 const dlg = document.getElementById('paste-dlg');

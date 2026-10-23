@@ -263,7 +263,7 @@ import {
 } from './desk.js';
 import {
   handleListCabins, handleAddCabin, handleUpdateCabin, handleDeleteCabin, handleImportCabins,
-  handleCabinFromSignup, handleCabinsCsv, handleCabinFromCtt,
+  handleCabinFromSignup, handleCabinsCsv, handleCabinFromCtt, handleCabinsFromConfirmation,
 } from './groupcabins.js';
 import {
   handleGetBrand, handleSaveBrand, handleUploadLogo, handleRemoveLogo, serveUserLogo,
@@ -857,6 +857,7 @@ async function routeApi(request, env, path, method) {
   const cabinsImportMatch = path.match(/^\/api\/groups\/([^/]+)\/cabins\/import$/);
   const cabinsSignupMatch = path.match(/^\/api\/groups\/([^/]+)\/cabins\/from-signup$/);
   const cabinsCttMatch = path.match(/^\/api\/groups\/([^/]+)\/cabins\/from-ctt$/);
+  const cabinsConfMatch = path.match(/^\/api\/groups\/([^/]+)\/cabins\/confirmation$/);
   const cabinOneMatch = path.match(/^\/api\/groups\/([^/]+)\/cabins\/([^/]+)$/);
   const groupFilesMatch = path.match(/^\/api\/groups\/([^/]+)\/files$/);
   const groupFileMatch = path.match(/^\/api\/groups\/([^/]+)\/files\/([^/]+)$/);
@@ -1218,6 +1219,7 @@ async function routeApi(request, env, path, method) {
   if (cabinsImportMatch && method === 'POST') return handleImportCabins(request, env, cabinsImportMatch[1]);
   if (cabinsSignupMatch && method === 'POST') return handleCabinFromSignup(request, env, cabinsSignupMatch[1]);
   if (cabinsCttMatch && method === 'POST') return handleCabinFromCtt(request, env, cabinsCttMatch[1]);
+  if (cabinsConfMatch && method === 'POST') return handleCabinsFromConfirmation(request, env, cabinsConfMatch[1]);
   if (cabinOneMatch && method === 'PUT') return handleUpdateCabin(request, env, cabinOneMatch[1], cabinOneMatch[2]);
   if (cabinOneMatch && method === 'DELETE') return handleDeleteCabin(request, env, cabinOneMatch[1], cabinOneMatch[2]);
   if (groupPictureMatch && method === 'POST') return handleUploadPicture(request, env, groupPictureMatch[1]);

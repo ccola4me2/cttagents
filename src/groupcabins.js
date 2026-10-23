@@ -15,6 +15,8 @@
 
 import { json, badRequest, notFound, clean, cleanText, oneOf, uid, now, readJson } from './util.js';
 import { requireUser } from './auth.js';
+import { pdfRead } from './pdftext.js';
+import { parseMasAgentCopy } from './masconfirmation.js';
 import * as db from './db.js';
 
 export const CABIN_STATUSES = ['held', 'deposit', 'paid', 'cancelled'];
@@ -33,9 +35,13 @@ export function summarise(rows) {
     byBooker[who].cabins += 1;
     byBooker[who].guests += Number(r.guests) || 0;
   }
+  const totalCents = live.reduce((n, r) => n + (Number(r.total_cents) || 0), 0);
+  const paidCents = live.reduce((n, r) => n + (Number(r.paid_cents) || 0), 0);
   return {
     cabins: live.length,
     guests,
+    // What the confirmations say the cabins cost and what has been paid on them.
+    totalCents, paidCents, balanceCents: Math.max(0, totalCents - paidCents),
     paidCabins: live.filter((r) => r.status === 'paid').length,
     paidGuests: live.filter((r) => r.status === 'paid').reduce((n, r) => n + (Number(r.guests) || 0), 0),
     cancelled: rows.length - live.length,
@@ -55,6 +61,7 @@ function shape(r) {
     id: r.id, cabinNo: r.cabin_no || '', category: r.category || '', guests: Number(r.guests) || 0,
     guestNames: r.guest_names || '', bookedBy: r.booked_by || '', bookingNo: r.booking_no || '',
     status: r.status || 'held', tc: Number(r.tc) === 1, notes: r.notes || '',
+    totalCents: Number(r.total_cents) || 0, paidCents: Number(r.paid_cents) || 0,
     registrationId: r.registration_id || null, updatedAt: r.updated_at,
     // One of the owner's own CTT reservations, kept up to date from it and not changed here.
     linked: Boolean(r.booking_id),
@@ -72,6 +79,8 @@ const FIELDS = {
   status: ['status', (v) => oneOf(v, CABIN_STATUSES)],
   tc: ['tc', (v) => (v === true || v === 1 || v === '1' || /^(y|yes|true|tc)$/i.test(String(v || '').trim()) ? 1 : 0)],
   notes: ['notes', (v) => cleanText(v, 1000)],
+  totalCents: ['total_cents', (v) => Math.max(0, Math.min(Math.round(Number(v) || 0), 100000000))],
+  paidCents: ['paid_cents', (v) => Math.max(0, Math.min(Math.round(Number(v) || 0), 100000000))],
 };
 
 /** The group this sheet belongs to, for somebody who may change it, with its owner. */
@@ -90,7 +99,7 @@ async function groupFor(env, user, groupId) {
 async function loadRows(env, groupId, ownerId) {
   const { results } = await env.DB.prepare(
     `SELECT id, cabin_no, category, guests, guest_names, booked_by, booking_no, status, tc, notes,
-            registration_id, booking_id, updated_at
+            registration_id, booking_id, total_cents, paid_cents, updated_at
        FROM group_cabins WHERE group_id = ? AND user_id = ? AND hidden = 0 ORDER BY sort_order ASC, created_at ASC`
   ).bind(groupId, ownerId).all();
   return results || [];
@@ -343,12 +352,13 @@ async function insertRow(env, group, owner, user, values, extra = {}) {
   const get = (key, fallback) => (values[key] === undefined ? fallback : FIELDS[key][1](values[key]));
   await env.DB.prepare(
     `INSERT INTO group_cabins (id, group_id, user_id, cabin_no, category, guests, guest_names, booked_by,
-       booking_no, status, tc, notes, registration_id, booking_id, sort_order, updated_by, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       booking_no, status, tc, notes, registration_id, booking_id, sort_order, updated_by, created_at, updated_at,
+       total_cents, paid_cents)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(id, group.id, owner.id, get('cabinNo', ''), get('category', ''), get('guests', 0), get('guestNames', ''),
     get('bookedBy', ''), get('bookingNo', ''), get('status', 'held'), get('tc', 0), get('notes', ''),
     extra.registrationId || null, extra.bookingId || null, extra.order || await nextOrder(env, group.id, owner.id),
-    user ? user.id : owner.id, ts, ts).run();
+    user ? user.id : owner.id, ts, ts, get('totalCents', 0), get('paidCents', 0)).run();
   return id;
 }
 
@@ -545,11 +555,13 @@ export async function handleCabinsCsv(request, env, groupId) {
   const found = await groupFor(env, user, groupId);
   if (!found) return notFound('Group not found.');
   const rows = await loadRows(env, found.group.id, found.owner.id);
-  const lines = [['Cabin', 'Category', 'Guests', 'Guest names', 'Booked by', 'Booking number', 'Status', 'TC cabin', 'Notes']
-    .join(',')];
+  const lines = [['Cabin', 'Category', 'Guests', 'Guest names', 'Booked by', 'Booking number', 'Status', 'TC cabin', 'Notes',
+    'Total', 'Paid', 'Balance'].join(',')];
   for (const r of rows) {
     lines.push([r.cabin_no, r.category, r.guests, r.guest_names, r.booked_by, r.booking_no, r.status,
-      Number(r.tc) === 1 ? 'yes' : '', r.notes].map(csvField).join(','));
+      Number(r.tc) === 1 ? 'yes' : '', r.notes,
+      (Number(r.total_cents) / 100).toFixed(2), (Number(r.paid_cents) / 100).toFixed(2),
+      (Math.max(0, Number(r.total_cents) - Number(r.paid_cents)) / 100).toFixed(2)].map(csvField).join(','));
   }
   const safe = String(found.group.name || 'group').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
   return new Response(`${lines.join('\r\n')}\r\n`, {
@@ -575,4 +587,97 @@ export async function handleCabinFromCtt(request, env, groupId) {
   const d = await describe(env, offered.cttId, b);
   const id = await insertRow(env, found.group, found.owner, user, { ...d, bookedBy: offered.person }, { bookingId: offered.id });
   return json({ ok: true, id }, 201);
+}
+
+/** Dec 28, 2026 as 12/28/2026. */
+const usDay = (iso) => (/^\d{4}-\d{2}-\d{2}$/.test(iso || '') ? `${iso.slice(5, 7)}/${iso.slice(8, 10)}/${iso.slice(0, 4)}` : '');
+
+/**
+ * POST /api/groups/:id/cabins/confirmation : the cruise line's agent confirmation, as a PDF in the body.
+ *
+ * Everything on the sheet for that booking comes out of the document: the cabin, its category, who is in it, the
+ * booking number, what it costs and what has been paid. A booking already on the sheet, by its number and cabin, is
+ * brought up to date instead of added again, so uploading the next confirmation after a payment is all it takes to
+ * show the payment. What somebody wrote in the notes and whether it is the TC cabin are left as they were.
+ */
+export async function handleCabinsFromConfirmation(request, env, groupId) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  const found = await groupFor(env, user, groupId);
+  if (!found) return notFound('Group not found.');
+
+  const buf = await request.arrayBuffer().catch(() => null);
+  if (!buf || !buf.byteLength) return badRequest('No file arrived.');
+  if (buf.byteLength > 8 * 1024 * 1024) return badRequest('That file is larger than 8MB, which is bigger than any confirmation.');
+
+  const file = await pdfRead(buf);
+  const locked = file.encryption === 'password' || file.encryption === 'unsupported';
+  if (locked) return badRequest('That PDF is locked, so it cannot be read. Download it again from the booking system.');
+  if (file.text.trim().length < 40) {
+    return badRequest(file.images > 0
+      ? 'That PDF is only a picture of a page, such as a scan, so there is no text to read. Download the confirmation itself.'
+      : 'Nothing could be read from that file.');
+  }
+  const read = parseMasAgentCopy(file.text);
+  if (!read.ok) return badRequest(read.reason);
+  if (!read.rooms.length) return badRequest('No stateroom could be found in that confirmation.');
+
+  const { group, owner } = found;
+  if (group.depart_date && read.departDate && group.depart_date !== read.departDate) {
+    return badRequest(`That confirmation is for the ${usDay(read.departDate)} sailing, and this group sails ${usDay(group.depart_date)}. `
+      + 'Open the group it belongs to and upload it there.');
+  }
+
+  const status = read.cancelled ? 'cancelled'
+    : (read.totalCents > 0 && read.dueCents === 0 ? 'paid' : (read.paidCents > 0 ? 'deposit' : 'held'));
+  const bookedBy = read.bookedBy || [user.first_name, user.last_name].filter(Boolean).join(' ');
+  const rows = [];
+  for (let i = 0; i < read.rooms.length; i += 1) {
+    const room = read.rooms[i];
+    // The booking's money is the booking's, so with more than one stateroom it sits on the first and the rest say so.
+    const first = i === 0;
+    const values = {
+      cabinNo: room.cabin, category: room.category,
+      guests: room.guests.length || (read.rooms.length === 1 ? read.guestsTotal : 0) || 1,
+      guestNames: room.guests.join(', '), bookedBy, bookingNo: read.bookingId, status,
+      totalCents: first ? (read.totalCents || 0) : 0, paidCents: first ? (read.paidCents || 0) : 0,
+    };
+    const have = await env.DB.prepare(
+      `SELECT id FROM group_cabins WHERE group_id = ? AND user_id = ? AND booking_no = ? AND cabin_no = ?
+          AND booking_id IS NULL AND hidden = 0`
+    ).bind(group.id, owner.id, read.bookingId, room.cabin).first();
+    if (have) {
+      const sets = [];
+      const binds = [];
+      for (const [key, [column, tidy]] of Object.entries(FIELDS)) {
+        if (values[key] === undefined) continue;
+        sets.push(`${column} = ?`);
+        binds.push(tidy(values[key]));
+      }
+      await env.DB.prepare(
+        `UPDATE group_cabins SET ${sets.join(', ')}, updated_by = ?, updated_at = ?
+          WHERE id = ? AND group_id = ? AND user_id = ?`
+      ).bind(...binds, user.id, now(), have.id, group.id, owner.id).run();
+      rows.push({ id: have.id, cabin: room.cabin, created: false });
+    } else {
+      const note = read.rooms.length > 1
+        ? (first ? `One booking of ${read.rooms.length} cabins. Payments are shown here.` : 'Part of one booking. Its payments are on the first cabin.')
+        : '';
+      const id = await insertRow(env, group, owner, user, { ...values, notes: note });
+      rows.push({ id, cabin: room.cabin, created: true });
+    }
+  }
+  await db.logActivity(env, user.id, 'group.cabins.confirmation',
+    `Read confirmation ${read.bookingId} onto a group's sheet`, { id: group.id });
+
+  return json({
+    ok: true,
+    read: {
+      bookingId: read.bookingId, ship: read.ship, itinerary: read.itinerary, sails: read.departDate, returns: read.returnDate,
+      bookedBy, status, totalCents: read.totalCents, paidCents: read.paidCents, dueCents: read.dueCents,
+      cabins: read.rooms.map((r) => ({ cabin: r.cabin, category: r.category, guests: r.guests })),
+    },
+    rows,
+    warnings: read.warnings,
+  }, 201);
 }

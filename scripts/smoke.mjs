@@ -8899,6 +8899,60 @@ async function main() {
     const bringTwice = await call(aliasJar, 'POST', '/api/desk/ctt-groups/bring', { groupId: live.data?.group?.id }, asHost);
     const offeredAfter = (await call(aliasJar, 'GET', '/api/desk/ctt-groups', undefined, asHost)).data?.groups?.find((g) => g.id === live.data?.group?.id);
     check(bringTwice.status === 400 && offeredAfter?.onDesk === true, 'it cannot be brought twice', `status ${bringTwice.status}`);
+
+    // The cruise line's agent confirmation, uploaded, fills in the cabin and its payments.
+    const tinyPdf = (lines) => {
+      const esc = (t) => String(t).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+      const content = `BT /F1 10 Tf 12 TL 40 780 Td\n${lines.map((l) => `(${esc(l)}) Tj T*`).join('\n')}\nET`;
+      const objs = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+        `<< /Length ${content.length} >>\nstream\n${content}\nendstream`, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
+      let out = '%PDF-1.4\n';
+      objs.forEach((o, i) => { out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+      return Buffer.from(`${out}trailer\n<< /Root 1 0 R >>\n%%EOF\n`, 'latin1');
+    };
+    const dayWords = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric', timeZone: 'UTC' });
+    const confirmation = ({ sails, paid, due, number = `9${stamp.replace(/\D/g, '').slice(0, 7).padEnd(7, '1')}` }) => tinyPdf([
+      'Pat Tester', 'BOOKING ID: ' + number, 'Booking Date: Jun 02, 2026', 'Status: Booked', 'AGENCY COPY', 'Cruise Planners - Desk Host',
+      `Departure Date: ${dayWords(sails)} Itinerary: 7-Night Test Ship: Margaritaville at Sea Islander Departure Port: Port Tampa Bay RESERVATION SUMMARY`,
+      `Return Date: ${dayWords(isoDay(307))}`, 'Stateroom Category: Breezy Balcony', 'Stateroom(s): 7777', 'Total Guests: 2',
+      `Total Booking Amount: $2,000.00 Payments Made: ${paid}`, `Remaining Due: ${due}`, 'RESERVATION DETAIL', 'BREEZY BALCONY - STATEROOM: 7777',
+      'Guest 1 Guest 2', 'First Name PAT SAM L', 'Last Name Tester Rowe', 'Date of Birth, Age Mar 11, 1953, 73 Feb 09, 1953, 73',
+      'Stateroom Subtotal: $1,800.00', 'TOTAL STATEROOM AMOUNT: $2,000.00',
+      'Travel Advisor Name: Cruise Planners - Desk Host Advisor ID: 1 Advisor Email: x@y.test',
+    ]);
+    const upload = async (jarToUse, groupToUse, bytes) => {
+      const res = await fetch(`${BASE}/api/groups/${groupToUse}/cabins/confirmation`, {
+        method: 'POST', headers: { 'content-type': 'application/pdf', ...(jarToUse && jarToUse.header() ? { cookie: jarToUse.header() } : {}) }, body: bytes,
+      });
+      return { status: res.status, data: await res.json().catch(() => null) };
+    };
+    const bookingNumber = `9${stamp.replace(/\D/g, '').slice(0, 7).padEnd(7, '1')}`;
+    const firstUp = await upload(desk, gid, confirmation({ sails: isoDay(300), paid: '$500.00', due: '$1,500.00' }));
+    check(firstUp.status === 201 && firstUp.data?.read?.bookingId === bookingNumber && firstUp.data?.rows?.[0]?.created === true,
+      'an agent confirmation uploaded to a group puts the booking on its sheet', `status ${firstUp.status} ${JSON.stringify(firstUp.data)}`);
+    check(JSON.stringify(firstUp.data?.read?.cabins?.[0]?.guests) === JSON.stringify(['Pat Tester', 'Sam L Rowe']) && firstUp.data?.read?.cabins?.[0]?.cabin === '7777',
+      'with the cabin and the names of who is in it', JSON.stringify(firstUp.data?.read?.cabins));
+    const afterFirst = (await call(desk, 'GET', base)).data;
+    const confRow = (afterFirst?.cabins || []).find((c) => c.bookingNo === bookingNumber);
+    check(confRow?.category === 'Breezy Balcony' && confRow?.guests === 2 && confRow?.totalCents === 200000 && confRow?.paidCents === 50000
+      && confRow?.status === 'deposit' && confRow?.bookedBy === 'Desk Host', 'its category, guests, total, what is paid, status and who booked it', JSON.stringify(confRow));
+    check(JSON.stringify(afterFirst?.summary || '').includes('"balanceCents"') && afterFirst?.summary?.totalCents >= 200000, 'and the sheet totals the money');
+
+    await call(desk, 'PUT', `${base}/${confRow?.id}`, { tc: true, notes: 'my note' });
+    const secondUp = await upload(desk, gid, confirmation({ sails: isoDay(300), paid: '$2,000.00', due: '$0.00' }));
+    const afterSecond = (await call(desk, 'GET', base)).data;
+    const sameRows = (afterSecond?.cabins || []).filter((c) => c.bookingNo === bookingNumber);
+    check(secondUp.status === 201 && secondUp.data?.rows?.[0]?.created === false && sameRows.length === 1
+      && sameRows[0].paidCents === 200000 && sameRows[0].status === 'paid', 'a later confirmation brings the same booking up to date, and paid in full shows', `status ${secondUp.status} ${JSON.stringify(sameRows)}`);
+    check(sameRows[0]?.tc === true && sameRows[0]?.notes === 'my note', 'and leaves the TC flag and the note as they were');
+
+    const wrongDate = await upload(desk, gid, confirmation({ sails: isoDay(100), paid: '$0.00', due: '$2,000.00' }));
+    check(wrongDate.status === 400 && /sailing/.test(wrongDate.data?.error || ''), 'a confirmation for another sailing is refused, and says why', `status ${wrongDate.status} ${wrongDate.data?.error}`);
+    const notOne = await upload(desk, gid, tinyPdf(['This is a letter about something else entirely and it is long enough to be read as words on a page.']));
+    check(notOne.status === 400, 'a document that is not a confirmation is refused', `status ${notOne.status}`);
+    const stranger2 = await upload(admin, gid, confirmation({ sails: isoDay(300), paid: '$0.00', due: '$2,000.00' }));
+    check(stranger2.status === 404, 'and nobody outside the desk can put one on its sheet', `status ${stranger2.status}`);
   }
 
   // A group number typed on a reservation finds its group, and counts the reservation against it.
