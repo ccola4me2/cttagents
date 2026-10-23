@@ -8763,6 +8763,17 @@ async function main() {
       check(bad.status === 400, 'a file that is not a picture is refused', `status ${bad.status}`);
     }
 
+    // Somebody who already has an account elsewhere in the portal can be on the desk under the same address.
+    const ownerMe = await call(admin, 'GET', '/api/auth/me');
+    const ownEmail = ownerMe.data?.user?.email;
+    const sameAddress = await call(admin, 'POST', '/api/admin/desk', { email: ownEmail, firstName: 'Same', lastName: `Address ${stamp}` });
+    check(sameAddress.status === 200 && sameAddress.data?.member?.email === ownEmail && /\/desk\/reset\?token=/.test(sameAddress.data?.invite?.url || ''),
+      'an address that already has an account here can be on the desk too', `status ${sameAddress.status} ${JSON.stringify(sameAddress.data?.error || '')}`);
+    const sameTwice = await call(admin, 'POST', '/api/admin/desk', { email: ownEmail, firstName: 'Same', lastName: 'Again' });
+    check(sameTwice.status === 400, 'but only once', `status ${sameTwice.status}`);
+    const stillOwner = await call(admin, 'GET', '/api/auth/me');
+    check(stillOwner.data?.user?.email === ownEmail && stillOwner.data?.user?.desk !== true, 'and the account they already had is untouched');
+
     const members = await call(admin, 'GET', '/api/admin/desk');
     check((members.data?.members || []).some((m) => m.email === email), 'the operator sees who is on the desk');
     const asAdvisor = await call(advisor, 'GET', '/api/admin/desk');

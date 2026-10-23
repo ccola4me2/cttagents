@@ -32,7 +32,8 @@ function publicUser(u) {
   if (!u) return null;
   return {
     id: u.id,
-    email: u.email,
+    // The address they sign in with at the desk, where their account is held under an internal one.
+    email: u.desk_email || u.email,
     firstName: u.first_name,
     lastName: u.last_name,
     name: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email,
@@ -189,7 +190,11 @@ export async function handleLogin(request, env) {
   const password = String(body.password || '');
   if (!email || !password) return badRequest('Email and password are required.');
 
-  const row = await db.getUserForLogin(env, email);
+  // On the shared group domain only the Group Desk's own people can sign in, and they are found there by the
+  // address they use for the desk, which may be one the same person also has an account under elsewhere.
+  const onGroupHost = String(env.GROUP_HOST || '').trim()
+    && new URL(request.url).hostname.toLowerCase() === String(env.GROUP_HOST).trim().toLowerCase();
+  const row = onGroupHost ? await db.getDeskUserForLogin(env, email) : await db.getUserForLogin(env, email);
   const ok = row ? await verifyPassword(password, row.password_hash) : false;
   if (!row || !ok) return json({ error: 'Email or password is incorrect.' }, 401);
 
@@ -206,8 +211,6 @@ export async function handleLogin(request, env) {
     ? await env.DB.prepare('SELECT is_desk FROM agencies WHERE id = ?').bind(row.agency_id).first()
       .then((a) => Boolean(a && a.is_desk)).catch(() => false)
     : false;
-  const onGroupHost = String(env.GROUP_HOST || '').trim()
-    && new URL(request.url).hostname.toLowerCase() === String(env.GROUP_HOST).trim().toLowerCase();
   if (onGroupHost && !desk) return json({ error: 'Email or password is incorrect.' }, 401);
 
   const token = randomToken(32);

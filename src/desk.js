@@ -51,11 +51,11 @@ async function ensureDeskAgency(env) {
 /** The people on the desk, for the operator. */
 async function members(env) {
   const { results } = await env.DB.prepare(
-    `SELECT id, email, first_name, last_name, phone, status, last_login_at FROM users
+    `SELECT id, email, desk_email, first_name, last_name, phone, status, last_login_at FROM users
       WHERE agency_id = ? ORDER BY created_at ASC`
   ).bind(DESK_AGENCY).all().catch(() => ({ results: [] }));
   return (results || []).map((u) => ({
-    id: u.id, email: u.email, name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email,
+    id: u.id, email: u.desk_email || u.email, name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email,
     phone: u.phone || '', status: u.status, lastLoginAt: u.last_login_at || null,
   }));
 }
@@ -93,17 +93,30 @@ export async function handleAddDeskMember(request, env) {
   const lastName = clean(body.lastName, 80);
   if (!isValidEmail(email)) return badRequest('Enter a valid email address.');
   if (!firstName || !lastName) return badRequest('First and last name are required.');
-  if (await db.emailExists(env, email)) return badRequest('There is already an account with that email address.');
+  // Already on the desk, under that address or as the address they sign in with there.
+  const onDesk = await env.DB.prepare(
+    'SELECT id FROM users WHERE agency_id = ? AND (email = ? OR desk_email = ?)'
+  ).bind(DESK_AGENCY, email, email).first();
+  if (onDesk) return badRequest('That address is already on the desk.');
+  // An address the same person already has an account under elsewhere in the portal, such as the owner's own.
+  // Accounts are one to an address, so the desk account is held under an internal one and the real address is
+  // what they type to sign in at the desk. They never see the internal one.
+  const taken = await db.emailExists(env, email);
 
   const agencyId = await ensureDeskAgency(env);
   // Every member is an owner of the desk's agency, so each can see and work on every group on it. They are
   // owners of nothing else: the agency holds nobody but the desk.
-  const user = await db.createUser(env, {
-    agencyId, email,
+  const created = await db.createUser(env, {
+    agencyId, email: taken ? `desk-${randomToken(8)}@desk.invalid` : email,
     // Random and thrown away: the account cannot be signed into until the link sets a real password.
     passwordHash: await hashPassword(randomToken(32)),
     firstName, lastName, phone: clean(body.phone, 40), agencyName: 'Group Desk', role: 'admin', status: 'active',
   });
+  if (taken) {
+    await env.DB.prepare('UPDATE users SET desk_email = ? WHERE id = ? AND agency_id = ?')
+      .bind(email, created.id, agencyId).run();
+  }
+  const user = await db.getUserById(env, created.id);
   await db.logActivity(env, operator.id, 'desk.add', `Added ${email} to the Group Desk`, { userId: user.id });
   return json({ ok: true, member: publicUser(user), invite: await issueInvite(env, user.id) });
 }

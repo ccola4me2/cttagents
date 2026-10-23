@@ -26,7 +26,9 @@ const USER_COLUMNS = `
   -- forwarded to. Absent from here, zoneOf would have read undefined and
   -- quietly used the portal default for everybody, for ever.
   timezone, invite_token,
-  agency_id, platform_owner
+  agency_id, platform_owner,
+  -- The address a Group Desk member signs in with when their account has an address of its own inside.
+  desk_email
 `;
 
 // The same columns qualified, for the session lookup that joins sessions to
@@ -51,6 +53,18 @@ export async function getUserForLogin(env, email) {
   return env.DB.prepare(
     `SELECT ${USER_COLUMNS}, password_hash FROM users WHERE email = ?`
   ).bind(email).first();
+}
+
+/**
+ * Who is signing in at the Group Desk. Only accounts in the desk's own agency are looked at, and either the
+ * address they use there or the one the account is held under will do.
+ */
+export async function getDeskUserForLogin(env, email) {
+  if (!email) return null;
+  return env.DB.prepare(
+    `SELECT ${USER_COLUMNS}, password_hash FROM users
+      WHERE agency_id IN (SELECT id FROM agencies WHERE is_desk = 1) AND (desk_email = ? OR email = ?)`
+  ).bind(email, email).first();
 }
 
 export async function emailExists(env, email) {
