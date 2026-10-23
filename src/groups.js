@@ -20,6 +20,7 @@ import { parseGroupQuote, FIELD_WORDS } from './groupquote.js';
 import { buildSchedule } from './payments.js';
 import { assignSlug, linkInfo, releaseAllFor, cleanSlug, slugProblem, slugState } from './groupslug.js';
 import { listGroupFiles, removeGroupFiles } from './groupfiles.js';
+import { refreshBridge } from './groupcabins.js';
 import { portName } from './ports.js';
 import { SELLING } from './groupaccess.js';
 
@@ -337,6 +338,24 @@ async function ratesFor(env, groupId, userId) {
   return results || [];
 }
 
+/**
+ * On the desk the cabins sold are the ones on the group's cabin sheet, not reservations in the portal, because the
+ * sheet is where the desk records who has booked what. Cancelled and removed rows do not count.
+ */
+async function useSheetCounts(env, user, groups, { refresh = false } = {}) {
+  if (!user.agency_is_desk) return;
+  for (const g of groups) {
+    if (refresh) {
+      try { await refreshBridge(env, g); } catch (e) { console.error('desk bridge', e); }
+    }
+    const row = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM group_cabins
+        WHERE group_id = ? AND user_id = ? AND hidden = 0 AND status <> 'cancelled'`
+    ).bind(g.id, g.user_id).first();
+    g.cabins_sold = Number(row && row.n) || 0;
+  }
+}
+
 export async function listGroups(env, scope, { status, limit = 200 } = {}) {
   const scoped = db.scopeWhere(scope, 'g.user_id');
   const where = [scoped.sql];
@@ -362,6 +381,7 @@ export async function handleListGroups(request, env) {
   const groups = await listGroups(env, scope, {
     status: STATUSES.includes(statusParam) ? statusParam : undefined,
   });
+  await useSheetCounts(env, user, groups);
 
   const today = new Date().toISOString().slice(0, 10);
   const open = groups.filter((g) => g.status === 'open');
@@ -448,6 +468,7 @@ export async function handleGetGroup(request, env, id) {
       WHERE g.id = ? AND ${scoped.sql}`
   ).bind(id, ...scoped.binds).first();
   if (!group) return notFound('Group not found.');
+  await useSheetCounts(env, user, [group], { refresh: true });
 
   // The reservations in the block, read at the same scope as the group.
   const bScoped = db.scopeWhere(scope, 'b.user_id');

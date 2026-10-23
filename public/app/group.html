@@ -873,7 +873,7 @@ function renderHeader(g) {
     <div class="stat"><p class="label">Cabins held</p><p class="value">${held}</p>
       <p class="meta">What the vendor is holding</p></div>
     <div class="stat"><p class="label">Sold</p><p class="value">${sold}</p>
-      <p class="meta">Reservations in the block</p></div>
+      <p class="meta">${me.desk ? 'Cabins on the cabin sheet' : 'Reservations in the block'}</p></div>
     <div class="stat"><p class="label">Still to sell</p>
       <p class="value">${Math.max(0, held - sold)}</p>
       <p class="meta">Before the option date</p></div>

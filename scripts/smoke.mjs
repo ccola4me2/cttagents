@@ -8717,6 +8717,11 @@ async function main() {
     check(sum.byBooker?.Lori?.guests === 9 && sum.byBooker?.Brent?.cabins === 1 && !sum.byBooker?.Dawn,
       'and who has booked what', JSON.stringify(sum.byBooker));
     check(sum.minimumMet === false && sum.minimum === 6, 'under six cabins is not yet a group');
+    const deskView = await call(desk, 'GET', `/api/groups/${gid}`);
+    const deskList = await call(desk, 'GET', '/api/groups');
+    check(deskView.data?.group?.cabins_sold === 3
+      && (deskList.data?.groups || []).find((g) => g.id === gid)?.cabins_sold === 3,
+    'on the desk, cabins sold are the ones on the sheet, on the group page and the list', `${deskView.data?.group?.cabins_sold}`);
 
     const avail = sheet.data?.availability || {};
     const balcony = (avail.types || []).find((t) => t.name === 'Balcony');
