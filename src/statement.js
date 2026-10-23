@@ -962,6 +962,35 @@ async function combinedStatement(request, env, user, { kind, results, statements
   return json({ ok: true, sent: true, results, combined: { ...summary, subject: out.subject } });
 }
 
+/**
+ * What has changed since this client was last sent an invoice, in the advisor's own first person: payments
+ * posted since, and files shared since. Null for a quote, for an invoice never sent, and when nothing is new, so
+ * the standard wording is left exactly as it was. Said at the front of the opening message, where the client
+ * will see it first, and the advisor can change it like any other words on the screen.
+ */
+function updateLead(statement, booking, payments, docs) {
+  if (statement.mode !== 'statement' || !booking.statement_sent_at) return null;
+  const since = booking.statement_sent_at;
+  const newPayments = (payments || []).filter((p) => p.payment_class === 'hard' && p.paid_date
+    && (Number(p.updated_at) || 0) > since);
+  const newDocs = (docs || []).filter((d) => (Number(d.created_at) || 0) > since);
+  if (!newPayments.length && !newDocs.length) return null;
+
+  const lines = [];
+  if (newPayments.length) {
+    const said = newPayments.map((p) => `${money(p.amount_cents)} on ${day(p.paid_date)}`);
+    const list = said.length === 1 ? said[0]
+      : `${said.slice(0, -1).join(', ')} and ${said[said.length - 1]}`;
+    lines.push(`We have posted your ${newPayments.length === 1 ? 'payment' : 'payments'} of ${list}.`);
+  }
+  if (newDocs.length) {
+    lines.push(newDocs.length === 1
+      ? 'I have attached an updated document for your records.'
+      : 'I have attached updated documents for your records.');
+  }
+  return { text: lines.join(' '), payment: newPayments.length > 0 };
+}
+
 export async function handleStatement(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
@@ -1035,9 +1064,15 @@ export async function handleStatement(request, env, id) {
   // The opening and closing words the advisor, or the agency, has saved as the standard. What was
   // typed on this one send wins over them, and they win over the wording built in.
   const wording = await savedWording(env, owner, statement.mode === 'quote' ? 'quote' : 'invoice');
+  // What has changed since it was last sent, said first. Only for an invoice that has been sent before.
+  const lead = updateLead(statement, booking, payments, docs);
+  const baseIntro = wording.intro || (lead ? defaultIntro(false) : '');
+  const leadIntro = lead ? `${lead.text}\n\n${baseIntro}` : baseIntro;
+  const plainSubject = renderStatement(env, statement).subject;
+  const leadSubject = lead && lead.payment ? plainSubject.replace(/^Invoice for /, 'Payment received for ') : '';
   const withSaved = (c) => ({
-    subject: c.subject,
-    intro: c.intro || wording.intro || '',
+    subject: c.subject || leadSubject || c.subject,
+    intro: c.intro || leadIntro || '',
     note: c.note !== undefined ? c.note : (wording.note === null ? undefined : wording.note),
   });
   let rendered = renderStatement(env, statement, withSaved(custom));
@@ -1103,8 +1138,8 @@ export async function handleStatement(request, env, id) {
       subject: rendered.subject,
       // What it says when nothing is changed, so the editor can start from the real words.
       defaults: {
-        subject: renderStatement(env, statement).subject,
-        intro: wording.intro || defaultIntro(statement.mode === 'quote'),
+        subject: leadSubject || plainSubject,
+        intro: lead ? leadIntro : (wording.intro || defaultIntro(statement.mode === 'quote')),
         note: wording.note !== null ? wording.note : defaultNote(statement),
       },
       // Whose wording the standard is: the advisor's own, the agency's, or the portal's.

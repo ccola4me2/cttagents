@@ -3547,6 +3547,12 @@ onSubmit(postForm, async (values) => {
   // A payment on a quote is the client saying yes. Said, so the status moving is never a surprise.
   if (saved && saved.booked) {
     err.innerHTML = '<div class="notice notice-ok">This was a quote, and money has been posted against it, so it is now marked booked.</div>';
+  } else if (d.editable && values.paidDate && (d.booking.status === 'booked' || d.booking.status === 'travelled')) {
+    // The next thing to do with a payment is let the client know, so it is one click away rather than a
+    // trip back up to the invoice button.
+    err.innerHTML = `<div class="notice notice-ok">Payment posted.
+      <button class="btn btn-secondary btn-sm" type="button" id="after-pay-email">Email the client about it</button></div>`;
+    document.getElementById('after-pay-email').addEventListener('click', statement);
   }
 });
 
