@@ -8895,6 +8895,10 @@ async function main() {
     const otherMe = await call(desk, 'GET', '/api/auth/me');
     check(aliasMe.data?.user?.deskOperator === true && !otherMe.data?.user?.deskOperator,
       'the desk member who runs the portal is offered the way back to it, and nobody else is', `${aliasMe.data?.user?.deskOperator}/${otherMe.data?.user?.deskOperator}`);
+    const operatorList = await call(aliasJar, 'GET', '/api/admin/desk', undefined, asHost);
+    const memberList = await call(desk, 'GET', '/api/admin/desk', undefined, asHost);
+    check(operatorList.status === 200 && Array.isArray(operatorList.data?.members) && memberList.status === 403,
+      'from the desk, the one who runs the portal manages who is on it and nobody else can', `${operatorList.status}/${memberList.status}`);
     const inside = await call(aliasJar, 'GET', '/api/desk/overview', undefined, asHost);
     check(inside.status === 200, 'signed in, the desk answers', `status ${inside.status}`);
 

@@ -18,7 +18,7 @@ import {
   json, badRequest, notFound, forbidden, clean, readJson, isValidEmail, normalizeEmail, randomToken, sha256Hex,
   hashPassword, now,
 } from './util.js';
-import { requireUser, requireAdmin, publicUser } from './auth.js';
+import { requireUser, publicUser } from './auth.js';
 import { appUrl } from './share.js';
 import { refreshBridge } from './groupcabins.js';
 import { copyGroupTo } from './groups.js';
@@ -69,11 +69,21 @@ async function issueInvite(env, userId) {
   return { url: deskUrl(env, `/desk/reset?token=${encodeURIComponent(token)}`), expiresInDays: INVITE_TTL_DAYS };
 }
 
-/** The operator of the portal, and nobody else, may manage the desk. */
+/**
+ * The operator of the portal, and nobody else, may manage the desk. The operator is the portal's owner signed in
+ * to the portal, or the desk member who is that same person (the one whose desk address is the owner's own), which
+ * is how it is done from the desk itself.
+ */
 async function requireOperator(request, env) {
-  const { user, response } = await requireAdmin(request, env);
+  const { user, response } = await requireUser(request, env);
   if (response) return { response };
-  if (!user.platform_owner) return { response: forbidden('Only the portal owner can manage the desk.') };
+  if (isDeskUser(user)) {
+    if (!(await myCttAccount(env, user))) return { response: forbidden('Only the portal owner can manage the desk.') };
+    return { user };
+  }
+  if (user.role !== 'admin' || !user.platform_owner) {
+    return { response: forbidden('Only the portal owner can manage the desk.') };
+  }
   return { user };
 }
 

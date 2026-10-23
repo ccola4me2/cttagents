@@ -347,8 +347,6 @@ const ADMIN_NAV = [
   { href: '/admin/specials', label: 'Supplier specials', icon: I.megaphone },
   { href: '/admin/groups', label: 'Group pages', icon: I.chart },
   { href: '/admin/events', label: 'Trainings and events', icon: I.calendar },
-  // Only the person who runs the portal sees that the desk exists.
-  { href: '/admin/desk', label: 'Group desk', icon: I.groups, platformOwner: true },
   { href: '/admin/waiver', label: 'Waiver wording', icon: I.shield },
   { href: '/admin/training', label: 'Training', icon: I.book },
   { href: '/admin/manual', label: 'Running the agency', icon: I.book },
@@ -362,9 +360,8 @@ const DESK_NAV = [
   { href: '/app/groups', label: 'Groups', icon: I.groups, alsoOn: ['/app/group', '/app/group-sheet'] },
   { href: '/app/desk-leads', label: 'Leads', icon: I.people },
   { href: '/app/settings', label: 'My pages', icon: I.gear },
-  // Only for the desk member who runs the portal: adding people to the desk is done in the portal itself, which is
-  // on its own address, so this one leaves the group domain (and asks for the portal sign in there).
-  { href: 'https://cttagents.com/admin/desk', label: 'Desk members', icon: I.shield, deskOperator: true },
+  // Only for the desk member who runs the portal: who is on the desk, and a link for each new person.
+  { href: '/app/desk-members', label: 'Desk members', icon: I.shield, deskOperator: true },
 ];
 
 const HUB_KEY = 'tv.nav.hub';
@@ -1472,7 +1469,6 @@ export async function mountShell({ admin = false } = {}) {
     <nav id="sidebar-nav" aria-label="Portal">
       ${items.map((i) => navEntry(i, current, openHub)).join('')}
       ${showAdminLink ? navLink({ href: '/admin/', label: 'Admin', icon: I.shield }, current) : ''}
-      ${showAdminLink && user.platformOwner ? navLink({ href: '/admin/desk', label: 'Desk members', icon: I.groups }, current) : ''}
     </nav>
     <div class="sidebar-foot">
       <p class="who">${esc(user.name)}<span>${esc(user.email)}</span></p>
