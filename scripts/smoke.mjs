@@ -8891,6 +8891,10 @@ async function main() {
       'at the desk, the same address signs in to the desk account', `status ${aliasIn.status}`);
     const portalIn = await call(jar(), 'POST', '/api/auth/login', { email: ownEmail, password: aliasPassword });
     check(portalIn.status === 401, 'and the desk password is not the portal\'s', `status ${portalIn.status}`);
+    const aliasMe = await call(aliasJar, 'GET', '/api/auth/me', undefined, asHost);
+    const otherMe = await call(desk, 'GET', '/api/auth/me');
+    check(aliasMe.data?.user?.deskOperator === true && !otherMe.data?.user?.deskOperator,
+      'the desk member who runs the portal is offered the way back to it, and nobody else is', `${aliasMe.data?.user?.deskOperator}/${otherMe.data?.user?.deskOperator}`);
     const inside = await call(aliasJar, 'GET', '/api/desk/overview', undefined, asHost);
     check(inside.status === 200, 'signed in, the desk answers', `status ${inside.status}`);
 

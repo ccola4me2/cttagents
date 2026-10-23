@@ -238,8 +238,16 @@ export async function handleMe(request, env) {
   // `actingAs` is what the shell reads to put a banner across every page. It
   // has to be impossible to forget which account you are working in, because
   // the whole feature is that the portal behaves as though you are them.
+  const shown = publicUser(user);
+  // The desk member who is also the person who runs the portal gets a way back to the portal's desk setup.
+  if (shown.desk && user.desk_email) {
+    const operator = await env.DB.prepare(
+      `SELECT id FROM users WHERE email = ? AND platform_owner = 1 AND status = 'active'`
+    ).bind(user.desk_email).first();
+    shown.deskOperator = Boolean(operator);
+  }
   return json({
-    user: publicUser(user),
+    user: shown,
     actingAs: user.acting_as
       ? { user: publicUser(user), admin: realUserOf(user) }
       : null,

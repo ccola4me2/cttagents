@@ -362,6 +362,9 @@ const DESK_NAV = [
   { href: '/app/groups', label: 'Groups', icon: I.groups, alsoOn: ['/app/group', '/app/group-sheet'] },
   { href: '/app/desk-leads', label: 'Leads', icon: I.people },
   { href: '/app/settings', label: 'My pages', icon: I.gear },
+  // Only for the desk member who runs the portal: adding people to the desk is done in the portal itself, which is
+  // on its own address, so this one leaves the group domain (and asks for the portal sign in there).
+  { href: 'https://cttagents.com/admin/desk', label: 'Desk members', icon: I.shield, deskOperator: true },
 ];
 
 const HUB_KEY = 'tv.nav.hub';
@@ -1423,7 +1426,7 @@ export async function mountShell({ admin = false } = {}) {
   const current = location.pathname.replace(/index\.html$/, '');
   // Lines marked agencyOwner are left out for everybody who is not an owner working as themselves.
   const mayOwn = user.role === 'admin' && !actingAs;
-  const items = (isDesk ? DESK_NAV : (admin ? ADMIN_NAV : NAV)).filter((e) => !e.platformOwner || user.platformOwner).map((e) => (e.hub
+  const items = (isDesk ? DESK_NAV : (admin ? ADMIN_NAV : NAV)).filter((e) => (!e.platformOwner || user.platformOwner) && (!e.deskOperator || user.deskOperator)).map((e) => (e.hub
     ? { ...e, items: e.items.filter((i) => !i.agencyOwner || mayOwn) } : e));
   const showAdminLink = !admin && !isDesk && user.role === 'admin';
 
@@ -1469,6 +1472,7 @@ export async function mountShell({ admin = false } = {}) {
     <nav id="sidebar-nav" aria-label="Portal">
       ${items.map((i) => navEntry(i, current, openHub)).join('')}
       ${showAdminLink ? navLink({ href: '/admin/', label: 'Admin', icon: I.shield }, current) : ''}
+      ${showAdminLink && user.platformOwner ? navLink({ href: '/admin/desk', label: 'Desk members', icon: I.groups }, current) : ''}
     </nav>
     <div class="sidebar-foot">
       <p class="who">${esc(user.name)}<span>${esc(user.email)}</span></p>
