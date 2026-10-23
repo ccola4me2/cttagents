@@ -18,6 +18,7 @@ import { requireUser } from './auth.js';
 import { pdfRead } from './pdftext.js';
 import { parseMasAgentCopy } from './masconfirmation.js';
 import * as db from './db.js';
+import { syncFromCtt } from './deskcopy.js';
 
 export const CABIN_STATUSES = ['held', 'deposit', 'paid', 'cancelled'];
 const GUESTS_PER_TC = 12;
@@ -314,6 +315,8 @@ export async function availabilityOf(env, group, ownerId, rows) {
 export async function handleListCabins(request, env, groupId) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+  // A group brought from CTT is brought up to date with the original before the sheet is read.
+  if (user.agency_is_desk) await syncFromCtt(env, groupId, user.agency_id).catch((e) => console.error('desk copy', e));
   const found = await groupFor(env, user, groupId);
   if (!found) return notFound('Group not found.');
   const { group, owner } = found;

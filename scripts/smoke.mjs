@@ -8950,6 +8950,24 @@ async function main() {
     const offeredAfter = (await call(aliasJar, 'GET', '/api/desk/ctt-groups', undefined, asHost)).data?.groups?.find((g) => g.id === live.data?.group?.id);
     check(bringTwice.status === 400 && offeredAfter?.onDesk === true, 'it cannot be brought twice', `status ${bringTwice.status}`);
 
+    // Changing the original in CTT changes the copy on the desk.
+    const liveBody = (held, name) => ({
+      name, groupCode: `lv-${stamp}`, vendor: 'Margaritaville at Sea', productName: 'Beachcomber',
+      departDate: isoDay(320), returnDate: isoDay(327), cabinsHeld: held, groupType: 'cruise',
+      registrationOpen: true, registrationBlurb: 'Come along.',
+    });
+    const edited = await call(admin, 'PUT', `/api/groups/${live.data?.group?.id}`, liveBody(12, `Live MAS ${stamp} Renamed`));
+    const copyFollows = await call(aliasJar, 'GET', `/api/groups/${broughtId}`, undefined, asHost);
+    const copyOffered = await call(aliasJar, 'GET', '/api/desk/ctt-groups', undefined, asHost);
+    check(edited.status === 200 && copyFollows.data?.group?.cabins_held === 12 && copyFollows.data?.group?.name === `Live MAS ${stamp} Renamed`
+      && copyFollows.data?.cttPage?.open === true,
+    'a change to the group in CTT shows on the desk copy', `${edited.status} ${copyFollows.data?.group?.cabins_held} ${copyFollows.data?.group?.name}`);
+    check((copyOffered.data?.groups || []).find((g) => g.id === live.data?.group?.id)?.onDesk === true,
+      'and renaming the original does not offer it to be brought across again');
+    await call(admin, 'PUT', `/api/groups/${live.data?.group?.id}`, liveBody(9, `Live MAS ${stamp}`));
+    const copyBack = await call(aliasJar, 'GET', `/api/groups/${broughtId}`, undefined, asHost);
+    check(copyBack.data?.group?.cabins_held === 9 && copyBack.data?.group?.name === `Live MAS ${stamp}`, 'and changing it back changes the copy back', `${copyBack.data?.group?.cabins_held}`);
+
     // The cruise line's agent confirmation, uploaded, fills in the cabin and its payments.
     const tinyPdf = (lines) => {
       const esc = (t) => String(t).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');

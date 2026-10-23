@@ -21,6 +21,7 @@ import { buildSchedule } from './payments.js';
 import { assignSlug, linkInfo, releaseAllFor, cleanSlug, slugProblem, slugState } from './groupslug.js';
 import { listGroupFiles, removeGroupFiles } from './groupfiles.js';
 import { refreshBridge } from './groupcabins.js';
+import { syncFromCtt, syncAllFor } from './deskcopy.js';
 import { portName } from './ports.js';
 import { SELLING } from './groupaccess.js';
 
@@ -378,6 +379,7 @@ export async function handleListGroups(request, env) {
   const url = new URL(request.url);
   const statusParam = url.searchParams.get('status');
   const scope = db.scopeFor(env, user, request);
+  if (user.agency_is_desk) await syncAllFor(env, user.agency_id);
   const groups = await listGroups(env, scope, {
     status: STATUSES.includes(statusParam) ? statusParam : undefined,
   });
@@ -458,6 +460,8 @@ export async function handleGetGroup(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
 
+  // On the desk, a group brought from CTT is brought up to date with the original before it is read.
+  if (user.agency_is_desk) await syncFromCtt(env, id, user.agency_id).catch((e) => console.error('desk copy', e));
   const scope = db.scopeFor(env, user, request);
   const scoped = db.scopeWhere(scope, 'g.user_id');
   const group = await env.DB.prepare(

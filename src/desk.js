@@ -21,6 +21,7 @@ import {
 import { requireUser, publicUser } from './auth.js';
 import { appUrl } from './share.js';
 import { refreshBridge } from './groupcabins.js';
+import { syncAllFor } from './deskcopy.js';
 import { copyGroupTo } from './groups.js';
 import * as db from './db.js';
 
@@ -157,6 +158,9 @@ export async function handleDeskOverview(request, env) {
   const scoped = db.scopeWhere(scope, 'g.user_id');
   const showAll = new URL(request.url).searchParams.get('all') === '1';
 
+  // Groups brought from CTT first, so what the desk shows is what the original says now.
+  await syncAllFor(env, user.agency_id);
+
   // The owner's own reservations, brought up to date on every sheet before anything is counted, so the totals on
   // this page are the same as the ones on the sheets. Best effort: a failure here is totals from the last time.
   try {
@@ -283,13 +287,15 @@ async function cttGroupsFor(env, user, cttId) {
       ORDER BY g.depart_date ASC`
   ).bind(cttId).all();
   const { results: have } = await env.DB.prepare(
-    'SELECT name, depart_date FROM travel_groups WHERE user_id = ?'
+    'SELECT name, depart_date, ctt_group_id FROM travel_groups WHERE user_id = ?'
   ).bind(user.id).all();
   const onDesk = new Set((have || []).map((g) => `${g.name}|${g.depart_date || ''}`));
+  // By the group it was copied from too, so renaming the original does not offer it again.
+  const copied = new Set((have || []).map((g) => g.ctt_group_id).filter(Boolean));
   return (results || []).map((g) => ({
     id: g.id, name: g.name, ship: g.product_name || '', number: g.group_number || g.group_code || '',
     departDate: g.depart_date || '', cabinsHeld: g.cabins_held || 0, pageOpen: g.registration_open === 1,
-    onDesk: onDesk.has(`${g.name}|${g.depart_date || ''}`),
+    onDesk: copied.has(g.id) || onDesk.has(`${g.name}|${g.depart_date || ''}`),
   }));
 }
 
