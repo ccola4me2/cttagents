@@ -1369,6 +1369,8 @@ travForm.addEventListener('submit', async (e) => {
 
 function renderBookings(rows) {
   const card = document.getElementById('bookings-card');
+  // On the desk the cabin sheet is the record of who has booked what, not the agency's own reservations.
+  if (me.desk) { card.hidden = true; return; }
   const host = document.getElementById('bookings');
   card.hidden = false;
 
@@ -1440,6 +1442,8 @@ const SELL_TAGS = {
 };
 const sellBox = document.getElementById('selling-card');
 async function drawSelling(g, others) {
+  // Choosing which advisors may sell into a group is for the agency's own advisors. The Group Desk has none to choose.
+  if (me.desk) { sellBox.hidden = true; return; }
   sellBox.hidden = !groupId;
   if (!groupId) return;
   const [label, tone] = SELL_TAGS[g.selling] || SELL_TAGS.private;
