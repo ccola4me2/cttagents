@@ -1051,7 +1051,7 @@ export async function renderTripPage(request, env, code) {
 }
 
 const PAYMENT_WORD = {
-  deposit: 'Deposit', installment: 'Instalment', final: 'Final payment', refund: 'Refund',
+  deposit: 'Deposit', installment: 'Installment', final: 'Final payment', refund: 'Refund',
 };
 
 /**
