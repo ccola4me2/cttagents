@@ -8839,7 +8839,15 @@ async function main() {
       'a Margaritaville reservation with the group\'s number turns up on its sheet by itself', JSON.stringify(linkedRow));
     check(!(bridged.data?.cabins || []).some((c) => c.bookingNo === `CCL-${stamp}` || c.bookingNo === `LOOSE-${stamp}`),
       'one from another line, or with no number, does not', '');
-    check(linkedRow?.bookedBy && !JSON.stringify(bridged.data).includes('commission'), 'it says who booked it, and carries nothing about money');
+    check(linkedRow?.bookedBy && !JSON.stringify(bridged.data).includes('commission'), 'it says who booked it, and carries nothing about the agency\'s commission');
+    check(linkedRow?.totalCents === 400000 && linkedRow?.paidCents === 0, 'a bridged cabin shows what the client\'s trip costs and that nothing is paid yet', JSON.stringify([linkedRow?.totalCents, linkedRow?.paidCents]));
+    const bridgePay = await call(admin, 'POST', '/api/payments', {
+      bookingId: tied.data?.booking?.id, kind: 'deposit', amount: '500', dueDate: isoDay(0), paidDate: isoDay(0), paymentClass: 'hard',
+    });
+    const afterBridgePay = (await call(desk, 'GET', base)).data?.cabins?.find((c) => c.bookingNo === bookingNo);
+    check(bridgePay.status === 201 && afterBridgePay?.paidCents === 50000 && afterBridgePay?.totalCents === 400000,
+      'and a payment posted on the reservation shows on the sheet', JSON.stringify([bridgePay.status, afterBridgePay?.paidCents]));
+    if (bridgePay.data?.payment?.id) await call(admin, 'DELETE', `/api/payments/${bridgePay.data.payment.id}`);
     const offered = (bridged.data?.ctt?.suggestions || []).find((x) => x.confirmation === `LOOSE-${stamp}`);
     check(Boolean(offered) && !(bridged.data?.ctt?.suggestions || []).some((x) => x.confirmation === `CCL-${stamp}`),
       'a reservation that sails the same day with no number is offered', JSON.stringify(bridged.data?.ctt));

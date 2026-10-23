@@ -19,6 +19,7 @@ import { pdfRead } from './pdftext.js';
 import { parseMasAgentCopy } from './masconfirmation.js';
 import * as db from './db.js';
 import { syncFromCtt } from './deskcopy.js';
+import { listPricing, clientLines } from './pricing.js';
 
 export const CABIN_STATUSES = ['held', 'deposit', 'paid', 'cancelled'];
 const GUESTS_PER_TC = 12;
@@ -146,8 +147,8 @@ async function bookerNames(env, user, rows) {
 // true to the reservation. One that has no group number but sails the same day is offered, for a click.
 //
 // A narrow door, on purpose. Only the portal owner's own account is ever read, only reservations with
-// Margaritaville at Sea on them, and only the cabin, category, guests, booking number and whether it is paid.
-// Never money, commission, contact details or anything about the agency. It finds the owner's account through the
+// Margaritaville at Sea on them, and only the cabin, category, guests, booking number, what the client's trip
+// costs and what they have paid. Never commission, contact details or anything about the agency. It finds the owner's account through the
 // address the owner uses for both, so nobody else's reservations can be reached by adding somebody to the desk.
 
 const norm = (v) => String(v === undefined || v === null ? '' : v).trim().toLowerCase();
@@ -171,7 +172,7 @@ async function bridges(env) {
 async function masBookings(env, cttId) {
   const { results } = await env.DB.prepare(
     `SELECT b.id, b.client_name, b.cabin, b.cabin_category, b.confirmation_number, b.travellers, b.status,
-            b.depart_date, b.group_number
+            b.depart_date, b.group_number, b.gross_cents
        FROM bookings b
       WHERE b.user_id = ? AND b.status IN ('booked', 'travelled')
         AND (LOWER(b.supplier) LIKE ? OR LOWER(b.product_name) LIKE ?)
@@ -183,7 +184,8 @@ async function masBookings(env, cttId) {
 /** One of the person's reservations, of any status, or null when it is not theirs. */
 async function bookingOf(env, cttId, bookingId) {
   return env.DB.prepare(
-    `SELECT b.id, b.client_name, b.cabin, b.cabin_category, b.confirmation_number, b.travellers, b.status
+    `SELECT b.id, b.client_name, b.cabin, b.cabin_category, b.confirmation_number, b.travellers, b.status,
+            b.gross_cents
        FROM bookings b WHERE b.id = ? AND b.user_id = ?`
   ).bind(bookingId, cttId).first().catch(() => null);
 }
@@ -200,6 +202,16 @@ async function describe(env, cttId, b) {
   ).bind(b.id, cttId).first().catch(() => null);
   const total = (pay && pay.total) || 0;
   const paid = (pay && pay.paid) || 0;
+  // What the client's trip costs, as the client is told it (the breakdown when there is one, else the total on
+  // the reservation), and what has arrived: a payment with a paid date that is not a refund.
+  const lines = clientLines(await listPricing(env, b.id, { all: false, userId: cttId, self: true }).catch(() => []));
+  const broken = lines.reduce((n, l) => n + (l.deduct ? -l.amountCents : l.amountCents), 0);
+  const tripCents = Math.max(0, lines.length ? broken : (Number(b.gross_cents) || 0));
+  const arrived = await env.DB.prepare(
+    `SELECT COALESCE(SUM(amount_cents), 0) AS cents FROM booking_payments
+      WHERE booking_id = ? AND user_id = ? AND payment_class = 'hard' AND paid_date IS NOT NULL
+        AND kind <> 'refund' AND amount_cents > 0`
+  ).bind(b.id, cttId).first().catch(() => null);
   let status = 'held';
   if (b.status === 'cancelled') status = 'cancelled';
   else if (total > 0 && paid >= total) status = 'paid';
@@ -209,6 +221,7 @@ async function describe(env, cttId, b) {
     guests: Math.max(1, Math.min(names.length || Number(b.travellers) || 1, 12)),
     guestNames: cleanText(names.length ? names.join(', ') : b.client_name, 600),
     bookingNo: clean(b.confirmation_number, 40), status,
+    totalCents: tripCents, paidCents: Number(arrived && arrived.cents) || 0,
   };
 }
 
@@ -216,9 +229,10 @@ async function describe(env, cttId, b) {
 async function applyReservation(env, group, rowId, d) {
   await env.DB.prepare(
     `UPDATE group_cabins SET cabin_no = ?, category = ?, guests = ?, guest_names = ?, booking_no = ?, status = ?,
-            updated_at = ?
+            total_cents = ?, paid_cents = ?, updated_at = ?
       WHERE id = ? AND group_id = ? AND user_id = ?`
-  ).bind(d.cabinNo, d.category, d.guests, d.guestNames, d.bookingNo, d.status, now(), rowId, group.id, group.user_id).run();
+  ).bind(d.cabinNo, d.category, d.guests, d.guestNames, d.bookingNo, d.status, d.totalCents, d.paidCents, now(),
+    rowId, group.id, group.user_id).run();
 }
 
 /**
