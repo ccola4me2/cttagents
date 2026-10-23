@@ -69,7 +69,7 @@ export async function handleListAdvisors(request, env) {
 /** Agency names for the platform owner's advisor list, so a row says whose. */
 async function agencyNames(env) {
   const { results } = await env.DB.prepare(
-    'SELECT id, name FROM agencies ORDER BY name ASC LIMIT 200'
+    'SELECT id, name FROM agencies WHERE is_desk = 0 ORDER BY name ASC LIMIT 200'
   ).all().catch(() => ({ results: [] }));
   return results || [];
 }

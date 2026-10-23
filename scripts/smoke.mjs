@@ -8899,6 +8899,12 @@ async function main() {
     const memberList = await call(desk, 'GET', '/api/admin/desk', undefined, asHost);
     check(operatorList.status === 200 && Array.isArray(operatorList.data?.members) && memberList.status === 403,
       'from the desk, the one who runs the portal manages who is on it and nobody else can', `${operatorList.status}/${memberList.status}`);
+    const advisorsList = await call(admin, 'GET', '/api/admin/advisors');
+    const agenciesList = await call(admin, 'GET', '/api/agencies');
+    check(advisorsList.status === 200 && !(advisorsList.data?.users || []).some((u) => u.email === email || String(u.email).endsWith('@desk.invalid'))
+      && !(advisorsList.data?.agencies || []).some((a) => a.name === 'Group Desk')
+      && !(agenciesList.data?.agencies || []).some((a) => a.name === 'Group Desk'),
+    'the desk\'s people are not listed as agents in the portal, and the desk is not one of its agencies', `${advisorsList.status}/${agenciesList.status}`);
     const inside = await call(aliasJar, 'GET', '/api/desk/overview', undefined, asHost);
     check(inside.status === 200, 'signed in, the desk answers', `status ${inside.status}`);
 

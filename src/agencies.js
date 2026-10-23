@@ -93,7 +93,7 @@ export async function handleListAgencies(request, env) {
 
   // An agency owner sees their own and nothing else. Listing the others would
   // hand them the platform's client list.
-  const where = user.platform_owner ? '1 = 1' : 'a.id = ?';
+  const where = user.platform_owner ? 'a.is_desk = 0' : 'a.id = ?';
   const binds = user.platform_owner ? [] : [user.agency_id || ''];
 
   const { results } = await env.DB.prepare(

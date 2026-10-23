@@ -173,6 +173,9 @@ export async function setLastLogin(env, id) {
   await env.DB.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').bind(now(), id).run();
 }
 
+/** Not a member of the Group Desk, which is its own place and no part of the agency's list of advisors. */
+const NOT_DESK = '(agency_id IS NULL OR agency_id NOT IN (SELECT id FROM agencies WHERE is_desk = 1))';
+
 export async function listUsers(env, { status, role, agencyId } = {}) {
   const where = [];
   const binds = [];
@@ -180,6 +183,9 @@ export async function listUsers(env, { status, role, agencyId } = {}) {
   if (role) { where.push('role = ?'); binds.push(role); }
   // Left out only by the platform operator, deliberately and in one place.
   if (agencyId) { where.push('agency_id = ?'); binds.push(agencyId); }
+  // Across the platform, the Group Desk is not an agency of advisors: its people are not CTT agents and are
+  // listed only on the desk.
+  else where.push(NOT_DESK);
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const { results } = await env.DB.prepare(
     `SELECT ${USER_COLUMNS} FROM users ${clause} ORDER BY created_at DESC LIMIT 500`
@@ -269,7 +275,7 @@ export async function countUsers(env, { agencyId } = {}) {
        COUNT(*) AS total,
        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
        SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active
-     FROM users WHERE role = 'advisor'${agencyId ? ' AND agency_id = ?' : ''}`
+     FROM users WHERE role = 'advisor' AND ${agencyId ? 'agency_id = ?' : NOT_DESK}`
   ).bind(...(agencyId ? [agencyId] : [])).first();
   return { total: row?.total || 0, pending: row?.pending || 0, active: row?.active || 0 };
 }
