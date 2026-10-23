@@ -543,6 +543,7 @@ const PAGE_FILES = {
   '/app/group': '/app/group.html',
   '/app/group-sheet': '/app/group-sheet.html',
   '/app/desk': '/app/desk.html',
+  '/app/desk-leads': '/app/desk-leads.html',
   '/admin/desk': '/admin/desk.html',
   '/app/trip': '/app/trip.html',
   '/app/cruise-search': '/app/cruise-search.html',
