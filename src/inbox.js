@@ -17,9 +17,12 @@
 import { parseConfirmation } from './confirm.js';
 import { readableParts } from './mime.js';
 import { pdfRead } from './pdftext.js';
-import { json, badRequest, notFound, uid, now, clean } from './util.js';
+import { json, badRequest, notFound, uid, now, clean, PermanentError } from './util.js';
 import { requireUser, borrowedSeat } from './auth.js';
 import { inviteDomain } from './appointments.js';
+import { layout, sendHtml } from './email.js';
+import { appUrl } from './share.js';
+import { brandForUser } from './brand.js';
 import { tokenOf } from './inbound.js';
 import * as db from './db.js';
 
@@ -117,7 +120,35 @@ export async function handleInboundConfirmation(env, { to, raw }) {
 
   await db.logActivity(env, user.id, 'inbox.received',
     `A confirmation arrived by email${summary.ship ? ` for ${summary.ship}` : ''}`, { id });
+  // Told it is ready, with the one button. Best effort: the confirmation is waiting on the Import page whether or
+  // not this message gets there.
+  await tellConfirmationReady(env, user, id, summary).catch((e) => {
+    // No mail key configured is not a fault worth a log line; the confirmation is on the Import page regardless.
+    if (!(e instanceof PermanentError)) console.error('confirmation ready note', e);
+  });
   return { user, id, summary };
+}
+
+const esc = (t) => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/** A short note to the advisor that a forwarded confirmation has been read, with a button that opens it ready to create. */
+async function tellConfirmationReady(env, user, id, summary) {
+  const full = await db.getUserById(env, user.id);
+  const to = (full && (full.notify_email || full.email)) || user.email;
+  if (!to) return;
+  const bits = [summary.client, summary.ship || summary.vendor, summary.departDate, summary.number ? `#${summary.number}` : '']
+    .filter(Boolean).join(' · ');
+  const first = (full && full.first_name) || 'there';
+  const html = layout(env, {
+    brand: await brandForUser(env, user.id),
+    heading: 'Your confirmation is ready',
+    body: `<p style="margin:0 0 14px;">Hello ${esc(first)},</p>
+      <p style="margin:0 0 14px;">I read the confirmation you forwarded${bits ? `: <strong>${esc(bits)}</strong>` : ''}.</p>
+      <p style="margin:0 0 14px;">One button makes the reservation. It files the guests as clients, sets up the payments and puts
+        the dates on your task list. You can look over the details first if you like.</p>`,
+    cta: { label: 'Make the reservation', href: `${appUrl(env)}/app/import?inbox=${encodeURIComponent(id)}` },
+  });
+  await sendHtml(env, { to, subject: `Ready to make: ${bits || 'your forwarded confirmation'}`, html });
 }
 
 // ---------------------------------------------------------------------------

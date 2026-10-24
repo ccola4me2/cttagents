@@ -422,7 +422,7 @@ async function loadInbox() {
       return `<li><div class="row-between"><span>
           <span class="name">${esc(bits || it.subject || 'A confirmation')}</span>
           <span class="m" style="display:block;">${esc(it.subject || '')}</span></span>
-        <span><button class="btn btn-primary btn-sm" data-review="${esc(it.id)}">Review</button>
+        <span><button class="btn btn-primary btn-sm" data-review="${esc(it.id)}">Make the reservation</button>
           <button class="btn btn-ghost btn-sm" data-dismiss="${esc(it.id)}">Dismiss</button></span></div></li>`;
     }).join('')}</ul>`
     : (d.ready && d.address ? '<p class="muted" style="margin:0;">Nothing waiting.</p>' : '');
@@ -896,5 +896,11 @@ document.getElementById('run').addEventListener('click', async () => {
 });
 
 await loadInbox();
+// Arriving from the "your confirmation is ready" email: that one is opened, read and waiting on its button.
+{
+  const wanted = new URLSearchParams(location.search).get('inbox');
+  const button = wanted ? [...document.querySelectorAll('[data-review]')].find((b) => b.dataset.review === wanted) : null;
+  if (button) button.click();
+}
 </script>
 </body></html>

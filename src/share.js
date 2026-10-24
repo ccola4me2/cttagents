@@ -1085,7 +1085,7 @@ function comingUp(b, payments, today) {
     if (p.kind === 'refund' || !(p.paid_date || p.due_date)) continue;
     rows.push({
       on: p.paid_date || p.due_date, done: Boolean(p.paid_date),
-      label: `${PAYMENT_WORD[p.kind] || 'Payment'}, ${money(p.amount_cents)}`,
+      label: `${p.kind === 'final' ? 'Balance due' : (PAYMENT_WORD[p.kind] || 'Payment')}, ${money(p.amount_cents)}`,
       note: p.paid_date ? 'Paid' : (p.due_date < today ? 'Overdue, your advisor will be in touch' : 'Due'),
       late: !p.paid_date && p.due_date < today,
     });
