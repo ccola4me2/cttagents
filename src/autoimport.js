@@ -111,7 +111,7 @@ async function asAdvisor(env, userId, dispatch, base) {
     const res = await dispatch(new Request(`${base}${path}`, init));
     let data = null;
     try { data = await res.json(); } catch { data = null; }
-    if (!res.ok) throw new Error((data && data.error) || `That failed (${res.status}).`);
+    if (!res.ok) throw new Error((data && data.error) || `That failed with status ${res.status}.`);
     return data;
   };
   return { call, end: () => db.deleteSession(env, hash).catch(() => {}) };
@@ -295,7 +295,7 @@ export async function autoCreate(env, { user, read, pdf, headers, from, dispatch
           travellersMade = true;
         }
         await call('PUT', `/api/bookings/${encodeURIComponent(bookingId)}/pricing`, pricingBody(read, cols, ids));
-      } catch (e) { problems.push(`the price was not saved on the Pricing tab (${e.message})`); }
+      } catch (e) { problems.push(`the price was not saved on the Pricing tab: ${e.message}`); }
     }
     if (!travellersMade) {
       for (let i = 0; i < filing.length; i += 1) {
@@ -308,10 +308,10 @@ export async function autoCreate(env, { user, read, pdf, headers, from, dispatch
     if (filing.length) {
       // Somebody already on the books keeps what is on file: nothing is accepted for them. New people are added whole.
       try { await call('POST', '/api/import/guests', { guests: filing, preview: false, accept: [], household: true }); }
-      catch (e) { problems.push(`the guests were not filed as clients (${e.message})`); }
+      catch (e) { problems.push(`the guests were not filed as clients: ${e.message}`); }
     }
     if (cents(f.paid) > 0) {
-      try { await recordPaid(call, bookingId, body); } catch (e) { problems.push(`the payments already made were not recorded (${e.message})`); }
+      try { await recordPaid(call, bookingId, body); } catch (e) { problems.push(`the payments already made were not recorded: ${e.message}`); }
     }
     const rows = await penaltyRowsFor(call, read);
     const guests = Number(f.travellers) || (read.guests || []).length || 1;
@@ -322,7 +322,7 @@ export async function autoCreate(env, { user, read, pdf, headers, from, dispatch
     if (read.itinerary && read.itinerary.length) {
       try {
         for (const item of read.itinerary) await call('POST', `/api/bookings/${encodeURIComponent(bookingId)}/itinerary`, item);
-      } catch (e) { problems.push(`the itinerary was not saved (${e.message})`); }
+      } catch (e) { problems.push(`the itinerary was not saved: ${e.message}`); }
     }
     if (pdf && pdf.bytes && pdf.bytes.length) {
       try {
@@ -330,7 +330,7 @@ export async function autoCreate(env, { user, read, pdf, headers, from, dispatch
         form.append('file', new Blob([pdf.bytes], { type: 'application/pdf' }), pdf.filename || 'confirmation.pdf');
         form.append('category', 'confirmation');
         await call('POST', `/api/bookings/${encodeURIComponent(bookingId)}/documents`, undefined, form);
-      } catch (e) { problems.push(`the PDF was not kept (${e.message})`); }
+      } catch (e) { problems.push(`the PDF was not kept: ${e.message}`); }
     }
     await db.logActivity(env, user.id, 'inbox.autocreated',
       `Made a reservation for ${f.clientName} from a forwarded confirmation`, { id: bookingId, problems: problems.length });
@@ -338,7 +338,7 @@ export async function autoCreate(env, { user, read, pdf, headers, from, dispatch
   } catch (e) {
     // Once the reservation exists it is never reported as held, or the advisor would make it a second time from the
     // Import page. Whatever stopped the rest is said, and they finish it on the reservation.
-    if (bookingId) return { created: true, bookingId, problems: [...problems, `something stopped the rest (${String((e && e.message) || e).slice(0, 120)})`] };
+    if (bookingId) return { created: true, bookingId, problems: [...problems, `something stopped the rest: ${String((e && e.message) || e).slice(0, 120)}`] };
     return { held: true, reason: String((e && e.message) || e).slice(0, 200) };
   } finally {
     await session.end();
