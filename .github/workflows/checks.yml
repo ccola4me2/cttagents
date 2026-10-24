@@ -225,6 +225,11 @@ jobs:
       - name: A forwarded confirmation is read the way it was sent
         run: npm run check:inbox
 
+      # And made into a reservation on its own only when it is plainly safe to: from the advisor's own address and
+      # vouched for by the mail system, every essential read, a booking and not an offer, a price that adds up.
+      - name: A forwarded confirmation is made into a reservation only when it is safe to
+        run: npm run check:autoimport
+
       # The follow-up on a quote nobody has answered. What goes wrong is quiet: telling an advisor a
       # client opened a page they have not, or nudging a quote every five minutes for a year.
       - name: The follow-up on an unanswered quote says what is true

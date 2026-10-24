@@ -5,16 +5,19 @@
 // to conf-<token>@ is read and held on the Import page as waiting for that advisor, who opens it,
 // checks every field and creates the reservation.
 //
-// It is held and not created, for the reason the reader is a reader: vendor confirmations have no
-// standard shape, so some will be misread, and a reservation written straight to the books on a
-// guess is worse than typing. A wrong sail date somebody corrected is a nuisance. A wrong sail
-// date nobody saw is a missed holiday.
+// It is held and not created unless it reads cleanly, for the reason the reader is a reader: vendor
+// confirmations have no standard shape, so some will be misread, and a reservation written straight
+// to the books on a guess is worse than typing. A wrong sail date somebody corrected is a nuisance.
+// A wrong sail date nobody saw is a missed holiday. So a message is made into a reservation here only
+// when it came from the advisor's own address, every essential was read, and nothing looks off (see
+// autoimport.js); the advisor is emailed either way, and everything else waits to be checked.
 //
 // Nothing here trusts the sender. The token is the whole permission, as it is for invites. A message
 // that cannot be read bounces with the reason, because an advisor who forwards something and hears
 // nothing cannot tell "it worked" from "it went in the bin".
 
 import { parseConfirmation } from './confirm.js';
+import { autoCreate } from './autoimport.js';
 import { readableParts } from './mime.js';
 import { pdfRead } from './pdftext.js';
 import { json, badRequest, notFound, uid, now, clean, PermanentError } from './util.js';
@@ -54,7 +57,7 @@ export async function bestReading(raw) {
   for (const pdf of parts.pdfs.slice(0, 3)) {
     try {
       const read = await pdfRead(pdf.bytes);
-      if (read && read.text && read.text.trim()) candidates.push({ source: 'pdf', text: read.text });
+      if (read && read.text && read.text.trim()) candidates.push({ source: 'pdf', text: read.text, bytes: pdf.bytes, filename: pdf.filename });
     } catch { /* a PDF that cannot be opened is one candidate fewer */ }
   }
   let best = null;
@@ -75,14 +78,14 @@ export async function bestReading(raw) {
  * Separated from the mail plumbing so it can be run against a message that is a string. The email
  * handler in worker.js is the ten lines that turn one into the other.
  */
-export async function handleInboundConfirmation(env, { to, raw }) {
+export async function handleInboundConfirmation(env, { to, raw, from = '', dispatch = null }) {
   const token = tokenOf(to);
   const alias = token ? null : aliasOf(to);
   const user = token
-    ? await env.DB.prepare("SELECT id, email FROM users WHERE invite_token = ? AND status = 'active'")
+    ? await env.DB.prepare("SELECT id, email, notify_email FROM users WHERE invite_token = ? AND status = 'active'")
       .bind(token).first().catch(() => null)
     : (alias
-      ? await env.DB.prepare("SELECT id, email FROM users WHERE import_alias = ? AND status = 'active'")
+      ? await env.DB.prepare("SELECT id, email, notify_email FROM users WHERE import_alias = ? AND status = 'active'")
         .bind(alias).first().catch(() => null)
       : null);
   // The same answer whether the token is wrong or the account is closed.
@@ -109,6 +112,27 @@ export async function handleInboundConfirmation(env, { to, raw }) {
     client: f.clientName || '', vendor: f.supplier || '', ship: f.productName || '',
     departDate: f.departDate || '', number: f.confirmationNumber || '',
   };
+
+  // One that reads cleanly, from the advisor's own address, is made into a reservation here and now, and the advisor is
+  // told. Anything else waits on the Import page as it always did, with the reason. See autoimport.js for what clean means.
+  let heldReason = '';
+  if (dispatch) {
+    try {
+      const full = await db.getUserById(env, user.id);
+      const auto = await autoCreate(env, {
+        user: full || user, read: best.read, pdf: best.source === 'pdf' ? best : null, headers, from, dispatch, base: appUrl(env) });
+      if (auto.created) {
+        await tellReservationMade(env, user, auto.bookingId, summary, auto.problems)
+          .catch((e) => { if (!(e instanceof PermanentError)) console.error('reservation made note', e); });
+        return { user, created: auto.bookingId, summary };
+      }
+      heldReason = auto.reason || '';
+      await db.logActivity(env, user.id, 'inbox.autoheld', `A forwarded confirmation was held: ${heldReason}`,
+        { reason: heldReason, headers: auto.seen || [] }).catch(() => {});
+    } catch (e) {
+      console.error('auto create', e);
+    }
+  }
   const id = uid();
   const ts = now();
   await env.DB.prepare(
@@ -122,7 +146,7 @@ export async function handleInboundConfirmation(env, { to, raw }) {
     `A confirmation arrived by email${summary.ship ? ` for ${summary.ship}` : ''}`, { id });
   // Told it is ready, with the one button. Best effort: the confirmation is waiting on the Import page whether or
   // not this message gets there.
-  await tellConfirmationReady(env, user, id, summary).catch((e) => {
+  await tellConfirmationReady(env, user, id, summary, heldReason).catch((e) => {
     // No mail key configured is not a fault worth a log line; the confirmation is on the Import page regardless.
     if (!(e instanceof PermanentError)) console.error('confirmation ready note', e);
   });
@@ -131,8 +155,30 @@ export async function handleInboundConfirmation(env, { to, raw }) {
 
 const esc = (t) => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+/** A note to the advisor that a forwarded confirmation became a reservation, and what, if anything, is left to finish. */
+async function tellReservationMade(env, user, bookingId, summary, problems) {
+  const full = await db.getUserById(env, user.id);
+  const to = (full && (full.notify_email || full.email)) || user.email;
+  if (!to) return;
+  const bits = [summary.client, summary.ship || summary.vendor, summary.departDate, summary.number ? `#${summary.number}` : '']
+    .filter(Boolean).join(' · ');
+  const left = (problems || []).filter(Boolean);
+  const html = layout(env, {
+    brand: await brandForUser(env, user.id),
+    heading: 'Your reservation is made',
+    body: `<p style="margin:0 0 14px;">Hello ${esc((full && full.first_name) || 'there')},</p>
+      <p style="margin:0 0 14px;">I read the confirmation you forwarded and made the reservation${bits ? `: <strong>${esc(bits)}</strong>` : ''}.
+        The guests are filed as clients, the price is on the Pricing tab, and the dates are on your task list.</p>
+      ${left.length ? `<p style="margin:0 0 6px;"><strong>Still for you to look at:</strong></p>
+        <ul style="margin:0 0 14px;padding-left:20px;">${left.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>` : ''}
+      <p style="margin:0 0 14px;">If anything looks wrong, open it and correct it, or delete it. Nothing has been sent to the client.</p>`,
+    cta: { label: 'Open the reservation', href: `${appUrl(env)}/app/reservation?id=${encodeURIComponent(bookingId)}` },
+  });
+  await sendHtml(env, { to, subject: `Made: ${bits || 'your reservation'}`, html });
+}
+
 /** A short note to the advisor that a forwarded confirmation has been read, with a button that opens it ready to create. */
-async function tellConfirmationReady(env, user, id, summary) {
+async function tellConfirmationReady(env, user, id, summary, reason = '') {
   const full = await db.getUserById(env, user.id);
   const to = (full && (full.notify_email || full.email)) || user.email;
   if (!to) return;
@@ -144,6 +190,7 @@ async function tellConfirmationReady(env, user, id, summary) {
     heading: 'Your confirmation is ready',
     body: `<p style="margin:0 0 14px;">Hello ${esc(first)},</p>
       <p style="margin:0 0 14px;">I read the confirmation you forwarded${bits ? `: <strong>${esc(bits)}</strong>` : ''}.</p>
+      ${reason ? `<p style="margin:0 0 14px;">I did not make it for you straight away: ${esc(reason)}</p>` : ''}
       <p style="margin:0 0 14px;">One button makes the reservation. It files the guests as clients, sets up the payments and puts
         the dates on your task list. You can look over the details first if you like.</p>`,
     cta: { label: 'Make the reservation', href: `${appUrl(env)}/app/import?inbox=${encodeURIComponent(id)}` },

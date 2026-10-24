@@ -620,7 +620,11 @@ export default {
           return;
         }
         const bytes = new Uint8Array(await new Response(message.raw).arrayBuffer());
-        const held = await handleInboundConfirmation(env, { to: message.to, raw: bytes });
+        // Handed the router itself, so a confirmation that reads cleanly can be made into a reservation through the same
+        // handlers as a person pressing the button, as the advisor and under their own rules. See autoimport.js.
+        const held = await handleInboundConfirmation(env, {
+          to: message.to, raw: bytes, from: message.from, dispatch: (req) => routeRequest(req, env, ctx),
+        });
         if (held.reject) message.setReject(held.reject);
         return;
       }
