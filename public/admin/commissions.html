@@ -210,6 +210,7 @@ function drawTiles() {
       `${t.owedToUsCount} reservation${t.owedToUsCount === 1 ? '' : 's'} not yet paid`),
     tile('all', 'Everything', 'All commissions', 'every reservation and advisor, to search, filter and download'),
     tile('statements', 'Statements', 'For each advisor', 'what they earned, were paid and are owed, to print or send'),
+    tile('reports', 'Reports', 'By advisor, vendor, month', 'the books in tables you can download'),
     tile('recall', 'Recall watch', rc ? (needAttention() ? `${needAttention()} to review` : 'All clear') : 'Safe to pay?',
       rc ? `${money(rc.totals.holdCents)} held until safe, ${money(rc.totals.cancelledReceivedCents)} on cancelled trips` : 'what could still be taken back'),
   ].join('');
@@ -670,6 +671,146 @@ panel.addEventListener('click', (e) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Reports: the same figures, grouped, with a download for each
+// ---------------------------------------------------------------------------
+
+const rep = { kind: 'advisor', from: '', to: '' };
+const REPORTS = [
+  ['advisor', 'By advisor'], ['vendor', 'By vendor'], ['sailed', 'By month sailed'], ['received', 'By month received'],
+  ['variance', 'Short and over'], ['checks', 'Every check'],
+];
+
+/** One report as a table of plain values: columns say what each is, so the screen and the download agree. */
+function reportData() {
+  const rows = all.rows.filter((r) => (!rep.from || (r.depart_date || '') >= rep.from) && (!rep.to || (r.depart_date || '9999') <= rep.to));
+  const group = (keyOf) => {
+    const m = new Map();
+    for (const r of rows) {
+      const key = keyOf(r) || 'Not recorded';
+      if (!m.has(key)) m.set(key, []);
+      m.get(key).push(r);
+    }
+    return [...m.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  };
+  const sum = (list, k) => list.reduce((n, r) => n + (Number(r[k]) || 0), 0);
+  const due = (list) => list.reduce((n, r) => n + Math.max(r.due_cents || 0, 0), 0);
+
+  if (rep.kind === 'advisor') {
+    return { cols: [['name', 'Advisor', 'text'], ['n', 'Reservations', 'int'], ['expected', 'Expected', 'money'], ['received', 'Received', 'money'],
+      ['share', 'Advisor share of received', 'money'], ['paid', 'Paid out', 'money'], ['due', 'Still due to advisor', 'money'], ['agency', 'Agency keeps', 'money']],
+    rows: group((r) => r.advisor_name).map(([name, l]) => ({ name, n: l.length, expected: sum(l, 'commission_cents'), received: sum(l, 'received_cents'),
+      share: sum(l, 'payout_cents'), paid: sum(l, 'paid_out_cents'), due: due(l), agency: sum(l, 'agency_received_cents') })) };
+  }
+  if (rep.kind === 'vendor') {
+    return { cols: [['name', 'Vendor', 'text'], ['n', 'Reservations', 'int'], ['gross', 'Sales', 'money'], ['expected', 'Expected', 'money'], ['rate', 'Commission rate', 'pct'],
+      ['received', 'Received', 'money'], ['owed', 'Still owed to us', 'money'], ['pct', 'Received so far', 'pct']],
+    rows: group((r) => r.supplier).map(([name, l]) => {
+      const gross = sum(l, 'gross_cents');
+      const expected = sum(l, 'commission_cents');
+      const received = sum(l, 'received_cents');
+      return { name, n: l.length, gross, expected, rate: gross ? (expected / gross) * 100 : 0, received, owed: sum(l, 'outstanding_cents'),
+        pct: expected ? (received / expected) * 100 : 0 };
+    }) };
+  }
+  if (rep.kind === 'sailed') {
+    return { cols: [['name', 'Month sailing', 'text'], ['n', 'Reservations', 'int'], ['gross', 'Sales', 'money'], ['expected', 'Expected', 'money'],
+      ['received', 'Received', 'money'], ['owed', 'Still owed to us', 'money']],
+    rows: group((r) => (r.depart_date ? r.depart_date.slice(0, 7) : '')).map(([name, l]) => ({
+      name: /^\d{4}-\d{2}$/.test(name) ? new Date(`${name}-01T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : name,
+      n: l.length, gross: sum(l, 'gross_cents'), expected: sum(l, 'commission_cents'), received: sum(l, 'received_cents'), owed: sum(l, 'outstanding_cents') })) };
+  }
+  if (rep.kind === 'received') {
+    const m = new Map();
+    const at = (key) => { if (!m.has(key)) m.set(key, { checks: 0, statement: 0, fees: 0, net: 0, loose: 0 }); return m.get(key); };
+    for (const c of d.checks) {
+      if (!c.received_on) continue;
+      const e = at(c.received_on.slice(0, 7));
+      e.checks += 1; e.statement += c.statement_cents || 0; e.fees += c.fee_cents || 0; e.net += c.net_cents || 0;
+    }
+    for (const r of d.loose || []) {
+      if (r.received_on) at(r.received_on.slice(0, 7)).loose += r.amount_cents || 0;
+    }
+    return { cols: [['name', 'Month received', 'text'], ['checks', 'Checks', 'int'], ['statement', 'Check totals', 'money'], ['fees', 'Fees', 'money'],
+      ['net', 'At the bank', 'money'], ['loose', 'Entered one at a time', 'money']],
+    rows: [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([k, e]) => ({
+      name: new Date(`${k}-01T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }), ...e })) };
+  }
+  if (rep.kind === 'variance') {
+    return { cols: [['name', 'Reservation', 'text'], ['advisor', 'Advisor', 'text'], ['vendor', 'Vendor', 'text'], ['state', 'Status', 'text'],
+      ['expected', 'Expected', 'money'], ['received', 'Received', 'money'], ['variance', 'Difference', 'money']],
+    rows: rows.filter((r) => r.settlement === 'short' || r.settlement === 'over').map((r) => ({
+      name: r.client_name, advisor: r.advisor_name, vendor: r.supplier, state: STATE_LABEL[r.settlement], expected: r.commission_cents,
+      received: r.received_cents, variance: r.variance_cents })) };
+  }
+  return { cols: [['name', 'Received', 'text'], ['vendor', 'Vendor', 'text'], ['number', 'Check number', 'text'], ['statement', 'Check total', 'money'],
+    ['fee', 'Fee', 'money'], ['net', 'At the bank', 'money'], ['lines', 'Lines', 'int'], ['unmatched', 'Not matched to a reservation', 'money']],
+  rows: d.checks.map((c) => ({ name: c.received_on ? dateFmt(c.received_on) : '', vendor: c.vendor_name, number: c.reference || '',
+    statement: c.statement_cents, fee: c.fee_cents || 0, net: c.net_cents, lines: c.lines, unmatched: Math.abs(c.unmatched_cents) <= 1 ? 0 : c.unmatched_cents })) };
+}
+
+function reportCell(v, type) {
+  if (type === 'money') return money(v);
+  if (type === 'pct') return `${(Number(v) || 0).toFixed(1)}%`;
+  if (type === 'int') return String(v);
+  return esc(v);
+}
+
+function reportTable() {
+  const r = reportData();
+  if (!r.rows.length) return '<div class="card"><div class="empty"><h3>Nothing to show</h3><p>There is nothing for this report in the dates chosen.</p></div></div>';
+  const totals = r.cols.map(([k, , type]) => (type === 'money' || type === 'int'
+    ? r.rows.reduce((n, row) => n + (Number(row[k]) || 0), 0) : null));
+  const showTotal = r.cols.some(([, , type]) => type === 'money' || type === 'int');
+  return `<div class="card cd-scroll"><table class="cd-table"><thead><tr>${r.cols.map(([, label, type]) =>
+    `<th class="${type === 'text' ? '' : 'r'}">${esc(label)}</th>`).join('')}</tr></thead><tbody>${r.rows.map((row) => `<tr>${r.cols.map(([k, , type]) =>
+    `<td class="${type === 'text' ? '' : 'r cd-money'}">${reportCell(row[k], type)}</td>`).join('')}</tr>`).join('')}
+    ${showTotal ? `<tr class="tot">${r.cols.map(([k, , type], i) => `<td class="${type === 'text' ? '' : 'r cd-money'}">${
+  i === 0 ? `${r.rows.length} row${r.rows.length === 1 ? '' : 's'}` : (totals[i] === null ? '' : reportCell(totals[i], type))}</td>`).join('')}</tr>` : ''}
+    </tbody></table></div>`;
+}
+
+function downloadReport() {
+  const r = reportData();
+  const val = (v, type) => (type === 'money' ? ((Number(v) || 0) / 100).toFixed(2) : type === 'pct' ? (Number(v) || 0).toFixed(1) : v);
+  const lines = [r.cols.map(([, label]) => csvCell(label)).join(',')].concat(r.rows.map((row) =>
+    r.cols.map(([k, , type]) => csvCell(val(row[k], type))).join(',')));
+  const href = URL.createObjectURL(new Blob([`${lines.join('\n')}\n`], { type: 'text/csv' }));
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = `commission-report-${rep.kind}-${d.today}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 60000);
+}
+
+function drawReports() {
+  if (!all) { loadAll(); return '<p class="spinner">Loading...</p>'; }
+  const datesApply = ['advisor', 'vendor', 'sailed', 'variance'].includes(rep.kind);
+  return `<div class="cd-chips" style="margin-bottom:.8rem;">${REPORTS.map(([k, l]) =>
+    `<button class="cd-chip" type="button" data-report="${k}" aria-pressed="${rep.kind === k}">${l}</button>`).join('')}</div>
+    <div class="card cd-filters">
+      ${datesApply ? `<div><label for="rp-from">Sails from</label><input id="rp-from" data-rp="from" type="date" value="${esc(rep.from)}"></div>
+      <div><label for="rp-to">Sails to</label><input id="rp-to" data-rp="to" type="date" value="${esc(rep.to)}"></div>` : `<div class="muted">This report follows the year chosen at the top.</div>`}
+      <div><button class="btn btn-ghost btn-sm" type="button" id="rp-csv">Download this report</button></div>
+    </div><div id="rp-body">${reportTable()}</div>
+    ${datesApply && all.rows.length >= 500 ? '<p class="muted">Based on the first 500 reservations. Use the dates to narrow it.</p>' : ''}`;
+}
+
+panel.addEventListener('click', (e) => {
+  if (view !== 'reports' || !all) return;
+  const k = e.target.closest('[data-report]');
+  if (k) { rep.kind = k.dataset.report; draw(); return; }
+  if (e.target.closest('#rp-csv')) downloadReport();
+});
+panel.addEventListener('input', (e) => {
+  const k = e.target.dataset && e.target.dataset.rp;
+  if (!k || view !== 'reports' || !all) return;
+  rep[k] = e.target.value;
+  document.getElementById('rp-body').innerHTML = reportTable();
+});
+
 function needAttention() {
   return rc ? rc.totals.holdCount + rc.totals.earlyCount + rc.totals.cancelledCount : 0;
 }
@@ -717,6 +858,7 @@ const TITLES = {
   paid: ['Paid out', 'What the agency has paid its advisors.'],
   owed: ['Still owed to us', 'Commission expected from vendors that has not arrived, counted from the day they travelled.'],
   all: ['All commissions', 'Every reservation that earns commission, for every advisor. Search, filter, sort, open a row for its lines, and download what you see.'],
+  reports: ['Reports', 'Commission by advisor, by vendor and by month, what is short or over, and every check. Each one downloads as a spreadsheet file.'],
   recall: ['Recall watch', 'A cruise line can take commission back if a client cancels, until 30 days before sailing. This shows what is being held until then, what was paid out early, and cancelled trips with money to recover.'],
   statements: ['Advisor statements', 'What one advisor earned, has been paid and is still owed. Print it or save it as a PDF to send. It never shows what the agency keeps.'],
 };
@@ -725,7 +867,7 @@ function draw() {
   drawTiles();
   const [title, sub] = TITLES[view];
   const body = view === 'scheduled' ? drawScheduled() : view === 'received' ? drawReceived()
-    : view === 'paid' ? drawPaid() : view === 'all' ? drawAll() : view === 'statements' ? drawStatements() : view === 'recall' ? drawRecall() : drawOwed();
+    : view === 'paid' ? drawPaid() : view === 'all' ? drawAll() : view === 'statements' ? drawStatements() : view === 'recall' ? drawRecall() : view === 'reports' ? drawReports() : drawOwed();
   panel.innerHTML = `<div class="cd-head"><h2>${esc(title)}</h2><span class="m">${esc(sub)}</span></div>${body}`;
 }
 
