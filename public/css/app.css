@@ -1654,3 +1654,11 @@ dialog::backdrop { background: rgba(13, 35, 71, .42); backdrop-filter: blur(2px)
   .btn, .opp, .board-card, tbody tr { transition: none; }
   .btn:active:not(:disabled), .opp:hover, .board-card:hover { transform: none; }
 }
+
+/* Phones: long addresses and file names wrap instead of pushing the page sideways, and the controls in a page header
+   line up under its title instead of hugging the right edge. */
+code { overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .topbar .toolbar { width: 100%; justify-content: flex-start; }
+  .topbar .toolbar select, .topbar .toolbar input[type="search"] { flex: 1 1 8rem; min-width: 0; }
+}

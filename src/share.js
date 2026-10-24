@@ -2128,7 +2128,8 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
     background:rgba(20,120,138,.12);color:var(--teal);border-radius:999px;padding:.2rem .6rem;white-space:nowrap}
   .pbar{height:8px;border-radius:999px;background:var(--line);overflow:hidden;margin:.2rem 0 .3rem}
   .pbar span{display:block;height:100%;border-radius:999px;background:var(--ok)}
-  .docs a{color:var(--navy);font-weight:600}
+  .docs a{color:var(--navy);font-weight:600;overflow-wrap:anywhere}
+  .wrap{overflow-wrap:break-word}
   .contact{margin:.2rem 0 1.2rem}
   /* The conversation. Theirs to the left and plain, yours to the right and
      tinted, which is the shape every messaging app has taught people to read
