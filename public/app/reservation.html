@@ -24,6 +24,7 @@
       <div id="err"></div>
       <div id="readonly"></div>
       <section id="money" class="stat-grid"></section>
+      <section id="nextsteps" style="margin-top:1rem;" hidden></section>
       <nav class="section-nav" id="section-nav" aria-label="Sections"></nav>
       <div class="split" style="margin-top:1.5rem;">
         <div>
@@ -588,10 +589,61 @@ function drawWaiver() {
  * The emails the client gets on their own for this reservation, with the day each goes. Any one can be skipped, or
  * all of them switched off. Shown only where the owner has switched the automatic emails on for the agency.
  */
+/**
+ * What to do next on this reservation, in order, so nobody has to work it out from the cards below. Each line says
+ * what and why in plain words and carries one button that goes straight to the place to do it. Nothing here is a
+ * setting: it is read from the reservation as it stands, so it disappears the moment the thing is done.
+ */
+function drawNextSteps(trip) {
+  const host = document.getElementById('nextsteps');
+  const b = d.booking || {};
+  const today = d.today;
+  const gap = (iso) => Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000);
+  const items = [];
+  if (!d.editable || b.status === 'cancelled' || b.status === 'declined' || b.status === 'travelled') { host.hidden = true; return; }
+
+  if (b.status === 'quoted') {
+    if (!b.quote_sent_at) items.push({ tone: 'amber', text: 'This quote has not been sent to the client yet.', label: 'Go to Send quote', jump: 'top' });
+  } else {
+    const WORD = { deposit: 'The deposit', final: 'The final payment', installment: 'A payment' };
+    (d.payments || []).filter((p) => p.payment_class === 'hard' && !p.paid_date && p.due_date && p.kind !== 'refund')
+      .sort((x, y) => String(x.due_date).localeCompare(String(y.due_date))).slice(0, 2).forEach((p) => {
+        const n = gap(p.due_date);
+        if (n > 14) return;
+        items.push({ tone: n < 0 ? 'red' : 'amber', jump: 'sec-payments', label: 'See payments',
+          text: `${WORD[p.kind] || 'A payment'} of ${money(p.amount_cents)} ${n < 0 ? `was due ${dateFmt(p.due_date)} and has not been paid`
+            : n === 0 ? 'is due today' : `is due ${dateFmt(p.due_date)}, in ${n} ${n === 1 ? 'day' : 'days'}`}.` });
+      });
+    if (!(d.travellers || []).length) items.push({ tone: 'amber', text: 'Nobody is listed as travelling yet.', label: 'Add the travellers', jump: 'sec-travellers' });
+    if (d.waiver && !d.waiver.signedAt && (!b.insurance_status || b.insurance_status === 'unknown')) {
+      items.push({ tone: 'amber', text: 'Travel insurance has not been dealt with. Send the client the waiver, or mark it bought.', label: 'Open the waiver', jump: 'sec-waiver' });
+    }
+    if (!(d.penaltyTiers || []).length) items.push({ tone: 'blue', text: 'There are no cancellation terms on file, so nobody can say what cancelling would cost.', label: 'Add the terms', jump: 'sec-penalty' });
+    if (trip && trip.on && !trip.clientEmail) {
+      items.push({ tone: 'blue', text: 'The client has no email address, so the automatic emails cannot reach them.', label: 'Add the email', jump: 'sec-detail' });
+    }
+  }
+
+  const shown = items.slice(0, 4);
+  host.hidden = !shown.length;
+  if (!shown.length) return;
+  const COLOR = { red: 'var(--red-600)', amber: 'var(--amber-600)', blue: 'var(--teal-500)' };
+  host.innerHTML = `<div class="card"><div class="card-head"><h2>What to do next</h2></div>
+    <ul class="rows">${shown.map((it, i) => `<li><div class="row-between">
+      <span style="border-left:3px solid ${COLOR[it.tone]};padding-left:.7rem;">${esc(it.text)}</span>
+      <button class="btn btn-ghost btn-sm" type="button" data-jump="${esc(it.jump)}" data-i="${i}">${esc(it.label)}</button></div></li>`).join('')}</ul></div>`;
+  host.querySelectorAll('[data-jump]').forEach((btn) => btn.addEventListener('click', () => {
+    if (btn.dataset.jump === 'top') { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+    const target = document.getElementById(btn.dataset.jump);
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }));
+}
+
 async function drawTripEmails() {
   const card = document.getElementById('tripemails-card');
   let t;
   try { t = await api(`/api/bookings/${encodeURIComponent(id)}/trip-emails`); } catch { card.hidden = true; return; }
+  drawNextSteps(t);
   card.hidden = !t.on;
   if (!t.on) return;
   const state = document.getElementById('tripemails-state');
@@ -2424,6 +2476,7 @@ function render() {
   drawComponents();
   drawOptions();
   drawWaiver();
+  drawNextSteps(null);
   drawTripEmails();
   drawShare();
   drawDocuments();
