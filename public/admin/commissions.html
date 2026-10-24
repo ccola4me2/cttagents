@@ -34,6 +34,12 @@
   .cd-adv .trips { grid-column: 1 / -1; font-size: .8rem; color: var(--ink-500); }
   .cd-adv .trips span { display: inline-block; margin-right: .9rem; }
   .cd-money { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+  .cd-filters { display: grid; gap: .6rem .8rem; grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr)); align-items: end; padding: .8rem 1rem; margin-bottom: .8rem; }
+  .cd-filters label { display: block; font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-400); margin-bottom: .2rem; }
+  .cd-filters input, .cd-filters select { width: 100%; }
+  .cd-table th[data-sort] { cursor: pointer; user-select: none; }
+  .cd-table th[data-sort]:hover { color: var(--navy-800); }
+  .cd-table tr.tot td { font-weight: 700; background: var(--navy-50); }
   .cd-table { width: 100%; border-collapse: collapse; font-size: .86rem; }
   .cd-table th { text-align: left; font-size: .68rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-400); padding: .6rem .8rem; border-bottom: 1px solid var(--navy-100); white-space: nowrap; }
   .cd-table th.r, .cd-table td.r { text-align: right; }
@@ -202,6 +208,7 @@ function drawTiles() {
       next ? `next payout ${esc(short(d.nextPayDate))}: ${money(next.totalCents)}` : `next pay date ${esc(short(d.nextPayDate))}`),
     tile('owed', 'Still owed to us', money(t.owedToUsCents),
       `${t.owedToUsCount} reservation${t.owedToUsCount === 1 ? '' : 's'} not yet paid`),
+    tile('all', 'Everything', 'All commissions', 'every reservation and advisor, to search, filter and download'),
   ].join('');
 }
 
@@ -348,18 +355,198 @@ function drawOwed() {
     ${d.outstandingTruncated ? '<p class="muted">Showing the oldest 500.</p>' : ''}`;
 }
 
+// ---------------------------------------------------------------------------
+// Everything: one list of every commission, every advisor
+// ---------------------------------------------------------------------------
+
+let all = null;
+let allOpen = null;
+const allSort = { key: 'back', dir: 1 };
+const allFilter = { q: '', advisor: '', vendor: '', state: '', from: '', to: '' };
+const STATE_LABEL = { unpaid: 'Nothing received', short: 'Paid short', settled: 'Settled', over: 'Overpaid' };
+const STATE_BADGE = { unpaid: 'badge-amber', short: 'badge-red', settled: 'badge-green', over: 'badge-navy' };
+
+async function loadAll() {
+  try {
+    all = await api('/api/commissions?advisor=all');
+    draw();
+  } catch (e) { all = null; showError(panel, e); }
+}
+
+/** The rows that pass the filters, in the chosen order. */
+function allRows() {
+  const q = allFilter.q.trim().toLowerCase();
+  const rows = all.rows.filter((r) => {
+    if (allFilter.advisor && r.advisor_name !== allFilter.advisor) return false;
+    if (allFilter.vendor && r.supplier !== allFilter.vendor) return false;
+    if (allFilter.state === 'due') { if (!(r.due_cents > 0)) return false; }
+    else if (allFilter.state && r.settlement !== allFilter.state) return false;
+    if (allFilter.from && (r.depart_date || '') < allFilter.from) return false;
+    if (allFilter.to && (r.depart_date || '9999') > allFilter.to) return false;
+    if (q) {
+      const hay = [r.client_name, r.supplier, r.product_name, r.confirmation_number, r.advisor_name].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  const key = allSort.key;
+  const val = (r) => (key === 'client' ? String(r.client_name || '').toLowerCase()
+    : key === 'advisor' ? String(r.advisor_name || '').toLowerCase()
+      : key === 'back' ? (r.depart_date || '9999')
+        : Number(r[key]) || 0);
+  return rows.sort((a, b) => (val(a) < val(b) ? -1 : val(a) > val(b) ? 1 : 0) * allSort.dir);
+}
+
+/** What a reservation's money lines are, from this year's checks and loose entries. */
+function linesFor(bookingId) {
+  const out = [];
+  for (const c of d.checks) {
+    for (const li of c.lineItems || []) {
+      if (li.booking_id === bookingId) {
+        out.push({ id: li.id, amount_cents: li.amount_cents, payout_on: li.payout_on, on: c.received_on,
+          from: `${c.vendor_name}${c.reference ? ` ${c.reference}` : ''}`, checkId: c.id });
+      }
+    }
+  }
+  for (const r of d.loose || []) {
+    if (r.booking_id === bookingId) {
+      out.push({ id: r.id, amount_cents: r.amount_cents, payout_on: r.payout_on, on: r.received_on, from: 'Entered on the reservation', checkId: null });
+    }
+  }
+  return out.sort((a, b) => String(b.on || '').localeCompare(String(a.on || '')));
+}
+
+function allBody() {
+  const rows = allRows();
+  const sum = (k) => rows.reduce((n, r) => n + (Number(r[k]) || 0), 0);
+  const th = (key, label, cls = '') => `<th class="${cls}" data-sort="${key}">${label}${
+    allSort.key === key ? (allSort.dir === 1 ? ' &#9650;' : ' &#9660;') : ''}</th>`;
+  if (!rows.length) {
+    return '<div class="card"><div class="empty"><h3>Nothing matches</h3><p>Loosen a filter, or clear the search.</p></div></div>';
+  }
+  const detail = (r) => {
+    const lines = linesFor(r.id);
+    return `<tr class="sub"><td colspan="10">
+      <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin:.4rem 0;">
+        <a class="btn btn-secondary btn-sm" href="/app/reservation?id=${encodeURIComponent(r.id)}">Open the reservation</a>
+        <span class="muted">Split ${esc(String(r.split_pct))}% to the advisor. Expected ${money(r.commission_cents)}, advisor's expected share ${money(r.advisor_cents)}${
+  r.last_paid_out_on ? `, last paid out ${esc(dateFmt(r.last_paid_out_on))}` : ''}.</span></div>
+      ${lines.length ? `<table class="cd-lines"><thead><tr><th>Received</th><th>From</th><th class="r">Amount</th><th>Pay out date</th><th></th></tr></thead><tbody>${
+  lines.map((l) => `<tr><td>${esc(l.on ? dateFmt(l.on) : '')}</td><td>${esc(l.from)}</td>
+    <td class="r cd-money">${money(l.amount_cents)}</td>
+    <td>${l.payout_on ? payDateSelect({ id: l.id, payout_on: l.payout_on }) : '<span class="muted">next payout</span>'}</td>
+    <td>${l.checkId ? `<button class="btn btn-ghost btn-sm" type="button" data-editcheck="${esc(l.checkId)}">Edit the check</button>` : ''}</td></tr>`).join('')}</tbody></table>`
+    : `<p class="muted" style="margin:.3rem 0;">No money from a vendor is recorded for this reservation in ${esc(year)}.</p>`}
+    </td></tr>`;
+  };
+  return `<div class="card cd-scroll"><table class="cd-table"><thead><tr>
+    ${th('client', 'Reservation')}${th('advisor', 'Advisor')}${th('back', 'Sails')}
+    ${th('commission_cents', 'Expected', 'r')}${th('received_cents', 'Received', 'r')}<th>Status</th>
+    ${th('payout_cents', 'Advisor share of received', 'r')}${th('paid_out_cents', 'Paid out', 'r')}${th('due_cents', 'Still due to advisor', 'r')}
+    ${th('agency_received_cents', 'Agency keeps', 'r')}
+    </tr></thead><tbody>${rows.map((r) => `<tr data-allrow="${esc(r.id)}" class="${allOpen === r.id ? 'open' : ''}" style="cursor:pointer;">
+      <td><strong>${esc(r.client_name)}</strong>
+        <div class="muted">${esc([r.supplier, r.product_name, r.confirmation_number].filter(Boolean).join(' · '))}</div></td>
+      <td>${esc(r.advisor_name || '')}</td>
+      <td>${r.depart_date ? esc(dateFmt(r.depart_date)) : '<span class="muted">no date</span>'}</td>
+      <td class="r cd-money">${money(r.commission_cents)}</td>
+      <td class="r cd-money">${money(r.received_cents)}</td>
+      <td><span class="badge ${STATE_BADGE[r.settlement] || ''}">${esc(STATE_LABEL[r.settlement] || r.settlement)}</span></td>
+      <td class="r cd-money">${money(r.payout_cents)}</td>
+      <td class="r cd-money">${money(r.paid_out_cents)}</td>
+      <td class="r cd-money"><strong>${money(Math.max(r.due_cents, 0))}</strong></td>
+      <td class="r cd-money">${money(r.agency_received_cents)}</td>
+    </tr>${allOpen === r.id ? detail(r) : ''}`).join('')}
+    <tr class="tot"><td colspan="3">${rows.length} reservation${rows.length === 1 ? '' : 's'}</td>
+      <td class="r cd-money">${money(sum('commission_cents'))}</td><td class="r cd-money">${money(sum('received_cents'))}</td><td></td>
+      <td class="r cd-money">${money(sum('payout_cents'))}</td><td class="r cd-money">${money(sum('paid_out_cents'))}</td>
+      <td class="r cd-money">${money(rows.reduce((n, r) => n + Math.max(r.due_cents || 0, 0), 0))}</td>
+      <td class="r cd-money">${money(sum('agency_received_cents'))}</td></tr>
+    </tbody></table></div>
+    ${all.rows.length >= 500 ? '<p class="muted">Showing the first 500 reservations. Narrow the list with the filters to see the rest.</p>' : ''}
+    <p class="muted" style="font-size:.8rem;">Reservations marked as earning no commission, and cancelled ones, are not listed. Lines under a row are this year's, as chosen at the top.</p>`;
+}
+
+function drawAll() {
+  if (!all) { loadAll(); return '<p class="spinner">Loading...</p>'; }
+  const advisors = [...new Set(all.rows.map((r) => r.advisor_name).filter(Boolean))].sort();
+  const vendors = [...new Set(all.rows.map((r) => r.supplier).filter(Boolean))].sort();
+  const opt = (list, cur) => ['<option value="">All</option>']
+    .concat(list.map((x) => `<option value="${esc(x)}"${x === cur ? ' selected' : ''}>${esc(x)}</option>`)).join('');
+  return `<div class="card cd-filters">
+    <div><label for="af-q">Search</label><input id="af-q" data-af="q" value="${esc(allFilter.q)}" placeholder="Client, confirmation, ship" autocomplete="off"></div>
+    <div><label for="af-advisor">Advisor</label><select id="af-advisor" data-af="advisor">${opt(advisors, allFilter.advisor)}</select></div>
+    <div><label for="af-vendor">Vendor</label><select id="af-vendor" data-af="vendor">${opt(vendors, allFilter.vendor)}</select></div>
+    <div><label for="af-state">Status</label><select id="af-state" data-af="state">
+      <option value="">All</option>
+      ${[['unpaid', 'Nothing received'], ['short', 'Paid short'], ['settled', 'Settled'], ['over', 'Overpaid'], ['due', 'Still due to an advisor']].map(([k, l]) =>
+    `<option value="${k}"${allFilter.state === k ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div><label for="af-from">Sails from</label><input id="af-from" data-af="from" type="date" value="${esc(allFilter.from)}"></div>
+    <div><label for="af-to">Sails to</label><input id="af-to" data-af="to" type="date" value="${esc(allFilter.to)}"></div>
+    <div><button class="btn btn-ghost btn-sm" type="button" id="all-csv">Download what I see</button></div>
+  </div><div id="all-body">${allBody()}</div>`;
+}
+
+function csvCell(v) {
+  const t = String(v === null || v === undefined ? '' : v);
+  return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+}
+
+function downloadAll() {
+  const rows = allRows();
+  const dollars = (c) => ((Number(c) || 0) / 100).toFixed(2);
+  const head = ['Client', 'Advisor', 'Vendor', 'Ship', 'Confirmation', 'Sails', 'Returns', 'Expected', 'Received', 'Status',
+    'Split to advisor %', 'Advisor share of received', 'Paid out', 'Still due to advisor', 'Agency keeps'];
+  const lines = [head.join(',')].concat(rows.map((r) => [r.client_name, r.advisor_name, r.supplier, r.product_name, r.confirmation_number,
+    r.depart_date, r.return_date, dollars(r.commission_cents), dollars(r.received_cents), STATE_LABEL[r.settlement] || r.settlement,
+    r.split_pct, dollars(r.payout_cents), dollars(r.paid_out_cents), dollars(Math.max(r.due_cents, 0)),
+    dollars(r.agency_received_cents)].map(csvCell).join(',')));
+  const href = URL.createObjectURL(new Blob([`${lines.join('\n')}\n`], { type: 'text/csv' }));
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = `commissions-${d.today || new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 60000);
+}
+
+panel.addEventListener('input', (e) => {
+  const k = e.target.dataset && e.target.dataset.af;
+  if (!k || view !== 'all' || !all) return;
+  allFilter[k] = e.target.value;
+  document.getElementById('all-body').innerHTML = allBody();
+});
+panel.addEventListener('click', (e) => {
+  if (view !== 'all' || !all) return;
+  if (e.target.closest('#all-csv')) { downloadAll(); return; }
+  const sort = e.target.closest('th[data-sort]');
+  if (sort) {
+    const key = sort.dataset.sort;
+    if (allSort.key === key) allSort.dir = -allSort.dir; else { allSort.key = key; allSort.dir = key === 'client' || key === 'advisor' || key === 'back' ? 1 : -1; }
+    document.getElementById('all-body').innerHTML = allBody();
+    return;
+  }
+  const row = e.target.closest('tr[data-allrow]');
+  if (row && !e.target.closest('select, a, button')) {
+    allOpen = allOpen === row.dataset.allrow ? null : row.dataset.allrow;
+    document.getElementById('all-body').innerHTML = allBody();
+  }
+});
+
 const TITLES = {
   scheduled: ['Payouts by date', 'Only the next one is visible to advisors. Each advisor sees their own, and nothing scheduled further out.'],
   received: ['Checks received', 'Click a check to see its lines, change when each is paid out, or add one.'],
   paid: ['Paid out', 'What the agency has paid its advisors.'],
   owed: ['Still owed to us', 'Commission expected from vendors that has not arrived, counted from the day they travelled.'],
+  all: ['All commissions', 'Every reservation that earns commission, for every advisor. Search, filter, sort, open a row for its lines, and download what you see.'],
 };
 
 function draw() {
   drawTiles();
   const [title, sub] = TITLES[view];
   const body = view === 'scheduled' ? drawScheduled() : view === 'received' ? drawReceived()
-    : view === 'paid' ? drawPaid() : drawOwed();
+    : view === 'paid' ? drawPaid() : view === 'all' ? drawAll() : drawOwed();
   panel.innerHTML = `<div class="cd-head"><h2>${esc(title)}</h2><span class="m">${esc(sub)}</span></div>${body}`;
 }
 
@@ -374,6 +561,7 @@ async function load() {
     const lines = d.checkLines || {};
     d.checks.forEach((c) => { c.lineItems = lines[c.id] || []; });
     year = d.year;
+    all = null;
     $('year').innerHTML = d.years.map((y) => `<option ${y === year ? 'selected' : ''}>${esc(y)}</option>`).join('');
     draw();
   } catch (e) { showError(panel, e); }
