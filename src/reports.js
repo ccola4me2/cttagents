@@ -471,6 +471,25 @@ async function noticesFor(env, user, scope) {
     ).bind(...db.scopeWhere(scope, 'p.user_id').binds, isoDay(0)).first().catch(() => null),
   ]);
 
+  // A background job that failed on its last run. Nobody reads a Worker's log, and several of these now write to
+  // clients, so an owner is told here rather than by the silence of something not arriving. It clears by itself the
+  // first time the job runs cleanly.
+  if (isOwner) {
+    const failing = await env.DB.prepare(
+      `SELECT name, last_error FROM cron_jobs WHERE last_error IS NOT NULL AND last_run_at > ?
+        ORDER BY last_run_at DESC LIMIT 5`
+    ).bind(now() - 3600).all().catch(() => ({ results: [] }));
+    const rows = failing.results || [];
+    if (rows.length) {
+      out.push({
+        tone: 'urgent',
+        title: (rows.length === 1 ? 'A background job is failing: ' : 'Background jobs are failing: ') + rows.map((r) => r.name).join(', '),
+        detail: String(rows[0].last_error || '').slice(0, 160) || 'Open the health check to see why.',
+        href: '/admin/', label: 'Open the health check',
+      });
+    }
+  }
+
   // People who asked and have not been answered. The board has always shown them, and nobody opens a board to be
   // told they are behind, so this says so where everybody looks first.
   const fresh = db.scopeWhere(scope, 'c.user_id');
