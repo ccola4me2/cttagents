@@ -523,7 +523,9 @@ function drawSummary(read) {
   will.push((read.penalties || []).length ? 'work out the cancellation dates' : 'set up the deposit and final payment');
   if (read.itinerary && read.itinerary.length) will.push('build the day by day itinerary');
   will.push('put the dates on your task list');
-  document.getElementById('conf-will').textContent = `One press will ${will.join(', ').replace(/, ([^,]*)$/, ' and $1')}.`;
+  const asQuote = f.status === 'quoted';
+  document.getElementById('conf-will').textContent = `${asQuote
+    ? 'This one says Offer, so it will be saved as a quote. If it is really booked, change Status under Check the details first. ' : ''}One press will ${will.join(', ').replace(/, ([^,]*)$/, ' and $1')}.`;
 
   const missing = [];
   if (!f.clientName) missing.push('the client');
