@@ -678,7 +678,7 @@ panel.addEventListener('click', (e) => {
 const rep = { kind: 'advisor', from: '', to: '' };
 const REPORTS = [
   ['advisor', 'By advisor'], ['vendor', 'By vendor'], ['sailed', 'By month sailed'], ['received', 'By month received'],
-  ['variance', 'Short and over'], ['checks', 'Every check'],
+  ['variance', 'Short and over'], ['checks', 'Every check'], ['yearend', 'Paid to advisors (1099)'],
 ];
 
 /** One report as a table of plain values: columns say what each is, so the screen and the download agree. */
@@ -735,6 +735,23 @@ function reportData() {
       ['net', 'At the bank', 'money'], ['loose', 'Entered one at a time', 'money']],
     rows: [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([k, e]) => ({
       name: new Date(`${k}-01T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }), ...e })) };
+  }
+  if (rep.kind === 'yearend') {
+    // What each advisor was actually paid in the year chosen at the top, which is what a 1099 reports.
+    const m = new Map();
+    for (const p of d.paid) {
+      const key = p.advisor_name || 'Not recorded';
+      if (!m.has(key)) m.set(key, { name: key, payouts: 0, total: 0, first: '', last: '' });
+      const e = m.get(key);
+      e.payouts += 1;
+      e.total += p.amount_cents || 0;
+      if (p.paid_on && (!e.first || p.paid_on < e.first)) e.first = p.paid_on;
+      if (p.paid_on && p.paid_on > e.last) e.last = p.paid_on;
+    }
+    return { cols: [['name', 'Advisor', 'text'], ['payouts', 'Payouts', 'int'], ['total', `Paid in ${year}`, 'money'],
+      ['first', 'First paid', 'text'], ['last', 'Last paid', 'text']],
+    rows: [...m.values()].sort((a, b) => a.name.localeCompare(b.name)).map((e) => ({ ...e,
+      first: e.first ? dateFmt(e.first) : '', last: e.last ? dateFmt(e.last) : '' })) };
   }
   if (rep.kind === 'variance') {
     return { cols: [['name', 'Reservation', 'text'], ['advisor', 'Advisor', 'text'], ['vendor', 'Vendor', 'text'], ['state', 'Status', 'text'],
@@ -858,7 +875,7 @@ const TITLES = {
   paid: ['Paid out', 'What the agency has paid its advisors.'],
   owed: ['Still owed to us', 'Commission expected from vendors that has not arrived, counted from the day they travelled.'],
   all: ['All commissions', 'Every reservation that earns commission, for every advisor. Search, filter, sort, open a row for its lines, and download what you see.'],
-  reports: ['Reports', 'Commission by advisor, by vendor and by month, what is short or over, and every check. Each one downloads as a spreadsheet file.'],
+  reports: ['Reports', 'Commission by advisor, by vendor and by month, what is short or over, every check, and what each advisor was paid in the year for their 1099. Each one downloads as a spreadsheet file.'],
   recall: ['Recall watch', 'A cruise line can take commission back if a client cancels, until 30 days before sailing. This shows what is being held until then, what was paid out early, and cancelled trips with money to recover.'],
   statements: ['Advisor statements', 'What one advisor earned, has been paid and is still owed. Print it or save it as a PDF to send. It never shows what the agency keeps.'],
 };
