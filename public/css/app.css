@@ -1662,3 +1662,7 @@ code { overflow-wrap: anywhere; }
   .topbar .toolbar { width: 100%; justify-content: flex-start; }
   .topbar .toolbar select, .topbar .toolbar input[type="search"] { flex: 1 1 8rem; min-width: 0; }
 }
+
+/* The tab for the section you are reading. */
+.section-nav a[aria-current="true"] { background: var(--navy-800); color: #fff; }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }

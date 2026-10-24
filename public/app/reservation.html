@@ -2583,7 +2583,33 @@ function render() {
 
   document.getElementById('section-nav').innerHTML = sections
     .map(([anchorId, label]) => `<a href="#${anchorId}">${esc(label)}</a>`).join('');
+
+  // The tab for the part of the page being read is marked, so on a page this long you can always tell where you are.
+  const nav = document.getElementById('section-nav');
+  const links = [...nav.querySelectorAll('a')];
+  const heads = sections.map(([anchorId]) => document.getElementById(anchorId));
+  let marked = -1;
+  spyNow = () => {
+    let at = 0;
+    heads.forEach((h, i) => { if (h && h.getBoundingClientRect().top <= 150) at = i; });
+    if (at === marked) return;
+    marked = at;
+    links.forEach((a, i) => { if (i === at) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current'); });
+    if (links[at]) nav.scrollTo({ left: Math.max(links[at].offsetLeft - 40, 0), behavior: 'smooth' });
+  };
+  spyNow();
+  if (!spyBound) {
+    spyBound = true;
+    let waiting = false;
+    window.addEventListener('scroll', () => {
+      if (waiting) return;
+      waiting = true;
+      requestAnimationFrame(() => { waiting = false; spyNow(); });
+    }, { passive: true });
+  }
 }
+let spyNow = () => {};
+let spyBound = false;
 
 /**
  * Preview, then send. Two requests, because an email to a client cannot be
