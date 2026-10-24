@@ -1582,3 +1582,75 @@ th.num .th-sort { justify-content: flex-end; }
   cursor: pointer;
 }
 .chat-toast-x:hover { opacity: 1; }
+
+/* ==================================================================== polish ==
+   A finishing pass over the whole portal, written last so it can be read, and removed, as one piece.
+   Nothing here changes what anything does. It evens out spacing that grew up page by page, quietens what shouted
+   (underlined links all down a table, boxy controls), gives buttons and fields a clear focus, and lifts cards
+   and board cards off the page just enough to read as layers. The accent comes from --coral-500, which is
+   each portal's own colour. */
+
+* { scrollbar-width: thin; scrollbar-color: var(--navy-200) transparent; }
+::selection { background: color-mix(in srgb, var(--coral-500) 22%, transparent); }
+a { text-underline-offset: 2px; }
+
+h1 { letter-spacing: -.015em; font-weight: 700; }
+h2, h3 { letter-spacing: -.005em; }
+
+/* Headers: the title block and the controls share a row and wrap together instead of piling up in the corner. */
+.topbar { flex-wrap: wrap; row-gap: .7rem; }
+.topbar > div:first-child { flex: 1 1 22rem; min-width: 0; }
+.topbar .sub { max-width: 64ch; line-height: 1.45; }
+.topbar .toolbar { margin: 0; flex: 0 1 auto; justify-content: flex-end; }
+
+/* Cards: a hair of depth, so a card reads as a card and not as a box drawn on the page. */
+.card { border-radius: 14px; box-shadow: 0 1px 2px rgba(15, 28, 43, .04), 0 4px 14px rgba(15, 28, 43, .05); }
+.card-head { background: linear-gradient(180deg, #fff, var(--navy-50)); border-radius: 14px 14px 0 0; }
+.card-head > h2 { font-size: 1.05rem; }
+
+/* Figures: no browser paragraph margins between the label, the number and the line under it. */
+.stat { box-shadow: 0 1px 2px rgba(15, 28, 43, .04); border-radius: 14px; padding: 1.15rem 1.3rem; }
+.stat p { margin: 0; }
+.stat .label { margin-bottom: .1rem; }
+.stat .value { margin-top: .35rem; letter-spacing: -.015em; font-variant-numeric: tabular-nums; }
+.stat .meta { margin-top: .4rem; line-height: 1.4; }
+.stat-grid + .toolbar, .stat-grid + .card, .stat-grid + section { margin-top: 1.4rem; }
+
+/* Controls */
+.toolbar label { display: inline-flex; align-items: center; gap: .45rem; margin: 0; font-weight: 500; color: var(--ink-700); }
+.toolbar input[type="checkbox"], .toolbar input[type="radio"] { width: auto; min-width: 0; }
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]), select { min-height: 2.4rem; }
+input:focus, select:focus, textarea:focus {
+  border-color: var(--coral-500); outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--coral-500) 18%, transparent);
+}
+.btn { transition: background-color .15s, border-color .15s, color .15s, box-shadow .15s, transform .08s; }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--coral-500) 28%, transparent); }
+.btn-primary { box-shadow: 0 1px 2px rgba(15, 28, 43, .14), inset 0 1px 0 rgba(255, 255, 255, .14); }
+.btn-primary:hover:not(:disabled) { box-shadow: 0 3px 8px rgba(15, 28, 43, .18), inset 0 1px 0 rgba(255, 255, 255, .14); }
+.btn-ghost { box-shadow: 0 1px 1px rgba(15, 28, 43, .04); }
+
+/* Tables: quiet links, a tinted heading row, and the figures lined up. */
+thead th { background: #fafcfe; }
+td a:not(.btn) { text-decoration: none; }
+td a:not(.btn):hover { text-decoration: underline; }
+td a.name, td .name a { color: var(--navy-800); }
+tbody tr { transition: background-color .12s; }
+
+.empty { padding: 3.2rem 1.5rem; }
+.empty h3 { color: var(--navy-800); }
+
+/* Board cards lift a little when you reach for them. */
+.opp, .board-card { transition: box-shadow .15s, transform .12s, border-color .15s; }
+.opp:hover, .board-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); border-color: var(--navy-200); }
+
+dialog { border-radius: 16px; }
+dialog::backdrop { background: rgba(13, 35, 71, .42); backdrop-filter: blur(2px); }
+
+.badge { padding: .2rem .65rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .btn, .opp, .board-card, tbody tr { transition: none; }
+  .btn:active:not(:disabled), .opp:hover, .board-card:hover { transform: none; }
+}
