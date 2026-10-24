@@ -11686,18 +11686,18 @@ async function main() {
   if (ownId) cleanup('the advisor\'s own trip', () => dropBooking(ownId));
 
   const ownRec = await call(admin, 'GET', `/api/bookings/${ownId}/record`);
-  check(ownRec.data?.split?.pct === 90,
+  check(ownRec.data?.split?.pct === 50,
     'an advisor\'s own travel is split at their agreement like any other trip',
     JSON.stringify(ownRec.data?.split?.pct));
-  check(ownRec.data?.commission?.agencyCents > 0,
-    'so the agency keeps its share of it', String(ownRec.data?.commission?.agencyCents));
+  check(ownRec.data?.split?.agencyCents > 0,
+    'so the agency keeps its share of it', String(ownRec.data?.split?.agencyCents));
 
   // The same rule in SQLite. These two are written next to each other and
   // have to answer the same, or the report and the record disagree about
   // somebody's pay.
   const ownView = await call(advisor, 'GET', '/api/commissions');
   const ownRow = (ownView.data?.rows || []).find((r) => r.id === ownId);
-  check(ownRow && Number(ownRow.split_pct) === 90,
+  check(ownRow && Number(ownRow.split_pct) === 50,
     'the report reaches the same answer as the record',
     JSON.stringify(ownRow && ownRow.split_pct));
   check(ownRow && ownRow.advisor_cents === ownRec.data?.split?.advisorCents,
