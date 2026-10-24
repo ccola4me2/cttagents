@@ -284,8 +284,8 @@ const PANELS = {
       const st = d.setup;
       if (!st) return '';
       const pct = Math.round((st.finished / st.steps.length) * 100);
-      return `<p class="muted" style="margin:0 0 .6rem;">${st.finished} of ${st.steps.length} done. A few minutes now saves hours later.</p>
-        <div style="height:8px;border-radius:999px;background:var(--navy-100);margin:0 0 .9rem;overflow:hidden;">
+      return `<p class="muted" style="margin:0;padding:.9rem 1.25rem .5rem;">${st.finished} of ${st.steps.length} done. A few minutes now saves hours later.</p>
+        <div style="height:8px;border-radius:999px;background:var(--navy-100);margin:0 1.25rem .5rem;overflow:hidden;">
           <div style="height:100%;width:${pct}%;background:var(--teal-500);border-radius:999px;"></div></div>
         <ul class="rows">${st.steps.map((s) => `<li><div>
           <span class="badge ${s.done ? 'badge-green' : 'badge-navy'}">${s.done ? 'Done' : 'To do'}</span>
