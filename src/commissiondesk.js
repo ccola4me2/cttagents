@@ -24,7 +24,7 @@ import { splitPct, SPLIT_PCT_SQL, shareOf, UNSPLIT_COMMISSION_KINDS } from './sp
 import { syncCommissionStatus } from './reconcile.js';
 import { bucketFor, BUCKETS } from './commissions.js';
 import { pdfRead } from './pdftext.js';
-import { readRemittance, nameFit, nameWords } from './remittance.js';
+import { readRemittance, readStatementText, nameFit, nameWords } from './remittance.js';
 import { owedByDate } from './commissionschedule.js';
 import { nextPayDate, payDatesFrom, suggestPayDate, todayIso } from './paydates.js';
 import * as db from './db.js';
@@ -151,19 +151,28 @@ export async function handleReadRemittance(request, env) {
   if (!buf || !buf.byteLength) return badRequest('No file arrived.');
   if (buf.byteLength > MAX_UPLOAD) return badRequest('That file is larger than 6MB, which is more than a remittance.');
 
-  const file = await pdfRead(buf);
-  if (file.encryption === 'password' || file.encryption === 'unsupported') {
-    return badRequest('That PDF is locked, so it cannot be read. Type the check in, or save an unlocked copy.');
-  }
-  if (!file.text.trim()) {
-    return badRequest(file.images > 0
-      ? 'That PDF is a picture of a page, not text I can read. Type the check in.'
-      : 'There is no text in that file. Type the check in.');
-  }
-
-  const remittance = readRemittance(file.text);
-  if (!remittance.read) {
-    return badRequest('I could not read that as a payment remittance. I read the Travel Leaders Network ones so far, so for anything else type the check in.');
+  // Rows pasted from a spreadsheet or saved as a CSV file, from any vendor, come as text. A PDF is the Travel Leaders
+  // Network remittance as before.
+  let remittance;
+  if (/^text\//i.test(request.headers.get('content-type') || '')) {
+    remittance = readStatementText(new TextDecoder().decode(buf));
+    if (!remittance.read) {
+      return badRequest('I could not find any rows with an amount on them. Paste one reservation on each row, with its confirmation number and what was paid.');
+    }
+  } else {
+    const file = await pdfRead(buf);
+    if (file.encryption === 'password' || file.encryption === 'unsupported') {
+      return badRequest('That PDF is locked, so it cannot be read. Type the check in, or save an unlocked copy.');
+    }
+    if (!file.text.trim()) {
+      return badRequest(file.images > 0
+        ? 'That PDF is a picture of a page, not text I can read. Type the check in.'
+        : 'There is no text in that file. Type the check in.');
+    }
+    remittance = readRemittance(file.text);
+    if (!remittance.read) {
+      return badRequest('I could not read that PDF as a payment remittance. I read the Travel Leaders Network ones, so for another vendor paste its rows from a spreadsheet, or type the check in.');
+    }
   }
   if (remittance.lines.length > MAX_LINES) {
     return badRequest(`That remittance has ${remittance.lines.length} lines, which is more than one check takes here (${MAX_LINES}).`);
@@ -171,9 +180,15 @@ export async function handleReadRemittance(request, env) {
 
   const lines = [];
   for (const line of remittance.lines) {
-    const found = await findReservations(env, user, {
-      locator: line.locator, last: line.traveller && nameWords(line.traveller.last)[0],
-    });
+    const last = line.traveller && nameWords(line.traveller.last)[0];
+    let found = [];
+    // A pasted row offers several things shaped like a confirmation number: the first one that is a reservation's wins.
+    for (const token of (line.locators && line.locators.length ? line.locators : [line.locator])) {
+      if (!token) continue;
+      found = await findReservations(env, user, { locator: token, last });
+      if (found.some((b) => String(b.confirmationNumber || '').toUpperCase() === token)) { line.locator = token; break; }
+    }
+    if (!found.length && !line.locator) found = await findReservations(env, user, { locator: null, last });
     const { candidates, pick } = rankFor(line, found);
     lines.push({ ...line, candidates, pick });
   }

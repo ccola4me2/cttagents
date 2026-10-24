@@ -38,6 +38,99 @@ function longDate(text) {
 
 const collapse = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 
+/** One row of a pasted table or a CSV file as its cells: tabs, bars, commas (with quotes), or runs of spaces. */
+function cellsOf(row) {
+  const trim = (c) => String(c).trim().replace(/^"|"$/g, '').trim();
+  if (row.includes('\t')) return row.split('\t').map(trim);
+  if (row.includes('|')) return row.split('|').map(trim);
+  if (row.includes(',')) {
+    const out = [];
+    let cur = '';
+    let quoted = false;
+    for (const ch of row) {
+      if (ch === '"') quoted = !quoted;
+      else if (ch === ',' && !quoted) { out.push(cur); cur = ''; } else cur += ch;
+    }
+    out.push(cur);
+    return out.map(trim);
+  }
+  return row.split(/\s{2,}/).map(trim);
+}
+
+const MONEY_CELL = /^\(?-?\$?\s?[\d,]*\d\.\d{2}\)?$/;
+
+/** "SMITH, Pat", "Pat Smith" and "SMITH/PAT" as a surname and a first name. */
+function nameFrom(text) {
+  const t = collapse(text);
+  if (!t) return null;
+  if (t.includes('/')) { const [last, first] = t.split('/'); return { last: collapse(last), first: collapse(first) }; }
+  if (t.includes(',')) { const [last, first] = t.split(','); return { last: collapse(last), first: collapse(first) }; }
+  const words = t.split(' ');
+  return words.length > 1 ? { last: words[words.length - 1], first: words.slice(0, -1).join(' ') } : { last: t, first: '' };
+}
+
+/**
+ * Lines from any vendor's statement, pasted from a spreadsheet or saved as a CSV file: one reservation on each row.
+ *
+ * It does not know the vendor's layout, so it reads what any statement has. A heading row, if there is one, says which
+ * column is the amount, the guest and the confirmation number. Without one, the last amount on a row is taken as what
+ * was paid, and anything shaped like a confirmation number (letters and digits, with at least one digit) is offered
+ * as a way to find the reservation. Nothing is recorded from this: each line is matched and shown, and a person
+ * confirms it, exactly as with a remittance.
+ */
+export function readStatementText(input) {
+  const out = { read: false, payer: null, checkNumber: null, vendorNo: null, remittedOn: null, totalCents: null, lines: [], warnings: [] };
+  const rows = String(input || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (!rows.length) return out;
+
+  const head = cellsOf(rows[0]);
+  const hasHeader = head.length > 1 && !head.some((c) => MONEY_CELL.test(c))
+    && head.some((c) => /confirm|booking|reserv|reference|locator|name|guest|passenger|commission|amount|paid|payment|net|total/i.test(c));
+  const find = (re) => head.findIndex((c) => re.test(c));
+  let amountCol = -1;
+  let nameCol = -1;
+  let refCol = -1;
+  if (hasHeader) {
+    amountCol = find(/commission|comm\b|comm\./i);
+    if (amountCol < 0) amountCol = find(/amount|paid|payment|net|total/i);
+    nameCol = find(/guest|passenger|name|traveler|traveller|client/i);
+    refCol = find(/confirm|booking|reservation|reference|record|locator/i);
+  }
+
+  for (const row of hasHeader ? rows.slice(1) : rows) {
+    const cells = cellsOf(row);
+    let amount = null;
+    if (amountCol >= 0 && cells[amountCol] && MONEY_CELL.test(cells[amountCol])) amount = centsFrom(cells[amountCol]);
+    else {
+      const moneys = [...row.matchAll(/\(?-?\$?\s?[\d,]*\d\.\d{2}\)?/g)];
+      if (moneys.length) amount = centsFrom(moneys[moneys.length - 1][0]);
+    }
+    if (!amount) continue;
+
+    const tokens = [];
+    const offer = (t) => {
+      const u = String(t).toUpperCase();
+      if (/^[A-Z0-9-]{5,14}$/.test(u) && /\d/.test(u) && !tokens.includes(u)) tokens.push(u);
+    };
+    if (refCol >= 0 && cells[refCol]) offer(cells[refCol]);
+    for (const t of row.split(/[\s,|\t"]+/)) {
+      if (!MONEY_CELL.test(t) && !/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(t)) offer(t);
+    }
+    out.lines.push({
+      docNumber: '', description: row.slice(0, 160), docDate: null, amountCents: amount,
+      traveller: nameCol >= 0 ? nameFrom(cells[nameCol]) : null,
+      locator: tokens[0] || null, locators: tokens.slice(0, 6), ticket: null, travelDate: null, agent: null, product: null,
+    });
+  }
+
+  out.read = out.lines.length > 0;
+  if (out.read) {
+    out.totalCents = out.lines.reduce((n, l) => n + l.amountCents, 0);
+    out.warnings.push('There was no check total on a pasted statement, so the total is the sum of the lines. Change it to the amount on the check.');
+  }
+  return out;
+}
+
 /**
  * One line of the remittance.
  *

@@ -12656,6 +12656,24 @@ async function main() {
   const notDoc = await call(admin, 'POST', '/api/commission-checks/read', { hello: 'world' });
   check(notDoc.status === 400, 'something that is not a remittance is turned away', `status ${notDoc.status}`);
 
+  // Rows pasted from any vendor's statement are read, each matched by its confirmation number.
+  {
+    const bk = await call(admin, 'GET', `/api/bookings/${tripId}/record`);
+    const confNo = bk.data?.booking?.confirmation_number;
+    const rawRes = await fetch(`${BASE}/api/commission-checks/read`, {
+      method: 'POST', headers: { 'content-type': 'text/plain', cookie: admin.header() },
+      body: `Confirmation\tCommission\n${confNo || 'ZZ99991'}\t$12.50\n`,
+    });
+    const rawData = await rawRes.json().catch(() => ({}));
+    const got = rawData.remittance?.lines?.[0];
+    check(rawRes.status === 200 && rawData.remittance?.lines?.length === 1 && got?.amountCents === 1250,
+      'rows pasted from any vendor\'s statement are read, with the amount from the commission column', `status ${rawRes.status}`);
+    if (confNo) check(got?.pick === tripId, 'and each is matched to its reservation by confirmation number', JSON.stringify([got?.pick, tripId]));
+    const noRows = await fetch(`${BASE}/api/commission-checks/read`, {
+      method: 'POST', headers: { 'content-type': 'text/plain', cookie: admin.header() }, body: 'hello there' });
+    check(noRows.status === 400, 'and text with no amounts on it is turned away', `status ${noRows.status}`);
+  }
+
   // The simpler form on the reservation carries a pay date as well.
   const simple = await call(admin, 'POST', '/api/commissions/receipts', {
     bookingId: tripId, amount: '5.00', receivedOn: isoDay(0), kind: 'base', payoutOn: laterPay,

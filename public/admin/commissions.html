@@ -107,10 +107,16 @@
     <div class="card-pad">
       <div class="notice notice-error" id="chk-err" hidden></div>
       <div class="cd-drop" id="drop">
-        <strong>Drop the vendor's payment remittance (PDF) here</strong> to fill this in, or type it below.
-        <div style="margin-top:.6rem;"><label class="btn btn-secondary btn-sm" for="chk-file" style="cursor:pointer;">Choose a PDF</label>
-          <input id="chk-file" type="file" accept="application/pdf,.pdf" hidden></div>
+        <strong>Drop the vendor's statement here</strong> to fill this in: a PDF remittance, or a spreadsheet saved as CSV. Or paste its rows below, or type it in.
+        <div style="margin-top:.6rem;"><label class="btn btn-secondary btn-sm" for="chk-file" style="cursor:pointer;">Choose a file</label>
+          <input id="chk-file" type="file" accept="application/pdf,.pdf,.csv,.txt,text/csv,text/plain" hidden></div>
       </div>
+      <details style="margin-top:.8rem;">
+        <summary style="cursor:pointer;font-weight:600;">Paste rows from any vendor's statement</summary>
+        <p class="field-hint" style="margin:.5rem 0;">Select the rows in the vendor's spreadsheet or email, copy, and paste them here. One reservation on each row, with its confirmation number and what was paid. A heading row helps but is not needed.</p>
+        <textarea id="chk-paste" rows="5" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.82rem;" placeholder="Confirmation&#9;Guest&#9;Commission&#10;9746343&#9;SWANSON, Cody&#9;337.50"></textarea>
+        <button class="btn btn-secondary btn-sm" type="button" id="chk-read-paste" style="margin-top:.5rem;">Read these rows</button>
+      </details>
 
       <div class="field-row" style="margin-top:1rem;">
         <div class="field"><label for="vendorName">Vendor</label>
@@ -1322,18 +1328,21 @@ $('lines').addEventListener('click', (e) => {
 // ---- Reading the PDF ------------------------------------------------------
 
 const drop = $('drop');
-async function readRemittance(file) {
+async function readRemittance(file, pasted) {
   $('chk-err').hidden = true;
-  $('chk-hint').textContent = `Reading ${file.name}...`;
+  // A PDF is read as the Travel Leaders Network remittance; anything saved as text, or pasted, is read as rows.
+  const asText = Boolean(pasted) || /\.(csv|txt)$/i.test(file.name) || /^text\//.test(file.type);
+  const label = pasted ? 'the pasted rows' : file.name;
+  $('chk-hint').textContent = `Reading ${label}...`;
   try {
     const res = await fetch('/api/commission-checks/read', {
       method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/pdf' }, body: file,
+      headers: { 'Content-Type': asText ? 'text/plain' : 'application/pdf' }, body: pasted || file,
     });
     const out = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(out.error || 'That file could not be read.');
     const r = out.remittance;
-    filename = file.name;
+    filename = pasted ? 'pasted statement' : file.name;
     d.payDatesList = out.payDates || d.payDatesList;
     $('vendorName').value = r.payer || '';
     $('reference').value = r.checkNumber || '';
@@ -1366,6 +1375,10 @@ async function readRemittance(file) {
     $('chk-err').hidden = false;
   }
 }
+$('chk-read-paste').addEventListener('click', () => {
+  const text = $('chk-paste').value.trim();
+  if (text) readRemittance(null, text);
+});
 $('chk-file').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) readRemittance(f); });
 ['dragenter', 'dragover'].forEach((n) => drop.addEventListener(n, (e) => { e.preventDefault(); drop.classList.add('over'); }));
 ['dragleave', 'drop'].forEach((n) => drop.addEventListener(n, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
