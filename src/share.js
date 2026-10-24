@@ -820,12 +820,15 @@ export async function renderTripPage(request, env, code) {
       ${b.product_name && b.itinerary ? `<p class="lede">${esc(b.product_name)}</p>` : ''}
       ${b.depart_date ? `<p class="lede">${esc(sayDate(b.depart_date))}${
         b.return_date ? ` to ${esc(sayDate(b.return_date))}` : ''}</p>` : ''}
+      ${heroChips(b, nn, trip.travellers.length, today)}
     </header>
 
     ${facts.length ? `<section class="card">
       <dl class="facts">${facts.map(([k, v]) => `<div>
         <dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>
     </section>` : ''}
+
+    ${booked && !choosing ? comingUp(b, trip.payments, today) : ''}
 
     ${choosing ? optionsBlock(trip, advisor) : ''}
 
@@ -1053,6 +1056,62 @@ export async function renderTripPage(request, env, code) {
 const PAYMENT_WORD = {
   deposit: 'Deposit', installment: 'Installment', final: 'Final payment', refund: 'Refund',
 };
+
+const dayGap = (from, to) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000);
+
+/** The few facts a client wants at a glance, under the trip's name: how long, how many, and how long until. */
+function heroChips(b, nn, guests, today) {
+  const chips = [];
+  if (b.depart_date) {
+    const gap = dayGap(today, b.depart_date);
+    if (gap > 0) chips.push(`<span class="chip go">${gap} ${gap === 1 ? 'day' : 'days'} to go</span>`);
+    else if (b.return_date && today <= b.return_date) chips.push('<span class="chip go">You are on your trip</span>');
+    else if (b.return_date && today > b.return_date) chips.push('<span class="chip go">Welcome home</span>');
+    else chips.push('<span class="chip go">Today is the day</span>');
+  }
+  if (nn) chips.push(`<span class="chip">${nn} ${nn === 1 ? 'night' : 'nights'}</span>`);
+  if (guests) chips.push(`<span class="chip">${guests} ${guests === 1 ? 'traveller' : 'travellers'}</span>`);
+  return chips.length ? `<div class="chips">${chips.join('')}</div>` : '';
+}
+
+/**
+ * What is coming up, in order: each payment with whether it is paid, the two things worth doing before
+ * leaving, the day they go and the day they are back. A client reads the page to find out what happens next,
+ * and until now the answer was spread over three cards.
+ */
+function comingUp(b, payments, today) {
+  const rows = [];
+  for (const p of payments || []) {
+    if (p.kind === 'refund' || !(p.paid_date || p.due_date)) continue;
+    rows.push({
+      on: p.paid_date || p.due_date, done: Boolean(p.paid_date),
+      label: `${PAYMENT_WORD[p.kind] || 'Payment'}, ${money(p.amount_cents)}`,
+      note: p.paid_date ? 'Paid' : (p.due_date < today ? 'Overdue, your advisor will be in touch' : 'Due'),
+      late: !p.paid_date && p.due_date < today,
+    });
+  }
+  const add = (on, label, note) => rows.push({ on, label, note, done: on < today });
+  if (b.depart_date) {
+    if (dayGap(today, b.depart_date) > 60) add(isoPlus(b.depart_date, -60), 'Check passports and travel documents', 'A good week for it');
+    if (dayGap(today, b.depart_date) > 14) add(isoPlus(b.depart_date, -14), 'Online check-in', 'Usually opens about now');
+    add(b.depart_date, 'Your trip begins', '');
+  }
+  if (b.return_date) add(b.return_date, 'Welcome home', '');
+  rows.sort((x, y) => (x.on < y.on ? -1 : x.on > y.on ? 1 : 0));
+  if (rows.length < 2) return '';
+  const next = rows.findIndex((r) => !r.done);
+  return `<section class="card pad">
+      <h2>What is coming up</h2>
+      <ol class="tl">${rows.map((r, i) => {
+        const gap = dayGap(today, r.on);
+        const when = `${shortDate(r.on)}${r.done ? '' : gap === 0 ? ', today' : gap > 0 ? `, in ${gap} ${gap === 1 ? 'day' : 'days'}` : ''}`;
+        return `<li class="${r.late ? 'late' : r.done ? 'done' : i === next ? 'next' : ''}"><span class="dot"></span>
+          <div><strong>${esc(r.label)}</strong><span class="when">${esc(when)}${r.note ? ` &middot; ${esc(r.note)}` : ''}</span></div></li>`;
+      }).join('')}</ol>
+    </section>`;
+}
+
+const isoPlus = (iso, days) => new Date(Date.parse(`${iso}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
 
 /**
  * The client answering "how was it" and "who else would love this".
@@ -1807,7 +1866,7 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
     --dim:#5c7286; --line:#e2ebf4; --shell:#f7fafb; --ok:#1f7a5a; --late:#b3382a;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--shell);color:var(--ink);
+  body{margin:0;background:linear-gradient(180deg,#e6eff7 0,var(--shell) 380px) no-repeat,var(--shell);color:var(--ink);
     font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     -webkit-font-smoothing:antialiased;padding:2rem 1rem 4rem}
   .wrap{max-width:720px;margin:0 auto}
@@ -1816,8 +1875,10 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
     padding:.55rem 1.1rem;border-radius:8px;font-weight:600;font-size:.95rem}
   .backlink a{color:var(--dim);text-decoration:none;font-size:.9rem}
   .backlink a:hover{color:var(--navy)}
-  .brand{display:flex;align-items:center;gap:.6rem;margin-bottom:2rem}
-  .brand img{width:36px;height:36px}
+  .brand{display:flex;align-items:center;gap:.7rem;margin-bottom:1.5rem;padding-bottom:1rem;
+    border-bottom:1px solid var(--line)}
+  .brand img{width:44px;height:44px;border-radius:12px;object-fit:contain;background:#fff;
+    box-shadow:0 1px 3px rgba(15,28,43,.12)}
   .brand b{font-size:1rem;letter-spacing:.26em;text-transform:uppercase;color:var(--navy);font-weight:650}
   .brand small{display:block;font-size:.62rem;letter-spacing:.06em;color:var(--teal)}
   /* The itinerary. A time rail down the left so the eye can run the day
@@ -1876,7 +1937,34 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
   .itin-map{font-size:.78rem;text-decoration:none;color:var(--navy);border-bottom:1px dotted}
   .itin-map:hover{color:var(--teal)}
 
-  .hero{margin:0 0 1.6rem}
+  /* The first thing a client sees: the trip, in the agency's own colour, with how long until they go. */
+  .hero{margin:0 0 1.4rem;padding:2rem 1.8rem 1.7rem;border-radius:20px;color:#fff;position:relative;
+    overflow:hidden;background:linear-gradient(135deg,var(--navy) 0%,var(--navy-d) 100%);
+    box-shadow:0 12px 32px rgba(13,35,71,.22)}
+  .hero::after{content:"";position:absolute;right:-60px;top:-60px;width:240px;height:240px;border-radius:50%;
+    background:radial-gradient(circle,rgba(255,255,255,.16),rgba(255,255,255,0) 70%);pointer-events:none}
+  .hero .eyebrow{color:#a8dbe4}
+  .hero h1{color:#fff;font-size:2.1rem}
+  .hero .lede{color:rgba(255,255,255,.86)}
+  .chips{display:flex;flex-wrap:wrap;gap:.5rem;margin:1.1rem 0 0}
+  .chip{display:inline-flex;align-items:center;gap:.4rem;padding:.38rem .85rem;border-radius:999px;
+    background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);font-size:.84rem;font-weight:600;
+    letter-spacing:.01em}
+  .chip.go{background:#fff;color:var(--navy);border-color:#fff}
+  /* What is coming up, as a path down the page. */
+  ol.tl{list-style:none;margin:0;padding:0 0 0 .3rem}
+  .tl li{position:relative;display:flex;gap:.9rem;padding:0 0 1.15rem 1.4rem}
+  .tl li:last-child{padding-bottom:0}
+  .tl li::before{content:"";position:absolute;left:.42rem;top:1.15rem;bottom:-.1rem;width:2px;background:var(--line)}
+  .tl li:last-child::before{display:none}
+  .tl .dot{position:absolute;left:0;top:.28rem;width:.95rem;height:.95rem;border-radius:50%;
+    background:#fff;border:2px solid var(--navy-300,#95b5d4)}
+  .tl .done .dot{background:var(--ok);border-color:var(--ok)}
+  .tl .late .dot{background:var(--late);border-color:var(--late)}
+  .tl .next .dot{background:var(--teal);border-color:var(--teal);box-shadow:0 0 0 5px rgba(20,120,138,.18)}
+  .tl strong{display:block;color:var(--navy);font-weight:650}
+  .tl .done strong{color:var(--dim);font-weight:600}
+  .tl .when{display:block;font-size:.84rem;color:var(--dim)}
 
   @media print {
     /* The page a client keeps. Anything that only works by being clicked is
@@ -1902,7 +1990,11 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
     .itin-item{break-inside:avoid;page-break-inside:avoid}
     .itin-pic,.opic{display:none}
     .option{break-inside:avoid;border:1px solid #ccc}
-    .brand img{width:28px;height:28px}
+    .brand img{width:28px;height:28px;box-shadow:none}
+    .hero{background:none;color:#000;padding:0;box-shadow:none;border-radius:0}
+    .hero::after,.chips{display:none}
+    .hero h1,.hero .lede,.hero .eyebrow{color:#000}
+    h2::before{display:none}
     /* Two lines, and they belong together: left free to break, the address
        went over on its own and the proposal ended on a sheet of paper
        carrying one sentence. */
@@ -1916,18 +2008,18 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
     text-transform:uppercase;color:var(--teal)}
   h1{margin:0 0 .4rem;font-size:2rem;line-height:1.15;color:var(--navy);font-weight:650;
     text-wrap:balance}
-  h2{margin:0 0 .9rem;font-size:1.05rem;color:var(--navy);font-weight:650}
+  h2{margin:0 0 1rem;font-size:1.08rem;color:var(--navy);font-weight:650;display:flex;align-items:center;gap:.6rem}
+  h2::before{content:"";width:4px;height:1.1em;border-radius:2px;background:var(--teal);flex:none}
   .lede{margin:0 0 .2rem;color:var(--dim)}
-  .card{background:#fff;border:1px solid var(--line);border-radius:14px;margin-bottom:1rem;
-    box-shadow:0 1px 2px rgba(15,28,43,.05)}
+  .card{background:#fff;border:1px solid var(--line);border-radius:16px;margin-bottom:1.1rem;
+    box-shadow:0 1px 2px rgba(15,28,43,.04),0 8px 24px rgba(15,28,43,.05)}
   .pad{padding:1.5rem}
   .dim{color:var(--dim)}
   .small{font-size:.82rem}
-  .facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0;margin:0}
-  .facts>div{padding:1.1rem 1.5rem;border-top:1px solid var(--line);border-right:1px solid var(--line)}
-  .facts>div:nth-child(-n+2){border-top:0}
+  .facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0;margin:0;padding:.5rem 0}
+  .facts>div{padding:.9rem 1.5rem}
   dt{font-size:.68rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
-  dd{margin:.25rem 0 0;font-size:.98rem;color:var(--navy);font-weight:600}
+  dd{margin:.25rem 0 0;font-size:1.05rem;color:var(--navy);font-weight:650}
   ul.plain{list-style:none;margin:0;padding:0}
   ul.plain li{padding:.5rem 0;border-bottom:1px solid var(--line)}
   ul.plain li:last-child{border-bottom:0}
@@ -2048,8 +2140,10 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
   textarea{width:100%;padding:.6rem .7rem;border:1px solid #c2d6e8;border-radius:8px;
     font:inherit;color:inherit;resize:vertical}
   textarea:focus{outline:2px solid var(--teal);outline-offset:1px}
-  button{margin-top:.7rem;background:var(--teal);color:#fff;border:0;border-radius:8px;
-    padding:.6rem 1.2rem;font:inherit;font-weight:650;cursor:pointer}
+  button{margin-top:.7rem;background:var(--teal);color:#fff;border:0;border-radius:999px;
+    padding:.65rem 1.5rem;font:inherit;font-weight:650;cursor:pointer;
+    box-shadow:0 2px 8px rgba(20,120,138,.28);transition:transform .12s ease,box-shadow .12s ease}
+  button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 12px rgba(20,120,138,.34)}
   button:disabled{opacity:.6;cursor:default}
   .err{color:var(--late);font-size:.88rem;margin:.6rem 0 0}
   .sent{margin:0;color:var(--ok);font-weight:600}
@@ -2079,7 +2173,7 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
   .portalnote{margin:1.6rem 0 .4rem;text-align:center}
   .foot{margin-top:2rem;text-align:center;font-size:.82rem;color:var(--dim)}
   .foot p{margin:.15rem 0}
-  @media (max-width:520px){ h1{font-size:1.55rem} .pad{padding:1.2rem} }
+  @media (max-width:520px){ h1,.hero h1{font-size:1.6rem} .pad{padding:1.2rem} .hero{padding:1.5rem 1.2rem 1.3rem;border-radius:16px} }
 </style>
 </head>
 <body>

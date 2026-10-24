@@ -14,7 +14,9 @@ export const AGENCY_COLUMNS = `
   seller_of_travel, logo_url, brand_color, tagline, join_open,
   created_at, updated_at, payment_form_url,
   -- The one agency whose members use the Group Desk.
-  is_desk
+  is_desk,
+  -- When its owner switched the automatic client emails on, or null while they are off.
+  trip_emails_since
 `;
 
 /**
