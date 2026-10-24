@@ -19,6 +19,7 @@ import { clean, toCents, json, badRequest, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import { personName, splitVendor, anyDate } from './importer.js';
 import { normKey } from './catalog.js';
+import { verdict } from './autoimport.js';
 
 // Longest first: "grand total" must win before "total" sees the same line.
 const LABELS = {
@@ -1189,18 +1190,11 @@ export function parseConfirmation(text) {
   };
 }
 
-export async function handleReadConfirmation(request, env) {
-  const { response } = await requireUser(request, env);
-  if (response) return response;
-
-  const body = await readJson(request);
-  const text = String(body.text || '');
-  if (text.trim().length < 20) {
-    return badRequest('Paste the confirmation email or the booking summary from the vendor.');
-  }
-
-  const read = parseConfirmation(text);
-
+/**
+ * The cruise line, from the ship, when the document names the ship and not the line. Shared by the page that reads a
+ * pasted confirmation and by the forwarded ones, so both come out the same.
+ */
+export async function fillSupplierFromCatalog(env, read) {
   // The cruise line is often nowhere on the page: the ship is named and the
   // line is taken as read, because the person holding the document knows whose
   // it is. The catalog knows which line sails which ship, so it can be looked
@@ -1221,9 +1215,26 @@ export async function handleReadConfirmation(request, env) {
       read.from.supplier = `the catalog, from the ship ${read.fields.productName}`;
     }
   }
+}
+
+export async function handleReadConfirmation(request, env) {
+  const { response } = await requireUser(request, env);
+  if (response) return response;
+
+  const body = await readJson(request);
+  const text = String(body.text || '');
+  if (text.trim().length < 20) {
+    return badRequest('Paste the confirmation email or the booking summary from the vendor.');
+  }
+
+  const read = parseConfirmation(text);
+
+  await fillSupplierFromCatalog(env, read);
   if (!Object.keys(read.fields).length) {
     return badRequest('Nothing recognisable in that. It reads labelled lines like '
       + '"Confirmation Number: 12345", which is how most vendor confirmations are laid out.');
   }
+  // Whether this would be made into a reservation on its own if it arrived by email, and if not, why, so the page can say.
+  read.auto = verdict(read, new Date().toISOString().slice(0, 10));
   return json(read);
 }

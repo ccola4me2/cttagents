@@ -525,7 +525,9 @@ function drawSummary(read) {
   will.push('put the dates on your task list');
   const asQuote = f.status === 'quoted';
   document.getElementById('conf-will').textContent = `${asQuote
-    ? 'This one says Offer, so it will be saved as a quote. If it is really booked, change Status under Check the details first. ' : ''}One press will ${will.join(', ').replace(/, ([^,]*)$/, ' and $1')}.`;
+    ? 'This one says Offer, so it will be saved as a quote. If it is really booked, change Status under Check the details first. ' : ''}One press will ${will.join(', ').replace(/, ([^,]*)$/, ' and $1')}.${read.auto ? (read.auto.ok
+    ? ' Tip: forward an email like this to your own address, from your own email, and it makes itself without you pressing anything.'
+    : ` If this arrived by email it would wait here for you: ${read.auto.why}`) : ''}`;
 
   const missing = [];
   if (!f.clientName) missing.push('the client');

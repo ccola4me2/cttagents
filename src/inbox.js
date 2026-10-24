@@ -16,7 +16,7 @@
 // that cannot be read bounces with the reason, because an advisor who forwards something and hears
 // nothing cannot tell "it worked" from "it went in the bin".
 
-import { parseConfirmation } from './confirm.js';
+import { parseConfirmation, fillSupplierFromCatalog } from './confirm.js';
 import { autoCreate } from './autoimport.js';
 import { readableParts } from './mime.js';
 import { pdfRead } from './pdftext.js';
@@ -107,6 +107,8 @@ export async function handleInboundConfirmation(env, { to, raw, from = '', dispa
     };
   }
 
+  // The line from the ship when the document names only the ship, as the Import page does.
+  await fillSupplierFromCatalog(env, best.read).catch(() => {});
   const f = best.read.fields;
   const summary = {
     client: f.clientName || '', vendor: f.supplier || '', ship: f.productName || '',
