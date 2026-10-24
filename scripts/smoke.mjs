@@ -12379,6 +12379,13 @@ async function main() {
   check(asAdvisor.status === 403, 'an advisor cannot open the commission desk', `status ${asAdvisor.status}`);
   const advRecord = await call(advisor, 'POST', '/api/commission-checks', { vendorName: 'X', statement: '1', lines: [] });
   check(advRecord.status === 403, 'nor record a check', `status ${advRecord.status}`);
+  const recallAdv = await call(advisor, 'GET', '/api/commission-recall');
+  const recallOwner = await call(admin, 'GET', '/api/commission-recall');
+  check((recallAdv.status === 403 || recallAdv.status === 404) && recallOwner.status === 200
+    && Array.isArray(recallOwner.data?.rows) && recallOwner.data?.safeDays === 30 && typeof recallOwner.data?.totals?.holdCents === 'number',
+  'the recall watch is the owner\'s alone, and says what is held until 30 days before sailing', `${recallAdv.status}/${recallOwner.status}`);
+  const badStates = (recallOwner.data?.rows || []).filter((r) => !['safe', 'hold', 'early', 'cancelled', 'nodate'].includes(r.state));
+  check(badStates.length === 0, 'and every reservation on it is in one of its five states', JSON.stringify(badStates.slice(0, 2)));
   const advRead = await call(advisor, 'POST', '/api/commission-checks/read', {});
   check(advRead.status === 403, 'nor read a remittance', `status ${advRead.status}`);
   const advSearch = await call(advisor, 'GET', '/api/commission-checks/search?q=smoke');

@@ -314,6 +314,7 @@ import {
 } from './supplierspecials.js';
 import {
   handleCommissionDesk,
+  handleCommissionRecall,
   handleReadRemittance,
   handleSearchForCheck,
   handleCreateCheck,
@@ -1435,6 +1436,7 @@ async function routeApi(request, env, path, method) {
 
   // The commission desk: money in from vendors, and when each advisor is paid for it.
   if (path === '/api/commission-desk' && method === 'GET') return handleCommissionDesk(request, env);
+  if (path === '/api/commission-recall' && method === 'GET') return handleCommissionRecall(request, env);
   if (path === '/api/commission-checks/read' && method === 'POST') return handleReadRemittance(request, env);
   if (path === '/api/commission-checks/search' && method === 'GET') return handleSearchForCheck(request, env);
   if (path === '/api/commission-checks' && method === 'POST') return handleCreateCheck(request, env);

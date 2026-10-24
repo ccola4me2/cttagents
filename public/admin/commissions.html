@@ -210,6 +210,8 @@ function drawTiles() {
       `${t.owedToUsCount} reservation${t.owedToUsCount === 1 ? '' : 's'} not yet paid`),
     tile('all', 'Everything', 'All commissions', 'every reservation and advisor, to search, filter and download'),
     tile('statements', 'Statements', 'For each advisor', 'what they earned, were paid and are owed, to print or send'),
+    tile('recall', 'Recall watch', rc ? (needAttention() ? `${needAttention()} to review` : 'All clear') : 'Safe to pay?',
+      rc ? `${money(rc.totals.holdCents)} held until safe, ${money(rc.totals.cancelledReceivedCents)} on cancelled trips` : 'what could still be taken back'),
   ].join('');
 }
 
@@ -248,7 +250,8 @@ function drawScheduled() {
   [...new Set([...(d.payDatesList || []), p.date])].sort().map((x) =>
     `<option value="${esc(x)}"${x === p.date ? ' selected' : ''}>${esc(dateFmt(x))}</option>`).join('')}</select></label></div>`).join('')}
         <span class="muted" style="font-size:.8rem;">Moving a line to another day changes when it is paid. The amount stays the same.</span></div>`
-    : `<div class="trips">${a.trips.map((t) => `<span>${esc(t.client)}${t.supplier ? ` (${esc(t.supplier)})` : ''}: ${money(t.cents)}</span>`).join('')}</div>`}
+    : `<div class="trips">${a.trips.map((t) => `<span>${esc(t.client)}${t.supplier ? ` (${esc(t.supplier)})` : ''}: ${money(t.cents)}${
+  t.departDate && p.date < safeOn(t.departDate) ? ' <span class="badge badge-amber" title="Sails in more than 30 days after this pay date, so the vendor could still take the commission back">before the 30 day mark</span>' : ''}</span>`).join('')}</div>`}
         </div>`).join('')}
     </section>`).join('');
 }
@@ -361,6 +364,23 @@ function drawOwed() {
 // Everything: one list of every commission, every advisor
 // ---------------------------------------------------------------------------
 
+/** The day 30 days before a sailing, when a vendor can no longer take the commission back. */
+function safeOn(depart) {
+  return depart ? new Date(Date.parse(`${depart}T00:00:00Z`) - 30 * 86400000).toISOString().slice(0, 10) : null;
+}
+/** Money received and not yet safe to pay out. */
+function onHold(r) {
+  const safe = safeOn(r.depart_date);
+  return Boolean(safe && d.today < safe && (r.received_cents || 0) > 0 && (r.due_cents || 0) > 0);
+}
+
+let rc = null;
+let recallFilter = 'attention';
+
+async function loadRecall() {
+  try { rc = await api('/api/commission-recall'); } catch { rc = null; }
+}
+
 let all = null;
 let allOpen = null;
 const allSort = { key: 'back', dir: 1 };
@@ -381,7 +401,8 @@ function allRows() {
   const rows = all.rows.filter((r) => {
     if (allFilter.advisor && r.advisor_name !== allFilter.advisor) return false;
     if (allFilter.vendor && r.supplier !== allFilter.vendor) return false;
-    if (allFilter.state === 'due') { if (!(r.due_cents > 0)) return false; }
+    if (allFilter.state === 'hold') { if (!onHold(r)) return false; }
+    else if (allFilter.state === 'due') { if (!(r.due_cents > 0)) return false; }
     else if (allFilter.state && r.settlement !== allFilter.state) return false;
     if (allFilter.from && (r.depart_date || '') < allFilter.from) return false;
     if (allFilter.to && (r.depart_date || '9999') > allFilter.to) return false;
@@ -428,7 +449,7 @@ function allBody() {
   }
   const detail = (r) => {
     const lines = linesFor(r.id);
-    return `<tr class="sub"><td colspan="10">
+    return `<tr class="sub"><td colspan="11">
       <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin:.4rem 0;">
         <a class="btn btn-secondary btn-sm" href="/app/reservation?id=${encodeURIComponent(r.id)}">Open the reservation</a>
         <span class="muted">Split ${esc(String(r.split_pct))}% to the advisor. Expected ${money(r.commission_cents)}, advisor's expected share ${money(r.advisor_cents)}${
@@ -442,7 +463,7 @@ function allBody() {
     </td></tr>`;
   };
   return `<div class="card cd-scroll"><table class="cd-table"><thead><tr>
-    ${th('client', 'Reservation')}${th('advisor', 'Advisor')}${th('back', 'Sails')}
+    ${th('client', 'Reservation')}${th('advisor', 'Advisor')}${th('back', 'Sails')}<th>Safe to pay from</th>
     ${th('commission_cents', 'Expected', 'r')}${th('received_cents', 'Received', 'r')}<th>Status</th>
     ${th('payout_cents', 'Advisor share of received', 'r')}${th('paid_out_cents', 'Paid out', 'r')}${th('due_cents', 'Still due to advisor', 'r')}
     ${th('agency_received_cents', 'Agency keeps', 'r')}
@@ -451,6 +472,7 @@ function allBody() {
         <div class="muted">${esc([r.supplier, r.product_name, r.confirmation_number].filter(Boolean).join(' · '))}</div></td>
       <td>${esc(r.advisor_name || '')}</td>
       <td>${r.depart_date ? esc(dateFmt(r.depart_date)) : '<span class="muted">no date</span>'}</td>
+      <td>${r.depart_date ? `${esc(dateFmt(safeOn(r.depart_date)))}${onHold(r) ? ' <span class="badge badge-amber">hold</span>' : ''}` : ''}</td>
       <td class="r cd-money">${money(r.commission_cents)}</td>
       <td class="r cd-money">${money(r.received_cents)}</td>
       <td><span class="badge ${STATE_BADGE[r.settlement] || ''}">${esc(STATE_LABEL[r.settlement] || r.settlement)}</span></td>
@@ -459,7 +481,7 @@ function allBody() {
       <td class="r cd-money"><strong>${money(Math.max(r.due_cents, 0))}</strong></td>
       <td class="r cd-money">${money(r.agency_received_cents)}</td>
     </tr>${allOpen === r.id ? detail(r) : ''}`).join('')}
-    <tr class="tot"><td colspan="3">${rows.length} reservation${rows.length === 1 ? '' : 's'}</td>
+    <tr class="tot"><td colspan="4">${rows.length} reservation${rows.length === 1 ? '' : 's'}</td>
       <td class="r cd-money">${money(sum('commission_cents'))}</td><td class="r cd-money">${money(sum('received_cents'))}</td><td></td>
       <td class="r cd-money">${money(sum('payout_cents'))}</td><td class="r cd-money">${money(sum('paid_out_cents'))}</td>
       <td class="r cd-money">${money(rows.reduce((n, r) => n + Math.max(r.due_cents || 0, 0), 0))}</td>
@@ -481,7 +503,7 @@ function drawAll() {
     <div><label for="af-vendor">Vendor</label><select id="af-vendor" data-af="vendor">${opt(vendors, allFilter.vendor)}</select></div>
     <div><label for="af-state">Status</label><select id="af-state" data-af="state">
       <option value="">All</option>
-      ${[['unpaid', 'Nothing received'], ['short', 'Paid short'], ['settled', 'Settled'], ['over', 'Overpaid'], ['due', 'Still due to an advisor']].map(([k, l]) =>
+      ${[['unpaid', 'Nothing received'], ['short', 'Paid short'], ['settled', 'Settled'], ['over', 'Overpaid'], ['due', 'Still due to an advisor'], ['hold', 'Held until 30 days before sailing']].map(([k, l]) =>
     `<option value="${k}"${allFilter.state === k ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
     <div><label for="af-from">Sails from</label><input id="af-from" data-af="from" type="date" value="${esc(allFilter.from)}"></div>
     <div><label for="af-to">Sails to</label><input id="af-to" data-af="to" type="date" value="${esc(allFilter.to)}"></div>
@@ -497,10 +519,10 @@ function csvCell(v) {
 function downloadAll() {
   const rows = allRows();
   const dollars = (c) => ((Number(c) || 0) / 100).toFixed(2);
-  const head = ['Client', 'Advisor', 'Vendor', 'Ship', 'Confirmation', 'Sails', 'Returns', 'Expected', 'Received', 'Status',
+  const head = ['Client', 'Advisor', 'Vendor', 'Ship', 'Confirmation', 'Sails', 'Safe to pay from', 'Returns', 'Expected', 'Received', 'Status',
     'Split to advisor %', 'Advisor share of received', 'Paid out', 'Still due to advisor', 'Agency keeps'];
   const lines = [head.join(',')].concat(rows.map((r) => [r.client_name, r.advisor_name, r.supplier, r.product_name, r.confirmation_number,
-    r.depart_date, r.return_date, dollars(r.commission_cents), dollars(r.received_cents), STATE_LABEL[r.settlement] || r.settlement,
+    r.depart_date, safeOn(r.depart_date) || '', r.return_date, dollars(r.commission_cents), dollars(r.received_cents), STATE_LABEL[r.settlement] || r.settlement,
     r.split_pct, dollars(r.payout_cents), dollars(r.paid_out_cents), dollars(Math.max(r.due_cents, 0)),
     dollars(r.agency_received_cents)].map(csvCell).join(',')));
   const href = URL.createObjectURL(new Blob([`${lines.join('\n')}\n`], { type: 'text/csv' }));
@@ -648,12 +670,54 @@ panel.addEventListener('click', (e) => {
   }
 });
 
+function needAttention() {
+  return rc ? rc.totals.holdCount + rc.totals.earlyCount + rc.totals.cancelledCount : 0;
+}
+
+const RECALL_LABEL = { hold: 'Hold', early: 'Paid early', cancelled: 'Cancelled', nodate: 'No sailing date', safe: 'Safe' };
+const RECALL_BADGE = { hold: 'badge-amber', early: 'badge-red', cancelled: 'badge-red', nodate: 'badge-navy', safe: 'badge-green' };
+
+function drawRecall() {
+  if (!rc) return '<div class="card"><div class="empty"><h3>Could not load the recall watch</h3><p>Reload the page and try again.</p></div></div>';
+  const t = rc.totals;
+  const card = (label, value, meta) => `<div class="cd-tile" style="cursor:default;"><p class="label">${label}</p><p class="value">${value}</p><p class="meta">${meta}</p></div>`;
+  const chips = [['attention', 'Needs attention'], ['hold', 'Held'], ['early', 'Paid early'], ['cancelled', 'Cancelled'], ['nodate', 'No sailing date'], ['safe', 'Safe'], ['all', 'Everything']];
+  const rows = rc.rows.filter((r) => (recallFilter === 'all' ? true
+    : recallFilter === 'attention' ? ['hold', 'early', 'cancelled', 'nodate'].includes(r.state) : r.state === recallFilter));
+  return `<div class="cd-tiles" style="margin-bottom:1rem;">
+    ${card('Held until safe', money(t.holdCents), `${t.holdCount} reservation${t.holdCount === 1 ? '' : 's'}: received, not yet paid out`)}
+    ${card('Paid out early', money(t.earlyCents), `${t.earlyCount} reservation${t.earlyCount === 1 ? '' : 's'} paid before 30 days out`)}
+    ${card('Cancelled, may be taken back', money(t.cancelledReceivedCents), `${money(t.cancelledPaidOutCents)} of it already paid to advisors`)}
+  </div>
+  <div class="cd-chips" style="margin-bottom:.8rem;">${chips.map(([k, l]) =>
+    `<button class="cd-chip" type="button" data-recall="${k}" aria-pressed="${recallFilter === k}">${l}</button>`).join('')}</div>
+  ${rows.length ? `<div class="card cd-scroll"><table class="cd-table"><thead><tr>
+    <th>Reservation</th><th>Advisor</th><th>Sails</th><th>Safe from</th><th class="r">Received</th><th class="r">Advisor share</th><th class="r">Paid out</th><th>What it means</th>
+    </tr></thead><tbody>${rows.map((r) => `<tr>
+      <td><a href="/app/reservation?id=${encodeURIComponent(r.id)}">${esc(r.clientName)}</a>
+        <div class="muted">${esc([r.supplier, r.productName, r.confirmation].filter(Boolean).join(' · '))}</div></td>
+      <td>${esc(r.advisorName || '')}</td>
+      <td>${r.departDate ? esc(dateFmt(r.departDate)) : '<span class="muted">no date</span>'}</td>
+      <td>${r.safeOn ? esc(dateFmt(r.safeOn)) : ''}</td>
+      <td class="r cd-money">${money(r.receivedCents)}</td><td class="r cd-money">${money(r.advisorShareCents)}</td>
+      <td class="r cd-money">${money(r.paidOutCents)}</td>
+      <td><span class="badge ${RECALL_BADGE[r.state]}">${esc(RECALL_LABEL[r.state])}</span>${r.note ? `<div class="muted" style="font-size:.8rem;">${esc(r.note)}</div>` : ''}</td>
+    </tr>`).join('')}</tbody></table></div>`
+    : '<div class="card"><div class="empty"><h3>Nothing here</h3><p>No reservation needs attention under this filter.</p></div></div>'}`;
+}
+
+panel.addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-recall]');
+  if (chip) { recallFilter = chip.dataset.recall; draw(); }
+});
+
 const TITLES = {
   scheduled: ['Payouts by date', 'Only the next one is visible to advisors. Each advisor sees their own, and nothing scheduled further out.'],
   received: ['Checks received', 'Click a check to see its lines, change when each is paid out, or add one.'],
   paid: ['Paid out', 'What the agency has paid its advisors.'],
   owed: ['Still owed to us', 'Commission expected from vendors that has not arrived, counted from the day they travelled.'],
   all: ['All commissions', 'Every reservation that earns commission, for every advisor. Search, filter, sort, open a row for its lines, and download what you see.'],
+  recall: ['Recall watch', 'A cruise line can take commission back if a client cancels, until 30 days before sailing. This shows what is being held until then, what was paid out early, and cancelled trips with money to recover.'],
   statements: ['Advisor statements', 'What one advisor earned, has been paid and is still owed. Print it or save it as a PDF to send. It never shows what the agency keeps.'],
 };
 
@@ -661,7 +725,7 @@ function draw() {
   drawTiles();
   const [title, sub] = TITLES[view];
   const body = view === 'scheduled' ? drawScheduled() : view === 'received' ? drawReceived()
-    : view === 'paid' ? drawPaid() : view === 'all' ? drawAll() : view === 'statements' ? drawStatements() : drawOwed();
+    : view === 'paid' ? drawPaid() : view === 'all' ? drawAll() : view === 'statements' ? drawStatements() : view === 'recall' ? drawRecall() : drawOwed();
   panel.innerHTML = `<div class="cd-head"><h2>${esc(title)}</h2><span class="m">${esc(sub)}</span></div>${body}`;
 }
 
@@ -677,6 +741,7 @@ async function load() {
     d.checks.forEach((c) => { c.lineItems = lines[c.id] || []; });
     year = d.year;
     all = null;
+    await loadRecall();
     $('year').innerHTML = d.years.map((y) => `<option ${y === year ? 'selected' : ''}>${esc(y)}</option>`).join('');
     draw();
   } catch (e) { showError(panel, e); }

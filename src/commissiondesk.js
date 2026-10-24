@@ -20,7 +20,7 @@
 import { json, badRequest, notFound, clean, cleanDate, toCents, oneOf, uid, now, readJson } from './util.js';
 import { requireAdmin } from './auth.js';
 import { COMMISSION_KIND_KEYS } from './pricing.js';
-import { splitPct } from './split.js';
+import { splitPct, SPLIT_PCT_SQL, shareOf, UNSPLIT_COMMISSION_KINDS } from './split.js';
 import { syncCommissionStatus } from './reconcile.js';
 import { bucketFor, BUCKETS } from './commissions.js';
 import { pdfRead } from './pdftext.js';
@@ -564,6 +564,91 @@ export async function handleDeleteCheck(request, env, id) {
   return json({ ok: true, lines: touched.length });
 }
 
+/** How many days before sailing a vendor can no longer take a commission back if the client cancels. */
+const SAFE_DAYS = 30;
+
+function minusDays(iso, days) {
+  return new Date(Date.parse(`${iso}T00:00:00Z`) - days * 86400000).toISOString().slice(0, 10);
+}
+
+/**
+ * GET /api/commission-recall : where commission the vendor could still take back is, and where it has been.
+ *
+ * A cruise line pays the commission once the client has paid in full, and takes it back if they then cancel. So
+ * what has arrived is not safe to pay out until 30 days before sailing. This reads every reservation with money
+ * on it, any status, and says which are safe, which are being held, which were paid out before they were safe,
+ * and which were cancelled with commission in or paid out that may have to be given back. Owners only.
+ */
+export async function handleCommissionRecall(request, env) {
+  const { user: admin, response } = await requireAdmin(request, env);
+  if (response) return response;
+  if (!admin.agency_id) return noAgency();
+
+  const scopeB = db.scopeWhere(db.agencyScope(admin), 'b.user_id');
+  const unsplitKinds = UNSPLIT_COMMISSION_KINDS.map((k) => `'${k}'`).join(', ');
+  const { results } = await env.DB.prepare(
+    `SELECT b.id, b.client_name, b.supplier, b.product_name, b.confirmation_number, b.status, b.depart_date,
+            b.return_date, b.commission_cents, b.user_id, ${SPLIT_PCT_SQL()} AS split_pct,
+            COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''), u.email) AS advisor_name,
+            COALESCE((SELECT SUM(r.amount_cents) FROM commission_receipts r
+                       WHERE r.booking_id = b.id AND r.user_id = b.user_id), 0) AS received_cents,
+            COALESCE((SELECT SUM(r.amount_cents) FROM commission_receipts r
+                       WHERE r.booking_id = b.id AND r.user_id = b.user_id AND r.kind IN (${unsplitKinds})), 0) AS unsplit_cents,
+            COALESCE((SELECT SUM(l.amount_cents) FROM advisor_payout_lines l
+                       WHERE l.booking_id = b.id AND l.user_id = b.user_id), 0) AS paid_out_cents
+       FROM bookings b LEFT JOIN users u ON u.id = b.user_id
+      WHERE ${scopeB.sql} AND b.status IN ('booked','travelled','cancelled')
+        AND (EXISTS (SELECT 1 FROM commission_receipts r WHERE r.booking_id = b.id AND r.user_id = b.user_id)
+          OR EXISTS (SELECT 1 FROM advisor_payout_lines l WHERE l.booking_id = b.id AND l.user_id = b.user_id))
+      ORDER BY COALESCE(b.depart_date, '9999-12-31') ASC
+      LIMIT 1000`
+  ).bind(...scopeB.binds).all();
+
+  const today = todayIso();
+  const rows = (results || []).map((b) => {
+    const safeOn = b.depart_date ? minusDays(b.depart_date, SAFE_DAYS) : null;
+    const share = shareOf(b.received_cents, b.split_pct, b.unsplit_cents).advisorCents;
+    const due = Math.max(share - b.paid_out_cents, 0);
+    const before = Boolean(safeOn && today < safeOn);
+    let state = 'safe';
+    let note = '';
+    if (b.status === 'cancelled') {
+      state = 'cancelled';
+      note = b.paid_out_cents > 0
+        ? 'Cancelled. The vendor may take the commission back, and the advisor has already been paid.'
+        : 'Cancelled. The vendor may take the commission back. Nothing has been paid out yet, so hold it.';
+    } else if (b.paid_out_cents > 0 && before) {
+      state = 'early';
+      note = `Paid out before the safe date, ${safeOn}. If the client cancels the commission may have to be given back.`;
+    } else if (before && due > 0) {
+      state = 'hold';
+      note = `Hold until ${safeOn}, 30 days before sailing.`;
+    } else if (!b.depart_date) {
+      state = 'nodate';
+      note = 'No sailing date on the reservation, so there is no safe date to work from.';
+    }
+    return {
+      id: b.id, clientName: b.client_name, advisorName: b.advisor_name, supplier: b.supplier, productName: b.product_name,
+      confirmation: b.confirmation_number, status: b.status, departDate: b.depart_date, safeOn,
+      receivedCents: b.received_cents, advisorShareCents: share, paidOutCents: b.paid_out_cents, dueCents: due,
+      state, note,
+    };
+  });
+
+  const total = (state, key) => rows.filter((r) => r.state === state).reduce((n, r) => n + (r[key] || 0), 0);
+  return json({
+    today, safeDays: SAFE_DAYS, rows,
+    totals: {
+      holdCents: total('hold', 'dueCents'), holdCount: rows.filter((r) => r.state === 'hold').length,
+      earlyCents: total('early', 'paidOutCents'), earlyCount: rows.filter((r) => r.state === 'early').length,
+      // What the vendor may take back and what the agency would then have to get back from an advisor.
+      cancelledReceivedCents: total('cancelled', 'receivedCents'), cancelledPaidOutCents: total('cancelled', 'paidOutCents'),
+      cancelledCount: rows.filter((r) => r.state === 'cancelled').length,
+      noDateCount: rows.filter((r) => r.state === 'nodate').length,
+    },
+  });
+}
+
 /** Move one line to another pay date. */
 export async function handleSetPayDate(request, env, receiptId) {
   const { user: admin, response } = await requireAdmin(request, env);
@@ -651,7 +736,7 @@ export async function handleCommissionDesk(request, env) {
     // SQLite makes awkward and JavaScript makes plain.
     env.DB.prepare(
       `SELECT r.id, r.booking_id, r.amount_cents, r.kind, r.payout_on, r.received_on, r.check_id,
-              b.user_id, b.commission_status, b.personal, b.lead_source, b.advisor_split_pct,
+              b.depart_date, b.user_id, b.commission_status, b.personal, b.lead_source, b.advisor_split_pct,
               b.agreed_split_pct, b.agreed_lead_split_pct, b.client_name, b.supplier, b.product_name,
               u.default_split_pct, u.lead_split_pct,
               COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''), u.email)
@@ -715,7 +800,8 @@ export async function handleCommissionDesk(request, env) {
       // The lines behind this amount that fall on this date, so a pay date can be changed from the schedule.
       const onThisDate = lines.filter((r) => (r.payout_on && r.payout_on > next ? r.payout_on : next) === b.date)
         .map((r) => r.id);
-      a.trips.push({ bookingId, client: head.client_name, supplier: head.supplier, cents: b.cents, receipts: onThisDate });
+      a.trips.push({ bookingId, client: head.client_name, supplier: head.supplier, cents: b.cents, receipts: onThisDate,
+        departDate: head.depart_date || null });
     }
   }
   const payDates = [...dates.entries()].sort(([x], [y]) => (x < y ? -1 : 1)).map(([date, advisors]) => {
