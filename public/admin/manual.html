@@ -108,15 +108,32 @@
 <ul>
   <li><strong>New reservations only.</strong> Switching them on never writes to anyone you already have. Only reservations made after you
     press the button are planned.</li>
+  <li><strong>Only trips.</strong> A cruise, hotel, resort, package, tour or rail booking gets them. A travel insurance policy, a transfer,
+    an excursion, a ticket or a flight on its own never does.</li>
   <li><strong>The words are the agency's.</strong> Open any email, change the subject or the message, see how it reads, and press
     <strong>Email me a test</strong> to get a copy yourself. Put the client's own details in with curly brackets, like
-    <code>{first_name}</code> and <code>{trip}</code>; a line that mentions something a reservation does not have, like a confirmation number
-    nobody has typed, is left out.</li>
+    <code>{first_name}</code>, <code>{trip}</code> and <code>{phone}</code>; a line that mentions something a reservation does not have, like a
+    confirmation number nobody has typed, is left out. A couple is greeted by both names.</li>
+  <li><strong>Notes advisors send themselves use the same page.</strong> The first note to a new lead, the follow-up note, and the notes from Who to
+    call for a client who has gone quiet, a birthday and an anniversary are all here too. They only go when an advisor reads one and presses send.</li>
   <li><strong>Advisors stay in charge.</strong> On a reservation the card <strong>Emails going out on this trip</strong> shows every email
-    and the day it goes. An advisor can skip one, or switch them all off for a trip the client already knows about.</li>
+    and the day it goes. An advisor can read exactly what a client will get with <strong>See it</strong>, skip one, or switch them all off for a trip the client already knows about.</li>
+  <li><strong>You can see what went.</strong> <strong>Recently sent</strong> at the bottom of the page lists the last 25: when, which email, which client, which advisor, and the reason for any that could not be sent.</li>
   <li><strong>Safe by design.</strong> An email more than three days late is dropped, never sent late. A client who unsubscribes is not
     sent another. An advisor who already uses the automatic payment reminders does not get a second set of payment emails.</li>
 </ul>
+
+<h2 id="confirmations-self">Confirmations that make themselves</h2>
+<p>An advisor who forwards a vendor confirmation to their own address gets the reservation made for them, when it reads cleanly and came
+  from their own email address and the mail system confirmed that. Everything else is held for them with the reason, and they are emailed
+  either way. The Import page also says, for anything pasted or uploaded, whether an email like it would have been made automatically.
+  If an advisor reports that theirs are always held with the reason "the mail system did not confirm who sent it", tell whoever maintains the portal:
+  the activity log records what the message actually carried.</p>
+
+<h2 id="answer-leads-owner">Leads waiting on an answer</h2>
+<p>Leads from the website forms land on each advisor's <a href="/app/leads">Leads</a> board. A notice on the dashboard and a banner on the page say how many
+  have not heard back, and <strong>Answer them now</strong> walks through them one at a time with a note already written. The first note and the follow-up are
+  the agency's wording, edited under Client emails above. Nothing is sent until an advisor reads it and presses send.</p>
 
 <h2 id="advisors">Advisors</h2>
 <ul>
@@ -210,12 +227,22 @@
   reservation for each one by its reference or the traveller's name. It only offers a
   reservation when it is sure, and a surname on its own is a short list for you to choose
   from, not an answer. For anything it cannot read, type it in. The Travel Leaders Network
-  remittance is the one it reads so far.</p>
+  remittance PDF is read directly.</p>
+<p><strong>Any other vendor.</strong> Open <strong>Paste rows from any vendor's statement</strong> in the same box, or choose a CSV
+  file saved from the vendor's spreadsheet. One reservation on each row, with its confirmation number and what was paid; a heading row
+  that says which column is the commission or amount, the guest and the confirmation number helps and is not needed. Each row is matched
+  to a reservation by its confirmation number first and the guest's name second, you check every line, and nothing is recorded until you press
+  <strong>Save the check</strong>. A pasted statement has no check total, so the total starts as the sum of the lines: change it to the amount on the check.</p>
 <p>Each line has a <strong>Pay out date</strong>, a choice of the next 1sts and 15ths.
   It suggests the first pay date on or after 30 days before sailing, so a cruise leaving
   March 3 goes out on February 1, and one that was paid for inside those 30 days goes out on
   the next pay date. That is the point at which a cruise line can no longer take the commission
   back if the client cancels. Change it if you want. You can record a check before every line is matched and add the rest later.</p>
+<h3>Reports</h3>
+<p>The <strong>Reports</strong> tile has commission by advisor, by vendor, by month sailed and by month received, what is short or over,
+  every check, and two more. <strong>Vendor pay speed</strong> shows how many days after sailing each vendor takes to finish paying, the
+  slowest, and how long the oldest unpaid reservation has waited. <strong>Paid to advisors (1099)</strong> totals what each advisor
+  was actually paid in the year chosen at the top, with the first and last payout date, ready to download for the year end.</p>
 <h3>Fees</h3>
 <p>Enter the <strong>check total</strong>, the amount on the check or remittance, then any fee taken out of it and what the fee was. Each line's <strong>Commission Paid Amount</strong> is how much of that total belongs to one reservation. The
   fee is the agency's. It is kept on the check so you can count it as an expense, and it never
@@ -364,6 +391,8 @@
               <a href="#agency-events">Trainings and events</a>
               <a href="#waiver-wording">Waiver wording</a>
               <a href="#client-emails">Client emails</a>
+              <a href="#confirmations-self">Confirmations that make themselves</a>
+              <a href="#answer-leads-owner">Leads waiting on an answer</a>
               <a href="#advisors">Advisors</a>
               <a href="#splits">Splits</a>
               <a href="#agency">The agency record</a>
