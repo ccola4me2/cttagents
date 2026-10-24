@@ -12317,6 +12317,14 @@ async function main() {
   check((settled.data?.payouts || []).some((p) => p.reference === `CHQ-${stamp}`),
     'and the payment is on the record with its reference');
 
+  // A recorded payout can be corrected: the day, how and the reference, and nothing else moves.
+  const editForged = await call(advisor, 'PUT', `/api/payouts/${payoutId}`, { reference: 'FORGED' });
+  const edited = await call(admin, 'PUT', `/api/payouts/${payoutId}`, { paidOn: isoDay(-2), method: 'ach', reference: `ACH-${stamp}` });
+  const afterEdit = ((await call(admin, 'GET', '/api/payouts')).data?.payouts || []).find((p) => p.id === payoutId);
+  check((editForged.status === 403 || editForged.status === 404) && edited.status === 200 && afterEdit?.reference === `ACH-${stamp}`
+    && afterEdit?.method === 'ach' && afterEdit?.paid_on === isoDay(-2) && afterEdit?.amount_cents === paidOut.data?.amountCents,
+  'an owner can correct a recorded payout, an advisor cannot, and the amount stays', JSON.stringify([editForged.status, edited.status, afterEdit?.reference, afterEdit?.amount_cents]));
+
   // The point of the whole thing: the row does not come back on the next run.
   const comm = await call(advisor, 'GET', '/api/commissions');
   const row = (comm.data?.rows || []).find((r) => r.id === earnerId);

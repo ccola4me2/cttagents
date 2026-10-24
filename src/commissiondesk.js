@@ -602,7 +602,10 @@ export async function handleCommissionDesk(request, env) {
       }
       const a = advisors.get(head.user_id);
       a.cents += b.cents;
-      a.trips.push({ bookingId, client: head.client_name, supplier: head.supplier, cents: b.cents });
+      // The lines behind this amount that fall on this date, so a pay date can be changed from the schedule.
+      const onThisDate = lines.filter((r) => (r.payout_on && r.payout_on > next ? r.payout_on : next) === b.date)
+        .map((r) => r.id);
+      a.trips.push({ bookingId, client: head.client_name, supplier: head.supplier, cents: b.cents, receipts: onThisDate });
     }
   }
   const payDates = [...dates.entries()].sort(([x], [y]) => (x < y ? -1 : 1)).map(([date, advisors]) => {

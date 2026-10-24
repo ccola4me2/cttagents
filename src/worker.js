@@ -376,6 +376,7 @@ import {
   handleListPayouts,
   handleCreatePayout,
   handleDeletePayout,
+  handleUpdatePayout,
 } from './payouts.js';
 import {
   handleClientRecord,
@@ -1429,6 +1430,7 @@ async function routeApi(request, env, path, method) {
   // one is an owner's act, which the handler enforces rather than the router.
   if (path === '/api/payouts' && method === 'GET') return handleListPayouts(request, env);
   if (path === '/api/payouts' && method === 'POST') return handleCreatePayout(request, env);
+  if (payoutMatch && method === 'PUT') return handleUpdatePayout(request, env, payoutMatch[1]);
   if (payoutMatch && method === 'DELETE') return handleDeletePayout(request, env, payoutMatch[1]);
 
   // The commission desk: money in from vendors, and when each advisor is paid for it.

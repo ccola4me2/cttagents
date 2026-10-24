@@ -246,6 +246,39 @@ export async function handleCreatePayout(request, env) {
 }
 
 /**
+ * Correct a payout that has been recorded: the day it went out, how, and the reference.
+ *
+ * Not the amount or what it covers, which come from the reservations it paid and change only by taking the payout
+ * back and recording it again. Whatever the request leaves out is left as it was.
+ */
+export async function handleUpdatePayout(request, env, id) {
+  const { user: admin, response } = await requireAdmin(request, env);
+  if (response) return response;
+
+  const row = await env.DB.prepare(
+    `SELECT p.id, p.user_id, p.paid_on, p.method, p.reference, p.notes FROM advisor_payouts p
+       JOIN users u ON u.id = p.user_id
+      WHERE p.id = ? AND (? = 1 OR u.agency_id = ?)`
+  ).bind(id, admin.platform_owner ? 1 : 0, admin.agency_id || '').first();
+  if (!row) return notFound('Payout not found.');
+
+  const body = await readJson(request);
+  const paidOn = body.paidOn === undefined ? row.paid_on : cleanDate(body.paidOn);
+  if (!paidOn) return badRequest('Choose the day it was paid.');
+  const method = body.method === undefined ? row.method : oneOf(body.method, METHOD_KEYS);
+  const reference = body.reference === undefined ? row.reference : (clean(body.reference, 80) || null);
+  const notes = body.notes === undefined ? row.notes : (clean(body.notes, 1000) || null);
+
+  await env.DB.prepare(
+    `UPDATE advisor_payouts SET paid_on = ?, method = ?, reference = ?, notes = ?, updated_at = ?
+      WHERE id = ? AND user_id = ?`
+  ).bind(paidOn, method, reference, notes, now(), id, row.user_id).run();
+
+  await db.logActivity(env, admin.id, 'payout.edit', 'Corrected a recorded payout', { payoutId: id, userId: row.user_id });
+  return json({ ok: true });
+}
+
+/**
  * Take one back.
  *
  * The lines go with it, so what it covered returns to being owed. A payout

@@ -158,7 +158,7 @@
         <input id="payRef" maxlength="80" autocomplete="off"></div>
       <p class="field-hint">This records that you have paid them. It does not send any money.</p>
     </div>
-    <div class="card-foot"><button class="btn btn-primary" type="submit">Mark as paid</button></div>
+    <div class="card-foot"><button class="btn btn-primary" type="submit" id="pay-save">Mark as paid</button></div>
   </form>
 </dialog>
 <datalist id="vendor-names"></datalist>
@@ -227,10 +227,19 @@ function drawScheduled() {
         <div class="cd-adv">
           <span class="nm">${esc(a.name)}</span>
           <span class="cd-money">${money(a.cents)}</span>
-          <span class="acts">${p.isNext
-    ? `<button class="btn btn-secondary btn-sm" type="button" data-pay="${esc(a.userId)}" data-date="${esc(p.date)}"
+          <span class="acts"><button class="btn btn-ghost btn-sm" type="button" data-editsched="${esc(p.date)}|${esc(a.userId)}">${
+  editingSched.has(`${p.date}|${a.userId}`) ? 'Done' : 'Edit'}</button>${p.isNext
+    ? ` <button class="btn btn-secondary btn-sm" type="button" data-pay="${esc(a.userId)}" data-date="${esc(p.date)}"
                  data-name="${esc(a.name)}" data-cents="${a.cents}">Mark paid</button>` : ''}</span>
-          <div class="trips">${a.trips.map((t) => `<span>${esc(t.client)}${t.supplier ? ` (${esc(t.supplier)})` : ''}: ${money(t.cents)}</span>`).join('')}</div>
+          ${editingSched.has(`${p.date}|${a.userId}`)
+    ? `<div class="trips" style="display:grid;gap:.4rem;">${a.trips.map((t) => `<div style="display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;">
+        <span style="min-width:16rem;">${esc(t.client)}${t.supplier ? ` (${esc(t.supplier)})` : ''}: ${money(t.cents)}</span>
+        <label class="muted" style="font-size:.8rem;margin:0;">Pay out on
+          <select data-move="${esc((t.receipts || []).join(','))}" aria-label="Pay out date for ${esc(t.client)}">${
+  [...new Set([...(d.payDatesList || []), p.date])].sort().map((x) =>
+    `<option value="${esc(x)}"${x === p.date ? ' selected' : ''}>${esc(dateFmt(x))}</option>`).join('')}</select></label></div>`).join('')}
+        <span class="muted" style="font-size:.8rem;">Moving a line to another day changes when it is paid. The amount stays the same.</span></div>`
+    : `<div class="trips">${a.trips.map((t) => `<span>${esc(t.client)}${t.supplier ? ` (${esc(t.supplier)})` : ''}: ${money(t.cents)}</span>`).join('')}</div>`}
         </div>`).join('')}
     </section>`).join('');
 }
@@ -310,7 +319,8 @@ function drawPaid() {
       <td class="r cd-money">${money(p.amount_cents)}</td>
       <td>${esc((methods.find((m) => m.key === p.method) || { label: p.method || '' }).label)}${p.reference ? ` <span class="muted">${esc(p.reference)}</span>` : ''}</td>
       <td class="r">${p.trips}</td>
-      <td class="r"><button class="btn btn-ghost btn-sm" type="button" data-delpay="${esc(p.id)}">Undo</button></td>
+      <td class="r"><button class="btn btn-ghost btn-sm" type="button" data-editpay="${esc(p.id)}">Edit</button>
+        <button class="btn btn-ghost btn-sm" type="button" data-delpay="${esc(p.id)}">Undo</button></td>
     </tr>`).join('')}</tbody></table></div>`;
 }
 
@@ -382,6 +392,13 @@ panel.addEventListener('click', async (e) => {
   if (t.dataset.addline) { openCheckDialog(d.checks.find((c) => c.id === t.dataset.addline)); return; }
   if (t.dataset.delcheck) { await removeCheck(t.dataset.delcheck); return; }
   if (t.dataset.delpay) { await undoPayout(t.dataset.delpay); return; }
+  if (t.dataset.editpay) { openEditPayout(d.paid.find((x) => x.id === t.dataset.editpay)); return; }
+  if (t.dataset.editsched) {
+    if (editingSched.has(t.dataset.editsched)) editingSched.delete(t.dataset.editsched);
+    else editingSched.add(t.dataset.editsched);
+    draw();
+    return;
+  }
   if (t.dataset.row && !e.target.closest('select, a')) {
     openCheck = openCheck === t.dataset.row ? null : t.dataset.row;
     draw();
@@ -389,6 +406,18 @@ panel.addEventListener('click', async (e) => {
 });
 
 panel.addEventListener('change', async (e) => {
+  // A line on the schedule moved to another pay date: every receipt behind it goes together.
+  const move = e.target.closest('select[data-move]');
+  if (move && move.value) {
+    try {
+      for (const id of move.dataset.move.split(',').filter(Boolean)) {
+        await api(`/api/commissions/receipts/${encodeURIComponent(id)}/pay-date`, { method: 'PUT', body: { payoutOn: move.value } });
+      }
+      errEl.innerHTML = '<div class="notice notice-ok">Pay date changed.</div>';
+      await load();
+    } catch (err) { showError(errEl, err); }
+    return;
+  }
   const sel = e.target.closest('select[data-receipt]');
   if (!sel || !sel.value) return;
   try {
@@ -424,9 +453,27 @@ async function undoPayout(id) {
 
 const payDlg = $('pay-dlg');
 let paying = null;
+let editingPayout = null;
+const editingSched = new Set();
+
+function openEditPayout(p) {
+  editingPayout = p;
+  paying = null;
+  $('pay-err').hidden = true;
+  $('pay-title').textContent = 'Edit this payout';
+  $('pay-what').innerHTML = `${esc(p.advisor_name)}, ${money(p.amount_cents)}. The amount and the reservations it covers stay as they are: to change those, take the payout back and record it again.`;
+  $('pay-save').textContent = 'Save the changes';
+  $('paidOn').value = p.paid_on || d.today;
+  $('method').innerHTML = methods.map((m) => `<option value="${esc(m.key)}"${m.key === p.method ? ' selected' : ''}>${esc(m.label)}</option>`).join('');
+  $('payRef').value = p.reference || '';
+  payDlg.showModal();
+}
 
 function openPay(ds) {
   paying = ds;
+  editingPayout = null;
+  $('pay-title').textContent = 'Mark as paid';
+  $('pay-save').textContent = 'Mark as paid';
   $('pay-err').hidden = true;
   $('pay-what').innerHTML = `Pay <strong>${esc(ds.name)}</strong> ${money(Number(ds.cents))} for the ${esc(dateFmt(ds.date))} payout.`;
   $('paidOn').value = d.today;
@@ -437,6 +484,17 @@ function openPay(ds) {
 $('pay-close').addEventListener('click', () => payDlg.close());
 $('pay-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (editingPayout) {
+    try {
+      await api(`/api/payouts/${encodeURIComponent(editingPayout.id)}`, { method: 'PUT', body: {
+        paidOn: $('paidOn').value, method: $('method').value, reference: $('payRef').value,
+      } });
+      payDlg.close();
+      errEl.innerHTML = '<div class="notice notice-ok">The payout was updated.</div>';
+      await load();
+    } catch (err) { showError($('pay-err'), err); }
+    return;
+  }
   try {
     await api('/api/payouts', { method: 'POST', body: {
       userId: paying.pay, payDate: paying.date, paidOn: $('paidOn').value,
@@ -528,6 +586,8 @@ function lineHtml(l, i) {
   r.departDate ? ` · ${esc(dateFmt(r.departDate))}` : ''}${
   r.receivedCents ? ` · <strong style="color:var(--amber-600);">${money(r.receivedCents)} already received</strong>` : ''}</span></button>`).join('')}</div>` : ''}
     ${l.bookingId && travel && l.payoutOn ? `<div class="sub">${l.returnDate ? 'Back' : 'Leaves'} ${esc(dateFmt(travel))}, so paid out ${esc(dateFmt(l.suggested))} unless you choose another day.</div>` : ''}
+    ${l.bookingId && l.payoutOn && l.suggested && l.payoutOn < l.suggested ? `<div class="warn">${esc(dateFmt(l.payoutOn))} is before ${
+  l.returnDate ? 'they are back' : 'they travel'}. The usual day is ${esc(dateFmt(l.suggested))}, the first pay date after the trip. Change it only if you mean to pay early.</div>` : ''}
     ${l.bookingId && l.received ? `<div class="warn">This reservation already has ${money(l.received)} received${
   l.received === amt ? ', the same amount as this line, so this may already be recorded' : ''}. Only continue if this is a further payment.</div>` : ''}
     ${l.bookingId && amt ? `<div class="sub">${esc(shareLine(l.advisorName, l.pct, amt))}</div>` : ''}
