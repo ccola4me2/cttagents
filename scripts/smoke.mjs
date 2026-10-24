@@ -3260,6 +3260,8 @@ async function main() {
     check(!body.includes(bookingId), 'nor the booking id');
     check(body.includes('Smoke Client') || body.includes('Western Caribbean'),
       'while showing the trip itself');
+    check(/Your advisor/.test(body) && /href="(mailto|tel):/.test(body),
+      'and says who is looking after it, with a way to reach them in one tap');
 
     // The ten-day chase reminder is ours, not a second payment: the client
     // sees each hard payment once.

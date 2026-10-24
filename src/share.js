@@ -823,6 +823,8 @@ export async function renderTripPage(request, env, code) {
       ${heroChips(b, nn, trip.travellers.length, today)}
     </header>
 
+    ${advisorStrip(b, advisor)}
+
     ${facts.length ? `<section class="card">
       <dl class="facts">${facts.map(([k, v]) => `<div>
         <dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>
@@ -1072,6 +1074,18 @@ function heroChips(b, nn, guests, today) {
   if (nn) chips.push(`<span class="chip">${nn} ${nn === 1 ? 'night' : 'nights'}</span>`);
   if (guests) chips.push(`<span class="chip">${guests} ${guests === 1 ? 'traveller' : 'travellers'}</span>`);
   return chips.length ? `<div class="chips">${chips.join('')}</div>` : '';
+}
+
+/** The person looking after this trip, with a way to reach them in one tap, right under the trip's banner. */
+function advisorStrip(b, advisor) {
+  const email = b.notify_email || b.advisor_email;
+  if (!advisor || (!email && !b.advisor_phone)) return '';
+  const initials = String(advisor).split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
+  return `<section class="card adv">
+      <span class="av" aria-hidden="true">${esc(initials || '?')}</span>
+      <div class="who"><strong>${esc(advisor)}</strong><span class="dim small">${esc(b.agency_name ? `Your advisor at ${b.agency_name}` : 'Your advisor')}</span></div>
+      <div class="acts">${b.advisor_phone ? `<a href="tel:${esc(b.advisor_phone)}">Call</a>` : ''}${email ? `<a href="mailto:${esc(email)}">Email</a>` : ''}</div>
+    </section>`;
 }
 
 /**
@@ -1965,6 +1979,17 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
   .tl strong{display:block;color:var(--navy);font-weight:650}
   .tl .done strong{color:var(--dim);font-weight:600}
   .tl .when{display:block;font-size:.84rem;color:var(--dim)}
+  /* Whoever is looking after the trip, with a way to reach them in one tap. */
+  .adv{display:flex;align-items:center;gap:.9rem;padding:.85rem 1.1rem;flex-wrap:wrap}
+  .adv .av{flex:none;width:44px;height:44px;border-radius:50%;background:var(--navy);color:#fff;display:grid;
+    place-items:center;font-weight:650;font-size:.95rem;letter-spacing:.02em}
+  .adv .who{flex:1 1 10rem;min-width:0;display:flex;flex-direction:column}
+  .adv .who strong{color:var(--navy);font-weight:650}
+  .adv .acts{display:flex;gap:.5rem}
+  .adv .acts a{display:inline-block;padding:.5rem 1.1rem;border-radius:999px;border:1px solid var(--navy);
+    color:var(--navy);text-decoration:none;font-weight:650;font-size:.88rem}
+  .adv .acts a:first-child{background:var(--navy);color:#fff}
+  .adv .acts a:hover{opacity:.88}
 
   @media print {
     /* The page a client keeps. Anything that only works by being clicked is
