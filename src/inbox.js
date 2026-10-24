@@ -74,10 +74,14 @@ export async function bestReading(raw) {
  */
 export async function handleInboundConfirmation(env, { to, raw }) {
   const token = tokenOf(to);
+  const alias = token ? null : aliasOf(to);
   const user = token
     ? await env.DB.prepare("SELECT id, email FROM users WHERE invite_token = ? AND status = 'active'")
       .bind(token).first().catch(() => null)
-    : null;
+    : (alias
+      ? await env.DB.prepare("SELECT id, email FROM users WHERE import_alias = ? AND status = 'active'")
+        .bind(alias).first().catch(() => null)
+      : null);
   // The same answer whether the token is wrong or the account is closed.
   if (!user) return { reject: 'That address does not take confirmations.' };
 
@@ -122,8 +126,31 @@ export async function handleInboundConfirmation(env, { to, raw }) {
 
 function addressOf(env, user) {
   const domain = inviteDomain(env);
-  if (!domain || !user.invite_token) return null;
-  return `conf-${user.invite_token}@${domain}`;
+  if (!domain || !(user.import_alias || user.invite_token)) return null;
+  return `conf-${user.import_alias || user.invite_token}@${domain}`;
+}
+
+/** The name in a conf- address, when it is a name and not the long code. */
+function aliasOf(address) {
+  const at = String(address || '').indexOf('@');
+  const local = (at === -1 ? String(address || '') : String(address).slice(0, at))
+    .toLowerCase().split('+')[0].trim().replace(/^conf[-.]/, '');
+  return /^[a-z][a-z0-9]{1,30}$/.test(local) && !/^[a-f0-9]{16,64}$/.test(local) ? local : null;
+}
+
+/** The advisor's first name as their address, when nobody else has it. Null when it is taken or is not a usable name. */
+async function claimAlias(env, user) {
+  const name = String(user.first_name || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 30);
+  if (!/^[a-z][a-z0-9]{1,29}$/.test(name) || ['appt', 'conf', 'abc'].includes(name)) return null;
+  try {
+    const res = await env.DB.prepare(
+      'UPDATE users SET import_alias = ?, updated_at = ? WHERE id = ? AND import_alias IS NULL'
+    ).bind(name, now(), user.id).run();
+    return res.meta && res.meta.changes > 0 ? name : null;
+  } catch {
+    // Somebody else has it: the long code address stands.
+    return null;
+  }
 }
 
 const shape = (r) => {
@@ -166,7 +193,8 @@ export async function handleMakeInboxAddress(request, env) {
     await env.DB.prepare('UPDATE users SET invite_token = ?, updated_at = ? WHERE id = ?')
       .bind(token, now(), user.id).run();
   }
-  return json({ ok: true, address: `conf-${token}@${domain}` });
+  const alias = user.import_alias || await claimAlias(env, user);
+  return json({ ok: true, address: `conf-${alias || token}@${domain}` });
 }
 
 export async function handleGetInboxItem(request, env, id) {

@@ -10763,7 +10763,7 @@ async function main() {
     } else if (inbox.data?.ready === true) {
       // The same token the meeting invites use, with the other door's prefix.
       const made = await call(advisor, 'POST', '/api/inbox/address', {});
-      check(made.status === 200 && /^conf-[a-f0-9]{32}@[a-z0-9.-]+$/.test(made.data?.address || ''),
+      check(made.status === 200 && /^conf-([a-f0-9]{32}|[a-z][a-z0-9]{1,30})@[a-z0-9.-]+$/.test(made.data?.address || ''),
         'an advisor can have an address of their own for confirmations', JSON.stringify(made.data));
       const again = await call(advisor, 'GET', '/api/inbox');
       check(again.data?.address === made.data?.address, 'and it is the same one every time they ask', JSON.stringify(again.data?.address));

@@ -28,7 +28,9 @@ const USER_COLUMNS = `
   timezone, invite_token,
   agency_id, platform_owner,
   -- The address a Group Desk member signs in with when their account has an address of its own inside.
-  desk_email
+  desk_email,
+  -- The name the advisor's confirmation address answers to, beside the long code.
+  import_alias
 `;
 
 // The same columns qualified, for the session lookup that joins sessions to
