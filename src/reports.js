@@ -475,6 +475,21 @@ async function noticesFor(env, user, scope) {
   // clients, so an owner is told here rather than by the silence of something not arriving. It clears by itself the
   // first time the job runs cleanly.
   if (isOwner) {
+    // Advisors the agency has paid this year and holds no W-9 for: the form it will need in January.
+    const noW9 = await env.DB.prepare(
+      `SELECT COUNT(DISTINCT p.user_id) AS n FROM advisor_payouts p
+         LEFT JOIN advisor_tax t ON t.user_id = p.user_id
+        WHERE p.user_id IN (SELECT id FROM users WHERE agency_id = ?)
+          AND substr(COALESCE(p.paid_on, ''), 1, 4) = ? AND (t.w9_on IS NULL OR t.w9_on = '')`
+    ).bind(user.agency_id, isoDay(0).slice(0, 4)).first().catch(() => null);
+    if (noW9 && noW9.n) {
+      out.push({
+        tone: 'warn',
+        title: noW9.n + (noW9.n === 1 ? ' advisor has' : ' advisors have') + ' been paid this year with no W-9 on file',
+        detail: 'You will need it to report what they were paid in January. It takes a minute to record where it is.',
+        href: '/admin/tax', label: 'Open Tax and 1099',
+      });
+    }
     const failing = await env.DB.prepare(
       `SELECT name, last_error FROM cron_jobs WHERE last_error IS NOT NULL AND last_run_at > ?
         ORDER BY last_run_at DESC LIMIT 5`

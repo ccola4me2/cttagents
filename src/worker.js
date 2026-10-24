@@ -269,6 +269,7 @@ import {
   handleGetBrand, handleSaveBrand, handleUploadLogo, handleRemoveLogo, serveUserLogo,
 } from './userbrand.js';
 import { handleClientNoteDraft, handleClientNoteSend } from './clientnotes.js';
+import { handleTaxList, handleTaxSave } from './advisortax.js';
 import { handleGetWaiverWording, handleSaveWaiverWording, handleResetWaiverWording } from './waiverwording.js';
 import {
   handleGetBookingTripEmails, handleSaveBookingTripEmails, handleGetTripEmailSettings, handleSaveTripEmailSettings,
@@ -320,7 +321,7 @@ import {
 import {
   handleCommissionDesk,
   handleCommissionRecall,
-  handleReadRemittance,
+  handleReadRemittance, handleSetCommissionChase,
   handleSearchForCheck,
   handleCreateCheck,
   handleUpdateCheck,
@@ -568,6 +569,7 @@ const PAGE_FILES = {
   '/admin/events': '/admin/events.html',
   '/admin/waiver': '/admin/waiver.html',
   '/admin/client-emails': '/admin/client-emails.html',
+  '/admin/tax': '/admin/tax.html',
   '/admin/groups': '/admin/groups.html',
   '/admin': '/admin/index.html',
   '/admin/': '/admin/index.html',
@@ -803,6 +805,8 @@ async function routeApi(request, env, path, method) {
   const leadStageMatch = path.match(/^\/api\/leads\/([^/]+)\/stage$/);
   const leadDoneMatch = path.match(/^\/api\/leads\/([^/]+)\/followed$/);
   const clientNoteMatch = path.match(/^\/api\/clients\/([^/]+)\/note$/);
+  const taxMatch = path.match(/^\/api\/admin\/tax\/([^/]+)$/);
+  const commissionChaseMatch = path.match(/^\/api\/bookings\/([^/]+)\/commission-chase$/);
   const leadHelloMatch = path.match(/^\/api\/leads\/([^/]+)\/hello$/);
   const leadReachedMatch = path.match(/^\/api\/leads\/([^/]+)\/reached$/);
   const bookingMatch = path.match(/^\/api\/bookings\/([^/]+)$/);
@@ -963,6 +967,11 @@ async function routeApi(request, env, path, method) {
   // A note to somebody on the Who to call page: written in the agency's words, read and sent by the advisor.
   if (clientNoteMatch && method === 'GET') return handleClientNoteDraft(request, env, clientNoteMatch[1]);
   if (clientNoteMatch && method === 'POST') return handleClientNoteSend(request, env, clientNoteMatch[1]);
+  // What the agency holds for each advisor's year end 1099: an owner's, start to finish.
+  if (path === '/api/admin/tax' && method === 'GET') return handleTaxList(request, env);
+  if (taxMatch && method === 'PUT') return handleTaxSave(request, env, taxMatch[1]);
+  // An unpaid commission marked disputed, or written off: an owner's call.
+  if (commissionChaseMatch && method === 'POST') return handleSetCommissionChase(request, env, commissionChaseMatch[1]);
   if (leadHelloMatch && method === 'GET') return handleLeadHelloDraft(request, env, leadHelloMatch[1]);
   if (leadHelloMatch && method === 'POST') return handleLeadHello(request, env, leadHelloMatch[1]);
   if (leadReachedMatch && method === 'POST') return handleLeadReached(request, env, leadReachedMatch[1]);

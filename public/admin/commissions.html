@@ -154,6 +154,20 @@
   </form>
 </dialog>
 
+<dialog id="chase-dlg">
+  <form method="dialog" id="chase-form">
+    <div class="card-head"><h2 id="chase-title">Mark this commission</h2>
+      <button class="btn btn-ghost btn-sm" type="button" id="chase-close">Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" id="chase-err" hidden></div>
+      <p id="chase-help" style="margin-top:0;"></p>
+      <div class="field"><label for="chase-note">Why, in a sentence</label>
+        <input id="chase-note" maxlength="300" placeholder="Vendor says the booking was cancelled on their side"></div>
+    </div>
+    <div class="card-foot"><button class="btn btn-primary" type="submit">Save</button></div>
+  </form>
+</dialog>
+
 <dialog id="pay-dlg">
   <form method="dialog" id="pay-form">
     <div class="card-head"><h2 id="pay-title">Mark as paid</h2>
@@ -213,7 +227,8 @@ function drawTiles() {
     tile('scheduled', 'Scheduled to pay out', money(t.scheduledCents),
       next ? `next payout ${esc(short(d.nextPayDate))}: ${money(next.totalCents)}` : `next pay date ${esc(short(d.nextPayDate))}`),
     tile('owed', 'Still owed to us', money(t.owedToUsCents),
-      `${t.owedToUsCount} reservation${t.owedToUsCount === 1 ? '' : 's'} not yet paid`),
+      `${t.owedToUsCount} reservation${t.owedToUsCount === 1 ? '' : 's'} not yet paid${t.writtenOffCount
+        ? `, and ${money(t.writtenOffCents)} written off` : ''}`),
     tile('all', 'Everything', 'All commissions', 'every reservation and advisor, to search, filter and download'),
     tile('statements', 'Statements', 'For each advisor', 'what they earned, were paid and are owed, to print or send'),
     tile('reports', 'Reports', 'By advisor, vendor, month', 'the books in tables you can download'),
@@ -345,27 +360,68 @@ function drawPaid() {
 }
 
 function drawOwed() {
-  const rows = d.outstanding.filter((o) => !bucket || o.bucket === bucket);
+  const off = d.writtenOff || [];
+  const showingOff = bucket === 'written_off';
+  const rows = showingOff ? off : d.outstanding.filter((o) => !bucket || o.bucket === bucket);
   const chips = `<div class="cd-chips">
     <button class="cd-chip" type="button" data-bucket="" aria-pressed="${bucket === ''}">All<span class="n">${d.outstanding.length}</span></button>
-    ${d.buckets.map((b) => `<button class="cd-chip" type="button" data-bucket="${esc(b.key)}" aria-pressed="${bucket === b.key}"
-      title="${esc(b.hint)}">${esc(b.label)}<span class="n">${b.count} · ${money(b.cents)}</span></button>`).join('')}</div>`;
+    ${d.buckets.filter((b) => b.key !== 'disputed' || b.count).map((b) => `<button class="cd-chip" type="button" data-bucket="${esc(b.key)}" aria-pressed="${bucket === b.key}"
+      title="${esc(b.hint)}">${esc(b.label)}<span class="n">${b.count} &middot; ${money(b.cents)}</span></button>`).join('')}
+    ${off.length ? `<button class="cd-chip" type="button" data-bucket="written_off" aria-pressed="${showingOff}"
+      title="Marked as not going to be collected">Written off<span class="n">${off.length} &middot; ${money(off.reduce((n, o) => n + o.owedCents, 0))}</span></button>` : ''}</div>`;
   if (!rows.length) {
     return `${chips}<div class="card"><div class="empty"><h3>Nothing owed here</h3>
       <p>Every reservation in this group has had its commission paid.</p></div></div>`;
   }
+  const acts = (o) => (o.chase === 'written_off'
+    ? `<button class="btn btn-ghost btn-sm" type="button" data-chase="${esc(o.id)}" data-state="">Put back</button>`
+    : `${o.chase === 'disputed'
+      ? `<button class="btn btn-ghost btn-sm" type="button" data-chase="${esc(o.id)}" data-state="">Resolved</button>`
+      : `<button class="btn btn-ghost btn-sm" type="button" data-chase="${esc(o.id)}" data-state="disputed" data-name="${esc(o.clientName)}">Dispute</button>`}
+       <button class="btn btn-ghost btn-sm" type="button" data-chase="${esc(o.id)}" data-state="written_off" data-name="${esc(o.clientName)}">Write off</button>`);
   return `${chips}<div class="card cd-scroll"><table class="cd-table"><thead><tr>
-    <th>Reservation</th><th>Advisor</th><th>Travelled</th><th class="r">Days</th><th class="r">Expected</th><th class="r">Received</th><th class="r">Owed</th>
+    <th>Reservation</th><th>Advisor</th><th>Travelled</th><th class="r">Days</th><th class="r">Expected</th><th class="r">Received</th><th class="r">Owed</th><th></th>
     </tr></thead><tbody>${rows.map((o) => `<tr>
       <td><a href="/app/reservation?id=${encodeURIComponent(o.id)}">${esc(o.clientName)}</a>
-        <div class="muted">${esc([o.supplier, o.productName].filter(Boolean).join(' · '))}</div></td>
+        ${o.chase ? `<span class="badge ${o.chase === 'disputed' ? 'badge-amber' : 'badge-navy'}" style="margin-left:.4rem;">${o.chase === 'disputed' ? 'Disputed' : 'Written off'}</span>` : ''}
+        <div class="muted">${esc([o.supplier, o.productName].filter(Boolean).join(' · '))}</div>
+        ${o.chaseNote ? `<div class="muted" style="font-style:italic;">${esc(o.chaseNote)}</div>` : ''}</td>
       <td>${esc(o.advisorName || '')}</td>
       <td>${o.travelDate ? esc(dateFmt(o.travelDate)) : '<span class="muted">no date</span>'}</td>
       <td class="r">${o.daysSince === null ? '' : (o.daysSince < 0 ? `<span class="muted">in ${-o.daysSince}</span>` : o.daysSince)}</td>
       <td class="r cd-money">${money(o.expectedCents)}</td><td class="r cd-money">${money(o.receivedCents)}</td>
-      <td class="r cd-money"><strong>${money(o.owedCents)}</strong></td></tr>`).join('')}</tbody></table></div>
+      <td class="r cd-money"><strong>${money(o.owedCents)}</strong></td>
+      <td class="r" style="white-space:nowrap;">${acts(o)}</td></tr>`).join('')}</tbody></table></div>
     ${d.outstandingTruncated ? '<p class="muted">Showing the oldest 500.</p>' : ''}`;
 }
+
+/**
+ * Marking an unpaid commission. Disputed sets it apart from routine chasing; written off takes it out of what is owed
+ * (it is kept, and can be put back). Either asks for a sentence on why, so the next person to open it knows.
+ */
+const chaseDlg = document.getElementById('chase-dlg');
+let chasing = null;
+function openChase(id, state, name) {
+  chasing = { id, state };
+  document.getElementById('chase-title').textContent = state === 'written_off' ? `Write off ${name}'s commission` : `Dispute ${name}'s commission`;
+  document.getElementById('chase-help').textContent = state === 'written_off'
+    ? 'It stops counting as owed. It stays on record under Written off, and you can put it back.'
+    : 'It moves to its own group, Disputed, so it is not chased as routine while you wait on the vendor.';
+  document.getElementById('chase-note').value = '';
+  document.getElementById('chase-err').hidden = true;
+  chaseDlg.showModal();
+}
+async function setChase(id, state, note) {
+  await api(`/api/bookings/${encodeURIComponent(id)}/commission-chase`, { method: 'POST', body: { state, note } });
+  await load();
+}
+document.getElementById('chase-close').addEventListener('click', () => chaseDlg.close());
+document.getElementById('chase-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!chasing) return;
+  try { await setChase(chasing.id, chasing.state, document.getElementById('chase-note').value); chaseDlg.close(); }
+  catch (ex) { const x = document.getElementById('chase-err'); x.textContent = ex.message || 'That did not save.'; x.hidden = false; }
+});
 
 // ---------------------------------------------------------------------------
 // Everything: one list of every commission, every advisor
@@ -939,6 +995,11 @@ panel.addEventListener('click', async (e) => {
   const t = e.target.closest('button, tr[data-row]');
   if (!t) return;
   if (t.dataset.bucket !== undefined) { bucket = t.dataset.bucket; draw(); return; }
+  if (t.dataset.chase) {
+    if (t.dataset.state) { openChase(t.dataset.chase, t.dataset.state, t.dataset.name || 'this reservation'); return; }
+    try { await setChase(t.dataset.chase, '', ''); } catch (ex) { showError(errEl, ex); }
+    return;
+  }
   if (t.dataset.pay) { openPay(t.dataset); return; }
   if (t.dataset.editcheck) { openEditCheck(d.checks.find((c) => c.id === t.dataset.editcheck)); return; }
   if (t.dataset.addline) { openCheckDialog(d.checks.find((c) => c.id === t.dataset.addline)); return; }

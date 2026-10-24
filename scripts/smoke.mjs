@@ -12708,6 +12708,49 @@ async function main() {
   const notDoc = await call(admin, 'POST', '/api/commission-checks/read', { hello: 'world' });
   check(notDoc.status === 400, 'something that is not a remittance is turned away', `status ${notDoc.status}`);
 
+  // An unpaid commission can be disputed or written off, by an owner, and put back.
+  {
+    const chaseAdvisor = await call(advisor, 'POST', `/api/bookings/${tripId}/commission-chase`, { state: 'disputed', note: 'no' });
+    check(chaseAdvisor.status === 403, 'an advisor cannot mark a commission disputed or written off', `status ${chaseAdvisor.status}`);
+    const disp = await call(admin, 'POST', `/api/bookings/${tripId}/commission-chase`, { state: 'disputed', note: 'Asked the vendor' });
+    check(disp.status === 200 && disp.data?.state === 'disputed', 'an owner can mark one disputed', `status ${disp.status}`);
+    const afterDisp = await call(admin, 'GET', '/api/commission-desk');
+    const dRow = (afterDisp.data?.outstanding || []).find((o) => o.id === tripId);
+    check(!dRow || (dRow.bucket === 'disputed' && dRow.chaseNote === 'Asked the vendor'),
+      'and it moves to its own group with the reason kept', JSON.stringify(dRow && [dRow.bucket, dRow.chaseNote]));
+    const off = await call(admin, 'POST', `/api/bookings/${tripId}/commission-chase`, { state: 'written_off', note: 'Will not be paid' });
+    const afterOff = await call(admin, 'GET', '/api/commission-desk');
+    check(off.status === 200 && !(afterOff.data?.outstanding || []).some((o) => o.id === tripId),
+      'written off, it stops counting as owed', `status ${off.status}`);
+    check(!dRow || (afterOff.data?.writtenOff || []).some((o) => o.id === tripId),
+      'and is kept under written off', JSON.stringify((afterOff.data?.writtenOff || []).length));
+    const back = await call(admin, 'POST', `/api/bookings/${tripId}/commission-chase`, { state: '', note: '' });
+    const afterBack = await call(admin, 'GET', '/api/commission-desk');
+    check(back.status === 200 && !(afterBack.data?.writtenOff || []).some((o) => o.id === tripId),
+      'and put back', `status ${back.status}`);
+  }
+
+  // What the agency holds on each advisor for the year end form.
+  {
+    const noAdv = await call(advisor, 'GET', '/api/admin/tax');
+    check(noAdv.status === 403, 'an advisor cannot read the tax details', `status ${noAdv.status}`);
+    const list = await call(admin, 'GET', '/api/admin/tax');
+    check(list.status === 200 && Array.isArray(list.data?.advisors) && list.data.advisors.length >= 1 && list.data?.reportAtCents === 60000,
+      'an owner sees every advisor, with what they were paid and whether a W-9 is on file', `status ${list.status}`);
+    const mine = (list.data?.advisors || []).find((a) => a.email === ADVISOR_EMAIL);
+    if (mine) {
+      const longTin = await call(admin, 'PUT', `/api/admin/tax/${mine.userId}`, { tinLast4: '123456789', tinType: 'ssn' });
+      check(longTin.status === 400, 'a whole tax number is refused: only the last four digits are kept', `status ${longTin.status}`);
+      const saved = await call(admin, 'PUT', `/api/admin/tax/${mine.userId}`, {
+        legalName: 'Smoke Test Advisor', classification: 'individual', tinType: 'ssn', tinLast4: '4321', address: '1 Test Way', w9On: isoDay(-3) });
+      const again = await call(admin, 'GET', '/api/admin/tax');
+      const row = (again.data?.advisors || []).find((a) => a.userId === mine.userId);
+      check(saved.status === 200 && row?.tinLast4 === '4321' && row?.missingW9 === false && row?.legalName === 'Smoke Test Advisor',
+        'what is recorded is kept, and the W-9 is no longer missing', JSON.stringify(row && [row.tinLast4, row.missingW9]));
+      await call(admin, 'PUT', `/api/admin/tax/${mine.userId}`, {});
+    }
+  }
+
   // Rows pasted from any vendor's statement are read, each matched by its confirmation number.
   {
     const bk = await call(admin, 'GET', `/api/bookings/${tripId}/record`);

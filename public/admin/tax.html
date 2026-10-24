@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tax and 1099 | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Tax and 1099</h1>
+        <p class="sub">What you hold on each advisor for the year end form, and what you paid them. Ready to download in January.</p></div>
+      <div class="toolbar" style="margin:0;">
+        <label for="year" style="margin:0;">Year</label>
+        <select id="year" style="width:auto;"></select>
+        <button class="btn btn-primary btn-sm" type="button" id="download">Download the 1099 file</button>
+      </div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <section id="tiles" class="stat-grid"></section>
+      <section class="card" style="margin-top:1.4rem;">
+        <div id="panel"><p class="spinner">Loading...</p></div>
+      </section>
+      <p class="muted" style="margin-top:1rem;font-size:.85rem;max-width:60rem;">
+        Only the last four digits of a tax number are kept here, never the whole number: the full number stays on the signed W-9 in your
+        own records. An agency must report anyone it paid $600 or more in the year, unless they are paid as a corporation or live
+        outside the country. Ask whoever files your return to confirm what applies to you.</p>
+    </div>
+  </div>
+</div>
+
+<dialog id="dlg" style="max-width:min(40rem, 96vw);width:96vw;">
+  <form id="form" method="dialog" novalidate>
+    <div class="card-head"><h2 id="dlg-title">Tax details</h2>
+      <button class="btn btn-ghost btn-sm" type="button" id="dlg-close">Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" id="dlg-err" hidden></div>
+      <div class="field-row">
+        <div class="field"><label for="legalName">Legal name</label>
+          <input id="legalName" maxlength="160" placeholder="As it appears on their W-9"></div>
+        <div class="field"><label for="businessName">Business name, if any</label>
+          <input id="businessName" maxlength="160"></div>
+      </div>
+      <div class="field"><label for="classification">What kind of taxpayer</label>
+        <select id="classification"><option value="">Not recorded</option></select></div>
+      <div class="field-row">
+        <div class="field"><label for="tinType">Tax number is a</label>
+          <select id="tinType"><option value="">Not recorded</option><option value="ssn">Social Security number</option><option value="ein">EIN</option></select></div>
+        <div class="field"><label for="tinLast4">Last four digits</label>
+          <input id="tinLast4" inputmode="numeric" maxlength="4" placeholder="1234" autocomplete="off"></div>
+      </div>
+      <div class="field"><label for="address">Mailing address for the form</label>
+        <textarea id="address" rows="3" maxlength="400"></textarea></div>
+      <div class="field-row">
+        <div class="field"><label for="w9On">W-9 received on</label>
+          <input id="w9On" type="date"></div>
+        <div class="field"><label>&nbsp;</label>
+          <label style="display:flex;gap:.5rem;align-items:center;font-weight:400;margin:.6rem 0 0;"><input type="checkbox" id="foreignPayee" style="width:auto;">
+            Lives outside the country</label>
+          <label style="display:flex;gap:.5rem;align-items:center;font-weight:400;margin:.4rem 0 0;"><input type="checkbox" id="backupWithholding" style="width:auto;">
+            Needs backup withholding</label></div>
+      </div>
+      <div class="field"><label for="notes">Notes</label>
+        <input id="notes" maxlength="500" placeholder="Where the signed W-9 is kept"></div>
+    </div>
+    <div class="card-foot"><button class="btn btn-primary" type="submit">Save</button></div>
+  </form>
+</dialog>
+
+<script type="module">
+import { api, mountShell, esc, money, dateFmt, showError } from '/js/app.js';
+await mountShell({ admin: true });
+
+const $ = (id) => document.getElementById(id);
+let d = null;
+let editing = null;
+
+const label = (key) => ((d.classes || []).find((c) => c.key === key) || { label: '' }).label;
+
+function tiles() {
+  const t = d.totals;
+  $('tiles').innerHTML = `
+    <div class="stat"><p class="label">Paid to advisors in ${esc(d.year)}</p><p class="value">${money(t.paidCents)}</p>
+      <p class="meta">${d.advisors.filter((a) => a.paidCents > 0).length} advisor${d.advisors.filter((a) => a.paidCents > 0).length === 1 ? '' : 's'} paid</p></div>
+    <div class="stat"><p class="label">Need a 1099</p><p class="value">${t.reportable}</p>
+      <p class="meta">paid ${money(d.reportAtCents)} or more</p></div>
+    <div class="stat"><p class="label">No W-9 on file</p>
+      <p class="value" style="${t.missingW9AndPaid ? 'color:var(--red-600);' : ''}">${t.missingW9}</p>
+      <p class="meta">${t.missingW9AndPaid ? `${t.missingW9AndPaid} of them paid this year` : 'none of them paid this year'}</p></div>`;
+}
+
+function table() {
+  $('panel').innerHTML = `<div class="table-wrap"><table><thead><tr>
+    <th>Advisor</th><th>W-9</th><th>On the form</th><th>Tax number</th><th class="num">Paid in ${esc(d.year)}</th><th></th></tr></thead>
+    <tbody>${d.advisors.map((a) => `<tr>
+      <td><span class="name">${esc(a.name)}</span><div class="muted">${esc(a.email)}</div></td>
+      <td>${a.w9On ? `<span class="badge badge-green">Received ${esc(dateFmt(a.w9On))}</span>` : '<span class="badge badge-amber">Missing</span>'}</td>
+      <td>${esc(a.legalName || '')}${a.businessName ? `<div class="muted">${esc(a.businessName)}</div>` : ''}
+        <div class="muted">${esc(label(a.classification))}</div></td>
+      <td>${a.tinLast4 ? `${a.tinType === 'ein' ? 'EIN' : 'SSN'} ending ${esc(a.tinLast4)}` : '<span class="muted">not recorded</span>'}</td>
+      <td class="num">${money(a.paidCents)}${a.paidCents ? `<div class="muted">${a.reportable ? 'needs a 1099' : (a.foreignPayee ? 'outside the country' : 'under $600')}</div>` : ''}</td>
+      <td class="num"><button class="btn btn-ghost btn-sm" type="button" data-edit="${esc(a.userId)}">${a.w9On ? 'Edit' : 'Record W-9'}</button></td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+function draw() {
+  $('year').innerHTML = d.years.map((y) => `<option value="${esc(y)}"${y === d.year ? ' selected' : ''}>${esc(y)}</option>`).join('');
+  $('classification').innerHTML = '<option value="">Not recorded</option>'
+    + d.classes.map((c) => `<option value="${esc(c.key)}">${esc(c.label)}</option>`).join('');
+  tiles();
+  table();
+}
+
+async function load(year) {
+  try {
+    d = await api(`/api/admin/tax${year ? `?year=${encodeURIComponent(year)}` : ''}`);
+    draw();
+  } catch (e) { $('panel').innerHTML = ''; showError($('err'), e); }
+}
+
+$('year').addEventListener('change', (e) => load(e.target.value));
+
+$('panel').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-edit]');
+  if (!b) return;
+  editing = d.advisors.find((a) => a.userId === b.dataset.edit);
+  $('dlg-title').textContent = `Tax details for ${editing.name}`;
+  $('legalName').value = editing.legalName || editing.name;
+  $('businessName').value = editing.businessName;
+  $('classification').value = editing.classification;
+  $('tinType').value = editing.tinType;
+  $('tinLast4').value = editing.tinLast4;
+  $('address').value = editing.address;
+  $('w9On').value = editing.w9On;
+  $('foreignPayee').checked = editing.foreignPayee;
+  $('backupWithholding').checked = editing.backupWithholding;
+  $('notes').value = editing.notes;
+  $('dlg-err').hidden = true;
+  $('dlg').showModal();
+});
+$('dlg-close').addEventListener('click', () => $('dlg').close());
+
+$('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api(`/api/admin/tax/${encodeURIComponent(editing.userId)}`, { method: 'PUT', body: {
+      legalName: $('legalName').value, businessName: $('businessName').value, classification: $('classification').value,
+      tinType: $('tinType').value, tinLast4: $('tinLast4').value, address: $('address').value, w9On: $('w9On').value,
+      foreignPayee: $('foreignPayee').checked, backupWithholding: $('backupWithholding').checked, notes: $('notes').value,
+    } });
+    $('dlg').close();
+    await load(d.year);
+  } catch (ex) { $('dlg-err').textContent = ex.message || 'That did not save.'; $('dlg-err').hidden = false; }
+});
+
+/** One row for each advisor paid in the year, in the order a 1099-NEC is filled in, as a spreadsheet file. */
+$('download').addEventListener('click', () => {
+  const cell = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+  const head = ['Year', 'Recipient name', 'Business name', 'Tax classification', 'Tax number type', 'Tax number last 4', 'Address',
+    'Box 1 nonemployee compensation', 'Needs a 1099', 'Foreign payee', 'Backup withholding', 'W-9 received', 'Notes'];
+  const rows = d.advisors.filter((a) => a.paidCents > 0).map((a) => [
+    d.year, a.legalName || a.name, a.businessName, label(a.classification), a.tinType ? a.tinType.toUpperCase() : '', a.tinLast4,
+    String(a.address || '').replace(/\s*\n\s*/g, ', '), (a.paidCents / 100).toFixed(2), a.reportable ? 'Yes' : 'No',
+    a.foreignPayee ? 'Yes' : 'No', a.backupWithholding ? 'Yes' : 'No', a.w9On, a.notes,
+  ]);
+  const text = [head, ...rows].map((r) => r.map(cell).join(',')).join('\n') + '\n';
+  const href = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = `advisor-1099-${d.year}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 60000);
+});
+
+await load();
+</script>
+</body>
+</html>

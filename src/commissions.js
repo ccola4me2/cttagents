@@ -90,6 +90,7 @@ export async function handleListCommissions(request, env) {
   const pct = SPLIT_PCT_SQL();
   const { results } = await env.DB.prepare(
     `SELECT b.id, b.client_name, b.supplier, b.product_name, b.depart_date, b.return_date,
+            b.commission_chase, b.commission_chase_note,
             b.gross_cents, b.commission_cents, ${statusNow} AS commission_status, b.confirmation_number,
             b.user_id, ${pct} AS split_pct,
             COALESCE((SELECT SUM(r.amount_cents) FROM commission_receipts r
@@ -193,7 +194,9 @@ export async function handleListCommissions(request, env) {
         - (r.advisor_cents || 0),
       settlement: state,
       variance_cents: variance,
-      outstanding_cents: Math.max((r.commission_cents || 0) - (r.received_cents || 0), 0),
+      // Written off is not owed any more. It is still expected and still shown as such where that is the question.
+      outstanding_cents: r.commission_chase === 'written_off' ? 0
+        : Math.max((r.commission_cents || 0) - (r.received_cents || 0), 0),
     };
   });
 

@@ -344,6 +344,7 @@ const ADMIN_NAV = [
   { href: '/admin/', label: 'Advisors', icon: I.people },
   { href: '/admin/agencies', label: 'Agency', icon: I.handshake },
   { href: '/admin/commissions', label: 'Commissions', icon: I.chart },
+  { href: '/admin/tax', label: 'Tax and 1099', icon: I.book },
   { href: '/admin/specials', label: 'Supplier specials', icon: I.megaphone },
   { href: '/admin/groups', label: 'Group pages', icon: I.chart },
   { href: '/admin/events', label: 'Trainings and events', icon: I.calendar },

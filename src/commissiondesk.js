@@ -32,6 +32,9 @@ import * as db from './db.js';
 const MAX_UPLOAD = 6 * 1024 * 1024;
 const MAX_LINES = 60;
 
+// Commission the vendor has been asked about and has not answered. Its own group on the owed list, after the ageing ones.
+const DISPUTED_BUCKET = { key: 'disputed', label: 'Disputed', hint: 'You have asked the vendor and are waiting on an answer' };
+
 const isoYear = (v) => (/^\d{4}$/.test(String(v || '')) ? String(v) : todayIso().slice(0, 4));
 
 function noAgency() {
@@ -823,6 +826,7 @@ export async function handleCommissionDesk(request, env) {
     env.DB.prepare(
       `SELECT b.id, b.client_name, b.supplier, b.product_name, b.product_type, b.depart_date,
               b.return_date, b.confirmation_number, b.commission_cents, b.user_id,
+              b.commission_chase, b.commission_chase_note, b.commission_chase_at,
               COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''), u.email)
                 AS advisor_name,
               COALESCE((SELECT SUM(r.amount_cents) FROM commission_receipts r
@@ -882,23 +886,31 @@ export async function handleCommissionDesk(request, env) {
 
   // Still owed to the agency: expected from vendors, less what has arrived.
   const outstanding = [];
+  // Marked as not going to be collected. Kept apart and counted on their own, so the owed figure is only money that is
+  // still expected, and nothing written off is lost from view.
+  const writtenOff = [];
   let owedToUs = 0;
+  let writtenOffCents = 0;
   for (const b of bookingRows.results || []) {
     const owed = (b.commission_cents || 0) - (b.received_cents || 0);
     if (owed <= 1) continue;
-    owedToUs += owed;
     const back = b.return_date || b.depart_date;
     const days = back ? Math.floor((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${back}T00:00:00Z`)) / 86400000) : null;
-    outstanding.push({
+    const chase = b.commission_chase === 'disputed' || b.commission_chase === 'written_off' ? b.commission_chase : null;
+    const row = {
       id: b.id, clientName: b.client_name, supplier: b.supplier, productName: b.product_name,
       productType: b.product_type, travelDate: back, daysSince: days, bucket: bucketFor(days),
       expectedCents: b.commission_cents || 0, receivedCents: b.received_cents || 0, owedCents: owed,
       advisorName: b.advisor_name, confirmationNumber: b.confirmation_number,
-    });
+      chase, chaseNote: b.commission_chase_note || '', chaseAt: b.commission_chase_at || null,
+    };
+    if (chase === 'written_off') { writtenOff.push(row); writtenOffCents += owed; continue; }
+    owedToUs += owed;
+    outstanding.push(chase === 'disputed' ? { ...row, bucket: 'disputed' } : row);
   }
   outstanding.sort((x, y) => (y.daysSince ?? -9999) - (x.daysSince ?? -9999));
 
-  const buckets = BUCKETS.map((bk) => ({
+  const buckets = [...BUCKETS, DISPUTED_BUCKET].map((bk) => ({
     ...bk,
     count: outstanding.filter((o) => o.bucket === bk.key).length,
     cents: outstanding.filter((o) => o.bucket === bk.key).reduce((n, o) => n + o.owedCents, 0),
@@ -948,6 +960,8 @@ export async function handleCommissionDesk(request, env) {
       scheduledCents,
       owedToUsCents: owedToUs,
       owedToUsCount: outstanding.length,
+      writtenOffCents,
+      writtenOffCount: writtenOff.length,
     },
     checkLines,
     loose,
@@ -961,5 +975,32 @@ export async function handleCommissionDesk(request, env) {
     buckets,
     outstanding: outstanding.slice(0, 500),
     outstandingTruncated: outstanding.length > 500,
+    writtenOff: writtenOff.slice(0, 500),
   });
+}
+
+/**
+ * POST /api/bookings/:id/commission-chase { state: 'disputed' | 'written_off' | '', note }
+ *
+ * An owner's call, on a reservation anywhere in their agency. Disputed sets the amount apart from routine chasing;
+ * written off takes it out of what is owed; an empty state puts it back. Nothing about what was expected or what
+ * arrived is touched, so it can always be undone.
+ */
+export async function handleSetCommissionChase(request, env, bookingId) {
+  const { user, response } = await requireAdmin(request, env);
+  if (response) return response;
+  if (!user.agency_id) return noAgency();
+
+  const body = await readJson(request);
+  const state = body.state === 'disputed' || body.state === 'written_off' ? body.state : null;
+  const note = clean(body.note, 300) || null;
+  const res = await env.DB.prepare(
+    `UPDATE bookings SET commission_chase = ?, commission_chase_note = ?, commission_chase_at = ?
+      WHERE id = ? AND user_id IN (SELECT id FROM users WHERE agency_id = ?)`
+  ).bind(state, state ? note : null, state ? now() : null, bookingId, user.agency_id).run();
+  if (!res.meta || res.meta.changes === 0) return notFound('Reservation not found.');
+  await db.logActivity(env, user.id, 'commission.chase',
+    state === 'written_off' ? 'Wrote off an unpaid commission' : state === 'disputed' ? 'Marked an unpaid commission as disputed'
+      : 'Put an unpaid commission back to normal', { id: bookingId, state });
+  return json({ ok: true, state });
 }
