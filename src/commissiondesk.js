@@ -113,7 +113,7 @@ async function findReservations(env, admin, { locator, last, text, limit = 12 })
     advisorName: b.advisor_name,
     // The share the advisor keeps, so a line can say what it pays them before it is saved.
     splitPct: splitPct(b, b.default_split_pct, b.lead_split_pct),
-    // The pay date this one would normally go out with, from when the traveller is back.
+    // The pay date this one would normally go out with: the first on or after 30 days before sailing.
     suggestedPayOn: suggestPayDate({ receivedOn: today, returnDate: b.return_date, departDate: b.depart_date }, today),
   }));
 }

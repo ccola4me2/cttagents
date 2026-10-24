@@ -1141,9 +1141,11 @@ function payChoices(c, selected, allowNone = false) {
 /** Why that date, in words, so choosing a different one is a decision. */
 function payHint(suggested) {
   const b = d.booking || {};
-  const back = b.return_date || b.depart_date;
-  return back
-    ? `${b.return_date ? 'Back' : 'Leaves'} ${short(back)}, so ${short(suggested)} is the first pay date after that. Pay dates are the 1st and the 15th.`
+  if (b.depart_date) {
+    return `Sails ${short(b.depart_date)}, so ${short(suggested)} is the first pay date 30 days before then, which is when the commission is paid out. Pay dates are the 1st and the 15th.`;
+  }
+  return b.return_date
+    ? `Back ${short(b.return_date)}, so ${short(suggested)} is the first pay date after that. Pay dates are the 1st and the 15th.`
     : 'No travel dates on this reservation, so the next pay date. Pay dates are the 1st and the 15th.';
 }
 

@@ -2,8 +2,8 @@
 //
 // The agency pays on the 1st and the 15th. A commission arrives from a vendor on
 // some other day, and it is paid out on whichever pay date the owner assigns it to:
-// normally the first one after the traveller is back, because commission is
-// paid on travel that has happened, not on a booking that might still change.
+// normally the first one on or after 30 days before sailing, because a cruise line can take a commission
+// back until then if the client cancels, and the agency does not pay out what it might have to give back.
 //
 // The rule an advisor lives under follows from that. They see the commission that
 // has arrived AND is assigned to the next pay date or one already past. Money that
@@ -64,24 +64,27 @@ export function payDatesFrom(fromIso, count = 8) {
   return out;
 }
 
+/** How long before sailing a commission is safe from being taken back, and so when it is paid out. */
+export const HOLD_DAYS = 30;
+
+/** A day some days before another. */
+function daysBefore(iso, days) {
+  return new Date(Date.parse(`${iso}T00:00:00Z`) - days * 86400000).toISOString().slice(0, 10);
+}
+
 /**
  * The pay date to suggest for money that has just arrived.
  *
- * The first pay date strictly after the traveller is back, and not before the day
- * the money arrived. "Strictly after" is deliberate: someone back on October 31
- * is paid on November 1, and someone leaving on November 15 is not paid on the
- * 15th, because they have not been anywhere yet.
- *
- * With no dates on the reservation there is nothing to wait for and the answer is
- * the next pay date.
+ * The first pay date on or after 30 days before the ship sails, and not before the day the money arrived: a
+ * commission that comes in once that day has passed goes out on the next pay date. A reservation with no sailing
+ * date but a return date is paid after it, as it always was, and one with neither is paid on the next pay date.
  */
 export function suggestPayDate({ receivedOn, returnDate, departDate } = {}, today = todayIso()) {
-  const travelEnd = [returnDate, departDate].find((d) => ISO.test(String(d || '')));
-  const earliest = [
-    ISO.test(String(receivedOn || '')) ? receivedOn : today,
-    travelEnd ? dayAfter(travelEnd) : null,
-  ].filter(Boolean).sort().pop();
-  return nextPayDate(earliest);
+  const received = ISO.test(String(receivedOn || '')) ? receivedOn : today;
+  let hold = null;
+  if (ISO.test(String(departDate || ''))) hold = daysBefore(departDate, HOLD_DAYS);
+  else if (ISO.test(String(returnDate || ''))) hold = dayAfter(returnDate);
+  return nextPayDate([received, hold].filter(Boolean).sort().pop());
 }
 
 /**

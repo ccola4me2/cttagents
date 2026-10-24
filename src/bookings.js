@@ -620,7 +620,7 @@ export async function handleBookingRecord(request, env, id) {
       // offered the form, and the routes behind it refuse anybody else.
       mayRecord: isAdmin(user) && db.mayWrite(user, booking),
       // The pay dates to choose from when recording money, and the one this trip
-      // would normally go out with: the first after the traveller is back.
+      // would normally go out with: the first on or after 30 days before sailing.
       payDates: payDatesFrom(todayIso(), 12),
       suggestedPayOn: suggestPayDate({
         receivedOn: todayIso(), returnDate: booking.return_date, departDate: booking.depart_date,

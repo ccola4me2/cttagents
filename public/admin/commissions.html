@@ -579,7 +579,7 @@ function lineHtml(l, i) {
       </div>
       <div><label>Commission Paid Amount</label><input data-amount="${i}" inputmode="decimal" value="${esc(l.amount)}" placeholder="0.00" autocomplete="off"></div>
       <div><label>Pay out date</label>
-        <select data-pay="${i}">${l.payoutOn ? '' : `<option value="" selected>${l.bookingId ? 'Next pay date' : 'Automatic, after they travel'}</option>`}${dates.map((x) =>
+        <select data-pay="${i}">${l.payoutOn ? '' : `<option value="" selected>${l.bookingId ? 'Next pay date' : 'Automatic, 30 days before they sail'}</option>`}${dates.map((x) =>
     `<option value="${esc(x)}" ${x === l.payoutOn ? 'selected' : ''}>${esc(dateFmt(x))}${x === l.suggested ? ' (suggested)' : ''}</option>`).join('')}</select></div>
       <div><button class="btn btn-ghost btn-sm" type="button" data-remove="${i}" aria-label="Remove this line">&times;</button></div>
     </div>
@@ -588,9 +588,9 @@ function lineHtml(l, i) {
       <span class="muted"> ${esc([r.supplier, r.productName, r.confirmationNumber].filter(Boolean).join(' · '))} · ${esc(r.advisorName || '')}${
   r.departDate ? ` · ${esc(dateFmt(r.departDate))}` : ''}${
   r.receivedCents ? ` · <strong style="color:var(--amber-600);">${money(r.receivedCents)} already received</strong>` : ''}</span></button>`).join('')}</div>` : ''}
-    ${l.bookingId && travel && l.payoutOn ? `<div class="sub">${l.returnDate ? 'Back' : 'Leaves'} ${esc(dateFmt(travel))}, so paid out ${esc(dateFmt(l.suggested))} unless you choose another day.</div>` : ''}
+    ${l.bookingId && travel && l.payoutOn ? `<div class="sub">${l.departDate ? 'Sails' : 'Back'} ${esc(dateFmt(l.departDate || travel))}, so paid out ${esc(dateFmt(l.suggested))}${l.departDate ? ', the first pay date 30 days before sailing,' : ''} unless you choose another day.</div>` : ''}
     ${l.bookingId && l.payoutOn && l.suggested && l.payoutOn < l.suggested ? `<div class="warn">${esc(dateFmt(l.payoutOn))} is before ${
-  l.returnDate ? 'they are back' : 'they travel'}. The usual day is ${esc(dateFmt(l.suggested))}, the first pay date after the trip. Change it only if you mean to pay early.</div>` : ''}
+  l.departDate ? 'the usual 30 days before sailing' : 'the usual day'}. The usual day is ${esc(dateFmt(l.suggested))}. Change it only if you mean to pay early.</div>` : ''}
     ${l.bookingId && l.received ? `<div class="warn">This reservation already has ${money(l.received)} received${
   l.received === amt ? ', the same amount as this line, so this may already be recorded' : ''}. Only continue if this is a further payment.</div>` : ''}
     ${l.bookingId && amt ? `<div class="sub">${esc(shareLine(l.advisorName, l.pct, amt))}</div>` : ''}

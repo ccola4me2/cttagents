@@ -49,21 +49,29 @@ is('not a date, not a day after', dayAfter('soon'), null);
 
 // ------------------------------------------------------- the suggested day ---
 const sug = (a) => suggestPayDate(a, '2026-10-05');
-is('back on the 31st, paid on the 1st',
+is('sailing on the 14th, 30 days before is the 15th of the month before',
+  sug({ receivedOn: '2026-10-05', departDate: '2027-02-14' }), '2027-01-15');
+is('30 days before landing on a pay date is paid that day',
+  sug({ receivedOn: '2026-10-05', departDate: '2027-03-03' }), '2027-02-01');
+is('a day later than that rolls to the next pay date',
+  sug({ receivedOn: '2026-10-05', departDate: '2027-03-04' }), '2027-02-15');
+is('30 days before landing on the 31st rolls to the 1st',
+  sug({ receivedOn: '2026-10-05', departDate: '2027-03-02' }), '2027-02-01');
+is('sailing on the 1st is held to the 15th before it',
+  sug({ receivedOn: '2026-10-05', departDate: '2027-04-01' }), '2027-03-15');
+is('the return date does not matter once there is a sailing date',
+  sug({ receivedOn: '2026-10-05', departDate: '2027-03-13', returnDate: '2027-03-20' }), '2027-02-15');
+is('money that arrives inside the 30 days goes on the next pay date',
+  sug({ receivedOn: '2026-11-20', departDate: '2026-12-10' }), '2026-12-01');
+is('money that arrives after sailing waits for the next pay date, not one in the past',
+  sug({ receivedOn: '2026-11-20', departDate: '2026-10-31', returnDate: '2026-11-07' }), '2026-12-01');
+is('a year that rolls over',
+  sug({ receivedOn: '2026-10-05', departDate: '2027-01-20' }), '2027-01-01');
+is('no sailing date but a return date is paid after it',
   sug({ receivedOn: '2026-10-05', returnDate: '2026-10-31' }), '2026-11-01');
-is('leaving on the 15th, not paid on the 15th',
-  sug({ receivedOn: '2026-10-13', departDate: '2026-11-15' }), '2026-12-01');
-is('back on the 14th, paid on the 15th',
-  sug({ receivedOn: '2026-10-13', returnDate: '2026-11-14' }), '2026-11-15');
-is('the return date beats the departure',
-  sug({ receivedOn: '2026-10-05', departDate: '2026-10-01', returnDate: '2026-10-31' }), '2026-11-01');
 is('a reservation with no dates is paid on the next pay date',
   sug({ receivedOn: '2026-10-13' }), '2026-10-15');
-is('money that arrives after the trip waits for the next pay date, not one in the past',
-  sug({ receivedOn: '2026-11-20', returnDate: '2026-10-31' }), '2026-12-01');
-is('a trip ending on the last day of the year is paid on New Year\'s Day',
-  sug({ receivedOn: '2026-10-05', returnDate: '2026-12-31' }), '2027-01-01');
-is('no received date means today', suggestPayDate({ returnDate: '2026-10-01' }, '2026-10-20'), '2026-11-01');
+is('no received date means today', suggestPayDate({ departDate: '2026-10-25' }, '2026-10-20'), '2026-11-01');
 
 // -------------------------------------------------------- who sees what ---
 is('an owner sees everything', hideAfterFor({ role: 'admin' }, '2026-10-05'), null);
