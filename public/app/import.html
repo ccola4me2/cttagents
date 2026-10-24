@@ -494,7 +494,9 @@ async function postPaid(bookingId, body) {
     if (left <= 0) break;
     const part = Math.min(left, p.amount_cents || 0);
     if (part <= 0) continue;
-    await api(`/api/payments/${encodeURIComponent(p.id)}/paid`, { method: 'POST', body: { paidDate: paidOn, amount: (part / 100).toFixed(2) } });
+    const markUrl = `/api/payments/${encodeURIComponent(p.id)}/paid`;
+    const dollars = (part / 100).toFixed(2);
+    await api(markUrl, { method: 'POST', body: { paidDate: paidOn, amount: dollars } });
     left -= part;
   }
   if (left > 0) {
