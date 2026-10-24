@@ -222,9 +222,49 @@ function tidyLine(raw) {
       amountCents,
       kind: oneOf(raw.kind, COMMISSION_KIND_KEYS),
       payoutOn: cleanDate(raw.payoutOn),
+      // The day the advisor was already paid this, when it was paid before the check was entered.
+      paidOutOn: cleanDate(raw.paidOutOn),
       notes: clean(raw.notes, 300) || null,
     },
   };
+}
+
+/**
+ * Lines entered as already paid out: the advisor was paid their share on that day, before the check was recorded.
+ *
+ * Recorded as what it is, a payout to the advisor on that day covering this reservation, so it is not scheduled again
+ * or shown as owed. One payout for each advisor and day, whatever number of lines it covers.
+ */
+async function recordAlreadyPaid(env, admin, entries, label) {
+  const groups = new Map();
+  for (const e of entries) {
+    if (!e.paidOutOn || !e.owner || !e.booking) continue;
+    const pct = splitPct(e.booking, e.owner.default_split_pct, e.owner.lead_split_pct);
+    const share = shareOf(e.amountCents, pct, UNSPLIT_COMMISSION_KINDS.includes(e.kind) ? e.amountCents : 0).advisorCents;
+    if (share <= 0) continue;
+    const key = `${e.ownerId}|${e.paidOutOn}`;
+    if (!groups.has(key)) groups.set(key, { ownerId: e.ownerId, date: e.paidOutOn, lines: [] });
+    groups.get(key).lines.push({ bookingId: e.bookingId, cents: share });
+  }
+  const ts = now();
+  const writes = [];
+  for (const g of groups.values()) {
+    const id = uid();
+    writes.push(env.DB.prepare(
+      `INSERT INTO advisor_payouts
+         (id, user_id, paid_on, amount_cents, method, reference, notes, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'other', ?, ?, ?, ?, ?)`
+    ).bind(id, g.ownerId, g.date, g.lines.reduce((n, l) => n + l.cents, 0), label,
+      'Recorded as already paid out when the commission was entered.', admin.id, ts, ts));
+    for (const l of g.lines) {
+      writes.push(env.DB.prepare(
+        `INSERT INTO advisor_payout_lines (id, payout_id, booking_id, user_id, amount_cents, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).bind(uid(), id, l.bookingId, g.ownerId, l.cents, ts));
+    }
+  }
+  if (writes.length) await env.DB.batch(writes);
+  return groups.size;
 }
 
 export async function handleCreateCheck(request, env) {
@@ -261,9 +301,9 @@ export async function handleCreateCheck(request, env) {
     if (!booking) return notFound('One of those reservations was not found.');
     lines.push({
       ...line,
-      ownerId: owner.id,
-      // No date given is the date its trip says, which is the usual answer.
-      payoutOn: line.payoutOn || suggestPayDate({
+      ownerId: owner.id, owner, booking,
+      // No date given is the date its trip says, which is the usual answer. A line already paid out is on that day.
+      payoutOn: line.paidOutOn || line.payoutOn || suggestPayDate({
         receivedOn, returnDate: booking.return_date, departDate: booking.depart_date,
       }),
     });
@@ -306,6 +346,7 @@ export async function handleCreateCheck(request, env) {
   }
   await env.DB.batch(writes);
 
+  const paidBefore = await recordAlreadyPaid(env, admin, lines, `Check ${reference || vendorName}`);
   for (const l of lines) await syncCommissionStatus(env, l.ownerId, l.bookingId);
 
   await db.logActivity(env, admin.id, 'commission.check',
@@ -314,7 +355,7 @@ export async function handleCreateCheck(request, env) {
     { checkId: id, statementCents, feeCents });
 
   return json({
-    ok: true, id, matchedCents: matched, unmatchedCents: statementCents - matched,
+    ok: true, id, matchedCents: matched, unmatchedCents: statementCents - matched, alreadyPaidPayouts: paidBefore,
   }, 201);
 }
 
@@ -346,7 +387,7 @@ export async function handleAddCheckLine(request, env, checkId) {
     return badRequest('That would make the lines add up to more than the check.');
   }
 
-  const payoutOn = line.payoutOn || suggestPayDate({
+  const payoutOn = line.paidOutOn || line.payoutOn || suggestPayDate({
     receivedOn: check.received_on, returnDate: booking.return_date, departDate: booking.depart_date,
   });
   const ts = now();
@@ -358,6 +399,7 @@ export async function handleAddCheckLine(request, env, checkId) {
      VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(id, owner.id, line.bookingId, line.amountCents, check.received_on, check.reference,
          line.notes, line.kind, checkId, payoutOn, ts, ts).run();
+  await recordAlreadyPaid(env, admin, [{ ...line, ownerId: owner.id, owner, booking }], `Check ${check.reference || ''}`.trim());
   await syncCommissionStatus(env, owner.id, line.bookingId);
   return json({ ok: true, id, payoutOn }, 201);
 }
@@ -435,7 +477,15 @@ async function updateCheckWithLines(env, admin, id, body, { vendorName, statemen
     if (error) return badRequest(error);
     const was = raw && raw.id ? byId.get(String(raw.id)) : null;
     if (was && was.booking_id === line.bookingId) {
-      keep.push({ ...line, id: was.id, ownerId: was.user_id, hasNotes: raw.notes !== undefined });
+      const kept = { ...line, id: was.id, ownerId: was.user_id, hasNotes: raw.notes !== undefined };
+      if (line.paidOutOn) {
+        // Needed only to work out the advisor's share of a line now said to be already paid out.
+        const o = await db.writerForBooking(env, admin, line.bookingId);
+        const bk = o ? await db.getBooking(env, line.bookingId, o.id) : null;
+        if (!o || !bk) return notFound('One of those reservations was not found.');
+        kept.owner = o; kept.booking = bk; kept.payoutOn = line.paidOutOn;
+      }
+      keep.push(kept);
       continue;
     }
     const owner = await db.writerForBooking(env, admin, line.bookingId);
@@ -443,8 +493,8 @@ async function updateCheckWithLines(env, admin, id, body, { vendorName, statemen
     const booking = await db.getBooking(env, line.bookingId, owner.id);
     if (!booking) return notFound('One of those reservations was not found.');
     adds.push({
-      ...line, ownerId: owner.id,
-      payoutOn: line.payoutOn || suggestPayDate({
+      ...line, ownerId: owner.id, owner, booking,
+      payoutOn: line.paidOutOn || line.payoutOn || suggestPayDate({
         receivedOn, returnDate: booking.return_date, departDate: booking.depart_date,
       }),
     });
@@ -497,6 +547,7 @@ async function updateCheckWithLines(env, admin, id, body, { vendorName, statemen
     ).bind(uid(), l.ownerId, l.bookingId, l.amountCents, receivedOn, reference, l.notes, l.kind, id, l.payoutOn, ts, ts));
   }
   await env.DB.batch(writes);
+  await recordAlreadyPaid(env, admin, [...keep, ...adds], `Check ${reference || vendorName}`);
 
   const touched = new Map();
   for (const l of [...keep, ...adds]) touched.set(`${l.ownerId}|${l.bookingId}`, { u: l.ownerId, b: l.bookingId });

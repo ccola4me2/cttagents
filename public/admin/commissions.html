@@ -1029,6 +1029,21 @@ let editingCheck = null;
 let filename = '';
 let timers = new Map();
 
+/** The most recent pay dates, the 1st and the 15th, that have already gone by, newest first. */
+function pastPayDates(count) {
+  const today = d.today;
+  const out = [];
+  const [y0, m0] = today.split('-').map(Number);
+  for (let back = 0; back <= 6 && out.length < count + 2; back += 1) {
+    const dt = new Date(Date.UTC(y0, m0 - 1 - back, 1));
+    for (const day of [15, 1]) {
+      const iso = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      if (iso <= today) out.push(iso);
+    }
+  }
+  return out.slice(0, count);
+}
+
 const blankLine = () => ({
   bookingId: null, label: '', sub: '', advisorName: '', pct: 100, expected: 0, received: 0, amount: '', touched: false,
   payoutOn: '', suggested: '', page: '', candidates: [], query: '', results: [], returnDate: '', departDate: '',
@@ -1076,7 +1091,8 @@ function lineHtml(l, i) {
   const amt = cents(l.amount);
   const short = l.bookingId && l.expected && amt && amt < l.expected - 1;
   const travel = l.returnDate || l.departDate;
-  const dates = [...new Set([...(d.payDatesList || []), l.payoutOn].filter(Boolean))].sort();
+  const dates = [...new Set([...(d.payDatesList || []), l.paidOutOn ? null : l.payoutOn].filter(Boolean))].sort();
+  const past = [...new Set([...pastPayDates(6), l.paidOutOn].filter(Boolean))].sort().reverse();
   return `<div class="cd-line" data-i="${i}">
     ${l.page ? `<div class="page">From the page: ${esc(l.page)}</div>` : ''}
     <div class="top">
@@ -1090,7 +1106,9 @@ function lineHtml(l, i) {
       <div><label>Commission Paid Amount</label><input data-amount="${i}" inputmode="decimal" value="${esc(l.amount)}" placeholder="0.00" autocomplete="off"></div>
       <div><label>Pay out date</label>
         <select data-pay="${i}">${l.payoutOn ? '' : `<option value="" selected>${l.bookingId ? 'Next pay date' : 'Automatic, 30 days before they sail'}</option>`}${dates.map((x) =>
-    `<option value="${esc(x)}" ${x === l.payoutOn ? 'selected' : ''}>${esc(dateFmt(x))}${x === l.suggested ? ' (suggested)' : ''}</option>`).join('')}</select></div>
+    `<option value="${esc(x)}" ${x === l.payoutOn ? 'selected' : ''}>${esc(dateFmt(x))}${x === l.suggested ? ' (suggested)' : ''}</option>`).join('')}
+          <optgroup label="Already paid out">${past.map((x) =>
+    `<option value="paid:${esc(x)}" ${x === l.paidOutOn ? 'selected' : ''}>Already paid out ${esc(dateFmt(x))}</option>`).join('')}</optgroup></select></div>
       <div><button class="btn btn-ghost btn-sm" type="button" data-remove="${i}" aria-label="Remove this line">&times;</button></div>
     </div>
     ${!l.bookingId && (l.candidates.length || l.results.length) ? `<div class="cd-pick">${[...l.candidates, ...l.results].map((r) =>
@@ -1099,7 +1117,8 @@ function lineHtml(l, i) {
   r.departDate ? ` · ${esc(dateFmt(r.departDate))}` : ''}${
   r.receivedCents ? ` · <strong style="color:var(--amber-600);">${money(r.receivedCents)} already received</strong>` : ''}</span></button>`).join('')}</div>` : ''}
     ${l.bookingId && travel && l.payoutOn ? `<div class="sub">${l.departDate ? 'Sails' : 'Back'} ${esc(dateFmt(l.departDate || travel))}, so paid out ${esc(dateFmt(l.suggested))}${l.departDate ? ', the first pay date 30 days before sailing,' : ''} unless you choose another day.</div>` : ''}
-    ${l.bookingId && l.payoutOn && l.suggested && l.payoutOn < l.suggested ? `<div class="warn">${esc(dateFmt(l.payoutOn))} is before ${
+    ${l.paidOutOn ? `<div class="sub">${esc(l.advisorName || 'The advisor')} was already paid this on ${esc(dateFmt(l.paidOutOn))}. Saving records that payout, so it is not scheduled or owed again.</div>` : ''}
+    ${l.bookingId && !l.paidOutOn && l.payoutOn && l.suggested && l.payoutOn < l.suggested ? `<div class="warn">${esc(dateFmt(l.payoutOn))} is before ${
   l.departDate ? 'the usual 30 days before sailing' : 'the usual day'}. The usual day is ${esc(dateFmt(l.suggested))}. Change it only if you mean to pay early.</div>` : ''}
     ${l.bookingId && l.received ? `<div class="warn">This reservation already has ${money(l.received)} received${
   l.received === amt ? ', the same amount as this line, so this may already be recorded' : ''}. Only continue if this is a further payment.</div>` : ''}
@@ -1238,7 +1257,14 @@ $('lines').addEventListener('change', (e) => {
   const sel = e.target.closest('select[data-pay]');
   if (sel) {
     const line = lines[Number(sel.dataset.pay)];
-    line.payoutOn = sel.value;
+    // "Already paid out 10/15/2026" says the advisor was paid this on that day, before the check was entered.
+    if (sel.value.startsWith('paid:')) {
+      line.paidOutOn = sel.value.slice(5);
+      line.payoutOn = line.paidOutOn;
+    } else {
+      line.paidOutOn = '';
+      line.payoutOn = sel.value;
+    }
     // Chosen by hand, so picking a reservation afterwards does not replace it.
     line.payoutTouched = Boolean(sel.value);
     drawLines();
@@ -1320,7 +1346,7 @@ $('chk-form').addEventListener('submit', async (e) => {
   const err = $('chk-err');
   err.hidden = true;
   const payload = lines.filter((l) => l.bookingId || cents(l.amount)).map((l) => ({
-    id: l.id, bookingId: l.bookingId, amount: l.amount, payoutOn: l.payoutOn,
+    id: l.id, bookingId: l.bookingId, amount: l.amount, payoutOn: l.payoutOn, paidOutOn: l.paidOutOn || '',
   }));
   if (payload.some((l) => !l.bookingId)) {
     err.textContent = 'Choose a reservation for every line, or remove the ones that are not for a reservation yet.';

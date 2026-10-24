@@ -12530,6 +12530,22 @@ async function main() {
     vendorName: 'Smoke Vendor', statement: '150.00', lines: [] });
   check(editAdvisor.status === 403 || editAdvisor.status === 404, 'and an advisor cannot edit one', `status ${editAdvisor.status}`);
 
+  // A line recorded as already paid out becomes a payout on that day, and nothing is owed for it again.
+  const wasOwed = await call(admin, 'GET', '/api/payouts');
+  const paidDay = isoDay(-20);
+  const preMade = await call(admin, 'POST', '/api/commission-checks', {
+    vendorName: 'Smoke Vendor', reference: `CHK5-${stamp}`, statement: '10.00',
+    lines: [{ bookingId: tripId, amount: '10.00', paidOutOn: paidDay }] });
+  const preId = preMade.data?.id;
+  const afterPre = await call(admin, 'GET', '/api/payouts');
+  const prePayout = (afterPre.data?.payouts || []).find((p) => p.paid_on === paidDay && /CHK5-/.test(p.reference || ''));
+  check(preMade.status === 201 && preMade.data?.alreadyPaidPayouts === 1 && prePayout && prePayout.amount_cents > 0 && prePayout.amount_cents <= 1000,
+    'a line recorded as already paid out becomes a payout on that day for the advisor\'s share', JSON.stringify([preMade.status, preMade.data, prePayout && prePayout.amount_cents]));
+  const dueFor2 = (r) => (r.data?.owed || []).reduce((n, o) => n + (o.due_cents || 0), 0);
+  check(Math.abs(dueFor2(afterPre) - dueFor2(wasOwed)) <= 1, 'so it adds nothing to what is owed to anybody', `${dueFor2(wasOwed)} then ${dueFor2(afterPre)}`);
+  if (prePayout) await call(admin, 'DELETE', `/api/payouts/${prePayout.id}`);
+  if (preId) await call(admin, 'DELETE', `/api/commission-checks/${preId}`);
+
   const notDoc = await call(admin, 'POST', '/api/commission-checks/read', { hello: 'world' });
   check(notDoc.status === 400, 'something that is not a remittance is turned away', `status ${notDoc.status}`);
 
