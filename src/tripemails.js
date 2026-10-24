@@ -47,6 +47,7 @@ export const VARIABLES = [
   ['confirmation', 'the confirmation number'],
   ['amount', 'the amount due, for the payment emails'],
   ['due_date', 'the day it is due, for the payment emails'],
+  ['last_trip', 'their last trip with you, like your Harmony of the Seas trip last March, for the notes to past clients'],
   ['thanks', 'a line thanking them for the form they filled in, for the first note to a lead'],
   ['advisor', 'the advisor\'s name'],
   ['phone', 'the advisor\'s phone number'],
@@ -139,8 +140,32 @@ export const LEAD_FOLLOWUP = {
     + 'Thank you,\n{advisor}\n{agency}',
 };
 
+// Three notes an advisor sends from the Who to call page, one at a time, to somebody who is on the list for a reason.
+const NOTE_SIGN = 'Just reply to this email and I will take it from there.\nYou can also call me on {phone}.\n\nThank you,\n{advisor}\n{agency}';
+export const NOTE_QUIET = {
+  kind: 'note_quiet', label: 'Note to a past client who has gone quiet', when: 'When you write to someone on Who to call under Gone quiet',
+  heading: 'Thinking of you',
+  subject: 'Where to next, {first_name}?',
+  body: 'Hello {first_name},\n\nI was thinking about you and hope you are well.\nI hope you are still enjoying the memories of {last_trip}.\n\n'
+    + 'If you have started to think about your next trip, I would love to help. Tell me roughly when, who is going and what you have in mind, '
+    + 'and I will come back with a few ideas.\n\n' + NOTE_SIGN,
+};
+export const NOTE_BIRTHDAY = {
+  kind: 'note_birthday', label: 'Birthday note to a client', when: 'When you write to someone on Who to call under Birthdays',
+  heading: 'Happy birthday',
+  subject: 'Happy birthday, {first_name}!',
+  body: 'Hello {first_name},\n\nHappy birthday! I hope you have a wonderful day, and a year full of good trips ahead.\n\n' + NOTE_SIGN,
+};
+export const NOTE_ANNIVERSARY = {
+  kind: 'note_anniversary', label: 'Anniversary note to a client', when: 'When you write to someone on Who to call under Anniversaries',
+  heading: 'Happy anniversary',
+  subject: 'Happy anniversary, {first_name}!',
+  body: 'Hello {first_name},\n\nHappy anniversary! I hope you have a lovely day together.\n\n' + NOTE_SIGN,
+};
+const NOTES = [LEAD_HELLO, LEAD_FOLLOWUP, NOTE_QUIET, NOTE_BIRTHDAY, NOTE_ANNIVERSARY];
+
 const BY_KIND = new Map(KINDS.map((k) => [k.kind, k]));
-const ALL_KINDS = [...KINDS, LEAD_HELLO, LEAD_FOLLOWUP];
+const ALL_KINDS = [...KINDS, ...NOTES];
 const PAYMENT_KINDS = new Set(['deposit_7', 'deposit_2', 'final_7', 'final_2']);
 
 const STATUS_LABEL = {
@@ -379,7 +404,7 @@ function varsFor(b, client, today, pay) {
 
 /** The finished message for one email, from the agency's wording. */
 export async function composeEmail(env, { kind, wording, vars, userId }) {
-  const def = BY_KIND.get(kind) || [LEAD_HELLO, LEAD_FOLLOWUP].find((k) => k.kind === kind) || null;
+  const def = BY_KIND.get(kind) || NOTES.find((k) => k.kind === kind) || null;
   const w = wording.get(kind);
   const filled = fillWords(w.subject, w.body, vars);
   const brand = await brandForUser(env, userId);
@@ -630,7 +655,7 @@ export async function handleSaveBookingTripEmails(request, env, bookingId) {
 // ---------------------------------------------------------------------------
 
 const SAMPLE = {
-  first_name: 'Alex', thanks: 'Thank you for filling in our Free Guide form.', trip: 'Harmony of the Seas cruise', start_date: '03/13/2027', return_date: '03/20/2027',
+  first_name: 'Alex', last_trip: 'your Harmony of the Seas trip last March', thanks: 'Thank you for filling in our Free Guide form.', trip: 'Harmony of the Seas cruise', start_date: '03/13/2027', return_date: '03/20/2027',
   days_to_go: '60', confirmation: '9746343', amount: '$1,000.00', due_date: '12/13/2026',
   advisor: 'Your Advisor', phone: '(555) 123-4567', agency: 'Your Agency',
 };
@@ -747,7 +772,7 @@ export async function handleTestTripEmail(request, env) {
   if (response) return response;
   if (!user.agency_id) return badRequest('This account is not part of an agency.');
   const body = await readJson(request);
-  const def = BY_KIND.get(body.kind) || [LEAD_HELLO, LEAD_FOLLOWUP].find((k) => k.kind === body.kind) || null;
+  const def = BY_KIND.get(body.kind) || NOTES.find((k) => k.kind === body.kind) || null;
   if (!def) return badRequest('Which email?');
 
   const wording = await wordingFor(env, user.agency_id);
@@ -774,4 +799,17 @@ export async function handleTestTripEmail(request, env) {
     return json({ ok: true, sentTo: to, subject: msg.subject, paragraphs: msg.paragraphs });
   }
   return json({ ok: true, subject: msg.subject, paragraphs: msg.paragraphs });
+}
+
+/** A short personal note from an advisor to one person, in the agency's look, with the way out every email to a client has. */
+export async function sendAdvisorNote(env, { advisor, to, subject, text }) {
+  const html = layout(env, {
+    brand: await brandForUser(env, advisor.id),
+    heading: subject,
+    body: htmlOf(String(text).split(/\n{2,}/).map((p) => p.trim()).filter(Boolean)),
+  });
+  await sendHtml(env, {
+    to, replyTo: advisor.notify_email || advisor.email, subject, html,
+    unsubscribe: { agencyId: advisor.agency_id || null, agencyName: advisor.agency_name || '' },
+  });
 }

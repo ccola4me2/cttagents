@@ -268,6 +268,7 @@ import {
 import {
   handleGetBrand, handleSaveBrand, handleUploadLogo, handleRemoveLogo, serveUserLogo,
 } from './userbrand.js';
+import { handleClientNoteDraft, handleClientNoteSend } from './clientnotes.js';
 import { handleGetWaiverWording, handleSaveWaiverWording, handleResetWaiverWording } from './waiverwording.js';
 import {
   handleGetBookingTripEmails, handleSaveBookingTripEmails, handleGetTripEmailSettings, handleSaveTripEmailSettings,
@@ -801,6 +802,7 @@ async function routeApi(request, env, path, method) {
   const leadMatch = path.match(/^\/api\/leads\/([^/]+)$/);
   const leadStageMatch = path.match(/^\/api\/leads\/([^/]+)\/stage$/);
   const leadDoneMatch = path.match(/^\/api\/leads\/([^/]+)\/followed$/);
+  const clientNoteMatch = path.match(/^\/api\/clients\/([^/]+)\/note$/);
   const leadHelloMatch = path.match(/^\/api\/leads\/([^/]+)\/hello$/);
   const leadReachedMatch = path.match(/^\/api\/leads\/([^/]+)\/reached$/);
   const bookingMatch = path.match(/^\/api\/bookings\/([^/]+)$/);
@@ -958,6 +960,9 @@ async function routeApi(request, env, path, method) {
   if (leadMatch && method === 'DELETE') return handleCloseLead(request, env, leadMatch[1]);
   if (leadStageMatch && method === 'POST') return handleMoveLead(request, env, leadStageMatch[1]);
   // The first note to somebody who got in touch: drafted for them, sent in the advisor's name, and the follow-up planned.
+  // A note to somebody on the Who to call page: written in the agency's words, read and sent by the advisor.
+  if (clientNoteMatch && method === 'GET') return handleClientNoteDraft(request, env, clientNoteMatch[1]);
+  if (clientNoteMatch && method === 'POST') return handleClientNoteSend(request, env, clientNoteMatch[1]);
   if (leadHelloMatch && method === 'GET') return handleLeadHelloDraft(request, env, leadHelloMatch[1]);
   if (leadHelloMatch && method === 'POST') return handleLeadHello(request, env, leadHelloMatch[1]);
   if (leadReachedMatch && method === 'POST') return handleLeadReached(request, env, leadReachedMatch[1]);

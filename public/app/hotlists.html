@@ -32,6 +32,12 @@
   </div>
 </div>
 
+<dialog id="note-dlg" style="max-width:min(40rem, 96vw);width:96vw;">
+  <div class="card-head"><h2 id="note-title">A note</h2>
+    <button class="btn btn-ghost btn-sm" type="button" id="note-close">Close</button></div>
+  <div class="card-pad" id="note-body"></div>
+</dialog>
+
 <script type="module">
 import { api, mountShell, esc, money, dateFmt, showError,
          mountScopePicker, advisorParam } from '/js/app.js';
@@ -168,6 +174,8 @@ function drawPanel() {
             </div>
           </div>
           <div class="call-acts">
+            ${mine && r.email && r.clientId && ['quiet', 'birthdays', 'anniversaries'].includes(active)
+              ? `<button class="btn btn-primary btn-sm" data-note="${esc(r.subjectId)}">Email them</button>` : ''}
             ${mine ? `<button class="btn btn-ghost btn-sm" data-task="${esc(r.subjectId)}">Make a task</button>` : ''}
             ${mine || list.done === 'snooze'
               ? `<button class="btn btn-secondary btn-sm" data-done="${esc(r.subjectId)}">${doneLabel}</button>`
@@ -180,8 +188,57 @@ function drawPanel() {
   panel.querySelectorAll('[data-done]').forEach((b) => {
     b.addEventListener('click', () => tick(b.dataset.done, null));
   });
+  panel.querySelectorAll('[data-note]').forEach((b) => {
+    b.addEventListener('click', () => openNote(b.dataset.note));
+  });
   panel.querySelectorAll('[data-task]').forEach((b) => {
     b.addEventListener('click', () => tick(b.dataset.task, b));
+  });
+}
+
+/**
+ * A note to somebody on the list, already written in the agency's words and filled in for them. The advisor reads it,
+ * changes anything they like, and presses send; the name then goes away for a while like any other tick.
+ */
+const noteDlg = document.getElementById('note-dlg');
+const noteBody = document.getElementById('note-body');
+document.getElementById('note-close').addEventListener('click', () => noteDlg.close());
+
+async function openNote(subjectId) {
+  const key = active;
+  const row = listFor(key).rows.find((r) => r.subjectId === subjectId);
+  if (!row) return;
+  document.getElementById('note-title').textContent = `A note to ${row.name}`;
+  noteBody.innerHTML = '<p class="spinner">Writing it...</p>';
+  noteDlg.showModal();
+  let draft;
+  try { draft = await api(`/api/clients/${encodeURIComponent(row.clientId)}/note?list=${encodeURIComponent(key)}`); }
+  catch (e) { noteBody.innerHTML = `<div class="notice notice-error">${esc(e.message)}</div>`; return; }
+  if (!draft.canSend) {
+    noteBody.innerHTML = `<p class="muted">${draft.stopped ? 'They asked not to get email.' : 'There is no email address for them.'} Ring them instead.</p>`;
+    return;
+  }
+  noteBody.innerHTML = `<p class="muted" style="margin:0 0 .6rem;">To ${esc(draft.to)}</p>
+    <div class="field"><label for="note-subject">Subject</label>
+      <input id="note-subject" maxlength="160" value="${esc(draft.subject)}" style="width:100%;"></div>
+    <div class="field"><label for="note-text">Your note</label>
+      <textarea id="note-text" rows="11" maxlength="4000" style="width:100%;">${esc(draft.body)}</textarea></div>
+    <div class="notice notice-error" id="note-err" hidden></div>
+    <button class="btn btn-primary" type="button" id="note-send">Send this note</button>`;
+  const send = document.getElementById('note-send');
+  send.addEventListener('click', async () => {
+    send.disabled = true;
+    try {
+      await api(`/api/clients/${encodeURIComponent(row.clientId)}/note`, { method: 'POST', body: {
+        subject: document.getElementById('note-subject').value, body: document.getElementById('note-text').value } });
+      noteDlg.close();
+      await tick(subjectId, null);
+    } catch (e) {
+      const x = document.getElementById('note-err');
+      x.textContent = e.message || 'That did not send.';
+      x.hidden = false;
+      send.disabled = false;
+    }
   });
 }
 

@@ -1487,6 +1487,13 @@ async function main() {
       check(draft.status === 200 && draft.data?.canSend === true && /^Hello Hello,/.test(draft.data?.body || '')
         && /Free Guide form/.test(draft.data?.body || '') && /Thanks for getting in touch, Hello/.test(draft.data?.subject || ''),
       'a note is drafted for them, naming the form they filled in', `status ${draft.status} ${draft.data?.subject}`);
+      const bday = await call(advisor, 'GET', `/api/clients/${encodeURIComponent(lead.id)}/note?list=birthdays`);
+      check(bday.status === 200 && /^Happy birthday, Hello!/.test(bday.data?.subject || '') && bday.data?.canSend === true,
+        'a note to somebody on the Who to call page is drafted in the agency\'s words', `status ${bday.status} ${bday.data?.subject}`);
+      const badList = await call(advisor, 'GET', `/api/clients/${encodeURIComponent(lead.id)}/note?list=nonsense`);
+      check(badList.status === 400, 'a list that does not exist is refused', `status ${badList.status}`);
+      const notMine = await call(admin, 'GET', `/api/clients/${encodeURIComponent(lead.id)}/note?list=quiet`);
+      check(notMine.status === 403, 'and a note is only ever written in the name of the advisor whose client it is', `status ${notMine.status}`);
       const noWords = await call(advisor, 'POST', `/api/leads/${encodeURIComponent(lead.id)}/hello`, { subject: '', body: '' });
       check(noWords.status === 400, 'a note with nothing in it is refused', `status ${noWords.status}`);
       const reached = await call(advisor, 'POST', `/api/leads/${encodeURIComponent(lead.id)}/reached`, {});
@@ -8697,7 +8704,7 @@ async function main() {
     cleanup('the automatic client emails', () => call(admin, 'PUT', '/api/trip-emails/settings', { on: false }));
     await call(admin, 'PUT', '/api/trip-emails/settings', { on: false });
     const start = await call(admin, 'GET', '/api/trip-emails/settings');
-    check(start.status === 200 && start.data?.on === false && (start.data?.kinds || []).length === 11
+    check(start.status === 200 && start.data?.on === false && (start.data?.kinds || []).length === 14
       && start.data.kinds.every((k) => k.subject && k.body && !k.custom),
     'an owner finds them off, with the built-in wording for all nine, and for the first note to a lead', `status ${start.status}`);
 
