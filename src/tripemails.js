@@ -595,7 +595,22 @@ async function settingsFor(env, user) {
       GROUP BY te.kind`
   ).bind(user.agency_id, thirty).all().catch(() => ({ results: [] }));
   const counts = new Map((sent.results || []).map((r) => [r.kind, r.n]));
+  // The last few that went, or could not, so an owner can see what clients were actually sent and by whom.
+  const recent = await env.DB.prepare(
+    `SELECT te.kind AS kind, te.status AS status, te.sent_at AS sent_at, te.updated_at AS at, te.note AS note,
+            te.booking_id AS booking_id, b.client_name AS client_name,
+            COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.email) AS advisor
+       FROM trip_emails te
+       JOIN bookings b ON b.id = te.booking_id
+       JOIN users u ON u.id = te.user_id
+      WHERE u.agency_id = ? AND te.status IN ('sent', 'failed')
+      ORDER BY COALESCE(te.sent_at, te.updated_at) DESC LIMIT 25`
+  ).bind(user.agency_id).all().catch(() => ({ results: [] }));
   return {
+    recent: (recent.results || []).filter((r) => BY_KIND.has(r.kind)).map((r) => ({
+      label: BY_KIND.get(r.kind).label, status: r.status, at: r.sent_at || r.at, note: r.note || '',
+      bookingId: r.booking_id, client: r.client_name || '', advisor: r.advisor || '',
+    })),
     on: Boolean(since), since,
     variables: VARIABLES.map(([name, what]) => ({ name, what })),
     kinds: KINDS.map((k) => {

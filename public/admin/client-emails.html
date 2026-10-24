@@ -45,6 +45,10 @@
           </div>
         </div>
       </section>
+      <section class="card" id="recent-card" style="margin-top:1.25rem;" hidden>
+        <div class="card-head"><h2>Recently sent</h2></div>
+        <div id="recent"></div>
+      </section>
     </div>
   </div>
 </div>
@@ -120,12 +124,29 @@ function drawKinds() {
   document.getElementById('words-card').hidden = false;
 }
 
+function drawRecent() {
+  const card = document.getElementById('recent-card');
+  const rows = data.recent || [];
+  card.hidden = !rows.length;
+  if (!rows.length) return;
+  const when = (ts) => new Date(ts * 1000).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  document.getElementById('recent').innerHTML = `<div class="table-wrap"><table><thead><tr>
+    <th>When</th><th>Email</th><th>Client</th><th>Advisor</th><th>Result</th></tr></thead><tbody>${rows.map((r) => `<tr>
+      <td>${esc(when(r.at))}</td><td>${esc(r.label)}</td>
+      <td><a href="/app/reservation?id=${encodeURIComponent(r.bookingId)}">${esc(r.client || 'reservation')}</a></td>
+      <td>${esc(r.advisor)}</td>
+      <td>${r.status === 'sent' ? '<span class="badge badge-green">Sent</span>'
+    : `<span class="badge badge-red">Could not send</span><div class="muted" style="font-size:.82rem;">${esc(r.note)}</div>`}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
 document.getElementById('toggle').addEventListener('click', async () => {
   if (!data.on && !confirm('Switch the emails on? From now on, every new reservation gets them. Reservations that already exist are not touched.')) return;
   said.textContent = 'Saving...';
   try {
     data = await api('/api/trip-emails/settings', { method: 'PUT', body: { on: !data.on } });
     drawSwitch();
+    drawRecent();
     said.textContent = data.on ? 'On.' : 'Off.';
   } catch (e) { said.textContent = ''; showError(err, e); }
 });
@@ -148,6 +169,7 @@ try {
   data = await api('/api/trip-emails/settings');
   drawSwitch();
   drawKinds();
+  drawRecent();
 } catch (e) { showError(err, e); }
 </script>
 </body>
