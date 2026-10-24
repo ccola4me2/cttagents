@@ -215,7 +215,11 @@ const say = (c) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits
 /** The columns the price is split into: one per guest the document prices, else the trip. */
 function priceColumns(read) {
   const pr = read.pricing;
-  if (pr.guests && pr.guests.length > 1) return pr.guests;
+  // The first guest on a confirmation that prints no names is the person the booking is for.
+  if (pr.guests && pr.guests.length > 1) {
+    const lead = read.fields.clientName;
+    return pr.guests.map((g, i) => (i === 0 && lead && !String(g.name || '').trim() ? { ...g, name: lead } : g));
+  }
   const one = { name: '', fare: '', taxes: '', insurance: '', gratuities: '', commission: read.fields.commission || '' };
   for (const l of pr.lines) one[l.kind] = l.amount;
   return [one];
@@ -534,6 +538,8 @@ function drawSummary(read) {
   if (!f.departDate) missing.push('the departure date');
   if (!f.gross) missing.push('the trip total');
   if (cents(f.deposit) > 0 && !f.depositRefundable) missing.push('whether the deposit is refundable');
+  const priced = read.pricing && read.pricing.guests && read.pricing.guests.length > 1 ? priceColumns(read) : [];
+  if (priced.some((g) => !String(g.name || '').trim())) missing.push('the names of the other guests');
   const details = document.getElementById('conf-details');
   details.open = missing.length > 0;
   document.getElementById('conf-ready').textContent = missing.length

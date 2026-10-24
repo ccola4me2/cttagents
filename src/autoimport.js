@@ -66,7 +66,11 @@ export function authHeadersSeen(headers) {
 export function priceColumns(read) {
   const pr = read.pricing;
   if (!pr || !pr.lines || !pr.lines.length) return null;
-  if (pr.guests && pr.guests.length > 1) return pr.guests;
+  // The first guest on a confirmation that prints no names is the person the booking is for.
+  if (pr.guests && pr.guests.length > 1) {
+    const lead = read.fields && read.fields.clientName;
+    return pr.guests.map((g, i) => (i === 0 && lead && !String(g.name || '').trim() ? { ...g, name: lead } : g));
+  }
   const one = { name: '', fare: '', taxes: '', insurance: '', gratuities: '', commission: (read.fields && read.fields.commission) || '' };
   for (const l of pr.lines) one[l.kind] = l.amount;
   return [one];

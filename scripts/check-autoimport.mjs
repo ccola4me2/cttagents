@@ -74,6 +74,12 @@ for (const [key, word] of [['clientName', 'the client'], ['confirmationNumber', 
   r.pricing.guests[1].name = 'Sam Sample';
   is('named, it is clean', verdict(r, TODAY).ok, true);
   is('and the price is one column a guest', priceColumns(r).length, 2);
+  // A confirmation that prints no guest names: the first guest is the person the booking is for, and the rest need names.
+  const blank = clean();
+  blank.pricing = { lines: [{ kind: 'fare', amount: '4871.40' }],
+    guests: [{ name: '', fare: '2435.70' }, { name: '', fare: '2435.70' }], notes: [] };
+  is('the first guest with no name is the client', priceColumns(blank)[0].name, 'Pat Sample');
+  is('but the second is not guessed, so it is held', verdict(blank, TODAY).ok, false);
 }
 
 const headers = (o) => new Headers(o);
