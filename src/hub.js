@@ -285,12 +285,21 @@ export function bookBody({ client, bookings, paid, portal = false }) {
     ${b.share_code ? '</a>' : '</span>'}
   </li>`;
 
+  const daysTo = (t) => {
+    if (!t.from) return null;
+    const iso = new Date(t.from).toISOString().slice(0, 10);
+    return Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000);
+  };
+  const chipFor = (n) => (n === null || n < 0 ? '' : `<span class="daychip">${n === 0 ? 'Today' : `${n} ${n === 1 ? 'day' : 'days'} to go`}</span>`);
+
   const tripCard = (t) => {
     const owed = sum(t.rows, owedOn);
     const total = sum(t.rows, (b) => b.gross_cents || 0);
+    const paidSoFar = sum(t.rows, paidOn);
+    const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((paidSoFar / total) * 100))) : 0;
     const next = t.rows.map((b) => (paid.get(b.id) || {}).next_due).filter(Boolean).sort()[0];
     return `<section class="card pad">
-      <h2>${esc(t.name || tripName(t.rows))}</h2>
+      <h2>${esc(t.name || tripName(t.rows))}${chipFor(daysTo(t))}</h2>
       <p class="lede">${esc(t.from ? sayDate(new Date(t.from).toISOString().slice(0, 10)) : 'Dates to come')}${
         t.to && t.to !== t.from ? ` to ${esc(sayDate(new Date(t.to).toISOString().slice(0, 10)))}` : ''
       } &middot; ${t.rows.length} booking${t.rows.length === 1 ? '' : 's'}</p>
@@ -300,6 +309,8 @@ export function bookBody({ client, bookings, paid, portal = false }) {
         <div><p class="tlabel">Still to pay</p>
           <p class="tvalue${owed > 0 ? ' owing' : ''}">${esc(money(owed))}</p></div>
       </div>
+      ${total > 0 ? `<div class="pbar" role="img" aria-label="${pct} percent paid"><span style="width:${pct}%"></span></div>
+        <p class="dim small" style="margin:.1rem 0 .6rem;">${pct}% paid</p>` : ''}
       ${owed > 0 && next ? `<p class="dim small">Next payment due ${esc(sayDate(next))}.</p>` : ''}
       ${t.code ? `<p><a href="/i/${esc(t.code)}">Open the whole itinerary</a></p>` : ''}
       <ul class="plain trips">${t.rows.map(row).join('')}</ul>
@@ -307,9 +318,14 @@ export function bookBody({ client, bookings, paid, portal = false }) {
   };
 
   const body = `<div class="wrap">
-    <header class="head">
+    <header class="hero">
+      <p class="eyebrow">Your trips</p>
       <h1>${esc(heading)}</h1>
-      <p class="dim">Everything ${esc(client.agency_name || 'we')} hold for you</p>
+      <p class="lede">Everything ${esc(client.agency_name || 'we')} hold for you</p>
+      ${upcoming.length ? `<div class="chips">${(() => {
+        const n = daysTo(upcoming[0]);
+        return `${n !== null && n >= 0 ? `<span class="chip go">${n === 0 ? 'Your trip starts today' : `${n} ${n === 1 ? 'day' : 'days'} to your next trip`}</span>` : ''}<span class="chip">${upcoming.length} ${upcoming.length === 1 ? 'trip' : 'trips'} ahead</span>`;
+      })()}</div>` : ''}
     </header>
 
     ${upcoming.length ? upcoming.map(tripCard).join('')

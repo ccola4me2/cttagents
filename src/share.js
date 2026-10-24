@@ -2124,6 +2124,10 @@ ${code ? `<link rel="manifest" href="/t/${esc(code)}/app.webmanifest">` : ''}
     border-radius:999px;padding:.1rem .45rem}
   .pill.ok{background:#e8f5f0;color:var(--ok)}
   .pill.late{background:#fdeeec;color:var(--late)}
+  .daychip{margin-left:.2rem;font-size:.7rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+    background:rgba(20,120,138,.12);color:var(--teal);border-radius:999px;padding:.2rem .6rem;white-space:nowrap}
+  .pbar{height:8px;border-radius:999px;background:var(--line);overflow:hidden;margin:.2rem 0 .3rem}
+  .pbar span{display:block;height:100%;border-radius:999px;background:var(--ok)}
   .docs a{color:var(--navy);font-weight:600}
   .contact{margin:.2rem 0 1.2rem}
   /* The conversation. Theirs to the left and plain, yours to the right and
