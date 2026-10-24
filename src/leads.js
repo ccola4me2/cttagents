@@ -20,6 +20,11 @@ import { json, badRequest, notFound, uid, now, clean, cleanText, cleanDate, oneO
   from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
+import { layout, sendHtml } from './email.js';
+import { brandForUser } from './brand.js';
+import { isSuppressed } from './suppression.js';
+import { fillWords } from './tripemails.js';
+import { escapeHtml, PermanentError } from './util.js';
 import { SOURCE_KINDS, SOURCE_KIND_IDS } from './attribution.js';
 
 // Where somebody is in the conversation, in the words an advisor would use.
@@ -321,5 +326,110 @@ export async function handleCloseLead(request, env, id) {
       WHERE id = ? AND user_id = ?`
   ).bind(now(), id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('That lead is not here.');
+  return json({ ok: true });
+}
+
+// ---------------------------------------------------------------------------
+// Saying hello
+// ---------------------------------------------------------------------------
+
+const FOLLOW_UP_DAYS = 3;
+const dayPlus = (days) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+
+/** The lead as the hello is written for them: only this advisor's, and only somebody on the board. */
+async function leadFor(env, owner, id) {
+  return env.DB.prepare(
+    `SELECT id, name, email, phone, lead_stage, lead_asked_about FROM clients
+      WHERE id = ? AND user_id = ? AND lead_stage IS NOT NULL`
+  ).bind(id, owner.id).first();
+}
+
+/** A friendly first note, in the advisor's name, that the advisor can change before it goes. */
+function helloDraft(advisor, lead) {
+  const form = (String(lead.lead_asked_about || '').match(/^From the (.+) form$/) || [])[1] || '';
+  const name = [advisor.first_name, advisor.last_name].filter(Boolean).join(' ') || advisor.email || '';
+  const vars = {
+    first_name: String(lead.name || '').trim().split(/\s+/)[0] || 'there',
+    thanks: form ? `Thank you for filling in our ${form} form.` : 'Thank you for getting in touch.',
+    advisor: name, agency: advisor.agency_name || '', phone: advisor.phone || '',
+  };
+  const filled = fillWords('Thanks for getting in touch, {first_name}',
+    'Hello {first_name},\n\n{thanks}\n\nI am {advisor} at {agency}, and I would love to help you plan your next trip.\n\n'
+    + 'Do you already have somewhere in mind, or a time of year you would like to travel? Even a rough idea is enough to start, '
+    + 'and there is no obligation.\n\nJust reply to this email and I will take it from there.\nYou can also call me on {phone}.\n\n'
+    + 'Thank you,\n{advisor}\n{agency}', vars);
+  return { subject: filled.subject, body: filled.paragraphs.join('\n\n') };
+}
+
+/** GET /api/leads/:id/hello : the note that would go, and whether it can. */
+export async function handleLeadHelloDraft(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  const owner = await db.writerFor(env, user, 'clients', id);
+  if (!owner) return notFound('That lead is not here.');
+  const lead = await leadFor(env, owner, id);
+  if (!lead) return notFound('That lead is not here.');
+  const advisor = await db.getUserById(env, owner.id);
+  const stopped = lead.email ? await isSuppressed(env, advisor.agency_id, lead.email) : false;
+  return json({ to: lead.email || '', canSend: Boolean(lead.email) && !stopped, stopped,
+    ...helloDraft(advisor, lead) });
+}
+
+/** The next step after reaching somebody: a nudge to follow up, so nobody is dropped after one note. */
+async function afterReaching(env, owner, id, step) {
+  await env.DB.prepare(
+    `UPDATE clients SET lead_stage = CASE WHEN lead_stage = 'new' THEN 'contacted' ELSE lead_stage END,
+            lead_next_step = ?, lead_next_step_on = ?, updated_at = ?
+      WHERE id = ? AND user_id = ? AND lead_stage IS NOT NULL`
+  ).bind(step, dayPlus(FOLLOW_UP_DAYS), now(), id, owner.id).run();
+}
+
+/** POST /api/leads/:id/hello { subject, body } : send it, move them to Reached out, and plan the follow-up. */
+export async function handleLeadHello(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  const owner = await db.writerFor(env, user, 'clients', id);
+  if (!owner) return notFound('That lead is not here.');
+  const lead = await leadFor(env, owner, id);
+  if (!lead) return notFound('That lead is not here.');
+  if (!lead.email) return badRequest('There is no email address for them yet. Add one on their record, or ring them.');
+
+  const advisor = await db.getUserById(env, owner.id);
+  if (await isSuppressed(env, advisor.agency_id, lead.email)) {
+    return badRequest('They asked not to get email, so this was not sent. Ring them instead.');
+  }
+  const body = await readJson(request);
+  const subject = clean(body.subject, 160);
+  const text = cleanText(body.body, 4000);
+  if (!subject || !text) return badRequest('A note needs a subject and some words.');
+
+  const html = layout(env, {
+    brand: await brandForUser(env, owner.id),
+    heading: subject,
+    body: text.split(/\n{2,}/).map((p) => `<p style="margin:0 0 14px;">${escapeHtml(p).replace(/\n/g, '<br>')}</p>`).join(''),
+  });
+  try {
+    await sendHtml(env, {
+      to: lead.email, replyTo: advisor.notify_email || advisor.email, subject, html,
+      unsubscribe: { agencyId: advisor.agency_id || null, agencyName: advisor.agency_name || '' },
+    });
+  } catch (e) {
+    return badRequest(e instanceof PermanentError ? String(e.message) : 'That did not send. Try again in a minute.');
+  }
+  await afterReaching(env, owner, id, 'Follow up if they have not replied');
+  await db.logActivity(env, owner.id, 'lead.hello', `Sent a first note to ${lead.name}`, { id });
+  return json({ ok: true });
+}
+
+/** POST /api/leads/:id/reached : they were rung, so they move to Reached out and the follow-up is planned. */
+export async function handleLeadReached(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  const owner = await db.writerFor(env, user, 'clients', id);
+  if (!owner) return notFound('That lead is not here.');
+  const lead = await leadFor(env, owner, id);
+  if (!lead) return notFound('That lead is not here.');
+  await afterReaching(env, owner, id, 'Follow up after your call');
+  await db.logActivity(env, owner.id, 'lead.reached', `Rang ${lead.name}`, { id });
   return json({ ok: true });
 }

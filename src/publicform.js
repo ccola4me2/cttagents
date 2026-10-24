@@ -790,11 +790,17 @@ export async function handlePublicSubmit(request, env, slug) {
                   lead_stage = COALESCE(lead_stage, ?),
                   lead_at = COALESCE(lead_at, ?),
                   lead_asked_about = COALESCE(NULLIF(lead_asked_about, ''), ?),
+                  -- A new lead is owed a hello the next day, so it shows up on the To do list and the dashboard
+                  -- instead of sitting in a column. Somebody already being worked keeps the plan they have.
+                  lead_next_step = COALESCE(NULLIF(lead_next_step, ''), ?),
+                  lead_next_step_on = COALESCE(lead_next_step_on, ?),
                   updated_at = ?
             WHERE id = ? AND user_id = ?`
         ).bind(email || null, phone || null, `Form: ${form.name}`.slice(0, 120),
                clientIsNew ? 'new' : null, now(),
                `From the ${form.name} form`.slice(0, 500),
+               clientIsNew ? 'Say hello and ask what trip they have in mind' : null,
+               clientIsNew ? new Date(Date.now() + 86400000).toISOString().slice(0, 10) : null,
                now(), clientId, owner).run();
         await env.DB.prepare('UPDATE form_submissions SET contact_id = ? WHERE id = ?')
           .bind(clientId, submissionId).run();

@@ -471,6 +471,23 @@ async function noticesFor(env, user, scope) {
     ).bind(...db.scopeWhere(scope, 'p.user_id').binds, isoDay(0)).first().catch(() => null),
   ]);
 
+  // People who asked and have not been answered. The board has always shown them, and nobody opens a board to be
+  // told they are behind, so this says so where everybody looks first.
+  const fresh = db.scopeWhere(scope, 'c.user_id');
+  const unanswered = await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM clients c
+      WHERE ${fresh.sql} AND c.lead_stage = 'new' AND c.lead_next_step_on IS NULL
+        AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.client_id = c.id AND b.status IN ('booked', 'travelled'))`
+  ).bind(...fresh.binds).first().catch(() => null);
+  if (unanswered && unanswered.n) {
+    out.push({
+      tone: 'warn',
+      title: `${unanswered.n} new lead${unanswered.n === 1 ? '' : 's'} nobody has answered`,
+      detail: 'They asked for something and have not heard back. It takes a minute each, with the first note already written.',
+      href: '/app/leads?run=1', label: 'Answer them now',
+    });
+  }
+
   if (pastDue && pastDue.n) {
     out.push({
       tone: 'urgent',

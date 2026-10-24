@@ -35,12 +35,19 @@
     </header>
     <div class="content">
       <div class="notice notice-error" id="err" hidden></div>
+      <section id="run-banner" class="card" style="margin-bottom:1.2rem;" hidden></section>
       <section id="summary" class="stat-grid" hidden></section>
       <section id="converted-box" class="card" style="margin-bottom:1.2rem;" hidden></section>
       <section id="panel"><p class="spinner">Loading...</p></section>
     </div>
   </div>
 </div>
+
+<dialog id="run-dlg" style="max-width:min(40rem, 96vw);width:96vw;">
+  <div class="card-head"><h2 id="run-title">Answer your new leads</h2>
+    <button class="btn btn-ghost btn-sm" type="button" id="run-close">Close</button></div>
+  <div class="card-pad" id="run-body"></div>
+</dialog>
 
 <dialog id="dlg">
   <form id="form" method="dialog">
@@ -194,8 +201,95 @@ function renderConverted() {
   document.getElementById('converted-close').addEventListener('click', () => { convertedOpen = false; renderSummary(); });
 }
 
+// ---- Answering the new ones, one at a time ---------------------------------------------------------
+// A column of fifty cards says "behind". This says "here is one, here is what to say, press the button".
+
+const runDlg = document.getElementById('run-dlg');
+const runBody = document.getElementById('run-body');
+let run = { list: [], i: 0, sent: 0 };
+
+function unanswered() {
+  const col = (data.stages || []).find((s) => s.id === 'new');
+  // Newest first: somebody who asked this morning is warmer than somebody who asked last week.
+  return (col ? col.leads : []).filter((l) => !l.nextStepOn).sort((a, b) => b.since - a.since);
+}
+
+function renderBanner() {
+  const box = document.getElementById('run-banner');
+  const n = unanswered().length;
+  box.hidden = !n;
+  if (!n) return;
+  box.innerHTML = `<div class="card-pad" style="display:flex;gap:1rem;align-items:center;justify-content:space-between;flex-wrap:wrap;">
+    <div><strong>${n} new ${n === 1 ? 'lead has' : 'leads have'} not heard back.</strong>
+      <div class="muted">Each takes a minute: the first note is already written, and you can change it before it goes.</div></div>
+    <button class="btn btn-primary" type="button" id="run-start">Answer them now</button></div>`;
+  document.getElementById('run-start').addEventListener('click', startRun);
+}
+
+function startRun() {
+  run = { list: unanswered(), i: 0, sent: 0 };
+  if (!run.list.length) return;
+  runDlg.showModal();
+  drawRun();
+}
+
+async function drawRun() {
+  if (run.i >= run.list.length) {
+    runBody.innerHTML = `<h3 style="margin:0 0 .4rem;">${run.sent ? 'All caught up' : 'That is all of them'}</h3>
+      <p class="muted">${run.sent ? `${run.sent} ${run.sent === 1 ? 'note' : 'notes'} sent. Each person is now under Reached out with a reminder to follow up in three days.` : 'Nothing was sent.'}</p>
+      <button class="btn btn-primary" type="button" id="run-done">Done</button>`;
+    document.getElementById('run-done').addEventListener('click', () => { runDlg.close(); load(); });
+    return;
+  }
+  const l = run.list[run.i];
+  runBody.innerHTML = '<p class="spinner">Loading...</p>';
+  let draft;
+  try { draft = await api(`/api/leads/${encodeURIComponent(l.id)}/hello`); }
+  catch (e) { runBody.innerHTML = `<div class="notice notice-error">${esc(e.message)}</div><button class="btn btn-ghost" type="button" id="run-skip">Next</button>`; document.getElementById('run-skip').addEventListener('click', () => { run.i += 1; drawRun(); }); return; }
+  runBody.innerHTML = `
+    <p class="muted" style="margin:0 0 .6rem;">${run.i + 1} of ${run.list.length}</p>
+    <h3 style="margin:0;font-size:1.25rem;">${esc(l.name)}</h3>
+    <p class="muted" style="margin:.2rem 0 .8rem;">${esc(l.askedAbout || cameFrom(l))} &middot; ${esc(timeAgo(l.since))}</p>
+    <p style="margin:0 0 1rem;">${reach(l) || '<span class="muted">No phone or email on file.</span>'}</p>
+    ${draft.canSend ? `<div class="field"><label for="run-subject">Subject</label>
+        <input id="run-subject" maxlength="160" value="${esc(draft.subject)}" style="width:100%;"></div>
+      <div class="field"><label for="run-text">Your note to ${esc(l.name.split(' ')[0])}</label>
+        <textarea id="run-text" rows="11" maxlength="4000" style="width:100%;">${esc(draft.body)}</textarea></div>`
+      : `<p class="muted">${draft.stopped ? 'They asked not to get email.' : 'There is no email address for them.'} Ring them instead.</p>`}
+    <div class="notice notice-error" id="run-err" hidden></div>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.8rem;">
+      ${draft.canSend ? '<button class="btn btn-primary" type="button" id="run-send">Send this note</button>' : ''}
+      <button class="btn btn-secondary" type="button" id="run-called">I rang them</button>
+      <button class="btn btn-ghost" type="button" id="run-skip">Not now</button>
+      <button class="btn btn-ghost" type="button" id="run-cold">Not interested</button>
+    </div>`;
+  const fail = (e) => { const x = document.getElementById('run-err'); x.textContent = e.message || 'That did not work.'; x.hidden = false; };
+  const next = () => { run.i += 1; drawRun(); };
+  const send = document.getElementById('run-send');
+  if (send) send.addEventListener('click', async () => {
+    send.disabled = true;
+    try {
+      await api(`/api/leads/${encodeURIComponent(l.id)}/hello`, { method: 'POST', body: {
+        subject: document.getElementById('run-subject').value, body: document.getElementById('run-text').value } });
+      run.sent += 1;
+      next();
+    } catch (e) { fail(e); send.disabled = false; }
+  });
+  document.getElementById('run-called').addEventListener('click', async () => {
+    try { await api(`/api/leads/${encodeURIComponent(l.id)}/reached`, { method: 'POST', body: {} }); next(); } catch (e) { fail(e); }
+  });
+  document.getElementById('run-skip').addEventListener('click', next);
+  document.getElementById('run-cold').addEventListener('click', async () => {
+    if (!confirm(`Take ${l.name} off the board? Their record stays.`)) return;
+    try { await api(`/api/leads/${encodeURIComponent(l.id)}`, { method: 'DELETE' }); next(); } catch (e) { fail(e); }
+  });
+}
+
+document.getElementById('run-close').addEventListener('click', () => { runDlg.close(); load(); });
+
 function render() {
   fillStages();
+  renderBanner();
   renderSummary();
   panel.innerHTML = view.value === 'list' ? list() : board();
   wire();
@@ -416,5 +510,7 @@ async function load() {
 let t;
 q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 250); });
 await load();
+// From the notice on the dashboard.
+if (new URLSearchParams(location.search).get('run') === '1') startRun();
 </script>
 </body></html>

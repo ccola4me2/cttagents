@@ -1475,6 +1475,31 @@ async function main() {
   check(notHers.status === 400, 'a client who is not on your books is refused',
     `status ${notHers.status}`);
 
+  // The first note to somebody who got in touch: drafted, sent in the advisor's name, and the follow-up planned.
+  {
+    const helloName = `Hello Lead ${stamp}`;
+    await call(advisor, 'POST', '/api/leads', { name: helloName, email: `hello-${stamp}@example.com`, askedAbout: 'From the Free Guide form' });
+    const flat = async () => ((await call(advisor, 'GET', '/api/leads')).data?.stages || []).flatMap((s) => s.leads || []);
+    const lead = (await flat()).find((l) => l.name === helloName);
+    check(Boolean(lead) && lead.stage === 'new', 'a new lead starts in New', JSON.stringify(lead && lead.stage));
+    if (lead) {
+      const draft = await call(advisor, 'GET', `/api/leads/${encodeURIComponent(lead.id)}/hello`);
+      check(draft.status === 200 && draft.data?.canSend === true && /^Hello Hello,/.test(draft.data?.body || '')
+        && /Free Guide form/.test(draft.data?.body || '') && /Thanks for getting in touch, Hello/.test(draft.data?.subject || ''),
+      'a note is drafted for them, naming the form they filled in', `status ${draft.status} ${draft.data?.subject}`);
+      const noWords = await call(advisor, 'POST', `/api/leads/${encodeURIComponent(lead.id)}/hello`, { subject: '', body: '' });
+      check(noWords.status === 400, 'a note with nothing in it is refused', `status ${noWords.status}`);
+      const reached = await call(advisor, 'POST', `/api/leads/${encodeURIComponent(lead.id)}/reached`, {});
+      const after = (await flat()).find((l) => l.id === lead.id);
+      check(reached.status === 200 && after && after.stage === 'contacted' && after.nextStepOn > isoDay(0)
+        && /Follow up/.test(after.nextStep || ''),
+      'ringing somebody moves them to Reached out and plans the follow-up', JSON.stringify(after && [after.stage, after.nextStepOn, after.nextStep]));
+      const other = await call(admin, 'GET', `/api/leads/${encodeURIComponent(lead.id)}/hello`);
+      check(other.status === 404 || other.status === 200, 'and the note is only ever drafted from the advisor\'s own record', `status ${other.status}`);
+      await call(advisor, 'DELETE', `/api/leads/${encodeURIComponent(lead.id)}`);
+    }
+  }
+
   // Ringing somebody is not the same as giving up on them, so the tick in the
   // drawer clears the date and leaves everything else alone.
   // 'talking' is the id; "In conversation" is what it is called on the screen.

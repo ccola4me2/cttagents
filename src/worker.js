@@ -26,7 +26,7 @@ import {
 } from './pipeline.js';
 import {
   handleLeadBoard, handleAddLead, handleUpdateLead, handleMoveLead, handleCloseLead,
-  handleFollowedUp,
+  handleFollowedUp, handleLeadHelloDraft, handleLeadHello, handleLeadReached,
 } from './leads.js';
 import { handleProposals, handleMarkBooked, handleSetDeclined } from './proposals.js'; import {
   handleListBookings,
@@ -801,6 +801,8 @@ async function routeApi(request, env, path, method) {
   const leadMatch = path.match(/^\/api\/leads\/([^/]+)$/);
   const leadStageMatch = path.match(/^\/api\/leads\/([^/]+)\/stage$/);
   const leadDoneMatch = path.match(/^\/api\/leads\/([^/]+)\/followed$/);
+  const leadHelloMatch = path.match(/^\/api\/leads\/([^/]+)\/hello$/);
+  const leadReachedMatch = path.match(/^\/api\/leads\/([^/]+)\/reached$/);
   const bookingMatch = path.match(/^\/api\/bookings\/([^/]+)$/);
   const recordMatch = path.match(/^\/api\/bookings\/([^/]+)\/record$/);
   const quickMatch = path.match(/^\/api\/bookings\/([^/]+)\/quick$/);
@@ -955,6 +957,10 @@ async function routeApi(request, env, path, method) {
   if (leadMatch && method === 'PUT') return handleUpdateLead(request, env, leadMatch[1]);
   if (leadMatch && method === 'DELETE') return handleCloseLead(request, env, leadMatch[1]);
   if (leadStageMatch && method === 'POST') return handleMoveLead(request, env, leadStageMatch[1]);
+  // The first note to somebody who got in touch: drafted for them, sent in the advisor's name, and the follow-up planned.
+  if (leadHelloMatch && method === 'GET') return handleLeadHelloDraft(request, env, leadHelloMatch[1]);
+  if (leadHelloMatch && method === 'POST') return handleLeadHello(request, env, leadHelloMatch[1]);
+  if (leadReachedMatch && method === 'POST') return handleLeadReached(request, env, leadReachedMatch[1]);
   // A follow-up done from the To do drawer: the date goes, the lead stays.
   if (leadDoneMatch && method === 'POST') {
     return handleFollowedUp(request, env, leadDoneMatch[1]);
