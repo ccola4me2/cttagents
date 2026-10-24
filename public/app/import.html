@@ -61,6 +61,18 @@ Guest 1: COLE/DEBORAH"></textarea>
             <p class="field-hint" id="conf-missing" style="margin:.8rem 0 0;"></p>
           </div>
           <div class="card-pad" id="conf-pricing" style="border-top:1px solid var(--navy-100);" hidden></div>
+          <div class="card-pad" id="conf-penalties" style="border-top:1px solid var(--navy-100);" hidden>
+            <p class="label" style="margin:0 0 .4rem;">What cancelling costs</p>
+            <p class="field-hint" id="conf-pen-note" style="margin:0 0 .6rem;"></p>
+            <div id="conf-pen-rows"></div>
+            <button class="btn btn-ghost btn-sm" type="button" id="conf-pen-add" style="margin:.4rem 0 .8rem;">Add a row</button>
+            <label style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:0 0 .4rem;">
+              <input type="checkbox" id="conf-pen-save" checked style="margin-top:.25rem;">
+              <span>Save these as this reservation's cancellation terms.</span></label>
+            <label style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:0;">
+              <input type="checkbox" id="conf-pen-tasks" checked style="margin-top:.25rem;">
+              <span>Put the deposit, the final payment and each cancellation date on my task list.</span></label>
+          </div>
           <div class="card-foot">
             <label id="conf-keep-row" hidden style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:0 0 .8rem;">
               <input type="checkbox" id="conf-keep" checked style="margin-top:.25rem;">
@@ -467,6 +479,7 @@ document.getElementById('conf-read').addEventListener('click', async () => {
     </div>`;
 
   drawPricing(read);
+  drawPenalties(read);
 
   const gaps = CONF_FIELDS.filter(([k]) => read.fields[k] === undefined).map(([, l]) => l);
   document.getElementById('conf-missing').textContent = gaps.length
@@ -505,6 +518,81 @@ async function postPaid(bookingId, body) {
     await api('/api/payments', { method: 'POST', body: {
       bookingId, kind, amount: (left / 100).toFixed(2), dueDate: paidOn, paidDate: paidOn, paymentClass: 'hard' } });
   }
+}
+
+/**
+ * What cancelling costs, as a table that can be changed. Whatever the confirmation printed is filled in, and a
+ * confirmation that prints nothing readable leaves it empty to be typed once: every supplier's terms are different, so
+ * nothing here is assumed, and what is saved is what is on the screen.
+ */
+function penaltyRow(t) {
+  const isAmount = t && t.perGuestCents !== null && t.perGuestCents !== undefined;
+  const value = t ? (isAmount ? (t.perGuestCents / 100).toFixed(2) : (t.pct === null || t.pct === undefined ? '' : String(t.pct))) : '';
+  return `<div class="pen-row" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin:0 0 .4rem;">
+    <input data-pen="from" type="number" min="0" max="999" value="${esc(t ? String(t.fromDays) : '')}" style="width:5.5rem;" aria-label="Days before sailing">
+    <span class="muted">days before sailing, costs</span>
+    <input data-pen="value" inputmode="decimal" value="${esc(value)}" style="width:6rem;" aria-label="How much">
+    <select data-pen="kind" aria-label="Percent or dollars"><option value="pct"${isAmount ? '' : ' selected'}>percent of the fare</option>
+      <option value="amt"${isAmount ? ' selected' : ''}>dollars a guest</option></select>
+    <span class="muted">from</span>
+    <input data-pen="date" value="${esc(t && t.date ? showDate(t.date) : '')}" placeholder="MM/DD/YYYY" style="width:8rem;" aria-label="Date it starts">
+    <button class="btn btn-ghost btn-sm" type="button" data-pen-remove="1" aria-label="Remove this row">&times;</button></div>`;
+}
+
+function drawPenalties(read) {
+  const card = document.getElementById('conf-penalties');
+  const tiers = read.penalties || [];
+  card.hidden = false;
+  document.getElementById('conf-pen-note').textContent = tiers.length
+    ? 'Read from the confirmation. Change anything that is wrong, or take a row off.'
+    : 'This confirmation does not print a cancellation schedule that could be read. Add the terms from the supplier by hand, or leave this empty.';
+  document.getElementById('conf-pen-rows').innerHTML = tiers.map(penaltyRow).join('');
+}
+
+document.getElementById('conf-pen-add').addEventListener('click', () => {
+  document.getElementById('conf-pen-rows').insertAdjacentHTML('beforeend', penaltyRow(null));
+});
+document.getElementById('conf-pen-rows').addEventListener('click', (e) => {
+  const gone = e.target.closest('[data-pen-remove]');
+  if (gone) gone.closest('.pen-row').remove();
+});
+
+/** The rows on the screen, cleaned: the days, what it costs, and the day it starts. */
+function penaltyRows() {
+  return [...document.querySelectorAll('#conf-pen-rows .pen-row')].map((row) => {
+    const get = (k) => row.querySelector(`[data-pen="${k}"]`).value.trim();
+    return { fromDays: Number(get('from')), value: Number(get('value')), kind: get('kind'), date: toIso(get('date')) };
+  }).filter((r) => Number.isFinite(r.fromDays) && r.fromDays >= 0 && r.value > 0);
+}
+
+/** Saves the cancellation terms and puts the dates on the task list, for a reservation that now exists. */
+async function savePenalties(bookingId, body) {
+  const rows = penaltyRows();
+  const guests = Number(body.travellers) || (lastRead && lastRead.guests ? lastRead.guests.length : 0) || 1;
+  const failed = [];
+  if (document.getElementById('conf-pen-save').checked) {
+    for (const r of rows) {
+      const note = r.date ? `Starts ${showDate(r.date)}` : '';
+      const send = r.kind === 'amt'
+        ? { bookingId, fromDays: r.fromDays, amount: (r.value * guests).toFixed(2), note: `${note}${note ? ', ' : ''}${r.value.toFixed(2)} a guest`.trim() }
+        : { bookingId, fromDays: r.fromDays, pct: r.value, note };
+      try { await api('/api/penalties', { method: 'POST', body: send }); } catch { failed.push('a cancellation term'); }
+    }
+  }
+  if (document.getElementById('conf-pen-tasks').checked) {
+    const today = new Date().toISOString().slice(0, 10);
+    const who = body.clientName || 'the client';
+    const dates = [];
+    if (body.depositDue) dates.push([body.depositDue, `Deposit due for ${who}`]);
+    if (body.finalPaymentDue) dates.push([body.finalPaymentDue, `Final payment due for ${who}`]);
+    for (const r of rows) {
+      if (r.date) dates.push([r.date, r.kind === 'amt' ? `Cancelling now costs ${r.value.toFixed(2)} a guest for ${who}` : `Cancelling now costs ${r.value}% for ${who}`]);
+    }
+    for (const [due, title] of dates.filter(([d]) => d >= today)) {
+      try { await api('/api/tasks', { method: 'POST', body: { title, dueDate: due, bookingId } }); } catch { failed.push('a task'); }
+    }
+  }
+  return failed;
 }
 
 document.getElementById('conf-create').addEventListener('click', async () => {
@@ -612,6 +700,8 @@ document.getElementById('conf-create').addEventListener('click', async () => {
     if (cents(body.paid) > 0) {
       try { await postPaid(res.booking.id, body); } catch (e5) { afterwards.push(`the payments already made were not recorded (${esc(e5.message)})`); }
     }
+    const penaltyFailures = await savePenalties(res.booking.id, body);
+    if (penaltyFailures.length) afterwards.push(`${penaltyFailures.length} of the cancellation terms or tasks were not saved`);
     if (confFile && document.getElementById('conf-keep').checked) {
       try {
         const form = new FormData();

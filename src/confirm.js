@@ -940,6 +940,36 @@ export function readClientContact(lines) {
   return out;
 }
 
+/**
+ * The cancellation schedule printed on a cruise line's confirmation: each window of days before sailing, what is
+ * lost in it, and the date it begins.
+ *
+ * Read off the document rather than assumed, because the dates and the percentages are the line's own and differ by
+ * line, by sailing length and by promotion. Windows, amounts and dates are matched in the order they are printed, and
+ * a schedule whose three lists do not line up is read without its dates rather than guessed at.
+ */
+function readCancellationSchedule(text) {
+  const t = String(text || '');
+  const start = t.search(/cancellation schedule/i);
+  if (start < 0) return [];
+  const section = t.slice(start, start + 1600);
+  const ranges = [...section.matchAll(/(\d{1,3})\s+to\s+(\d{1,3})\s+days\s+prior\s+to\s+sailing/gi)];
+  if (!ranges.length) return [];
+  const amounts = [...section.matchAll(/(\d+(?:\.\d+)?)\s*%\s*per\s*guest|(\d+(?:,\d{3})*\.\d{2})\s*deposit\s*amount\s*per\s*guest/gi)];
+  const dates = [...section.matchAll(/\b(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\b/g)]
+    .map((m) => anyDate(`${m[1]} ${m[2]} ${m[3]}`)).filter(Boolean);
+  const aligned = amounts.length === ranges.length;
+  return ranges.map((r, i) => {
+    const a = aligned ? amounts[i] : null;
+    return {
+      fromDays: Number(r[1]), toDays: Number(r[2]),
+      pct: a && a[1] ? Number(a[1]) : null,
+      perGuestCents: a && a[2] ? Math.round(Number(a[2].replace(/,/g, '')) * 100) : null,
+      date: dates.length === ranges.length ? dates[i] : null,
+    };
+  }).filter((x) => x.fromDays >= x.toDays);
+}
+
 export function parseConfirmation(text) {
   const lines = stackLabels(String(text || '').split(/\r?\n/).slice(0, 400))
     .flatMap(splitColumns)
@@ -1095,6 +1125,8 @@ export function parseConfirmation(text) {
     pricing,
     client,
     guests: people.map((g) => g.name),
+    // What cancelling costs, window by window, as the confirmation prints it.
+    penalties: readCancellationSchedule(text),
     // Named so the page can say what it did not find rather than leaving the
     // advisor to notice the blanks.
     missing: Object.keys(LABELS).filter((k) => fields[k] === undefined),
