@@ -281,7 +281,13 @@ function startingState(entry, today, advisorReminds) {
   return { status: 'scheduled', note: null };
 }
 
+// What gets the trip emails. A policy, a transfer, an excursion or a ticket is part of somebody's trip and not a trip of its own,
+// and "your trip is booked" about travel insurance is exactly the email that makes a client wonder who is running things.
+export const TRIP_TYPES = ['cruise', 'hotel', 'resort', 'package', 'tour', 'rail'];
+const TRIP_TYPE_SQL = TRIP_TYPES.map((t) => `'${t}'`).join(', ');
+
 const IN_SCOPE = `a.trip_emails_since IS NOT NULL AND b.created_at > a.trip_emails_since AND b.emails_off = 0
+        AND b.product_type IN (${TRIP_TYPE_SQL})
         AND b.status IN ('booked', 'travelled') AND (b.return_date IS NULL OR b.return_date >= ?)`;
 
 /**
@@ -455,7 +461,7 @@ export async function sendDueTripEmails(env, { at = now(), limit = 40 } = {}) {
        JOIN users u ON u.id = te.user_id
        JOIN agencies a ON a.id = u.agency_id
       WHERE te.status = 'scheduled' AND te.due_on <= ? AND a.trip_emails_since IS NOT NULL
-        AND b.emails_off = 0 AND (te.kind = 'confirmed' OR ? = 1)
+        AND b.emails_off = 0 AND b.product_type IN (${TRIP_TYPE_SQL}) AND (te.kind = 'confirmed' OR ? = 1)
       ORDER BY te.due_on ASC LIMIT ?`
   ).bind(today, daytime, limit).all();
 
@@ -560,6 +566,10 @@ async function shapeForBooking(env, owner, booking) {
   }
   if (booking.created_at <= since) {
     base.reason = 'The automatic emails were switched on after this reservation was made, so none go out for it.';
+    return base;
+  }
+  if (!TRIP_TYPES.includes(booking.product_type)) {
+    base.reason = 'Only trips get these emails: a cruise, hotel, resort, package, tour or rail. This one is part of a trip, or a policy, so it sends none.';
     return base;
   }
   if (booking.status === 'quoted') {

@@ -8772,6 +8772,16 @@ async function main() {
     check(sent.status === 200 && sent.data?.emailsOff === true, 'or switch all of them off for the trip', `status ${sent.status}`);
     await call(advisor, 'PUT', `/api/bookings/${autoId}/trip-emails`, { emailsOff: false });
 
+    const policy = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Policy Client ${stamp}`, supplier: 'Test Insurer', productName: 'Policy', productType: 'insurance',
+      departDate: isoDay(200), returnDate: isoDay(207), gross: '300', status: 'booked',
+    });
+    const policyId = policy.data?.booking?.id;
+    const policyCard = await call(advisor, 'GET', `/api/bookings/${policyId}/trip-emails`);
+    check(policyCard.status === 200 && policyCard.data?.items?.length === 0 && /Only trips/.test(policyCard.data?.reason || ''),
+      'a travel insurance policy is not a trip and gets none of the trip emails', `status ${policyCard.status} ${policyCard.data?.reason}`);
+    if (policyId) await dropBooking(policyId);
+
     const quote = await call(advisor, 'POST', '/api/bookings', {
       clientName: `Quoted Client ${stamp}`, supplier: 'Test Line', productName: 'Quoted Cruise', productType: 'cruise',
       departDate: isoDay(200), returnDate: isoDay(207), gross: '3000', status: 'quoted',
