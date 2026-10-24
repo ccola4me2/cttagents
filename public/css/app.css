@@ -1666,3 +1666,25 @@ code { overflow-wrap: anywhere; }
 /* The tab for the section you are reading. */
 .section-nav a[aria-current="true"] { background: var(--navy-800); color: #fff; }
 @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+
+/* The New button at the top of the menu: the few things done most often, one click from any page. */
+.nav-new { position: relative; margin-bottom: .6rem; }
+.nav-newbtn {
+  display: flex; align-items: center; justify-content: center; gap: .5rem; width: 100%;
+  background: var(--coral-400); color: #fff; border: 0; border-radius: 9px; padding: .55rem .7rem;
+  font: inherit; font-size: .86rem; font-weight: 650; cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .25), inset 0 1px 0 rgba(255, 255, 255, .16);
+}
+.nav-newbtn svg { width: 16px; height: 16px; }
+.nav-newbtn:hover { background: var(--coral-500); }
+.new-menu {
+  position: absolute; left: 0; right: 0; top: calc(100% + .35rem); z-index: 60; background: #fff;
+  border-radius: 10px; padding: .35rem; box-shadow: var(--shadow-md); border: 1px solid var(--navy-100);
+  min-width: 13rem;
+}
+.new-menu a {
+  display: block; padding: .5rem .7rem; border-radius: 7px; color: var(--navy-800); text-decoration: none;
+  font-size: .86rem; font-weight: 550;
+}
+.new-menu a:hover { background: var(--navy-50); color: var(--navy-800); }
+@media (max-width: 860px) { .sidebar .nav-new { width: auto; margin-bottom: 0; } .new-menu { right: auto; } }

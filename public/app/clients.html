@@ -796,5 +796,7 @@ q.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(load
 pinnedOnly.addEventListener('change', load);
 await load();
 await drawDupes();
+// From the New menu in the sidebar.
+if (new URLSearchParams(location.search).get('new') === '1') document.getElementById('add-client').click();
 </script>
 </body></html>

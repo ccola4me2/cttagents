@@ -1446,7 +1446,18 @@ export async function mountShell({ admin = false } = {}) {
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
            stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
     </button>
-    ${admin || isDesk ? '' : `<button type="button" class="nav-todo" id="open-todo">
+    ${admin || isDesk ? '' : `<div class="nav-new">
+      <button type="button" class="nav-newbtn" id="open-new" aria-haspopup="true" aria-expanded="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        <span>New</span></button>
+      <div class="new-menu" id="new-menu" hidden>
+        <a href="/app/import">Paste a confirmation</a>
+        <a href="/app/new">Type in a reservation</a>
+        <a href="/app/clients?new=1">Add a client</a>
+        <a href="/app/leads?new=1">Log a lead who called</a>
+        <a href="/app/tasks?new=1">Add a task</a>
+      </div></div>
+    <button type="button" class="nav-todo" id="open-todo">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>
@@ -1507,6 +1518,20 @@ export async function mountShell({ admin = false } = {}) {
       try { localStorage.setItem(HUB_KEY, open ? button.dataset.hub : ''); } catch { /* private mode */ }
     });
   });
+
+  // The New menu: opens under its button, closes on a click elsewhere or Escape.
+  const newBtn = sidebar.querySelector('#open-new');
+  const newMenu = sidebar.querySelector('#new-menu');
+  if (newBtn && newMenu) {
+    const closeNew = () => { newMenu.hidden = true; newBtn.setAttribute('aria-expanded', 'false'); };
+    newBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      newMenu.hidden = !newMenu.hidden;
+      newBtn.setAttribute('aria-expanded', String(!newMenu.hidden));
+    });
+    document.addEventListener('click', (e) => { if (!newMenu.contains(e.target)) closeNew(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeNew(); });
+  }
 
   const toggle = sidebar.querySelector('.menu-toggle');
   toggle.addEventListener('click', () => {

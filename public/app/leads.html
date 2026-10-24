@@ -517,5 +517,7 @@ q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 250); 
 await load();
 // From the notice on the dashboard.
 if (new URLSearchParams(location.search).get('run') === '1') startRun();
+// From the New menu in the sidebar.
+if (new URLSearchParams(location.search).get('new') === '1') document.getElementById('add').click();
 </script>
 </body></html>
