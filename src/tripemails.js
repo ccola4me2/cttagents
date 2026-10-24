@@ -128,8 +128,19 @@ export const LEAD_HELLO = {
     + 'Thank you,\n{advisor}\n{agency}',
 };
 
+// The second note, a few days after the first, for somebody who has not replied.
+export const LEAD_FOLLOWUP = {
+  kind: 'lead_followup', label: 'Follow-up note to a lead', when: 'When a lead has not replied and the follow-up date comes round',
+  heading: 'Just checking in',
+  subject: 'Just checking in, {first_name}',
+  body: 'Hello {first_name},\n\nI wanted to follow up on my last note. Have you had a chance to think about where you would like to go?\n\n'
+    + 'There is no pressure at all. If you tell me roughly when, who is travelling and what you would like to spend, I can come back with '
+    + 'a few good options.\n\nJust reply to this email and I will take it from there.\nYou can also call me on {phone}.\n\n'
+    + 'Thank you,\n{advisor}\n{agency}',
+};
+
 const BY_KIND = new Map(KINDS.map((k) => [k.kind, k]));
-const ALL_KINDS = [...KINDS, LEAD_HELLO];
+const ALL_KINDS = [...KINDS, LEAD_HELLO, LEAD_FOLLOWUP];
 const PAYMENT_KINDS = new Set(['deposit_7', 'deposit_2', 'final_7', 'final_2']);
 
 const STATUS_LABEL = {
@@ -368,7 +379,7 @@ function varsFor(b, client, today, pay) {
 
 /** The finished message for one email, from the agency's wording. */
 export async function composeEmail(env, { kind, wording, vars, userId }) {
-  const def = BY_KIND.get(kind) || (kind === LEAD_HELLO.kind ? LEAD_HELLO : null);
+  const def = BY_KIND.get(kind) || [LEAD_HELLO, LEAD_FOLLOWUP].find((k) => k.kind === kind) || null;
   const w = wording.get(kind);
   const filled = fillWords(w.subject, w.body, vars);
   const brand = await brandForUser(env, userId);
@@ -736,7 +747,7 @@ export async function handleTestTripEmail(request, env) {
   if (response) return response;
   if (!user.agency_id) return badRequest('This account is not part of an agency.');
   const body = await readJson(request);
-  const def = BY_KIND.get(body.kind) || (body.kind === LEAD_HELLO.kind ? LEAD_HELLO : null);
+  const def = BY_KIND.get(body.kind) || [LEAD_HELLO, LEAD_FOLLOWUP].find((k) => k.kind === body.kind) || null;
   if (!def) return badRequest('Which email?');
 
   const wording = await wordingFor(env, user.agency_id);

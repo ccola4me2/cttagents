@@ -1490,6 +1490,9 @@ async function main() {
       const noWords = await call(advisor, 'POST', `/api/leads/${encodeURIComponent(lead.id)}/hello`, { subject: '', body: '' });
       check(noWords.status === 400, 'a note with nothing in it is refused', `status ${noWords.status}`);
       const reached = await call(advisor, 'POST', `/api/leads/${encodeURIComponent(lead.id)}/reached`, {});
+      const second = await call(advisor, 'GET', `/api/leads/${encodeURIComponent(lead.id)}/hello`);
+      check(second.status === 200 && second.data?.kind === 'followup' && /^Just checking in, Hello/.test(second.data?.subject || ''),
+        'somebody already written to is offered a follow-up note, not the first one again', `status ${second.status} ${second.data?.subject}`);
       const after = (await flat()).find((l) => l.id === lead.id);
       check(reached.status === 200 && after && after.stage === 'contacted' && after.nextStepOn > isoDay(0)
         && /Follow up/.test(after.nextStep || ''),
@@ -8694,7 +8697,7 @@ async function main() {
     cleanup('the automatic client emails', () => call(admin, 'PUT', '/api/trip-emails/settings', { on: false }));
     await call(admin, 'PUT', '/api/trip-emails/settings', { on: false });
     const start = await call(admin, 'GET', '/api/trip-emails/settings');
-    check(start.status === 200 && start.data?.on === false && (start.data?.kinds || []).length === 10
+    check(start.status === 200 && start.data?.on === false && (start.data?.kinds || []).length === 11
       && start.data.kinds.every((k) => k.subject && k.body && !k.custom),
     'an owner finds them off, with the built-in wording for all nine, and for the first note to a lead', `status ${start.status}`);
 

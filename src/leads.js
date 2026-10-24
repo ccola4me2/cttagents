@@ -23,7 +23,7 @@ import * as db from './db.js';
 import { layout, sendHtml } from './email.js';
 import { brandForUser } from './brand.js';
 import { isSuppressed } from './suppression.js';
-import { fillWords, wordingFor, LEAD_HELLO } from './tripemails.js';
+import { fillWords, wordingFor, LEAD_HELLO, LEAD_FOLLOWUP } from './tripemails.js';
 import { escapeHtml, PermanentError } from './util.js';
 import { SOURCE_KINDS, SOURCE_KIND_IDS } from './attribution.js';
 
@@ -345,7 +345,7 @@ async function leadFor(env, owner, id) {
 }
 
 /** The agency's first note, filled in for this person and this advisor, for the advisor to change before it goes. */
-async function helloDraft(env, advisor, lead) {
+async function helloDraft(env, advisor, lead, kind) {
   const form = (String(lead.lead_asked_about || '').match(/^From the (.+) form$/) || [])[1] || '';
   const name = [advisor.first_name, advisor.last_name].filter(Boolean).join(' ') || advisor.email || '';
   const vars = {
@@ -353,7 +353,7 @@ async function helloDraft(env, advisor, lead) {
     thanks: form ? `Thank you for filling in our ${form} form.` : 'Thank you for getting in touch.',
     advisor: name, agency: advisor.agency_name || '', phone: advisor.phone || '',
   };
-  const w = (await wordingFor(env, advisor.agency_id)).get(LEAD_HELLO.kind);
+  const w = (await wordingFor(env, advisor.agency_id)).get(kind);
   const filled = fillWords(w.subject, w.body, vars);
   return { subject: filled.subject, body: filled.paragraphs.join('\n\n') };
 }
@@ -369,16 +369,18 @@ export async function handleLeadHelloDraft(request, env, id) {
   const advisor = await db.getUserById(env, owner.id);
   const stopped = lead.email ? await isSuppressed(env, advisor.agency_id, lead.email) : false;
   return json({ to: lead.email || '', canSend: Boolean(lead.email) && !stopped, stopped,
-    ...(await helloDraft(env, advisor, lead)) });
+    // The first note for somebody new, the second for somebody already written to who has not replied.
+    kind: lead.lead_stage === 'new' ? 'hello' : 'followup',
+    ...(await helloDraft(env, advisor, lead, lead.lead_stage === 'new' ? LEAD_HELLO.kind : LEAD_FOLLOWUP.kind)) });
 }
 
 /** The next step after reaching somebody: a nudge to follow up, so nobody is dropped after one note. */
-async function afterReaching(env, owner, id, step) {
+async function afterReaching(env, owner, id, step, days = FOLLOW_UP_DAYS) {
   await env.DB.prepare(
     `UPDATE clients SET lead_stage = CASE WHEN lead_stage = 'new' THEN 'contacted' ELSE lead_stage END,
             lead_next_step = ?, lead_next_step_on = ?, updated_at = ?
       WHERE id = ? AND user_id = ? AND lead_stage IS NOT NULL`
-  ).bind(step, dayPlus(FOLLOW_UP_DAYS), now(), id, owner.id).run();
+  ).bind(step, dayPlus(days), now(), id, owner.id).run();
 }
 
 /** POST /api/leads/:id/hello { subject, body } : send it, move them to Reached out, and plan the follow-up. */
@@ -413,7 +415,8 @@ export async function handleLeadHello(request, env, id) {
   } catch (e) {
     return badRequest(e instanceof PermanentError ? String(e.message) : 'That did not send. Try again in a minute.');
   }
-  await afterReaching(env, owner, id, 'Follow up if they have not replied');
+  // A second note is the last prompt: the next one is a week out, and a lead who still has not answered then is a call.
+  await afterReaching(env, owner, id, lead.lead_stage === 'new' ? 'Follow up if they have not replied' : 'Ring them, or let them go quiet', lead.lead_stage === 'new' ? FOLLOW_UP_DAYS : 7);
   await db.logActivity(env, owner.id, 'lead.hello', `Sent a first note to ${lead.name}`, { id });
   return json({ ok: true });
 }

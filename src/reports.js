@@ -476,14 +476,16 @@ async function noticesFor(env, user, scope) {
   const fresh = db.scopeWhere(scope, 'c.user_id');
   const unanswered = await env.DB.prepare(
     `SELECT COUNT(*) AS n FROM clients c
-      WHERE ${fresh.sql} AND c.lead_stage = 'new' AND c.lead_next_step_on IS NULL
+      WHERE ${fresh.sql}
+        AND ((c.lead_stage = 'new' AND c.lead_next_step_on IS NULL)
+          OR (c.lead_stage = 'contacted' AND c.lead_next_step_on IS NOT NULL AND c.lead_next_step_on <= ?))
         AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.client_id = c.id AND b.status IN ('booked', 'travelled'))`
-  ).bind(...fresh.binds).first().catch(() => null);
+  ).bind(...fresh.binds, isoDay(0)).first().catch(() => null);
   if (unanswered && unanswered.n) {
     out.push({
       tone: 'warn',
-      title: `${unanswered.n} new lead${unanswered.n === 1 ? '' : 's'} nobody has answered`,
-      detail: 'They asked for something and have not heard back. It takes a minute each, with the first note already written.',
+      title: `${unanswered.n} lead${unanswered.n === 1 ? '' : 's'} waiting on you`,
+      detail: 'New ones who asked and have not heard back, and ones due a follow-up. It takes a minute each, with the note already written.',
       href: '/app/leads?run=1', label: 'Answer them now',
     });
   }
