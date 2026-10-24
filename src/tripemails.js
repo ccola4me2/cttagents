@@ -183,6 +183,23 @@ const money = (cents) => `$${((cents || 0) / 100).toLocaleString('en-US', {
 // The words
 // ---------------------------------------------------------------------------
 
+const TITLE = /^(mr|mrs|ms|miss|dr|rev|capt)\.?$/i;
+
+/**
+ * How to greet whoever a client record names: "Robert and Kristy" for a couple, the first name for one person, and never
+ * just a title. The record holds the full name as the advisor typed it, so this reads it the way a person would.
+ */
+export function greeting(name) {
+  const text = String(name || '').trim().replace(/\s+/g, ' ');
+  if (!text) return 'there';
+  const pair = text.match(/^([A-Za-z'\u2019-]+)\s+(?:and|&)\s+([A-Za-z'\u2019-]+)(?:\s+[A-Za-z'\u2019.-]+)?$/i);
+  if (pair) return TITLE.test(pair[1]) || TITLE.test(pair[2]) ? text : `${pair[1]} and ${pair[2]}`;
+  const words = text.split(' ');
+  // A title and a surname is how they would be addressed, and a title with a first name after it is not needed.
+  if (TITLE.test(words[0])) return words.length > 2 ? words[1] : text;
+  return words[0];
+}
+
 /** Every {word} in a text, lower case. */
 function wordsIn(text) {
   const found = [];
@@ -394,7 +411,7 @@ function varsFor(b, client, today, pay) {
   const full = [b.first_name, b.last_name].filter(Boolean).join(' ') || b.advisor_email || '';
   const who = (client && client.name) || b.client_name || '';
   return {
-    first_name: String(who).trim().split(/\s+/)[0] || 'there',
+    first_name: greeting(who),
     trip: tripName(b),
     start_date: b.depart_date ? usDate(b.depart_date) : '',
     return_date: b.return_date ? usDate(b.return_date) : '',

@@ -23,7 +23,7 @@ import * as db from './db.js';
 import { layout, sendHtml } from './email.js';
 import { brandForUser } from './brand.js';
 import { isSuppressed } from './suppression.js';
-import { fillWords, wordingFor, LEAD_HELLO, LEAD_FOLLOWUP } from './tripemails.js';
+import { fillWords, wordingFor, greeting, LEAD_HELLO, LEAD_FOLLOWUP } from './tripemails.js';
 import { escapeHtml, PermanentError } from './util.js';
 import { SOURCE_KINDS, SOURCE_KIND_IDS } from './attribution.js';
 
@@ -349,7 +349,7 @@ async function helloDraft(env, advisor, lead, kind) {
   const form = (String(lead.lead_asked_about || '').match(/^From the (.+) form$/) || [])[1] || '';
   const name = [advisor.first_name, advisor.last_name].filter(Boolean).join(' ') || advisor.email || '';
   const vars = {
-    first_name: String(lead.name || '').trim().split(/\s+/)[0] || 'there',
+    first_name: greeting(lead.name),
     thanks: form ? `Thank you for filling in our ${form} form.` : 'Thank you for getting in touch.',
     advisor: name, agency: advisor.agency_name || '', phone: advisor.phone || '',
   };

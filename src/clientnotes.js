@@ -9,7 +9,7 @@ import { json, badRequest, notFound, forbidden, clean, cleanText, now, readJson,
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 import { isSuppressed } from './suppression.js';
-import { fillWords, wordingFor, sendAdvisorNote, NOTE_QUIET, NOTE_BIRTHDAY, NOTE_ANNIVERSARY } from './tripemails.js';
+import { fillWords, wordingFor, greeting, sendAdvisorNote, NOTE_QUIET, NOTE_BIRTHDAY, NOTE_ANNIVERSARY } from './tripemails.js';
 
 const BY_LIST = { quiet: NOTE_QUIET, birthdays: NOTE_BIRTHDAY, anniversaries: NOTE_ANNIVERSARY };
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -51,7 +51,7 @@ export async function handleClientNoteDraft(request, env, id) {
   if (!kind) return badRequest('Which list is this from?');
   const stopped = client.email ? await isSuppressed(env, advisor.agency_id, client.email) : false;
   const vars = {
-    first_name: String(client.name || '').trim().split(/\s+/)[0] || 'there',
+    first_name: greeting(client.name),
     last_trip: await lastTrip(env, advisor.id, client.id),
     advisor: [advisor.first_name, advisor.last_name].filter(Boolean).join(' ') || advisor.email || '',
     agency: advisor.agency_name || '', phone: advisor.phone || '',
