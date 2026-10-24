@@ -40,8 +40,8 @@
           <div class="field">
             <label for="conf-pdf">The confirmation as a PDF</label>
             <input id="conf-pdf" type="file" accept="application/pdf,.pdf">
-            <p class="field-hint">Read in your browser: the file itself is never uploaded, only
-              the text it contains. Then check what it found, the same as pasting.</p>
+            <p class="field-hint">Read in your browser: only the text it contains is sent to be read. The file itself
+              goes onto the reservation only if you tick Keep this PDF below. Then check what it found, the same as pasting.</p>
           </div>
           <div class="field">
             <label for="conf-text">Or paste it</label>
@@ -62,6 +62,9 @@ Guest 1: COLE/DEBORAH"></textarea>
           </div>
           <div class="card-pad" id="conf-pricing" style="border-top:1px solid var(--navy-100);" hidden></div>
           <div class="card-foot">
+            <label id="conf-keep-row" hidden style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:0 0 .8rem;">
+              <input type="checkbox" id="conf-keep" checked style="margin-top:.25rem;">
+              <span>Keep this PDF on the reservation, as the agency's copy. It is not shown to the client and is not attached to emails unless you share it.</span></label>
             <button class="btn btn-primary" type="button" id="conf-create">Create the reservation</button>
             <div class="notice notice-error" id="conf-create-error" role="alert" hidden style="margin-top:.8rem;"></div>
           </div>
@@ -150,9 +153,12 @@ const CONF_FIELDS = [
   // the confirmation and then not shown.
   ['commission', 'Commission'],
   ['finalPaymentDue', 'Final payment due'],
+  // What the client has already paid, put on the reservation as payments made, and the day it was.
+  ['paid', 'Paid so far'],
+  ['paidOn', 'Paid on'],
 ];
 
-const DATE_KEYS = ['departDate', 'returnDate', 'depositDue', 'finalPaymentDue'];
+const DATE_KEYS = ['departDate', 'returnDate', 'depositDue', 'finalPaymentDue', 'paidOn'];
 
 /** 2028-05-12, 5/12/2028 and 05/12/28 as 2028-05-12. Null when it is not a real day. */
 function toIso(text) {
@@ -334,9 +340,15 @@ async function textFromPdf(file) {
   return out.join('\n');
 }
 
+// The PDF the text came from, kept so it can go onto the reservation. Cleared when the text is typed over, since then
+// the file is no longer what is being read.
+let confFile = null;
+document.getElementById('conf-text').addEventListener('input', () => { confFile = null; });
+
 document.getElementById('conf-pdf').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
+  confFile = file;
   const err = document.getElementById('conf-error');
   err.hidden = true;
   try {
@@ -460,8 +472,38 @@ document.getElementById('conf-read').addEventListener('click', async () => {
   document.getElementById('conf-missing').textContent = gaps.length
     ? `Nothing found for: ${gaps.join(', ')}.`
     : 'Every field was found. Check them anyway.';
+  document.getElementById('conf-keep-row').hidden = !confFile;
   confResult.hidden = false;
 });
+
+/**
+ * What the client has already paid goes onto the reservation as payments made.
+ *
+ * Against the scheduled payments the reservation already has, earliest first, so a deposit that was due is marked
+ * received and not left owing beside a second copy of itself. Anything left over, or everything when nothing was
+ * scheduled, is recorded as a payment of its own on the day it was made.
+ */
+async function postPaid(bookingId, body) {
+  let left = cents(body.paid);
+  if (left <= 0) return;
+  const paidOn = body.paidOn || new Date().toISOString().slice(0, 10);
+  const rec = await api(`/api/bookings/${encodeURIComponent(bookingId)}/record`);
+  const open = (rec.payments || []).filter((p) => p.payment_class === 'hard' && !p.paid_date && p.kind !== 'refund')
+    .sort((a, b) => String(a.due_date || '9999').localeCompare(String(b.due_date || '9999')));
+  for (const p of open) {
+    if (left <= 0) break;
+    const part = Math.min(left, p.amount_cents || 0);
+    if (part <= 0) continue;
+    await api(`/api/payments/${encodeURIComponent(p.id)}/paid`, { method: 'POST', body: { paidDate: paidOn, amount: (part / 100).toFixed(2) } });
+    left -= part;
+  }
+  if (left > 0) {
+    const total = cents(body.gross);
+    const kind = total > 0 && left >= total ? 'final' : (cents(body.deposit) > 0 && left <= cents(body.deposit) ? 'deposit' : 'installment');
+    await api('/api/payments', { method: 'POST', body: {
+      bookingId, kind, amount: (left / 100).toFixed(2), dueDate: paidOn, paidDate: paidOn, paymentClass: 'hard' } });
+  }
+}
 
 document.getElementById('conf-create').addEventListener('click', async () => {
   const createErr = document.getElementById('conf-create-error');
@@ -561,6 +603,27 @@ document.getElementById('conf-create').addEventListener('click', async () => {
         createErr.hidden = false;
         return;
       }
+    }
+    // What is already paid, and the PDF itself, when asked for. The reservation exists by now, so a failure is said
+    // with a way to it and not hidden.
+    const afterwards = [];
+    if (cents(body.paid) > 0) {
+      try { await postPaid(res.booking.id, body); } catch (e5) { afterwards.push(`the payments already made were not recorded (${esc(e5.message)})`); }
+    }
+    if (confFile && document.getElementById('conf-keep').checked) {
+      try {
+        const form = new FormData();
+        form.append('file', confFile);
+        form.append('category', 'confirmation');
+        const up = await fetch(`/api/bookings/${encodeURIComponent(res.booking.id)}/documents`, { method: 'POST', body: form });
+        if (!up.ok) throw new Error((await up.json().catch(() => ({}))).error || `Upload failed (${up.status})`);
+      } catch (e6) { afterwards.push(`the PDF was not kept (${esc(e6.message)})`); }
+    }
+    if (afterwards.length) {
+      createErr.innerHTML = `The reservation was created, but ${afterwards.join(' and ')}.
+        <a href="/app/reservation?id=${encodeURIComponent(res.booking.id)}">Open the reservation</a> and add ${afterwards.length === 1 ? 'it' : 'them'} there.`;
+      createErr.hidden = false;
+      return;
     }
     // A confirmation that was waiting in the inbox stops waiting once it is a reservation.
     if (inboxId) { try { await api(`/api/inbox/${encodeURIComponent(inboxId)}/done`, { method: 'POST', body: {} }); } catch { /* it ages out */ } }

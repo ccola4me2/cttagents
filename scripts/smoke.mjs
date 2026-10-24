@@ -6598,6 +6598,15 @@ async function main() {
     `${cf.commission} / ${cf.commissionPackage}`);
   check(cf.clientName === 'Angela Simic',
     'and the guest printed at the top with no label at all is the client', cf.clientName);
+
+  // What the client has already paid, and the day the booking was made.
+  const paidCopy = agentCopy.replace('Total Booking Amount: $ 1,976.80 Remaining Due: $ 0.00',
+    'Total Booking Amount: $ 1,976.80 Payments Made: $ 500.00 Remaining Due: $ 1,476.80 Booking Date: Oct 05, 2026');
+  const paidRead = await call(advisor, 'POST', '/api/import/confirmation', { text: paidCopy });
+  check(paidRead.data?.fields?.paid === '500.00' && paidRead.data?.fields?.paidOn === '2026-10-05'
+    && paidRead.data?.fields?.gross === '1976.80',
+  'payments already made and the booking date are read, and the total is not disturbed', JSON.stringify([paidRead.data?.fields?.paid, paidRead.data?.fields?.paidOn, paidRead.data?.fields?.gross]));
+  check(cf.paid === undefined, 'a confirmation that says nothing paid has no payment filled in', String(cf.paid));
   check(cf.travellers === 2, 'with the guest count read from a total', `${cf.travellers}`);
 
   // The price line by line, in the layout an agent copy uses. Invented figures: a fare of

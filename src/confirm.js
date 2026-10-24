@@ -44,6 +44,10 @@ const LABELS = {
   // The two an agent confirmation carries that this did not read. Commission
   // is the point of the document from the agency's side, and the client's name
   // is what the reservation gets filed under.
+  // What the client has already paid, and the day the booking was made, which is when a deposit usually was.
+  paid: ['total payments received', 'payments received', 'payments made', 'total payments', 'amount paid',
+    'total paid', 'paid to date'],
+  bookingDate: ['booking date', 'date booked'],
   commission: ['fare commission', 'agent commission', 'travel agent commission',
     'commission amount', 'commission due', 'commission earned', 'total commission',
     'commission'],
@@ -967,6 +971,8 @@ export function parseConfirmation(text) {
   take('commission', LABELS.commission, (v) => (money(v) ? (money(v) / 100).toFixed(2) : null));
   take('commissionPackage', LABELS.commissionPackage,
     (v) => (money(v) ? (money(v) / 100).toFixed(2) : null));
+  take('paid', LABELS.paid, (v) => (money(v) ? (money(v) / 100).toFixed(2) : null));
+  take('paidOn', LABELS.bookingDate, anyDate);
 
   // The primary guest is often printed at the top of the page with no label at
   // all, ahead of the booking number: "Angela Simic BOOKING ID: 54408822".
@@ -1043,6 +1049,19 @@ export function parseConfirmation(text) {
     fields.clientName = people[0].name;
     from.clientName = people[0].line.slice(0, 160);
     from.travellers = `${people.length} guest line${people.length === 1 ? '' : 's'}`;
+  }
+
+  // Payments already made, in the layouts that have no "Payments Made" label of their own: a line that says
+  // payments or deposits were received, with an amount after it. Only a plain figure, never a guess.
+  if (!fields.paid) {
+    for (const line of lines) {
+      const m = /^(?:total )?(?:payments?|deposits?) (?:received|made|paid)\s*[:\-]?\s*\$?\s*([\d,]+\.\d{2})\b/i.exec(line.trim());
+      if (m && money(m[1])) {
+        fields.paid = (money(m[1]) / 100).toFixed(2);
+        from.paid = line.trim().slice(0, 160);
+        break;
+      }
+    }
   }
 
   // A return before a departure is a misread, not a trip. Dropped rather than
