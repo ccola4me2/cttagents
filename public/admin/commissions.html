@@ -280,6 +280,7 @@ function checkDetail(c) {
         <td>${l.payout_on ? payDateSelect(l) : '<span class="muted">next payout</span>'}</td></tr>`).join('')}
       </tbody></table>` : '<p class="muted">No lines yet.</p>'}
     <div style="display:flex;gap:.5rem;margin-top:.7rem;flex-wrap:wrap;">
+      <button class="btn btn-primary btn-sm" type="button" data-editcheck="${esc(c.id)}">Edit the check</button>
       <button class="btn btn-secondary btn-sm" type="button" data-addline="${esc(c.id)}">Add a line</button>
       <button class="btn btn-ghost btn-sm" type="button" data-delcheck="${esc(c.id)}">Delete this check</button>
     </div></div>`;
@@ -389,6 +390,7 @@ panel.addEventListener('click', async (e) => {
   if (!t) return;
   if (t.dataset.bucket !== undefined) { bucket = t.dataset.bucket; draw(); return; }
   if (t.dataset.pay) { openPay(t.dataset); return; }
+  if (t.dataset.editcheck) { openEditCheck(d.checks.find((c) => c.id === t.dataset.editcheck)); return; }
   if (t.dataset.addline) { openCheckDialog(d.checks.find((c) => c.id === t.dataset.addline)); return; }
   if (t.dataset.delcheck) { await removeCheck(t.dataset.delcheck); return; }
   if (t.dataset.delpay) { await undoPayout(t.dataset.delpay); return; }
@@ -513,6 +515,7 @@ $('pay-form').addEventListener('submit', async (e) => {
 const dlg = $('chk-dlg');
 let lines = [];
 let addingTo = null;
+let editingCheck = null;
 let filename = '';
 let timers = new Map();
 
@@ -624,7 +627,36 @@ function resetForm() {
   $('chk-hint').textContent = '';
 }
 
+/** The whole check as it was recorded, every line open to change, with room to add more. */
+function openEditCheck(c) {
+  addingTo = null;
+  editingCheck = c;
+  resetForm();
+  $('drop').hidden = true;
+  $('chk-save').textContent = 'Save the changes';
+  $('chk-title').textContent = `Edit the ${c.vendor_name} check`;
+  ['vendorName', 'reference', 'statement', 'fee', 'feeNote', 'notes', 'receivedOn'].forEach((k) => { $(k).disabled = false; });
+  $('vendorName').value = c.vendor_name || '';
+  $('reference').value = c.reference || '';
+  $('receivedOn').value = c.received_on || '';
+  $('statement').value = plain(c.statement_cents);
+  $('fee').value = c.fee_cents ? plain(c.fee_cents) : '';
+  $('feeNote').value = c.fee_note || '';
+  $('notes').value = c.notes || '';
+  lines = (c.lineItems || []).map((li) => ({
+    ...blankLine(), id: li.id, bookingId: li.booking_id, label: li.client_name || '',
+    sub: [li.supplier, li.product_name].filter(Boolean).join(' · '), advisorName: li.advisor_name || '',
+    pct: li.split_pct === undefined || li.split_pct === null ? 100 : Number(li.split_pct),
+    amount: plain(li.amount_cents), payoutOn: li.payout_on || '', payoutTouched: true, touched: true,
+  }));
+  if (!lines.length) lines = [blankLine()];
+  $('chk-hint').textContent = 'Change any line, add more, or take one off. Press Save the changes when it reads right.';
+  drawLines();
+  dlg.showModal();
+}
+
 function openCheckDialog(existing) {
+  editingCheck = null;
   addingTo = existing || null;
   resetForm();
   $('drop').hidden = Boolean(existing);
@@ -778,7 +810,7 @@ $('chk-form').addEventListener('submit', async (e) => {
   const err = $('chk-err');
   err.hidden = true;
   const payload = lines.filter((l) => l.bookingId || cents(l.amount)).map((l) => ({
-    bookingId: l.bookingId, amount: l.amount, payoutOn: l.payoutOn,
+    id: l.id, bookingId: l.bookingId, amount: l.amount, payoutOn: l.payoutOn,
   }));
   if (payload.some((l) => !l.bookingId)) {
     err.textContent = 'Choose a reservation for every line, or remove the ones that are not for a reservation yet.';
@@ -786,7 +818,18 @@ $('chk-form').addEventListener('submit', async (e) => {
     return;
   }
   try {
-    if (addingTo) {
+    if (editingCheck) {
+      const out = await api(`/api/commission-checks/${encodeURIComponent(editingCheck.id)}`, { method: 'PUT', body: {
+        vendorName: $('vendorName').value, reference: $('reference').value, receivedOn: $('receivedOn').value,
+        statement: $('statement').value, fee: $('fee').value, feeNote: $('feeNote').value,
+        notes: $('notes').value, lines: payload,
+      } });
+      dlg.close();
+      errEl.innerHTML = `<div class="notice notice-ok">The check was updated.${
+        Math.abs(out.unmatchedCents) > 1 ? ` ${money(out.unmatchedCents)} is not matched to a reservation yet.` : ''}</div>`;
+      openCheck = editingCheck.id;
+      editingCheck = null;
+    } else if (addingTo) {
       for (const l of payload) {
         await api(`/api/commission-checks/${encodeURIComponent(addingTo.id)}/lines`, { method: 'POST', body: l });
       }

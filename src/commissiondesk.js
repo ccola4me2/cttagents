@@ -362,7 +362,15 @@ export async function handleAddCheckLine(request, env, checkId) {
   return json({ ok: true, id, payoutOn }, 201);
 }
 
-/** Correct what was typed about a check. The lines are changed on their own. */
+/**
+ * Correct a check: what was typed about it and, when the request names them, its lines as a whole.
+ *
+ * With `lines`, they are the check's lines from now on: one that carries the id of an existing line and the same
+ * reservation changes that line in place, one without an id is added, and an existing line left out is removed. A
+ * line cannot be removed from a reservation an advisor has already been paid on, for the reason a check cannot be
+ * deleted then: the payout is recorded against the reservation, and taking the money away would leave the books
+ * saying the agency overpaid. Without `lines` only the check's own details change, as they always did.
+ */
 export async function handleUpdateCheck(request, env, id) {
   const { user: admin, response } = await requireAdmin(request, env);
   if (response) return response;
@@ -383,8 +391,12 @@ export async function handleUpdateCheck(request, env, id) {
     `SELECT COALESCE(SUM(r.amount_cents), 0) AS matched FROM commission_receipts r
       WHERE r.check_id = ? AND ${scopeR.sql}`
   ).bind(id, ...scopeR.binds).first();
-  if (Math.abs(sum?.matched || 0) > Math.abs(statementCents) + 1) {
+  if (!Array.isArray(body.lines) && Math.abs(sum?.matched || 0) > Math.abs(statementCents) + 1) {
     return badRequest('The lines already on it add up to more than that.');
+  }
+
+  if (Array.isArray(body.lines)) {
+    return updateCheckWithLines(env, admin, id, body, { vendorName, statementCents, feeCents, scopeR });
   }
 
   const res = await env.DB.prepare(
@@ -397,6 +409,104 @@ export async function handleUpdateCheck(request, env, id) {
          clean(body.notes, 1000) || null, now(), id, admin.agency_id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('That check was not found.');
   return json({ ok: true });
+}
+
+async function updateCheckWithLines(env, admin, id, body, { vendorName, statementCents, feeCents, scopeR }) {
+  const check = await env.DB.prepare(
+    'SELECT id FROM commission_checks WHERE id = ? AND agency_id = ?'
+  ).bind(id, admin.agency_id).first();
+  if (!check) return notFound('That check was not found.');
+
+  const rawLines = body.lines;
+  if (rawLines.length > MAX_LINES) return badRequest(`That is more lines than one check takes (${MAX_LINES}).`);
+  const receivedOn = cleanDate(body.receivedOn) || todayIso();
+  const reference = clean(body.reference, 80) || null;
+
+  const { results: existing } = await env.DB.prepare(
+    `SELECT r.id, r.booking_id, r.user_id FROM commission_receipts r
+      WHERE r.check_id = ? AND ${scopeR.sql}`
+  ).bind(id, ...scopeR.binds).all();
+  const byId = new Map((existing || []).map((r) => [r.id, r]));
+
+  const keep = [];
+  const adds = [];
+  for (const raw of rawLines) {
+    const { line, error } = tidyLine(raw);
+    if (error) return badRequest(error);
+    const was = raw && raw.id ? byId.get(String(raw.id)) : null;
+    if (was && was.booking_id === line.bookingId) {
+      keep.push({ ...line, id: was.id, ownerId: was.user_id, hasNotes: raw.notes !== undefined });
+      continue;
+    }
+    const owner = await db.writerForBooking(env, admin, line.bookingId);
+    if (!owner) return notFound('One of those reservations was not found.');
+    const booking = await db.getBooking(env, line.bookingId, owner.id);
+    if (!booking) return notFound('One of those reservations was not found.');
+    adds.push({
+      ...line, ownerId: owner.id,
+      payoutOn: line.payoutOn || suggestPayDate({
+        receivedOn, returnDate: booking.return_date, departDate: booking.depart_date,
+      }),
+    });
+  }
+
+  const matched = [...keep, ...adds].reduce((n, l) => n + l.amountCents, 0);
+  if (Math.abs(matched) > Math.abs(statementCents) + 1) {
+    return badRequest('The lines add up to more than the check does. Check the amounts.');
+  }
+
+  const kept = new Set(keep.map((k) => k.id));
+  const removed = (existing || []).filter((r) => !kept.has(r.id));
+  if (removed.length) {
+    const scopeL = db.scopeWhere(db.agencyScope(admin), 'l.user_id');
+    const holes = removed.map(() => '?').join(', ');
+    const paid = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM advisor_payout_lines l WHERE ${scopeL.sql} AND l.booking_id IN (${holes})`
+    ).bind(...scopeL.binds, ...removed.map((r) => r.booking_id)).first();
+    if (paid && paid.n > 0) {
+      return badRequest('A line you are taking off is for a reservation an advisor has already been paid on. Take that payout back first.');
+    }
+  }
+
+  const ts = now();
+  const writes = [env.DB.prepare(
+    `UPDATE commission_checks
+        SET vendor_name = ?, reference = ?, received_on = ?, remitted_on = ?, statement_cents = ?,
+            fee_cents = ?, fee_note = ?, notes = ?, updated_at = ?
+      WHERE id = ? AND agency_id = ?`
+  ).bind(vendorName, reference, receivedOn, cleanDate(body.remittedOn), statementCents, feeCents,
+         clean(body.feeNote, 200) || null, clean(body.notes, 1000) || null, ts, id, admin.agency_id)];
+  for (const k of keep) {
+    writes.push(env.DB.prepare(
+      `UPDATE commission_receipts
+          SET amount_cents = ?, kind = ?, payout_on = COALESCE(?, payout_on), received_on = ?, reference = ?,
+              notes = CASE WHEN ? = 1 THEN ? ELSE notes END, updated_at = ?
+        WHERE id = ? AND user_id = ? AND check_id = ?`
+    ).bind(k.amountCents, k.kind, k.payoutOn, receivedOn, reference, k.hasNotes ? 1 : 0, k.notes, ts, k.id, k.ownerId, id));
+  }
+  for (const r of removed) {
+    writes.push(env.DB.prepare('DELETE FROM commission_receipts WHERE id = ? AND user_id = ? AND check_id = ?')
+      .bind(r.id, r.user_id, id));
+  }
+  for (const l of adds) {
+    writes.push(env.DB.prepare(
+      `INSERT INTO commission_receipts
+         (id, user_id, booking_id, statement_id, amount_cents, received_on, reference, notes,
+          kind, check_id, payout_on, created_at, updated_at)
+       VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(uid(), l.ownerId, l.bookingId, l.amountCents, receivedOn, reference, l.notes, l.kind, id, l.payoutOn, ts, ts));
+  }
+  await env.DB.batch(writes);
+
+  const touched = new Map();
+  for (const l of [...keep, ...adds]) touched.set(`${l.ownerId}|${l.bookingId}`, { u: l.ownerId, b: l.bookingId });
+  for (const r of removed) touched.set(`${r.user_id}|${r.booking_id}`, { u: r.user_id, b: r.booking_id });
+  for (const t of touched.values()) await syncCommissionStatus(env, t.u, t.b);
+
+  await db.logActivity(env, admin.id, 'commission.check.edit',
+    `Corrected a ${vendorName} check${reference ? ` (${reference})` : ''}: ${keep.length} kept, ${adds.length} added, ${removed.length} taken off`,
+    { checkId: id });
+  return json({ ok: true, matchedCents: matched, unmatchedCents: statementCents - matched });
 }
 
 /**
@@ -650,6 +760,7 @@ export async function handleCommissionDesk(request, env) {
     checkLines[r.check_id].push({
       id: r.id, booking_id: r.booking_id, client_name: r.client_name, supplier: r.supplier,
       advisor_name: r.advisor_name, amount_cents: r.amount_cents, payout_on: r.payout_on,
+      product_name: r.product_name, split_pct: splitPct(r, r.default_split_pct, r.lead_split_pct),
     });
   }
 

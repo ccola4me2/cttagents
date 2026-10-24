@@ -12498,6 +12498,22 @@ async function main() {
     bookingId: tripId, amount: '1.00', payoutOn: laterPay });
   check(overLine.status === 400, 'but not more than the check was for', `status ${overLine.status}`);
 
+  // The whole check edited at once: a line changed, another added, the totals followed.
+  const editWhole = await call(admin, 'PUT', `/api/commission-checks/${partId}`, {
+    vendorName: 'Smoke Vendor', reference: `CHK4-${stamp}`, statement: '150.00',
+    lines: [{ id: addLine.data?.id, bookingId: tripId, amount: '60.00', payoutOn: laterPay },
+      { bookingId: tripId, amount: '40.00', payoutOn: laterPay }] });
+  check(editWhole.status === 200 && editWhole.data?.matchedCents === 10000 && editWhole.data?.unmatchedCents === 5000,
+    'a check can be edited as a whole: one line changed, one added, and the unmatched part follows',
+    JSON.stringify([editWhole.status, editWhole.data]));
+  const editOver = await call(admin, 'PUT', `/api/commission-checks/${partId}`, {
+    vendorName: 'Smoke Vendor', reference: `CHK4-${stamp}`, statement: '150.00',
+    lines: [{ id: addLine.data?.id, bookingId: tripId, amount: '160.00', payoutOn: laterPay }] });
+  check(editOver.status === 400, 'but its lines cannot add up to more than the check', `status ${editOver.status}`);
+  const editAdvisor = await call(advisor, 'PUT', `/api/commission-checks/${partId}`, {
+    vendorName: 'Smoke Vendor', statement: '150.00', lines: [] });
+  check(editAdvisor.status === 403 || editAdvisor.status === 404, 'and an advisor cannot edit one', `status ${editAdvisor.status}`);
+
   const notDoc = await call(admin, 'POST', '/api/commission-checks/read', { hello: 'world' });
   check(notDoc.status === 400, 'something that is not a remittance is turned away', `status ${notDoc.status}`);
 
