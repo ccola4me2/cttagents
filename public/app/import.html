@@ -539,14 +539,43 @@ function penaltyRow(t) {
     <button class="btn btn-ghost btn-sm" type="button" data-pen-remove="1" aria-label="Remove this row">&times;</button></div>`;
 }
 
-function drawPenalties(read) {
+async function drawPenalties(read) {
   const card = document.getElementById('conf-penalties');
+  const note = document.getElementById('conf-pen-note');
   const tiers = read.penalties || [];
   card.hidden = false;
-  document.getElementById('conf-pen-note').textContent = tiers.length
+  note.textContent = tiers.length
     ? 'Read from the confirmation. Change anything that is wrong, or take a row off.'
     : 'This confirmation does not print a cancellation schedule that could be read. Add the terms from the supplier by hand, or leave this empty.';
   document.getElementById('conf-pen-rows').innerHTML = tiers.map(penaltyRow).join('');
+  if (tiers.length || !read.fields.supplier) return;
+
+  // Nothing printed: the supplier's own standard terms, kept once on its vendor page, fill the table in. The dates are
+  // worked out from the sailing, since the terms are written in days.
+  try {
+    const found = await api(`/api/vendors?q=${encodeURIComponent(read.fields.supplier)}`);
+    const wanted = String(read.fields.supplier).toLowerCase();
+    const vendor = (found.vendors || []).find((v) => String(v.name).toLowerCase() === wanted);
+    if (!vendor) return;
+    const saved = (await api(`/api/penalties?vendor=${encodeURIComponent(vendor.id)}`)).tiers || [];
+    if (!saved.length) {
+      note.textContent = `This confirmation prints no cancellation schedule, and ${vendor.name} has no standard terms saved yet. `
+        + 'Add them once on its vendor page and they fill in here every time. Or add them by hand below.';
+      return;
+    }
+    const guests = Number(read.fields.travellers) || (read.guests || []).length || 1;
+    const depart = read.fields.departDate;
+    const onDay = (days) => (depart ? new Date(Date.parse(`${depart}T00:00:00Z`) - days * 86400000).toISOString().slice(0, 10) : null);
+    const filled = saved.map((t) => ({
+      fromDays: t.from_days, pct: t.pct, date: onDay(t.from_days),
+      perGuestCents: t.amount_cents ? Math.round(t.amount_cents / guests) : null,
+    }));
+    document.getElementById('conf-pen-rows').innerHTML = filled.map(penaltyRow).join('');
+    note.textContent = `Filled in from ${vendor.name}'s standard terms on its vendor page, because the confirmation prints none. `
+      + 'Check them against this booking and change anything that is different.';
+  } catch {
+    // The table stays as it was, empty and ready to be typed in.
+  }
 }
 
 document.getElementById('conf-pen-add').addEventListener('click', () => {
