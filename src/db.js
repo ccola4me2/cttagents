@@ -604,7 +604,7 @@ const BOOKING_COLUMNS = `
   itinerary_shared, options_open,
   viewed_first_at, viewed_last_at, view_count,
   declined_at, declined_reason, accepted_at, trip_id,
-  group_label, group_number, deposit_refundable
+  group_label, group_number, deposit_refundable, emails_off
 `;
 
 // The same columns qualified, for the queries that join users to name the
