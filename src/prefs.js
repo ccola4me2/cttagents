@@ -21,6 +21,7 @@ import { requireUser } from './auth.js';
  * definition.
  */
 export const PANELS = [
+  { id: 'start', title: 'Get started', hint: 'A short checklist for your first week, gone once it is done' },
   { id: 'notices', title: 'Notices', hint: 'Things that need your attention' },
   { id: 'tasks', title: 'To do', hint: 'Your own working list' },
   { id: 'events', title: 'Trainings and events', hint: 'Vendor trainings, webinars and agency meetings coming up' },
@@ -69,7 +70,11 @@ export function normalizeLayout(raw) {
     widgets.push({ id, hidden: Boolean(w && w.hidden) });
   }
   for (const p of PANELS) {
-    if (!seen.has(p.id)) widgets.push({ id: p.id, hidden: p.id === 'links' });
+    // The checklist goes to the top for somebody whose layout was saved before it existed; the rest go to the end.
+    if (!seen.has(p.id)) {
+      const entry = { id: p.id, hidden: p.id === 'links' };
+      if (p.id === 'start') widgets.unshift(entry); else widgets.push(entry);
+    }
   }
 
   const links = [];

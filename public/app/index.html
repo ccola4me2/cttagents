@@ -279,6 +279,22 @@ function shownNotices() {
 }
 
 const PANELS = {
+  start: () => widget('Get started', null, [
+    { key: 'steps', label: 'Steps', render: () => {
+      const st = d.setup;
+      if (!st) return '';
+      const pct = Math.round((st.finished / st.steps.length) * 100);
+      return `<p class="muted" style="margin:0 0 .6rem;">${st.finished} of ${st.steps.length} done. A few minutes now saves hours later.</p>
+        <div style="height:8px;border-radius:999px;background:var(--navy-100);margin:0 0 .9rem;overflow:hidden;">
+          <div style="height:100%;width:${pct}%;background:var(--teal-500);border-radius:999px;"></div></div>
+        <ul class="rows">${st.steps.map((s) => `<li><div>
+          <span class="badge ${s.done ? 'badge-green' : 'badge-navy'}">${s.done ? 'Done' : 'To do'}</span>
+          ${s.done ? `<span class="name" style="margin-left:.4rem;opacity:.65;">${esc(s.label)}</span>`
+    : `<a class="name" style="margin-left:.4rem;" href="${esc(s.href)}">${esc(s.label)}</a>`}
+          ${s.done ? '' : `<div class="muted">${esc(s.hint)}</div>`}</div></li>`).join('')}</ul>`;
+    } },
+  ], 'steps'),
+
   notices: () => widget('Notices', null, [
     { key: 'all', label: 'All', render: () => shownNotices().length
       ? `<ul class="notice-list">${shownNotices().map((n) => `<li class="tone-${esc(n.tone)}">
@@ -932,7 +948,8 @@ const WIDE = new Set(['associates']);
 
 function drawPanels() {
   if (!rowLinksWired) { wireRowLinks(widgetsEl); rowLinksWired = true; }
-  const visible = layout.widgets.filter((w) => !w.hidden && PANELS[w.id]);
+  // The checklist is there until it is finished, and then it is gone without anybody having to hide it.
+  const visible = layout.widgets.filter((w) => !w.hidden && PANELS[w.id] && !(w.id === 'start' && (!d.setup || d.setup.done)));
   widgetsEl.replaceChildren(...visible.map((w) => {
     const el = PANELS[w.id]();
     el.dataset.panel = w.id;

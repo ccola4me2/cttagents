@@ -105,6 +105,33 @@ async function pipelineSummary(env, scope, today) {
   };
 }
 
+/**
+ * The short list a new advisor works down in their first week. Each step is true or not from what is on their books,
+ * so nothing has to be ticked by hand, and the panel disappears by itself once the last one is done.
+ */
+async function setupFor(env, user) {
+  const count = (sql, ...binds) => env.DB.prepare(sql).bind(...binds).first().then((r) => (r && r.n) || 0).catch(() => 0);
+  const [clients, bookings, quotes, forwarded] = await Promise.all([
+    count('SELECT COUNT(*) AS n FROM clients WHERE user_id = ?', user.id),
+    count('SELECT COUNT(*) AS n FROM bookings WHERE user_id = ?', user.id),
+    count('SELECT COUNT(*) AS n FROM bookings WHERE user_id = ? AND quote_sent_at IS NOT NULL', user.id),
+    count("SELECT COUNT(*) AS n FROM activity_log WHERE user_id = ? AND kind IN ('inbox.received', 'inbox.autocreated', 'inbox.imported')", user.id),
+  ]);
+  const steps = [
+    { key: 'client', label: 'Add your first client', hint: 'A name is enough to start', href: '/app/clients', done: clients > 0 },
+    { key: 'reservation', label: 'Make your first reservation', hint: 'Paste a confirmation and it fills itself in', href: '/app/import', done: bookings > 0 },
+    { key: 'forward', label: 'Forward a confirmation to your own address', hint: 'Your address is on the Import page. Forward the email and the reservation is made for you', href: '/app/import', done: forwarded > 0 },
+    { key: 'quote', label: 'Send a quote', hint: 'Open a reservation and press Send quote', href: '/app/reservations', done: quotes > 0 },
+    { key: 'phone', label: 'Add your phone number', hint: 'Your clients see it on their trip page', href: '/app/settings', done: Boolean(user.phone) },
+  ];
+  if (isAdmin(user) && user.agency_id) {
+    const row = await env.DB.prepare('SELECT trip_emails_since FROM agencies WHERE id = ?').bind(user.agency_id).first().catch(() => null);
+    steps.push({ key: 'emails', label: 'Switch on the automatic client emails', hint: 'Booked, payment reminders, documents, check-in, bon voyage and welcome home',
+      href: '/admin/client-emails', done: Boolean(row && row.trip_emails_since) });
+  }
+  return { steps, done: steps.every((s) => s.done), finished: steps.filter((s) => s.done).length };
+}
+
 export async function handleDashboard(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
@@ -157,6 +184,8 @@ export async function handleDashboard(request, env) {
     advisors: await db.advisorOptions(env, user),
     layout: await readLayout(env, user.id),
     panels: PANELS,
+    // Always the reader's own: a checklist for somebody else's first week is not the reader's to work down.
+    setup: await panel(failed, 'start', setupFor(env, user), null),
     notices: await noticesFor(env, user, scope),
     trend: await db.productionByMonth(env, scope, isoDay(-365)),
     // The next twelve months, not the last: what you are selling is a
