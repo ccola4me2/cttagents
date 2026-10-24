@@ -48,10 +48,11 @@ export const VARIABLES = [
   ['amount', 'the amount due, for the payment emails'],
   ['due_date', 'the day it is due, for the payment emails'],
   ['advisor', 'the advisor\'s name'],
+  ['phone', 'the advisor\'s phone number'],
   ['agency', 'the agency\'s name'],
 ];
 
-const SIGN = 'Thank you,\n{advisor}\n{agency}';
+const SIGN = 'Thank you,\n{advisor}\n{agency}\n{phone}';
 
 // The built-in wording. `when` is how the advisor and the owner read it, `heading` the line at the top of the
 // message. The five payment emails share two texts apart from how far off the day is.
@@ -346,6 +347,7 @@ function varsFor(b, client, today, pay) {
     amount: pay ? money(pay.amount_cents) : '',
     due_date: pay ? usDate(pay.due_date) : '',
     advisor: full,
+    phone: b.advisor_phone || '',
     agency: b.agency_name || '',
   };
 }
@@ -396,7 +398,8 @@ export async function sendDueTripEmails(env, { at = now(), limit = 40 } = {}) {
     `SELECT te.id, te.booking_id, te.user_id, te.kind, te.due_on,
             b.status, b.product_name, b.supplier, b.destination, b.client_name, b.client_id,
             b.confirmation_number, b.depart_date, b.return_date,
-            u.first_name, u.last_name, u.email AS advisor_email, u.notify_email, u.agency_id, u.agency_name
+            u.first_name, u.last_name, u.email AS advisor_email, u.notify_email, u.agency_id, u.agency_name,
+            u.phone AS advisor_phone
        FROM trip_emails te
        JOIN bookings b ON b.id = te.booking_id
        JOIN users u ON u.id = te.user_id
@@ -560,6 +563,7 @@ export async function handlePreviewBookingTripEmail(request, env, bookingId) {
   const pay = PAYMENT_KINDS.has(kind) ? await openPayment(env, { kind, booking_id: booking.id, user_id: owner.id }) : null;
   const vars = varsFor({
     ...booking, first_name: owner.first_name, last_name: owner.last_name, advisor_email: owner.email, agency_name: owner.agency_name,
+    advisor_phone: owner.phone,
   }, client, today, pay);
   const msg = await composeEmail(env, { kind, wording: await wordingFor(env, owner.agency_id), vars, userId: owner.id });
   return json({ subject: msg.subject, paragraphs: msg.paragraphs, to: (client && client.email) || '' });
@@ -603,7 +607,7 @@ export async function handleSaveBookingTripEmails(request, env, bookingId) {
 const SAMPLE = {
   first_name: 'Alex', trip: 'Harmony of the Seas cruise', start_date: '03/13/2027', return_date: '03/20/2027',
   days_to_go: '60', confirmation: '9746343', amount: '$1,000.00', due_date: '12/13/2026',
-  advisor: 'Your Advisor', agency: 'Your Agency',
+  advisor: 'Your Advisor', phone: '(555) 123-4567', agency: 'Your Agency',
 };
 
 async function settingsFor(env, user) {
@@ -729,7 +733,7 @@ export async function handleTestTripEmail(request, env) {
   wording.set(def.kind, { subject, body: text, custom: true });
 
   const advisor = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email;
-  const vars = { ...SAMPLE, advisor, agency: user.agency_name || SAMPLE.agency };
+  const vars = { ...SAMPLE, advisor, phone: user.phone || SAMPLE.phone, agency: user.agency_name || SAMPLE.agency };
   const msg = await composeEmail(env, { kind: def.kind, wording, vars, userId: user.id });
 
   if (body.send) {
