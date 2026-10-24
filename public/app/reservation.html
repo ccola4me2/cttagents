@@ -655,7 +655,7 @@ async function drawTripEmails() {
       <td style="white-space:nowrap;">${esc(dateFmt(i.dueOn))}</td>
       <td>${esc(i.label)}${i.note ? `<div class="muted" style="font-size:.82rem;">${esc(i.note)}</div>` : ''}</td>
       <td><span class="badge ${BADGE[i.status] || ''}">${esc(i.statusLabel)}</span></td>
-      <td style="text-align:right;">${d.editable && i.canSkip ? `<button class="btn btn-ghost btn-sm te-skip" data-kind="${esc(i.kind)}">Skip</button>` : ''}${
+      <td style="text-align:right;"><button class="btn btn-ghost btn-sm te-see" data-kind="${esc(i.kind)}">See it</button>${d.editable && i.canSkip ? `<button class="btn btn-ghost btn-sm te-skip" data-kind="${esc(i.kind)}">Skip</button>` : ''}${
   d.editable && i.canRestore ? `<button class="btn btn-ghost btn-sm te-restore" data-kind="${esc(i.kind)}">Put back</button>` : ''}</td>
     </tr>`).join('');
 
@@ -674,6 +674,23 @@ async function drawTripEmails() {
       await drawTripEmails();
     } catch (e) { document.getElementById('te-said').textContent = e.message || 'That did not save.'; }
   };
+  host.querySelectorAll('.te-see').forEach((b) => b.addEventListener('click', async () => {
+    const row = b.closest('tr');
+    const open = row.nextElementSibling && row.nextElementSibling.classList.contains('te-preview');
+    if (open) { row.nextElementSibling.remove(); return; }
+    b.disabled = true;
+    try {
+      const r = await api(`/api/bookings/${encodeURIComponent(id)}/trip-emails/preview?kind=${encodeURIComponent(b.dataset.kind)}`);
+      const tr = document.createElement('tr');
+      tr.className = 'te-preview';
+      tr.innerHTML = `<td colspan="4" style="background:var(--navy-50);padding:1rem 1.2rem;">
+        <p class="muted" style="margin:0 0 .4rem;font-size:.82rem;">${r.to ? `To ${esc(r.to)}` : 'No email address yet'}</p>
+        <p style="margin:0 0 .6rem;"><strong>${esc(r.subject)}</strong></p>
+        ${r.paragraphs.map((p) => `<p style="margin:0 0 .6rem;">${esc(p).split('\n').join('<br>')}</p>`).join('')}</td>`;
+      row.after(tr);
+    } catch (e) { const said = document.getElementById('te-said'); if (said) said.textContent = e.message || 'That could not be shown.'; }
+    b.disabled = false;
+  }));
   host.querySelectorAll('.te-skip').forEach((b) => b.addEventListener('click', () => put({ skip: b.dataset.kind })));
   host.querySelectorAll('.te-restore').forEach((b) => b.addEventListener('click', () => put({ restore: b.dataset.kind })));
   const off = document.getElementById('te-off');

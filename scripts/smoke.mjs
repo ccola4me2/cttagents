@@ -8723,6 +8723,12 @@ async function main() {
     const home = (card.data?.items || []).find((i) => i.kind === 'home_1');
     check(home?.dueOn === isoDay(208), 'and the welcome home the day after it ends', home?.dueOn);
 
+    const seen = await call(advisor, 'GET', `/api/bookings/${autoId}/trip-emails/preview?kind=confirmed`);
+    check(seen.status === 200 && /^Your trip is booked/.test(seen.data?.subject || '') && (seen.data?.paragraphs || [])[0]?.startsWith('Hello'),
+      'an advisor can see exactly how one of the emails will read for this client', `status ${seen.status} ${seen.data?.subject}`);
+    const seenBad = await call(advisor, 'GET', `/api/bookings/${autoId}/trip-emails/preview?kind=nonsense`);
+    check(seenBad.status === 400, 'and an email that does not exist is refused', `status ${seenBad.status}`);
+
     const skip = await call(advisor, 'PUT', `/api/bookings/${autoId}/trip-emails`, { skip: 'docs_60' });
     check(skip.status === 200 && (skip.data?.items || []).find((i) => i.kind === 'docs_60')?.status === 'skipped', 'an advisor can skip one', `status ${skip.status}`);
     const back = await call(advisor, 'PUT', `/api/bookings/${autoId}/trip-emails`, { restore: 'docs_60' });

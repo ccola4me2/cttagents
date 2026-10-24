@@ -542,6 +542,29 @@ export async function handleGetBookingTripEmails(request, env, bookingId) {
   return json(await shapeForBooking(env, owner, booking));
 }
 
+/** GET /api/bookings/:id/trip-emails/preview?kind= : one email as this client would be sent it, so nobody has to guess. */
+export async function handlePreviewBookingTripEmail(request, env, bookingId) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  const owner = await db.writerForBooking(env, user, bookingId);
+  if (!owner) return notFound('Reservation not found.');
+  const booking = await db.getBooking(env, bookingId, owner.id);
+  if (!booking) return notFound('Reservation not found.');
+  const kind = new URL(request.url).searchParams.get('kind');
+  if (!BY_KIND.has(kind)) return badRequest('Which email?');
+
+  const client = booking.client_id
+    ? await db.getClient(env, db.selfScope({ id: owner.id }), { id: booking.client_id }).catch(() => null)
+    : null;
+  const today = new Date().toISOString().slice(0, 10);
+  const pay = PAYMENT_KINDS.has(kind) ? await openPayment(env, { kind, booking_id: booking.id, user_id: owner.id }) : null;
+  const vars = varsFor({
+    ...booking, first_name: owner.first_name, last_name: owner.last_name, advisor_email: owner.email, agency_name: owner.agency_name,
+  }, client, today, pay);
+  const msg = await composeEmail(env, { kind, wording: await wordingFor(env, owner.agency_id), vars, userId: owner.id });
+  return json({ subject: msg.subject, paragraphs: msg.paragraphs, to: (client && client.email) || '' });
+}
+
 /** PUT /api/bookings/:id/trip-emails { emailsOff?, skip?, restore? } */
 export async function handleSaveBookingTripEmails(request, env, bookingId) {
   const { user, response } = await requireUser(request, env);

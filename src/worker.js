@@ -271,7 +271,7 @@ import {
 import { handleGetWaiverWording, handleSaveWaiverWording, handleResetWaiverWording } from './waiverwording.js';
 import {
   handleGetBookingTripEmails, handleSaveBookingTripEmails, handleGetTripEmailSettings, handleSaveTripEmailSettings,
-  handleTestTripEmail, runTripEmails,
+  handleTestTripEmail, runTripEmails, handlePreviewBookingTripEmail,
 } from './tripemails.js';
 import { handleSaveWording, handleClearWording } from './wording.js';
 import { isGroupHost, serveGroupHost, serveSlug, redirectForCode } from './grouphost.js';
@@ -810,6 +810,7 @@ async function routeApi(request, env, path, method) {
   const shareMatch = path.match(/^\/api\/bookings\/([^/]+)\/share$/);
   const waiverMatch = path.match(/^\/api\/bookings\/([^/]+)\/waiver$/);
   const tripEmailsMatch = path.match(/^\/api\/bookings\/([^/]+)\/trip-emails$/);
+  const tripEmailPreviewMatch = path.match(/^\/api\/bookings\/([^/]+)\/trip-emails\/preview$/);
   const clientHubMatch = path.match(/^\/api\/clients\/([^/]+)\/hub$/);
   const tripPlanMatch = path.match(/^\/api\/trips\/([^/]+)$/);
   const tripPlanShareMatch = path.match(/^\/api\/trips\/([^/]+)\/share$/);
@@ -1160,6 +1161,7 @@ async function routeApi(request, env, path, method) {
   // The travel insurance waiver on a reservation or quote: its link, and sending it to the client.
   if (waiverMatch && method === 'POST') return handleWaiver(request, env, waiverMatch[1]);
   // The emails a client gets on their own for this reservation: what is planned, skipping one, switching them all off.
+  if (tripEmailPreviewMatch && method === 'GET') return handlePreviewBookingTripEmail(request, env, tripEmailPreviewMatch[1]);
   if (tripEmailsMatch && method === 'GET') return handleGetBookingTripEmails(request, env, tripEmailsMatch[1]);
   if (tripEmailsMatch && method === 'PUT') return handleSaveBookingTripEmails(request, env, tripEmailsMatch[1]);
   if (clientHubMatch && method === 'POST') return handleShareClient(request, env, clientHubMatch[1]);
