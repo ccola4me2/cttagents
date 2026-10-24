@@ -11675,10 +11675,8 @@ async function main() {
     `${commRow?.advisor_cents} vs ${sp.advisorCents}`);
   check(comm.data?.anySplit === true, 'and the page knows there is a split to show');
 
-  // Their own holiday is not split, whatever the agreement says. Booking your
-  // own trip through the agency earns real commission, and the agreement an
-  // advisor signs is about the business they bring in. Checked against the
-  // agreement set two checks ago, so 100 here can only come from the rule.
+  // Their own holiday is split like any other reservation, at the agreement. Checked against the agreement
+  // set two checks ago, so the figure here can only come from the agreement and not from a special case.
   const ownTrip = await call(advisor, 'POST', '/api/bookings', {
     clientName: `Own travel ${stamp}`, supplier: 'Celebrity Cruises', status: 'booked',
     departDate: isoDay(70), returnDate: isoDay(77), gross: '3000', commission: '400',
@@ -11688,21 +11686,18 @@ async function main() {
   if (ownId) cleanup('the advisor\'s own trip', () => dropBooking(ownId));
 
   const ownRec = await call(admin, 'GET', `/api/bookings/${ownId}/record`);
-  check(ownRec.data?.split?.pct === 100,
-    'an advisor\'s own travel is not split, whatever the agreement says',
+  check(ownRec.data?.split?.pct === 90,
+    'an advisor\'s own travel is split at their agreement like any other trip',
     JSON.stringify(ownRec.data?.split?.pct));
-  check(ownRec.data?.commission?.personal === true,
-    'and the trip says that is why the agency takes nothing',
-    String(ownRec.data?.commission?.personal));
-  check(ownRec.data?.commission?.agencyCents === 0,
-    'so nothing is taken out of it', String(ownRec.data?.commission?.agencyCents));
+  check(ownRec.data?.commission?.agencyCents > 0,
+    'so the agency keeps its share of it', String(ownRec.data?.commission?.agencyCents));
 
   // The same rule in SQLite. These two are written next to each other and
   // have to answer the same, or the report and the record disagree about
   // somebody's pay.
   const ownView = await call(advisor, 'GET', '/api/commissions');
   const ownRow = (ownView.data?.rows || []).find((r) => r.id === ownId);
-  check(ownRow && Number(ownRow.split_pct) === 100,
+  check(ownRow && Number(ownRow.split_pct) === 90,
     'the report reaches the same answer as the record',
     JSON.stringify(ownRow && ownRow.split_pct));
   check(ownRow && ownRow.advisor_cents === ownRec.data?.split?.advisorCents,
