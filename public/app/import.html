@@ -83,6 +83,9 @@ Guest 1: COLE/DEBORAH"></textarea>
                 <span>Put the deposit, the final payment and each cancellation date on my task list.</span></label>
             </div>
             <div class="card-foot">
+              <label id="conf-itin-row" hidden style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:0 0 .8rem;">
+                <input type="checkbox" id="conf-itin" checked style="margin-top:.25rem;">
+                <span>Build the day by day itinerary from the ports printed on the confirmation. The client sees it on their page.</span></label>
               <label id="conf-keep-row" hidden style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:0;">
                 <input type="checkbox" id="conf-keep" checked style="margin-top:.25rem;">
                 <span>Keep this PDF on the reservation, as the agency's copy. It is not shown to the client and is not attached to emails unless you share it.</span></label>
@@ -494,6 +497,7 @@ document.getElementById('conf-read').addEventListener('click', async () => {
     ? `Nothing found for: ${gaps.join(', ')}.`
     : 'Every field was found. Check them anyway.';
   document.getElementById('conf-keep-row').hidden = !confFile;
+  document.getElementById('conf-itin-row').hidden = !(read.itinerary && read.itinerary.length);
   drawSummary(read);
   confResult.hidden = false;
 });
@@ -517,6 +521,7 @@ function drawSummary(read) {
   if (f.paid) will.push('record what has been paid');
   if (confFile) will.push('keep the PDF');
   will.push((read.penalties || []).length ? 'work out the cancellation dates' : 'set up the deposit and final payment');
+  if (read.itinerary && read.itinerary.length) will.push('build the day by day itinerary');
   will.push('put the dates on your task list');
   document.getElementById('conf-will').textContent = `One press will ${will.join(', ').replace(/, ([^,]*)$/, ' and $1')}.`;
 
@@ -771,6 +776,13 @@ document.getElementById('conf-create').addEventListener('click', async () => {
     const afterwards = [];
     if (cents(body.paid) > 0) {
       try { await postPaid(res.booking.id, body); } catch (e5) { afterwards.push(`the payments already made were not recorded (${esc(e5.message)})`); }
+    }
+    if (lastRead && lastRead.itinerary && lastRead.itinerary.length && document.getElementById('conf-itin').checked) {
+      try {
+        for (const item of lastRead.itinerary) {
+          await api(`/api/bookings/${encodeURIComponent(res.booking.id)}/itinerary`, { method: 'POST', body: item });
+        }
+      } catch (e7) { afterwards.push(`the itinerary was not saved (${esc(e7.message)})`); }
     }
     const penaltyFailures = await savePenalties(res.booking.id, body);
     if (penaltyFailures.length) afterwards.push(`${penaltyFailures.length} of the cancellation terms or tasks were not saved`);

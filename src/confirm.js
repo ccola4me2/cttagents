@@ -970,6 +970,60 @@ function readCancellationSchedule(text) {
   }).filter((x) => x.fromDays >= x.toDays);
 }
 
+const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+const TIME_PART = '\\d{1,2}:\\d{2}\\s*[AP]M';
+
+/**
+ * The day by day table some cruise lines print: a date, the weekday, the port, its code, and when the ship arrives and
+ * leaves. Read into itinerary lines, one a day, so the client's page shows where they will be without anybody typing it.
+ *
+ * Only rows that carry a date and a weekday are read, so the paragraphs around the table are never mistaken for it. The
+ * first row has one time, which is when the ship leaves, and the last has one, which is when it arrives back.
+ */
+export function readItineraryTable(lines) {
+  const rows = [];
+  for (const raw of lines || []) {
+    const m = String(raw).trim().match(/^([A-Z][a-z]{2})[a-z]*\.? (\d{1,2}), (\d{4}) (SUNDAY|MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY) (.+)$/);
+    if (!m || !MONTHS[m[1].toLowerCase()]) continue;
+    let rest = m[5].trim();
+    const times = [];
+    const tail = rest.match(new RegExp(`((?:${TIME_PART}\\s*){1,2})$`, 'i'));
+    if (tail) {
+      for (const t of tail[1].match(new RegExp(TIME_PART, 'gi')) || []) times.push(t.replace(/\s+/g, ' ').trim());
+      rest = rest.slice(0, tail.index).trim();
+    }
+    // The port's own code, three or four capitals at the end, is left off the name.
+    const code = rest.match(/^(.*\S)\s+([A-Z]{2,4})$/);
+    const place = code ? code[1] : rest;
+    if (!place) continue;
+    const iso = `${m[3]}-${String(MONTHS[m[1].toLowerCase()]).padStart(2, '0')}-${String(Number(m[2])).padStart(2, '0')}`;
+    rows.push({ iso, place, times });
+  }
+  if (rows.length < 2) return [];
+  const day = (iso) => Date.parse(`${iso}T00:00:00Z`) / 86400000;
+  const first = day(rows[0].iso);
+  return rows.map((r, i) => {
+    const sea = /^at sea$/i.test(r.place);
+    const at = (t) => {
+      const mm = String(t).match(/^(\d{1,2}):(\d{2})\s*([AP])M$/i);
+      if (!mm) return null;
+      let h = Number(mm[1]) % 12;
+      if (mm[3].toUpperCase() === 'P') h += 12;
+      return `${String(h).padStart(2, '0')}:${mm[2]}`;
+    };
+    let title = sea ? 'At sea' : r.place;
+    let start = null;
+    let end = null;
+    if (!sea && r.times.length === 2) { start = at(r.times[0]); end = at(r.times[1]); }
+    if (!sea && r.times.length === 1) {
+      if (i === 0) { title = `Sail from ${r.place}`; start = at(r.times[0]); }
+      else if (i === rows.length - 1) { title = `Arrive back in ${r.place}`; start = at(r.times[0]); }
+      else start = at(r.times[0]);
+    }
+    return { dayNumber: Math.round(day(r.iso) - first) + 1, kind: 'cruise', title, location: sea ? null : r.place, startTime: start, endTime: end };
+  });
+}
+
 export function parseConfirmation(text) {
   const lines = stackLabels(String(text || '').split(/\r?\n/).slice(0, 400))
     .flatMap(splitColumns)
@@ -1127,6 +1181,8 @@ export function parseConfirmation(text) {
     guests: people.map((g) => g.name),
     // What cancelling costs, window by window, as the confirmation prints it.
     penalties: readCancellationSchedule(text),
+    // The day by day table of ports, where the confirmation prints one.
+    itinerary: readItineraryTable(String(text || '').split(/\r?\n/)),
     // Named so the page can say what it did not find rather than leaving the
     // advisor to notice the blanks.
     missing: Object.keys(LABELS).filter((k) => fields[k] === undefined),
