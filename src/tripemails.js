@@ -47,6 +47,7 @@ export const VARIABLES = [
   ['confirmation', 'the confirmation number'],
   ['amount', 'the amount due, for the payment emails'],
   ['due_date', 'the day it is due, for the payment emails'],
+  ['thanks', 'a line thanking them for the form they filled in, for the first note to a lead'],
   ['advisor', 'the advisor\'s name'],
   ['phone', 'the advisor\'s phone number'],
   ['agency', 'the agency\'s name'],
@@ -115,7 +116,20 @@ export const KINDS = [
       + 'When you are ready to start planning the next one, I am here.\n\n' + SIGN },
 ];
 
+// The first note to somebody who filled in a form, sent from the Leads page. Not planned against a reservation like the
+// rest, so it is kept apart from KINDS, but the words are the agency's in the same way and are edited on the same page.
+export const LEAD_HELLO = {
+  kind: 'lead_hello', label: 'First note to a new lead', when: 'When you answer a new lead on the Leads page',
+  heading: 'Thank you for getting in touch',
+  subject: 'Thanks for getting in touch, {first_name}',
+  body: 'Hello {first_name},\n\n{thanks}\n\nI am {advisor} at {agency}, and I would love to help you plan your next trip.\n\n'
+    + 'Do you already have somewhere in mind, or a time of year you would like to travel? Even a rough idea is enough to start, '
+    + 'and there is no obligation.\n\nJust reply to this email and I will take it from there.\nYou can also call me on {phone}.\n\n'
+    + 'Thank you,\n{advisor}\n{agency}',
+};
+
 const BY_KIND = new Map(KINDS.map((k) => [k.kind, k]));
+const ALL_KINDS = [...KINDS, LEAD_HELLO];
 const PAYMENT_KINDS = new Set(['deposit_7', 'deposit_2', 'final_7', 'final_2']);
 
 const STATUS_LABEL = {
@@ -166,7 +180,7 @@ export async function wordingFor(env, agencyId) {
     : { results: [] };
   const custom = new Map((rows.results || []).map((r) => [r.kind, r]));
   const out = new Map();
-  for (const k of KINDS) {
+  for (const k of ALL_KINDS) {
     const c = custom.get(k.kind);
     out.set(k.kind, {
       subject: (c && c.subject) || k.subject,
@@ -354,7 +368,7 @@ function varsFor(b, client, today, pay) {
 
 /** The finished message for one email, from the agency's wording. */
 export async function composeEmail(env, { kind, wording, vars, userId }) {
-  const def = BY_KIND.get(kind);
+  const def = BY_KIND.get(kind) || (kind === LEAD_HELLO.kind ? LEAD_HELLO : null);
   const w = wording.get(kind);
   const filled = fillWords(w.subject, w.body, vars);
   const brand = await brandForUser(env, userId);
@@ -605,7 +619,7 @@ export async function handleSaveBookingTripEmails(request, env, bookingId) {
 // ---------------------------------------------------------------------------
 
 const SAMPLE = {
-  first_name: 'Alex', trip: 'Harmony of the Seas cruise', start_date: '03/13/2027', return_date: '03/20/2027',
+  first_name: 'Alex', thanks: 'Thank you for filling in our Free Guide form.', trip: 'Harmony of the Seas cruise', start_date: '03/13/2027', return_date: '03/20/2027',
   days_to_go: '60', confirmation: '9746343', amount: '$1,000.00', due_date: '12/13/2026',
   advisor: 'Your Advisor', phone: '(555) 123-4567', agency: 'Your Agency',
 };
@@ -640,7 +654,7 @@ async function settingsFor(env, user) {
     })),
     on: Boolean(since), since,
     variables: VARIABLES.map(([name, what]) => ({ name, what })),
-    kinds: KINDS.map((k) => {
+    kinds: ALL_KINDS.map((k) => {
       const w = wording.get(k.kind);
       return {
         kind: k.kind, label: k.label, when: k.when, subject: w.subject, body: w.body, custom: w.custom,
@@ -676,7 +690,7 @@ export async function handleSaveTripEmailSettings(request, env) {
 
   if (body.wording && typeof body.wording === 'object') {
     const writes = [];
-    for (const k of KINDS) {
+    for (const k of ALL_KINDS) {
       const w = body.wording[k.kind];
       if (!w) continue;
       const subject = clean(w.subject, 160);
@@ -722,7 +736,7 @@ export async function handleTestTripEmail(request, env) {
   if (response) return response;
   if (!user.agency_id) return badRequest('This account is not part of an agency.');
   const body = await readJson(request);
-  const def = BY_KIND.get(body.kind);
+  const def = BY_KIND.get(body.kind) || (body.kind === LEAD_HELLO.kind ? LEAD_HELLO : null);
   if (!def) return badRequest('Which email?');
 
   const wording = await wordingFor(env, user.agency_id);

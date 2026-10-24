@@ -8694,9 +8694,9 @@ async function main() {
     cleanup('the automatic client emails', () => call(admin, 'PUT', '/api/trip-emails/settings', { on: false }));
     await call(admin, 'PUT', '/api/trip-emails/settings', { on: false });
     const start = await call(admin, 'GET', '/api/trip-emails/settings');
-    check(start.status === 200 && start.data?.on === false && (start.data?.kinds || []).length === 9
+    check(start.status === 200 && start.data?.on === false && (start.data?.kinds || []).length === 10
       && start.data.kinds.every((k) => k.subject && k.body && !k.custom),
-    'an owner finds them off, with the built-in wording for all nine', `status ${start.status}`);
+    'an owner finds them off, with the built-in wording for all nine, and for the first note to a lead', `status ${start.status}`);
 
     const before = await call(advisor, 'POST', '/api/bookings', {
       clientName: `Early Client ${stamp}`, supplier: 'Test Line', productName: 'Early Cruise', productType: 'cruise',

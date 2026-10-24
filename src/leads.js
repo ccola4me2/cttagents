@@ -23,7 +23,7 @@ import * as db from './db.js';
 import { layout, sendHtml } from './email.js';
 import { brandForUser } from './brand.js';
 import { isSuppressed } from './suppression.js';
-import { fillWords } from './tripemails.js';
+import { fillWords, wordingFor, LEAD_HELLO } from './tripemails.js';
 import { escapeHtml, PermanentError } from './util.js';
 import { SOURCE_KINDS, SOURCE_KIND_IDS } from './attribution.js';
 
@@ -344,8 +344,8 @@ async function leadFor(env, owner, id) {
   ).bind(id, owner.id).first();
 }
 
-/** A friendly first note, in the advisor's name, that the advisor can change before it goes. */
-function helloDraft(advisor, lead) {
+/** The agency's first note, filled in for this person and this advisor, for the advisor to change before it goes. */
+async function helloDraft(env, advisor, lead) {
   const form = (String(lead.lead_asked_about || '').match(/^From the (.+) form$/) || [])[1] || '';
   const name = [advisor.first_name, advisor.last_name].filter(Boolean).join(' ') || advisor.email || '';
   const vars = {
@@ -353,11 +353,8 @@ function helloDraft(advisor, lead) {
     thanks: form ? `Thank you for filling in our ${form} form.` : 'Thank you for getting in touch.',
     advisor: name, agency: advisor.agency_name || '', phone: advisor.phone || '',
   };
-  const filled = fillWords('Thanks for getting in touch, {first_name}',
-    'Hello {first_name},\n\n{thanks}\n\nI am {advisor} at {agency}, and I would love to help you plan your next trip.\n\n'
-    + 'Do you already have somewhere in mind, or a time of year you would like to travel? Even a rough idea is enough to start, '
-    + 'and there is no obligation.\n\nJust reply to this email and I will take it from there.\nYou can also call me on {phone}.\n\n'
-    + 'Thank you,\n{advisor}\n{agency}', vars);
+  const w = (await wordingFor(env, advisor.agency_id)).get(LEAD_HELLO.kind);
+  const filled = fillWords(w.subject, w.body, vars);
   return { subject: filled.subject, body: filled.paragraphs.join('\n\n') };
 }
 
@@ -372,7 +369,7 @@ export async function handleLeadHelloDraft(request, env, id) {
   const advisor = await db.getUserById(env, owner.id);
   const stopped = lead.email ? await isSuppressed(env, advisor.agency_id, lead.email) : false;
   return json({ to: lead.email || '', canSend: Boolean(lead.email) && !stopped, stopped,
-    ...helloDraft(advisor, lead) });
+    ...(await helloDraft(env, advisor, lead)) });
 }
 
 /** The next step after reaching somebody: a nudge to follow up, so nobody is dropped after one note. */
