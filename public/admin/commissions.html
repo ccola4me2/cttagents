@@ -678,7 +678,7 @@ panel.addEventListener('click', (e) => {
 const rep = { kind: 'advisor', from: '', to: '' };
 const REPORTS = [
   ['advisor', 'By advisor'], ['vendor', 'By vendor'], ['sailed', 'By month sailed'], ['received', 'By month received'],
-  ['variance', 'Short and over'], ['checks', 'Every check'], ['yearend', 'Paid to advisors (1099)'],
+  ['variance', 'Short and over'], ['checks', 'Every check'], ['scorecard', 'Vendor pay speed'], ['yearend', 'Paid to advisors (1099)'],
 ];
 
 /** One report as a table of plain values: columns say what each is, so the screen and the download agree. */
@@ -735,6 +735,21 @@ function reportData() {
       ['net', 'At the bank', 'money'], ['loose', 'Entered one at a time', 'money']],
     rows: [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([k, e]) => ({
       name: new Date(`${k}-01T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }), ...e })) };
+  }
+  if (rep.kind === 'scorecard') {
+    // How long each vendor takes to pay after the sailing, from the reservations they have finished paying.
+    const day = (iso) => Date.parse(`${iso}T00:00:00Z`) / 86400000;
+    const rowsOf = group((r) => r.supplier);
+    return { cols: [['name', 'Vendor', 'text'], ['n', 'Reservations', 'int'], ['paid', 'Fully paid', 'int'], ['avg', 'Average days after sailing', 'int'],
+      ['slow', 'Slowest, days', 'int'], ['owed', 'Still owed to us', 'money'], ['old', 'Oldest unpaid, days past sailing', 'int']],
+    rows: rowsOf.map(([name, l]) => {
+      const finished = l.filter((r) => (r.settlement === 'settled' || r.settlement === 'over') && r.last_received_on && r.depart_date);
+      const lags = finished.map((r) => Math.round(day(r.last_received_on) - day(r.depart_date)));
+      const open = l.filter((r) => (r.outstanding_cents || 0) > 0 && r.depart_date && r.depart_date < d.today);
+      const ages = open.map((r) => Math.round(day(d.today) - day(r.depart_date)));
+      return { name, n: l.length, paid: finished.length, avg: lags.length ? Math.round(lags.reduce((a, b) => a + b, 0) / lags.length) : 0,
+        slow: lags.length ? Math.max(...lags) : 0, owed: sum(l, 'outstanding_cents'), old: ages.length ? Math.max(...ages) : 0 };
+    }) };
   }
   if (rep.kind === 'yearend') {
     // What each advisor was actually paid in the year chosen at the top, which is what a 1099 reports.
@@ -804,7 +819,7 @@ function downloadReport() {
 
 function drawReports() {
   if (!all) { loadAll(); return '<p class="spinner">Loading...</p>'; }
-  const datesApply = ['advisor', 'vendor', 'sailed', 'variance'].includes(rep.kind);
+  const datesApply = ['advisor', 'vendor', 'sailed', 'variance', 'scorecard'].includes(rep.kind);
   return `<div class="cd-chips" style="margin-bottom:.8rem;">${REPORTS.map(([k, l]) =>
     `<button class="cd-chip" type="button" data-report="${k}" aria-pressed="${rep.kind === k}">${l}</button>`).join('')}</div>
     <div class="card cd-filters">
