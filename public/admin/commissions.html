@@ -209,6 +209,7 @@ function drawTiles() {
     tile('owed', 'Still owed to us', money(t.owedToUsCents),
       `${t.owedToUsCount} reservation${t.owedToUsCount === 1 ? '' : 's'} not yet paid`),
     tile('all', 'Everything', 'All commissions', 'every reservation and advisor, to search, filter and download'),
+    tile('statements', 'Statements', 'For each advisor', 'what they earned, were paid and are owed, to print or send'),
   ].join('');
 }
 
@@ -229,6 +230,7 @@ function drawScheduled() {
         <span class="muted" style="font-size:.8rem;">${p.isNext
     ? 'Advisors can see this one' : 'Advisors cannot see this yet'}</span>
         <span class="tot cd-money">${money(p.totalCents)}</span>
+        <button class="btn btn-ghost btn-sm" type="button" data-printrun="${esc(p.date)}">Print the pay run</button>
       </div>
       ${p.advisors.map((a) => `
         <div class="cd-adv">
@@ -534,19 +536,132 @@ panel.addEventListener('click', (e) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Printing: the pay run for a pay date, and an advisor's statement
+// ---------------------------------------------------------------------------
+
+const PRINT_CSS = `body{font:14px/1.45 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#12315e;margin:2rem;}
+  h1{font-size:1.4rem;margin:0 0 .2rem;} h2{font-size:1rem;margin:1.4rem 0 .4rem;} p{margin:.2rem 0;}
+  table{width:100%;border-collapse:collapse;margin:.4rem 0;} th,td{text-align:left;padding:.35rem .5rem;border-bottom:1px solid #d5e0ee;vertical-align:top;}
+  th{font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:#5c7286;} .r{text-align:right;white-space:nowrap;}
+  .muted{color:#5c7286;font-size:.85rem;} .tot td{font-weight:700;border-top:2px solid #12315e;} .box{display:inline-block;width:.9rem;height:.9rem;border:1px solid #12315e;}
+  .big{display:grid;grid-template-columns:repeat(4,1fr);gap:.6rem;margin:.6rem 0;} .big div{border:1px solid #d5e0ee;border-radius:6px;padding:.5rem .7rem;}
+  .big b{display:block;font-size:1.1rem;} .noprint{background:#e7f1fb;padding:.5rem .8rem;border-radius:6px;margin-bottom:1rem;}
+  @media print{.noprint{display:none;} body{margin:0;}}`;
+
+/** A page of its own for printing or saving as a PDF, opened from a blob so nothing is sent anywhere. */
+function printDoc(title, inner) {
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${PRINT_CSS}</style></head>
+    <body><p class="noprint">Press Cmd+P (Ctrl+P on Windows) to print this, or to save it as a PDF.</p>${inner}</body></html>`;
+  const href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+  const w = window.open(href, '_blank');
+  if (!w) showError(errEl, new Error('Your browser blocked the new window. Allow pop-ups for this site and try again.'));
+  setTimeout(() => URL.revokeObjectURL(href), 120000);
+}
+
+/** The pay run for one pay date: who is paid what, trip by trip, with a box to tick as each is done. */
+function printRun(date) {
+  const p = d.payDates.find((x) => x.date === date);
+  if (!p) return;
+  const body = p.advisors.map((a) => `<h2>${esc(a.name)} <span class="muted">${money(a.cents)}</span></h2>
+    <table><thead><tr><th></th><th>Reservation</th><th class="r">Amount</th></tr></thead><tbody>${a.trips.map((t) => `<tr>
+      <td><span class="box"></span></td><td>${esc(t.client)}${t.supplier ? ` <span class="muted">${esc(t.supplier)}</span>` : ''}</td>
+      <td class="r">${money(t.cents)}</td></tr>`).join('')}
+      <tr class="tot"><td></td><td>Pay ${esc(a.name)}</td><td class="r">${money(a.cents)}</td></tr></tbody></table>
+    <p class="muted">Paid on ____ / ____ / ______ by check, bank transfer or other: ______________ Reference: ______________</p>`).join('');
+  printDoc(`Pay run ${dateFmt(date)}`, `<h1>Pay run for ${esc(dateFmt(date))}</h1>
+    <p class="muted">${p.advisors.length} advisor${p.advisors.length === 1 ? '' : 's'}, ${money(p.totalCents)} in all. Printed ${esc(dateFmt(d.today))}.</p>${body}`);
+}
+
+const stmt = { advisor: '', data: null };
+
+async function loadStatement(id) {
+  stmt.advisor = id;
+  stmt.data = null;
+  if (!id) { draw(); return; }
+  try {
+    stmt.data = await api(`/api/commissions?advisor=${encodeURIComponent(id)}`);
+  } catch (e) { stmt.advisor = ''; showError(panel, e); return; }
+  draw();
+}
+
+/** What an advisor sees of their own money, and nothing of the agency's side. */
+function statementBody(who) {
+  const rows = stmt.data.rows.filter((r) => (r.received_cents || 0) > 0 || (r.paid_out_cents || 0) > 0 || (r.advisor_cents || 0) > 0);
+  const sum = (k) => rows.reduce((n, r) => n + (Number(r[k]) || 0), 0);
+  const payouts = d.paid.filter((x) => x.advisor_name === who);
+  const scheduled = d.payDates.flatMap((p) => p.advisors.filter((a) => a.name === who).map((a) => ({ date: p.date, cents: a.cents })));
+  const earned = sum('payout_cents');
+  const paidOut = sum('paid_out_cents');
+  const comingFromVendors = rows.reduce((n, r) => n + Math.max((r.advisor_cents || 0) - (r.payout_cents || 0), 0), 0);
+  return `<div class="big">
+      <div class="muted">Earned from what vendors have paid<b>${money(earned)}</b></div>
+      <div class="muted">Already paid to you<b>${money(paidOut)}</b></div>
+      <div class="muted">Owed to you now<b>${money(Math.max(earned - paidOut, 0))}</b></div>
+      <div class="muted">Still to come from vendors<b>${money(comingFromVendors)}</b></div></div>
+    ${scheduled.length ? `<h2>Scheduled to be paid</h2><table><thead><tr><th>Pay date</th><th class="r">Amount</th></tr></thead><tbody>${
+  scheduled.map((x) => `<tr><td>${esc(dateFmt(x.date))}</td><td class="r">${money(x.cents)}</td></tr>`).join('')}</tbody></table>` : ''}
+    <h2>Payments made to you</h2>
+    ${payouts.length ? `<table><thead><tr><th>Paid on</th><th>How</th><th>Reference</th><th class="r">Reservations</th><th class="r">Amount</th></tr></thead><tbody>${
+  payouts.map((x) => `<tr><td>${esc(x.paid_on ? dateFmt(x.paid_on) : '')}</td>
+    <td>${esc((methods.find((m) => m.key === x.method) || { label: x.method || '' }).label)}</td><td>${esc(x.reference || '')}</td>
+    <td class="r">${x.trips}</td><td class="r">${money(x.amount_cents)}</td></tr>`).join('')}</tbody></table>`
+    : `<p class="muted">Nothing paid out in ${esc(year)}.</p>`}
+    <h2>Reservations</h2>
+    <table><thead><tr><th>Reservation</th><th>Sails</th><th class="r">Commission received</th><th class="r">Your split</th>
+      <th class="r">Your share</th><th class="r">Paid to you</th><th class="r">Owed now</th></tr></thead><tbody>${rows.map((r) => `<tr>
+      <td>${esc(r.client_name)} <span class="muted">${esc([r.supplier, r.confirmation_number].filter(Boolean).join(' ' ))}</span></td>
+      <td>${r.depart_date ? esc(dateFmt(r.depart_date)) : ''}</td>
+      <td class="r">${money(r.received_cents)}</td><td class="r">${esc(String(r.split_pct))}%</td>
+      <td class="r">${money(r.payout_cents)}</td><td class="r">${money(r.paid_out_cents)}</td>
+      <td class="r">${money(Math.max(r.due_cents || 0, 0))}</td></tr>`).join('')}
+      <tr class="tot"><td colspan="2">${rows.length} reservation${rows.length === 1 ? '' : 's'}</td><td class="r">${money(sum('received_cents'))}</td><td></td>
+        <td class="r">${money(earned)}</td><td class="r">${money(paidOut)}</td>
+        <td class="r">${money(rows.reduce((n, r) => n + Math.max(r.due_cents || 0, 0), 0))}</td></tr></tbody></table>
+    <p class="muted">Your share is your split of the commission the vendor has actually paid, not of what is still expected. Commission can be taken back by the vendor if a client cancels before the 30 day mark.</p>`;
+}
+
+function drawStatements() {
+  if (!all) { loadAll(); return '<p class="spinner">Loading...</p>'; }
+  const list = (all.advisors || []).filter((a) => a.id);
+  const pick = `<div class="card cd-filters"><div><label for="st-adv">Advisor</label>
+    <select id="st-adv" data-stpick="1"><option value="">Choose an advisor</option>${list.map((a) =>
+    `<option value="${esc(a.id)}"${a.id === stmt.advisor ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>
+    ${stmt.data ? '<div><button class="btn btn-primary btn-sm" type="button" id="st-print">Print or save as PDF</button></div>' : ''}</div>`;
+  if (!stmt.advisor) return `${pick}<div class="card"><div class="empty"><h3>Choose an advisor</h3><p>Their statement shows here, ready to print or send.</p></div></div>`;
+  if (!stmt.data) return `${pick}<p class="spinner">Loading...</p>`;
+  const who = (list.find((a) => a.id === stmt.advisor) || {}).name || '';
+  return `${pick}<div class="card" style="padding:1rem 1.2rem;"><h2 style="margin:0 0 .2rem;">${esc(who)}</h2>
+    <p class="muted">Commission statement as of ${esc(dateFmt(d.today))}</p><div id="st-body">${statementBody(who)}</div></div>`;
+}
+
+panel.addEventListener('change', (e) => {
+  if (e.target.dataset && e.target.dataset.stpick) loadStatement(e.target.value);
+});
+panel.addEventListener('click', (e) => {
+  const run = e.target.closest('[data-printrun]');
+  if (run) { printRun(run.dataset.printrun); return; }
+  if (e.target.closest('#st-print') && stmt.data) {
+    const who = ((all.advisors || []).find((a) => a.id === stmt.advisor) || {}).name || '';
+    printDoc(`Commission statement ${who}`, `<h1>Commission statement</h1><p><b>${esc(who)}</b></p>
+      <p class="muted">As of ${esc(dateFmt(d.today))}</p>${statementBody(who)}`);
+  }
+});
+
 const TITLES = {
   scheduled: ['Payouts by date', 'Only the next one is visible to advisors. Each advisor sees their own, and nothing scheduled further out.'],
   received: ['Checks received', 'Click a check to see its lines, change when each is paid out, or add one.'],
   paid: ['Paid out', 'What the agency has paid its advisors.'],
   owed: ['Still owed to us', 'Commission expected from vendors that has not arrived, counted from the day they travelled.'],
   all: ['All commissions', 'Every reservation that earns commission, for every advisor. Search, filter, sort, open a row for its lines, and download what you see.'],
+  statements: ['Advisor statements', 'What one advisor earned, has been paid and is still owed. Print it or save it as a PDF to send. It never shows what the agency keeps.'],
 };
 
 function draw() {
   drawTiles();
   const [title, sub] = TITLES[view];
   const body = view === 'scheduled' ? drawScheduled() : view === 'received' ? drawReceived()
-    : view === 'paid' ? drawPaid() : view === 'all' ? drawAll() : drawOwed();
+    : view === 'paid' ? drawPaid() : view === 'all' ? drawAll() : view === 'statements' ? drawStatements() : drawOwed();
   panel.innerHTML = `<div class="cd-head"><h2>${esc(title)}</h2><span class="m">${esc(sub)}</span></div>${body}`;
 }
 
