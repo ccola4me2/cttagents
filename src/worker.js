@@ -269,6 +269,10 @@ import {
   handleGetBrand, handleSaveBrand, handleUploadLogo, handleRemoveLogo, serveUserLogo,
 } from './userbrand.js';
 import { handleGetWaiverWording, handleSaveWaiverWording, handleResetWaiverWording } from './waiverwording.js';
+import {
+  handleGetBookingTripEmails, handleSaveBookingTripEmails, handleGetTripEmailSettings, handleSaveTripEmailSettings,
+  handleTestTripEmail, runTripEmails,
+} from './tripemails.js';
 import { handleSaveWording, handleClearWording } from './wording.js';
 import { isGroupHost, serveGroupHost, serveSlug, redirectForCode } from './grouphost.js';
 import { handleRunGroupReminders } from './groupremind.js';
@@ -562,6 +566,7 @@ const PAGE_FILES = {
   '/admin/training': '/admin/training.html',
   '/admin/events': '/admin/events.html',
   '/admin/waiver': '/admin/waiver.html',
+  '/admin/client-emails': '/admin/client-emails.html',
   '/admin/groups': '/admin/groups.html',
   '/admin': '/admin/index.html',
   '/admin/': '/admin/index.html',
@@ -686,6 +691,11 @@ export default {
     // advisors who turned it on, and only on real vendor deadlines.
     job('payment reminders', () => remindDuePayments(env));
 
+    // The rest of what a client is told on their own: booked, deposit and final reminders, documents, check-in, bon
+    // voyage and welcome home. Off for an agency until its owner switches it on, and then only for reservations
+    // made afterwards. A no-op, one query, on every tick where nothing is switched on.
+    job('client emails', () => runTripEmails(env));
+
     // The call list and the deadlines on groups used to be emails of their own. They go in the one
     // morning message with the task list now, so there is nothing further to run for either.
 
@@ -795,6 +805,7 @@ async function routeApi(request, env, path, method) {
   const welcomedMatch = path.match(/^\/api\/bookings\/([^/]+)\/welcomed$/);
   const shareMatch = path.match(/^\/api\/bookings\/([^/]+)\/share$/);
   const waiverMatch = path.match(/^\/api\/bookings\/([^/]+)\/waiver$/);
+  const tripEmailsMatch = path.match(/^\/api\/bookings\/([^/]+)\/trip-emails$/);
   const clientHubMatch = path.match(/^\/api\/clients\/([^/]+)\/hub$/);
   const tripPlanMatch = path.match(/^\/api\/trips\/([^/]+)$/);
   const tripPlanShareMatch = path.match(/^\/api\/trips\/([^/]+)\/share$/);
@@ -1144,6 +1155,9 @@ async function routeApi(request, env, path, method) {
   if (shareMatch && method === 'POST') return handleShareTrip(request, env, shareMatch[1]);
   // The travel insurance waiver on a reservation or quote: its link, and sending it to the client.
   if (waiverMatch && method === 'POST') return handleWaiver(request, env, waiverMatch[1]);
+  // The emails a client gets on their own for this reservation: what is planned, skipping one, switching them all off.
+  if (tripEmailsMatch && method === 'GET') return handleGetBookingTripEmails(request, env, tripEmailsMatch[1]);
+  if (tripEmailsMatch && method === 'PUT') return handleSaveBookingTripEmails(request, env, tripEmailsMatch[1]);
   if (clientHubMatch && method === 'POST') return handleShareClient(request, env, clientHubMatch[1]);
   // Several reservations, one trip, and the one link a client is sent for it.
   if (path === '/api/trips' && method === 'GET') return handleListTrips(request, env);
@@ -1339,6 +1353,10 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/brand' && method === 'PUT') return handleSaveBrand(request, env);
   if (path === '/api/brand/logo' && method === 'POST') return handleUploadLogo(request, env);
   if (path === '/api/brand/logo' && method === 'DELETE') return handleRemoveLogo(request, env);
+  // The agency's automatic client emails: the switch and the wording, an owner's.
+  if (path === '/api/trip-emails/settings' && method === 'GET') return handleGetTripEmailSettings(request, env);
+  if (path === '/api/trip-emails/settings' && method === 'PUT') return handleSaveTripEmailSettings(request, env);
+  if (path === '/api/trip-emails/test' && method === 'POST') return handleTestTripEmail(request, env);
   if (path === '/api/waiver-wording' && method === 'GET') return handleGetWaiverWording(request, env);
   if (path === '/api/waiver-wording' && method === 'PUT') return handleSaveWaiverWording(request, env);
   if (path === '/api/waiver-wording' && method === 'DELETE') return handleResetWaiverWording(request, env);

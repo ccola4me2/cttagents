@@ -115,7 +115,7 @@ const OWNED = new Set([
   'quick_proposals', 'quick_proposal_images',
   // The travel insurance waiver on a reservation. The advisor's, and every statement that reads or changes
   // one for a request names user_id; the public page finds one by the code in the link, listed in ALLOWED.
-  'insurance_waivers',
+  'insurance_waivers', 'trip_emails',
   // A person's own page identity, and the sheet behind a group. Theirs by user_id: the sheet's user_id is the
   // group's owner, and every statement that reads or changes one names it. The public logo is found by the
   // person's id, which is the address the page was given.
@@ -151,6 +151,9 @@ const AGENCY_OWNED = new Set([
   // The words of the travel insurance waiver. An owner sets them for the agency and the public page reads
   // them for the agency of whoever the waiver belongs to, so agency_id is the predicate on every statement.
   'waiver_wording',
+  // The words of the automatic client emails. An owner writes them for the agency and the sender reads them for
+  // the agency of the advisor whose client it is, so agency_id is the predicate on every statement.
+  'trip_email_wording',
   // An advisor's request to sell into another advisor's group, and the answer. The agency is the
   // predicate; the requester and the group's advisor each read their own side of it.
   'group_access',

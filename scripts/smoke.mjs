@@ -8657,6 +8657,96 @@ async function main() {
     check(gone.status === 404, 'deleting the reservation takes its waiver with it', `status ${gone.status}`);
   }
 
+  // The emails a client gets on their own: off until an owner says, then planned for new reservations only.
+  {
+    const aSet = await call(advisor, 'GET', '/api/trip-emails/settings');
+    check(aSet.status === 403, 'an advisor cannot read the automatic email settings', `status ${aSet.status}`);
+    const aPut = await call(advisor, 'PUT', '/api/trip-emails/settings', { on: true });
+    check(aPut.status === 403, 'nor switch them on', `status ${aPut.status}`);
+    const anonSet = await call(null, 'GET', '/api/trip-emails/settings');
+    check(anonSet.status === 401, 'nor can somebody who is not signed in', `status ${anonSet.status}`);
+
+    cleanup('the automatic client emails', () => call(admin, 'PUT', '/api/trip-emails/settings', { on: false }));
+    await call(admin, 'PUT', '/api/trip-emails/settings', { on: false });
+    const start = await call(admin, 'GET', '/api/trip-emails/settings');
+    check(start.status === 200 && start.data?.on === false && (start.data?.kinds || []).length === 9
+      && start.data.kinds.every((k) => k.subject && k.body && !k.custom),
+    'an owner finds them off, with the built-in wording for all nine', `status ${start.status}`);
+
+    const before = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Early Client ${stamp}`, supplier: 'Test Line', productName: 'Early Cruise', productType: 'cruise',
+      departDate: isoDay(200), returnDate: isoDay(207), gross: '3000', status: 'booked',
+    });
+    const beforeId = before.data?.booking?.id || before.data?.bookingId;
+    const offCard = await call(advisor, 'GET', `/api/bookings/${beforeId}/trip-emails`);
+    check(offCard.status === 200 && offCard.data?.on === false && offCard.data?.items?.length === 0,
+      'while they are off a reservation has none planned', `status ${offCard.status}`);
+
+    const bad = await call(admin, 'PUT', '/api/trip-emails/settings', {
+      wording: { confirmed: { subject: 'Hi {nonsense}', body: 'Body' } } });
+    check(bad.status === 400 && /nonsense/.test(bad.data?.error || ''), 'a word that is not one of the fill-ins is refused', `status ${bad.status}`);
+
+    const prev = await call(admin, 'POST', '/api/trip-emails/test', {
+      kind: 'confirmed', subject: 'Booked: {trip}', body: 'Hello {first_name},\n\nYour code is {confirmation}.\n\nThank you,\n{advisor}\n{agency}' });
+    check(prev.status === 200 && prev.data?.subject === 'Booked: Harmony of the Seas cruise'
+      && prev.data?.paragraphs?.[0] === 'Hello Alex,' && prev.data.paragraphs.length === 3,
+    'an owner can see how one reads before it goes to anybody', `status ${prev.status}`);
+
+    const wordSet = await call(admin, 'PUT', '/api/trip-emails/settings', {
+      wording: { welcome: { subject: 'x', body: 'y' }, home_1: { subject: `Home ${stamp}: {trip}`, body: 'Welcome back {first_name}.' } } });
+    const homeKind = (wordSet.data?.kinds || []).find((k) => k.kind === 'home_1');
+    check(wordSet.status === 200 && homeKind?.custom && homeKind.subject.startsWith('Home '),
+      'an owner can write the agency\'s own words for one of them', `status ${wordSet.status}`);
+    const reset = await call(admin, 'PUT', '/api/trip-emails/settings', {
+      wording: { home_1: { subject: homeKind.defaultSubject, body: homeKind.defaultBody } } });
+    check((reset.data?.kinds || []).find((k) => k.kind === 'home_1')?.custom === false,
+      'and putting the built-in wording back removes theirs');
+
+    const on = await call(admin, 'PUT', '/api/trip-emails/settings', { on: true });
+    check(on.status === 200 && on.data?.on === true, 'the owner switches them on', `status ${on.status}`);
+    const stillOff = await call(advisor, 'GET', `/api/bookings/${beforeId}/trip-emails`);
+    check(stillOff.status === 200 && stillOff.data?.items?.length === 0 && /after this reservation was made/.test(stillOff.data?.reason || ''),
+      'a reservation made before that gets nothing, and says why', `status ${stillOff.status}`);
+
+    await new Promise((r) => setTimeout(r, 1100));
+    const made = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Auto Client ${stamp}`, supplier: 'Test Line', productName: 'Auto Cruise', productType: 'cruise',
+      departDate: isoDay(200), returnDate: isoDay(207), gross: '3000', status: 'booked',
+    });
+    const autoId = made.data?.booking?.id || made.data?.bookingId;
+    const card = await call(advisor, 'GET', `/api/bookings/${autoId}/trip-emails`);
+    const kinds = (card.data?.items || []).map((i) => i.kind);
+    check(card.status === 200 && ['confirmed', 'docs_60', 'checkin_14', 'bonvoyage_3', 'home_1'].every((k) => kinds.includes(k)),
+      'a reservation made after it is planned the whole run of emails', `status ${card.status}, ${kinds.join(',')}`);
+    const docs = (card.data?.items || []).find((i) => i.kind === 'docs_60');
+    check(docs?.dueOn === isoDay(140) && docs?.status === 'scheduled', 'each on its own day, sixty days before the trip for the documents', docs?.dueOn);
+    const home = (card.data?.items || []).find((i) => i.kind === 'home_1');
+    check(home?.dueOn === isoDay(208), 'and the welcome home the day after it ends', home?.dueOn);
+
+    const skip = await call(advisor, 'PUT', `/api/bookings/${autoId}/trip-emails`, { skip: 'docs_60' });
+    check(skip.status === 200 && (skip.data?.items || []).find((i) => i.kind === 'docs_60')?.status === 'skipped', 'an advisor can skip one', `status ${skip.status}`);
+    const back = await call(advisor, 'PUT', `/api/bookings/${autoId}/trip-emails`, { restore: 'docs_60' });
+    check((back.data?.items || []).find((i) => i.kind === 'docs_60')?.status === 'scheduled', 'and put it back');
+    const sent = await call(advisor, 'PUT', `/api/bookings/${autoId}/trip-emails`, { emailsOff: true });
+    check(sent.status === 200 && sent.data?.emailsOff === true, 'or switch all of them off for the trip', `status ${sent.status}`);
+    await call(advisor, 'PUT', `/api/bookings/${autoId}/trip-emails`, { emailsOff: false });
+
+    const quote = await call(advisor, 'POST', '/api/bookings', {
+      clientName: `Quoted Client ${stamp}`, supplier: 'Test Line', productName: 'Quoted Cruise', productType: 'cruise',
+      departDate: isoDay(200), returnDate: isoDay(207), gross: '3000', status: 'quoted',
+    });
+    const quoteId = quote.data?.booking?.id || quote.data?.bookingId;
+    const quoteCard = await call(advisor, 'GET', `/api/bookings/${quoteId}/trip-emails`);
+    check(quoteCard.status === 200 && quoteCard.data?.items?.length === 0, 'a quote is planned nothing: only a booked trip is written about', `status ${quoteCard.status}`);
+
+    await dropBooking(beforeId);
+    await dropBooking(autoId);
+    await dropBooking(quoteId);
+    await call(admin, 'PUT', '/api/trip-emails/settings', { on: false });
+    const gone = await call(advisor, 'GET', `/api/bookings/${autoId}/trip-emails`);
+    check(gone.status === 404, 'deleting the reservation takes its emails with it', `status ${gone.status}`);
+  }
+
   // A quote email carries a button to the travel insurance form, and an invoice does not.
   {
     const made = await call(advisor, 'POST', '/api/bookings', {

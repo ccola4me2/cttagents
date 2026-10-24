@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Client emails | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Client emails</h1>
+        <p class="sub">The notes a client gets on their own after a reservation is booked, in the advisor's name, with nothing for the advisor to do.</p></div>
+    </header>
+    <div class="content">
+      <div id="err"></div>
+      <section class="card" id="switch-card" hidden>
+        <div class="card-pad">
+          <p id="status" style="margin:0 0 .6rem;"></p>
+          <p class="muted" style="margin:0 0 1rem;font-size:.92rem;">When this is on, every reservation made from then on gets the emails below, planned
+            the moment it is booked: a note that the trip is booked, reminders before the deposit and the final payment, a nudge about travel
+            documents, online check-in, bon voyage, and a welcome home. Reservations that already exist are never written to. An advisor can skip
+            any one email, or all of them, on the reservation. A client who unsubscribes is never sent another.</p>
+          <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">
+            <button class="btn btn-primary" id="toggle" type="button"></button>
+            <span class="muted" id="said"></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="words-card" style="margin-top:1.25rem;" hidden>
+        <div class="card-head"><h2>What each one says</h2></div>
+        <div class="card-pad">
+          <p class="muted" style="margin:0 0 .8rem;font-size:.92rem;">One set of words for the whole agency. Put these in curly brackets and each client sees their own:
+            <span id="vars"></span>. A paragraph that mentions something a reservation does not have, like a confirmation number nobody has typed yet, is left out.
+            Leave a blank line between paragraphs.</p>
+          <div id="kinds"></div>
+          <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-top:1rem;">
+            <button class="btn btn-primary" id="save" type="button">Save the wording</button>
+            <span class="muted" id="saved"></span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api, mountShell, esc, showError } from '/js/app.js';
+await mountShell({ admin: true });
+
+const err = document.getElementById('err');
+const said = document.getElementById('said');
+let data = null;
+
+function drawSwitch() {
+  document.getElementById('status').innerHTML = data.on
+    ? '<span class="badge badge-green">On</span> New reservations get these emails.'
+    : '<span class="badge badge-amber">Off</span> No client is sent any of these.';
+  const t = document.getElementById('toggle');
+  t.textContent = data.on ? 'Switch the emails off' : 'Switch the emails on, for new reservations';
+  t.className = data.on ? 'btn btn-ghost' : 'btn btn-primary';
+  document.getElementById('switch-card').hidden = false;
+}
+
+function drawKinds() {
+  document.getElementById('vars').innerHTML = data.variables
+    .map((v) => `<code title="${esc(v.what)}">{${esc(v.name)}}</code>`).join(', ');
+  document.getElementById('kinds').innerHTML = data.kinds.map((k) => `
+    <details class="kind" data-kind="${esc(k.kind)}" style="border:1px solid var(--navy-100);border-radius:10px;padding:.7rem 1rem;margin-bottom:.6rem;">
+      <summary style="cursor:pointer;font-weight:600;">${esc(k.label)}
+        <span class="muted" style="font-weight:400;font-size:.88rem;"> &middot; ${esc(k.when)}${k.sent30 ? ` &middot; ${k.sent30} sent in the last 30 days` : ''}</span>
+        ${k.custom ? '<span class="badge badge-navy" style="margin-left:.4rem;">Your wording</span>' : ''}</summary>
+      <div class="field" style="margin-top:.8rem;"><label>Subject line</label>
+        <input type="text" class="k-subject" maxlength="160" value="${esc(k.subject)}" style="width:100%;"></div>
+      <div class="field"><label>Message</label>
+        <textarea class="k-body" rows="11" maxlength="4000" style="width:100%;">${esc(k.body)}</textarea></div>
+      <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
+        <button class="btn btn-ghost btn-sm k-preview" type="button">See how it reads</button>
+        <button class="btn btn-ghost btn-sm k-test" type="button">Email me a test</button>
+        <button class="btn btn-ghost btn-sm k-reset" type="button">Go back to the built-in wording</button>
+        <span class="muted k-msg" style="font-size:.85rem;"></span>
+      </div>
+      <div class="k-prev" style="display:none;border:1px solid var(--navy-100);border-radius:10px;padding:1rem 1.2rem;margin-top:.8rem;max-width:40rem;"></div>
+    </details>`).join('');
+
+  document.querySelectorAll('.kind').forEach((el) => {
+    const k = data.kinds.find((x) => x.kind === el.dataset.kind);
+    const msg = el.querySelector('.k-msg');
+    const prev = el.querySelector('.k-prev');
+    const fields = () => ({ kind: k.kind, subject: el.querySelector('.k-subject').value, body: el.querySelector('.k-body').value });
+    const show = (r) => {
+      prev.style.display = 'block';
+      prev.innerHTML = `<p style="margin:0 0 .6rem;"><strong>${esc(r.subject)}</strong></p>`
+        + r.paragraphs.map((p) => `<p style="margin:0 0 .7rem;">${esc(p).split('\n').join('<br>')}</p>`).join('');
+    };
+    el.querySelector('.k-preview').addEventListener('click', async () => {
+      msg.textContent = '';
+      try { show(await api('/api/trip-emails/test', { method: 'POST', body: fields() })); }
+      catch (e) { msg.textContent = e.message || 'That could not be shown.'; }
+    });
+    el.querySelector('.k-test').addEventListener('click', async () => {
+      msg.textContent = 'Sending...';
+      try {
+        const r = await api('/api/trip-emails/test', { method: 'POST', body: { ...fields(), send: true } });
+        show(r);
+        msg.textContent = `Sent to ${r.sentTo}.`;
+      } catch (e) { msg.textContent = e.message || 'That did not send.'; }
+    });
+    el.querySelector('.k-reset').addEventListener('click', () => {
+      el.querySelector('.k-subject').value = k.defaultSubject;
+      el.querySelector('.k-body').value = k.defaultBody;
+      msg.textContent = 'Back to the built-in wording. Press Save the wording to keep it.';
+    });
+  });
+  document.getElementById('words-card').hidden = false;
+}
+
+document.getElementById('toggle').addEventListener('click', async () => {
+  if (!data.on && !confirm('Switch the emails on? From now on, every new reservation gets them. Reservations that already exist are not touched.')) return;
+  said.textContent = 'Saving...';
+  try {
+    data = await api('/api/trip-emails/settings', { method: 'PUT', body: { on: !data.on } });
+    drawSwitch();
+    said.textContent = data.on ? 'On.' : 'Off.';
+  } catch (e) { said.textContent = ''; showError(err, e); }
+});
+
+document.getElementById('save').addEventListener('click', async () => {
+  const wording = {};
+  document.querySelectorAll('.kind').forEach((el) => {
+    wording[el.dataset.kind] = { subject: el.querySelector('.k-subject').value, body: el.querySelector('.k-body').value };
+  });
+  const saved = document.getElementById('saved');
+  saved.textContent = 'Saving...';
+  try {
+    data = await api('/api/trip-emails/settings', { method: 'PUT', body: { wording } });
+    drawKinds();
+    saved.textContent = 'Saved.';
+  } catch (e) { saved.textContent = e.message || 'That did not save.'; }
+});
+
+try {
+  data = await api('/api/trip-emails/settings');
+  drawSwitch();
+  drawKinds();
+} catch (e) { showError(err, e); }
+</script>
+</body>
+</html>

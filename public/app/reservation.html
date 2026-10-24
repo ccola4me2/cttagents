@@ -111,6 +111,11 @@
               <span id="amenity-actions"></span></div>
             <div id="amenities"></div>
           </section>
+          <section class="card" style="margin-top:1.5rem;" id="tripemails-card" hidden>
+            <div class="card-head" id="sec-tripemails"><h2>Emails going out on this trip</h2>
+              <span id="tripemails-state"></span></div>
+            <div id="tripemails" class="card-pad"></div>
+          </section>
           <section class="card" style="margin-top:1.5rem;" id="waiver-card" hidden>
             <div class="card-head" id="sec-waiver"><h2>Travel insurance waiver</h2>
               <span id="waiver-state"></span></div>
@@ -577,6 +582,50 @@ function drawWaiver() {
       send.disabled = false;
     }
   });
+}
+
+/**
+ * The emails the client gets on their own for this reservation, with the day each goes. Any one can be skipped, or
+ * all of them switched off. Shown only where the owner has switched the automatic emails on for the agency.
+ */
+async function drawTripEmails() {
+  const card = document.getElementById('tripemails-card');
+  let t;
+  try { t = await api(`/api/bookings/${encodeURIComponent(id)}/trip-emails`); } catch { card.hidden = true; return; }
+  card.hidden = !t.on;
+  if (!t.on) return;
+  const state = document.getElementById('tripemails-state');
+  const host = document.getElementById('tripemails');
+  const BADGE = { scheduled: 'badge-navy', sent: 'badge-green', skipped: '', expired: '', not_needed: '', failed: 'badge-amber' };
+  state.innerHTML = t.emailsOff ? '<span class="badge badge-amber">Off for this trip</span>' : '';
+
+  const rows = t.items.map((i) => `<tr>
+      <td style="white-space:nowrap;">${esc(dateFmt(i.dueOn))}</td>
+      <td>${esc(i.label)}${i.note ? `<div class="muted" style="font-size:.82rem;">${esc(i.note)}</div>` : ''}</td>
+      <td><span class="badge ${BADGE[i.status] || ''}">${esc(i.statusLabel)}</span></td>
+      <td style="text-align:right;">${d.editable && i.canSkip ? `<button class="btn btn-ghost btn-sm te-skip" data-kind="${esc(i.kind)}">Skip</button>` : ''}${
+  d.editable && i.canRestore ? `<button class="btn btn-ghost btn-sm te-restore" data-kind="${esc(i.kind)}">Put back</button>` : ''}</td>
+    </tr>`).join('');
+
+  host.innerHTML = `
+    ${t.reason ? `<p class="muted" style="margin:0 0 .7rem;">${esc(t.reason)}</p>` : `
+    <p class="muted" style="margin:0 0 .7rem;">These go to ${t.clientEmail ? esc(t.clientEmail) : 'the client, once they have an email address on file'},
+      in your name, on the days shown. Nothing to do: it all happens on its own.</p>
+    <div class="table-wrap"><table><tbody>${rows}</tbody></table></div>`}
+    ${d.editable ? `<div style="margin-top:.8rem;">
+      <button class="btn btn-ghost btn-sm" id="te-off">${t.emailsOff ? 'Turn the emails back on for this trip' : 'Do not send any of these for this trip'}</button>
+      <span class="muted" id="te-said" style="font-size:.85rem;margin-left:.5rem;"></span></div>` : ''}`;
+
+  const put = async (body) => {
+    try {
+      await api(`/api/bookings/${encodeURIComponent(id)}/trip-emails`, { method: 'PUT', body });
+      await drawTripEmails();
+    } catch (e) { document.getElementById('te-said').textContent = e.message || 'That did not save.'; }
+  };
+  host.querySelectorAll('.te-skip').forEach((b) => b.addEventListener('click', () => put({ skip: b.dataset.kind })));
+  host.querySelectorAll('.te-restore').forEach((b) => b.addEventListener('click', () => put({ restore: b.dataset.kind })));
+  const off = document.getElementById('te-off');
+  if (off) off.addEventListener('click', () => put({ emailsOff: !t.emailsOff }));
 }
 
 function drawShare() {
@@ -2375,6 +2424,7 @@ function render() {
   drawComponents();
   drawOptions();
   drawWaiver();
+  drawTripEmails();
   drawShare();
   drawDocuments();
   drawPenalty();

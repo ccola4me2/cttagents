@@ -881,7 +881,7 @@ export const BOOKING_CHILDREN = [
   'travellers', 'booking_pricing', 'booking_payments', 'amenities',
   'penalty_tiers', 'quote_options', 'components', 'documents',
   'itinerary_items', 'tasks', 'trip_messages', 'trip_views', 'reviews',
-  'client_credits', 'commission_receipts', 'group_registrations', 'insurance_waivers',
+  'client_credits', 'commission_receipts', 'group_registrations', 'insurance_waivers', 'trip_emails',
 ];
 
 /**
