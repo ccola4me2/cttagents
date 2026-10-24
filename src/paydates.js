@@ -65,7 +65,7 @@ export function payDatesFrom(fromIso, count = 8) {
 }
 
 /** How long before sailing a commission is safe from being taken back, and so when it is paid out. */
-export const HOLD_DAYS = 30;
+const HOLD_DAYS = 30;
 
 /** A day some days before another. */
 function daysBefore(iso, days) {
