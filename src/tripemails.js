@@ -230,7 +230,7 @@ function startingState(entry, today, advisorReminds) {
   return { status: 'scheduled', note: null };
 }
 
-const IN_SCOPE = `a.trip_emails_since IS NOT NULL AND b.created_at >= a.trip_emails_since AND b.emails_off = 0
+const IN_SCOPE = `a.trip_emails_since IS NOT NULL AND b.created_at > a.trip_emails_since AND b.emails_off = 0
         AND b.status IN ('booked', 'travelled') AND (b.return_date IS NULL OR b.return_date >= ?)`;
 
 /**
@@ -505,7 +505,7 @@ async function shapeForBooking(env, owner, booking) {
     base.reason = 'Automatic client emails are switched off for your agency. Your owner can switch them on.';
     return base;
   }
-  if (booking.created_at < since) {
+  if (booking.created_at <= since) {
     base.reason = 'The automatic emails were switched on after this reservation was made, so none go out for it.';
     return base;
   }

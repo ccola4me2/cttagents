@@ -56,30 +56,38 @@ Guest 1: COLE/DEBORAH"></textarea>
         </div>
         <div id="conf-result" hidden>
           <div class="card-pad" style="border-top:1px solid var(--navy-100);">
-            <p class="label" style="margin:0 0 .6rem;">What it read</p>
-            <div id="conf-fields"></div>
-            <p class="field-hint" id="conf-missing" style="margin:.8rem 0 0;"></p>
-          </div>
-          <div class="card-pad" id="conf-pricing" style="border-top:1px solid var(--navy-100);" hidden></div>
-          <div class="card-pad" id="conf-penalties" style="border-top:1px solid var(--navy-100);" hidden>
-            <p class="label" style="margin:0 0 .4rem;">What cancelling costs</p>
-            <p class="field-hint" id="conf-pen-note" style="margin:0 0 .6rem;"></p>
-            <div id="conf-pen-rows"></div>
-            <button class="btn btn-ghost btn-sm" type="button" id="conf-pen-add" style="margin:.4rem 0 .8rem;">Add a row</button>
-            <label style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:0 0 .4rem;">
-              <input type="checkbox" id="conf-pen-save" checked style="margin-top:.25rem;">
-              <span>Save these as this reservation's cancellation terms.</span></label>
-            <label style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:0;">
-              <input type="checkbox" id="conf-pen-tasks" checked style="margin-top:.25rem;">
-              <span>Put the deposit, the final payment and each cancellation date on my task list.</span></label>
-          </div>
-          <div class="card-foot">
-            <label id="conf-keep-row" hidden style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:0 0 .8rem;">
-              <input type="checkbox" id="conf-keep" checked style="margin-top:.25rem;">
-              <span>Keep this PDF on the reservation, as the agency's copy. It is not shown to the client and is not attached to emails unless you share it.</span></label>
-            <button class="btn btn-primary" type="button" id="conf-create">Create the reservation</button>
+            <p class="label" id="conf-ready" style="margin:0 0 .4rem;">Ready to make this reservation</p>
+            <p id="conf-summary" style="margin:0 0 .5rem;font-size:1.05rem;"></p>
+            <p class="field-hint" id="conf-will" style="margin:0 0 1rem;"></p>
+            <button class="btn btn-primary" type="button" id="conf-create" style="font-size:1.05rem;padding:.8rem 1.8rem;">Create the reservation</button>
             <div class="notice notice-error" id="conf-create-error" role="alert" hidden style="margin-top:.8rem;"></div>
           </div>
+          <details id="conf-details" style="border-top:1px solid var(--navy-100);">
+            <summary class="card-pad" style="cursor:pointer;font-weight:600;">Check the details</summary>
+            <div class="card-pad" style="border-top:1px solid var(--navy-100);">
+              <p class="label" style="margin:0 0 .6rem;">What it read</p>
+              <div id="conf-fields"></div>
+              <p class="field-hint" id="conf-missing" style="margin:.8rem 0 0;"></p>
+            </div>
+            <div class="card-pad" id="conf-pricing" style="border-top:1px solid var(--navy-100);" hidden></div>
+            <div class="card-pad" id="conf-penalties" style="border-top:1px solid var(--navy-100);" hidden>
+              <p class="label" style="margin:0 0 .4rem;">What cancelling costs</p>
+              <p class="field-hint" id="conf-pen-note" style="margin:0 0 .6rem;"></p>
+              <div id="conf-pen-rows"></div>
+              <button class="btn btn-ghost btn-sm" type="button" id="conf-pen-add" style="margin:.4rem 0 .8rem;">Add a row</button>
+              <label style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:0 0 .4rem;">
+                <input type="checkbox" id="conf-pen-save" checked style="margin-top:.25rem;">
+                <span>Save these as this reservation's cancellation terms.</span></label>
+              <label style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:0;">
+                <input type="checkbox" id="conf-pen-tasks" checked style="margin-top:.25rem;">
+                <span>Put the deposit, the final payment and each cancellation date on my task list.</span></label>
+            </div>
+            <div class="card-foot">
+              <label id="conf-keep-row" hidden style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:0;">
+                <input type="checkbox" id="conf-keep" checked style="margin-top:.25rem;">
+                <span>Keep this PDF on the reservation, as the agency's copy. It is not shown to the client and is not attached to emails unless you share it.</span></label>
+            </div>
+          </details>
         </div>
       </section>
 
@@ -486,8 +494,43 @@ document.getElementById('conf-read').addEventListener('click', async () => {
     ? `Nothing found for: ${gaps.join(', ')}.`
     : 'Every field was found. Check them anyway.';
   document.getElementById('conf-keep-row').hidden = !confFile;
+  drawSummary(read);
   confResult.hidden = false;
 });
+
+/**
+ * The one line a person needs before pressing the button: who, what, when, how much, and what will be done for
+ * them. The rest of what was read is behind "Check the details" and opens by itself when something needed is missing.
+ */
+function drawSummary(read) {
+  const f = read.fields;
+  const sum = [];
+  if (f.clientName) sum.push(`<strong>${esc(f.clientName)}</strong>`);
+  const what = [f.productName, f.supplier].filter(Boolean).join(' on ');
+  if (what) sum.push(esc(what));
+  if (f.departDate) sum.push(`${esc(showDate(String(f.departDate)))}${f.returnDate ? ` to ${esc(showDate(String(f.returnDate)))}` : ''}`);
+  if (f.travellers) sum.push(`${esc(String(f.travellers))} ${Number(f.travellers) === 1 ? 'guest' : 'guests'}`);
+  if (f.gross) sum.push(`$${Number(String(f.gross).replace(/[^0-9.]/g, '') || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+  document.getElementById('conf-summary').innerHTML = sum.join(' &middot; ') || 'Nothing could be read from that.';
+
+  const will = ['file the guests as clients'];
+  if (f.paid) will.push('record what has been paid');
+  if (confFile) will.push('keep the PDF');
+  will.push((read.penalties || []).length ? 'work out the cancellation dates' : 'set up the deposit and final payment');
+  will.push('put the dates on your task list');
+  document.getElementById('conf-will').textContent = `One press will ${will.join(', ').replace(/, ([^,]*)$/, ' and $1')}.`;
+
+  const missing = [];
+  if (!f.clientName) missing.push('the client');
+  if (!f.departDate) missing.push('the departure date');
+  if (!f.gross) missing.push('the trip total');
+  if (cents(f.deposit) > 0 && !f.depositRefundable) missing.push('whether the deposit is refundable');
+  const details = document.getElementById('conf-details');
+  details.open = missing.length > 0;
+  document.getElementById('conf-ready').textContent = missing.length
+    ? `Almost ready: still needed is ${missing.join(' and ')}`
+    : 'Ready to make this reservation';
+}
 
 /**
  * What the client has already paid goes onto the reservation as payments made.
@@ -641,18 +684,18 @@ document.getElementById('conf-create').addEventListener('click', async () => {
   });
   if (bad.length) {
     createErr.textContent = `${bad.join(' and ')} ${bad.length === 1 ? 'is' : 'are'} not a date I can read. Write it like 05/12/2028.`;
-    { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+    { document.getElementById('conf-details').open = true; createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
     return;
   }
   if (lastRead && lastRead.fields && lastRead.fields.productType) body.productType = lastRead.fields.productType;
   if (cents(body.deposit) > 0 && !body.depositRefundable) {
     createErr.textContent = 'Choose whether the deposit is refundable or non refundable.';
-    { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+    { document.getElementById('conf-details').open = true; createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
     return;
   }
   if (!body.clientName) {
     createErr.textContent = 'A reservation needs a client name.';
-    { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+    { document.getElementById('conf-details').open = true; createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
     return;
   }
   const splitByGuest = document.querySelectorAll('[data-gname]').length > 1;
@@ -660,13 +703,13 @@ document.getElementById('conf-create').addEventListener('click', async () => {
   if (splitByGuest && [...document.querySelectorAll('[data-price]')].some((el) => cents(el.value) > 0)
     && people.some((g) => !g.name)) {
     createErr.textContent = 'Type each guest\'s name, so the price can be put against the right person.';
-    { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+    { document.getElementById('conf-details').open = true; createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
     return;
   }
   const hasLines = [...document.querySelectorAll('[data-price]')].some((el) => cents(el.value) > 0);
   if (hasLines && !checkPricing()) {
     createErr.textContent = 'The pricing lines do not add up to the trip total. Correct one of them, or clear the pricing boxes to leave Pricing empty.';
-    { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+    { document.getElementById('conf-details').open = true; createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
     return;
   }
   // A name that is not on the books is asked about before the reservation is made.
@@ -749,7 +792,7 @@ document.getElementById('conf-create').addEventListener('click', async () => {
     // A confirmation that was waiting in the inbox stops waiting once it is a reservation.
     if (inboxId) { try { await api(`/api/inbox/${encodeURIComponent(inboxId)}/done`, { method: 'POST', body: {} }); } catch { /* it ages out */ } }
     location.href = `/app/reservation?id=${encodeURIComponent(res.booking.id)}`;
-  } catch (e) { createErr.textContent = e.message; { createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); } btn.disabled = false; }
+  } catch (e) { createErr.textContent = e.message; { document.getElementById('conf-details').open = true; createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); } btn.disabled = false; }
 });
 
 
