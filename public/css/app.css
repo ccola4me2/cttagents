@@ -1687,4 +1687,4 @@ code { overflow-wrap: anywhere; }
   font-size: .86rem; font-weight: 550;
 }
 .new-menu a:hover { background: var(--navy-50); color: var(--navy-800); }
-@media (max-width: 860px) { .sidebar .nav-new { width: auto; margin-bottom: 0; } .new-menu { right: auto; } }
+@media (max-width: 860px) { .sidebar .nav-new { width: auto; margin-bottom: 0; } .new-menu { left: auto; right: 0; } }
