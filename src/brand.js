@@ -16,7 +16,7 @@ export const AGENCY_COLUMNS = `
   -- The one agency whose members use the Group Desk.
   is_desk,
   -- When its owner switched the automatic client emails on, or null while they are off.
-  trip_emails_since
+  trip_emails_since, trip_emails_cc
 `;
 
 /**

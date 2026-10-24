@@ -472,7 +472,7 @@ export async function sendDueTripEmails(env, { at = now(), limit = 40 } = {}) {
             b.status, b.product_name, b.supplier, b.destination, b.client_name, b.client_id,
             b.confirmation_number, b.depart_date, b.return_date,
             u.first_name, u.last_name, u.email AS advisor_email, u.notify_email, u.agency_id, u.agency_name,
-            u.phone AS advisor_phone
+            u.phone AS advisor_phone, a.trip_emails_cc AS cc
        FROM trip_emails te
        JOIN bookings b ON b.id = te.booking_id
        JOIN users u ON u.id = te.user_id
@@ -530,6 +530,8 @@ export async function sendDueTripEmails(env, { at = now(), limit = 40 } = {}) {
       await sendHtml(env, {
         to,
         replyTo: row.notify_email || row.advisor_email,
+        // The advisor sees exactly what their client was sent, unless the owner has switched that off.
+        bcc: row.cc ? (row.notify_email || row.advisor_email) : '',
         subject: msg.subject,
         html: msg.html,
         unsubscribe: { agencyId: row.agency_id || null, agencyName: row.agency_name || '' },
@@ -689,6 +691,8 @@ const SAMPLE = {
 
 async function settingsFor(env, user) {
   const since = await agencySwitch(env, user.agency_id);
+  const ccRow = await env.DB.prepare('SELECT trip_emails_cc FROM agencies WHERE id = ?').bind(user.agency_id).first().catch(() => null);
+  const cc = ccRow ? Number(ccRow.trip_emails_cc) : 1;
   const wording = await wordingFor(env, user.agency_id);
   const thirty = now() - 30 * 86400;
   const sent = await env.DB.prepare(
@@ -715,7 +719,7 @@ async function settingsFor(env, user) {
       label: BY_KIND.get(r.kind).label, status: r.status, at: r.sent_at || r.at, note: r.note || '',
       bookingId: r.booking_id, client: r.client_name || '', advisor: r.advisor || '',
     })),
-    on: Boolean(since), since,
+    on: Boolean(since), since, cc: cc !== 0,
     variables: VARIABLES.map(([name, what]) => ({ name, what })),
     kinds: ALL_KINDS.map((k) => {
       const w = wording.get(k.kind);
@@ -775,6 +779,12 @@ export async function handleSaveTripEmailSettings(request, env) {
     }
     if (writes.length) await env.DB.batch(writes);
     await db.logActivity(env, user.id, 'tripemails.wording', 'Changed the wording of the automatic client emails');
+  }
+
+  if (typeof body.cc === 'boolean') {
+    await env.DB.prepare('UPDATE agencies SET trip_emails_cc = ?, updated_at = ? WHERE id = ?')
+      .bind(body.cc ? 1 : 0, ts, user.agency_id).run();
+    await db.logActivity(env, user.id, 'tripemails.cc', body.cc ? 'Switched on copies to advisors' : 'Switched off copies to advisors');
   }
 
   if (typeof body.on === 'boolean') {

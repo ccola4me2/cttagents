@@ -8737,6 +8737,11 @@ async function main() {
     check((reset.data?.kinds || []).find((k) => k.kind === 'home_1')?.custom === false,
       'and putting the built-in wording back removes theirs');
 
+    check(start.data?.cc === true, 'advisors are copied on what their clients are sent unless an owner says not', JSON.stringify(start.data?.cc));
+    const ccOff = await call(admin, 'PUT', '/api/trip-emails/settings', { cc: false });
+    check(ccOff.status === 200 && ccOff.data?.cc === false, 'an owner can switch the copies off', `status ${ccOff.status}`);
+    const ccOn = await call(admin, 'PUT', '/api/trip-emails/settings', { cc: true });
+    check(ccOn.data?.cc === true, 'and back on');
     const on = await call(admin, 'PUT', '/api/trip-emails/settings', { on: true });
     check(on.status === 200 && on.data?.on === true, 'the owner switches them on', `status ${on.status}`);
     const stillOff = await call(advisor, 'GET', `/api/bookings/${beforeId}/trip-emails`);

@@ -29,6 +29,9 @@
             <button class="btn btn-primary" id="toggle" type="button"></button>
             <span class="muted" id="said"></span>
           </div>
+          <label style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:1rem 0 0;">
+            <input type="checkbox" id="cc" style="margin-top:.25rem;">
+            <span>Send each advisor a copy of every email their clients are sent. They see exactly what went, in their own inbox. Worth keeping on for the first few weeks.</span></label>
         </div>
       </section>
 
@@ -62,6 +65,7 @@ const said = document.getElementById('said');
 let data = null;
 
 function drawSwitch() {
+  document.getElementById('cc').checked = data.cc !== false;
   document.getElementById('status').innerHTML = data.on
     ? '<span class="badge badge-green">On</span> New reservations get these emails.'
     : '<span class="badge badge-amber">Off</span> No client is sent any of these.';
@@ -139,6 +143,14 @@ function drawRecent() {
     : `<span class="badge badge-red">Could not send</span><div class="muted" style="font-size:.82rem;">${esc(r.note)}</div>`}</td>
     </tr>`).join('')}</tbody></table></div>`;
 }
+
+document.getElementById('cc').addEventListener('change', async (e) => {
+  said.textContent = 'Saving...';
+  try {
+    data = await api('/api/trip-emails/settings', { method: 'PUT', body: { cc: e.target.checked } });
+    said.textContent = data.cc ? 'Advisors will be copied.' : 'Advisors will not be copied.';
+  } catch (ex) { said.textContent = ''; showError(err, ex); e.target.checked = !e.target.checked; }
+});
 
 document.getElementById('toggle').addEventListener('click', async () => {
   if (!data.on && !confirm('Switch the emails on? From now on, every new reservation gets them. Reservations that already exist are not touched.')) return;

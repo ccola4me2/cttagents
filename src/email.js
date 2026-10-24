@@ -1153,7 +1153,7 @@ export async function messageAsSent(env, { to, replyTo, subject, html, unsubscri
  * PermanentError as not. A missing API key and a rejected address will fail
  * exactly the same way on the tenth attempt as the first.
  */
-export async function sendHtml(env, { to, replyTo, subject, html, unsubscribe, attachments = [] }) {
+export async function sendHtml(env, { to, replyTo, subject, html, unsubscribe, attachments = [], bcc = '' }) {
   if (!env.RESEND_API_KEY) {
     throw new PermanentError('Email is not configured: the RESEND_API_KEY secret is not set on the Worker.');
   }
@@ -1168,6 +1168,8 @@ export async function sendHtml(env, { to, replyTo, subject, html, unsubscribe, a
     body: JSON.stringify({
       from: m.from,
       to: [to],
+      // A silent copy, for an advisor who wants to see exactly what their client was sent.
+      ...(bcc && bcc.toLowerCase() !== String(to).toLowerCase() ? { bcc: [bcc] } : {}),
       ...(replyTo ? { reply_to: [replyTo] } : {}),
       ...(m.headers ? { headers: m.headers } : {}),
       subject,
