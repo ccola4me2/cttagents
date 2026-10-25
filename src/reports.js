@@ -490,6 +490,19 @@ async function noticesFor(env, user, scope) {
         href: '/admin/tax', label: 'Open Tax and 1099',
       });
     }
+    // Client emails held for the owner to read, when the agency has asked to read them first.
+    const heldN = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM trip_emails te
+        WHERE te.status = 'held' AND te.user_id IN (SELECT id FROM users WHERE agency_id = ?)`
+    ).bind(user.agency_id).first().catch(() => null);
+    if (heldN && heldN.n) {
+      out.push({
+        tone: 'warn',
+        title: heldN.n + (heldN.n === 1 ? ' client email is' : ' client emails are') + ' waiting for you to read',
+        detail: 'You asked to read each one before it goes. Nothing is sent to the client until you press Send.',
+        href: '/admin/client-emails', label: 'Read them',
+      });
+    }
     const failing = await env.DB.prepare(
       `SELECT name, last_error FROM cron_jobs WHERE last_error IS NOT NULL AND last_run_at > ?
         ORDER BY last_run_at DESC LIMIT 5`

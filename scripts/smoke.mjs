@@ -8744,6 +8744,17 @@ async function main() {
     check(ccOff.status === 200 && ccOff.data?.cc === false, 'an owner can switch the copies off', `status ${ccOff.status}`);
     const ccOn = await call(admin, 'PUT', '/api/trip-emails/settings', { cc: true });
     check(ccOn.data?.cc === true, 'and back on');
+    check(start.data?.review === false && Array.isArray(start.data?.held), 'an owner reads nothing first unless they ask to', JSON.stringify(start.data?.review));
+    const revOn = await call(admin, 'PUT', '/api/trip-emails/settings', { review: true });
+    check(revOn.status === 200 && revOn.data?.review === true, 'an owner can ask to read each email before it goes', `status ${revOn.status}`);
+    const revOff = await call(admin, 'PUT', '/api/trip-emails/settings', { review: false });
+    check(revOff.data?.review === false, 'and stop asking');
+    const advHeld = await call(advisor, 'POST', '/api/trip-emails/held/none', { action: 'send' });
+    check(advHeld.status === 403, 'an advisor cannot approve a held email', `status ${advHeld.status}`);
+    const noHeld = await call(admin, 'POST', '/api/trip-emails/held/none', { action: 'send' });
+    check(noHeld.status === 404, 'an email that is not waiting is not found', `status ${noHeld.status}`);
+    const badHeld = await call(admin, 'POST', '/api/trip-emails/held/none', { action: 'burn' });
+    check(badHeld.status === 400, 'and an action that does not exist is refused', `status ${badHeld.status}`);
     const on = await call(admin, 'PUT', '/api/trip-emails/settings', { on: true });
     check(on.status === 200 && on.data?.on === true, 'the owner switches them on', `status ${on.status}`);
     const stillOff = await call(advisor, 'GET', `/api/bookings/${beforeId}/trip-emails`);

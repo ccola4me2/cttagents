@@ -273,7 +273,7 @@ import { handleTaxList, handleTaxSave } from './advisortax.js';
 import { handleGetWaiverWording, handleSaveWaiverWording, handleResetWaiverWording } from './waiverwording.js';
 import {
   handleGetBookingTripEmails, handleSaveBookingTripEmails, handleGetTripEmailSettings, handleSaveTripEmailSettings,
-  handleTestTripEmail, runTripEmails, handlePreviewBookingTripEmail,
+  handleTestTripEmail, runTripEmails, handlePreviewBookingTripEmail, handleHeldTripEmail,
 } from './tripemails.js';
 import { handleSaveWording, handleClearWording } from './wording.js';
 import { isGroupHost, serveGroupHost, serveSlug, redirectForCode } from './grouphost.js';
@@ -919,6 +919,7 @@ async function routeApi(request, env, path, method) {
   const receiptMatch = path.match(/^\/api\/commissions\/receipts\/([^/]+)$/);
   const payoutMatch = path.match(/^\/api\/payouts\/([^/]+)$/);
   const checkMatch = path.match(/^\/api\/commission-checks\/([^/]+)$/);
+  const heldEmailMatch = path.match(/^\/api\/trip-emails\/held\/([^/]+)$/);
   const checkDepositMatch = path.match(/^\/api\/commission-checks\/([^/]+)\/deposit$/);
   const checkLineMatch = path.match(/^\/api\/commission-checks\/([^/]+)\/lines$/);
   const payDateMatch = path.match(/^\/api\/commissions\/receipts\/([^/]+)\/pay-date$/);
@@ -1385,6 +1386,7 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/trip-emails/settings' && method === 'GET') return handleGetTripEmailSettings(request, env);
   if (path === '/api/trip-emails/settings' && method === 'PUT') return handleSaveTripEmailSettings(request, env);
   if (path === '/api/trip-emails/test' && method === 'POST') return handleTestTripEmail(request, env);
+  if (heldEmailMatch && method === 'POST') return handleHeldTripEmail(request, env, heldEmailMatch[1]);
   if (path === '/api/waiver-wording' && method === 'GET') return handleGetWaiverWording(request, env);
   if (path === '/api/waiver-wording' && method === 'PUT') return handleSaveWaiverWording(request, env);
   if (path === '/api/waiver-wording' && method === 'DELETE') return handleResetWaiverWording(request, env);

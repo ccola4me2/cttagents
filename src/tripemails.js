@@ -171,6 +171,7 @@ const PAYMENT_KINDS = new Set(['deposit_7', 'deposit_2', 'final_7', 'final_2']);
 const STATUS_LABEL = {
   scheduled: 'Will go out', sent: 'Sent', skipped: 'Skipped', expired: 'Too late, not sent',
   not_needed: 'Not needed', failed: 'Could not send',
+  held: 'Waiting for the owner to read it', approved: 'Approved, going out soon',
 };
 
 const isoDay = (secs) => new Date(secs * 1000).toISOString().slice(0, 10);
@@ -465,19 +466,20 @@ export async function sendDueTripEmails(env, { at = now(), limit = 40 } = {}) {
   const today = isoDay(at);
   const hour = new Date(at * 1000).getUTCHours();
   const daytime = hour >= FIRST_HOUR && hour <= LAST_HOUR ? 1 : 0;
-  const out = { sent: 0, failed: 0, expired: 0, dropped: 0, waiting: 0, considered: 0 };
+  const out = { sent: 0, failed: 0, expired: 0, dropped: 0, waiting: 0, held: 0, considered: 0 };
 
   const { results } = await env.DB.prepare(
     `SELECT te.id, te.booking_id, te.user_id, te.kind, te.due_on,
             b.status, b.product_name, b.supplier, b.destination, b.client_name, b.client_id,
             b.confirmation_number, b.depart_date, b.return_date,
             u.first_name, u.last_name, u.email AS advisor_email, u.notify_email, u.agency_id, u.agency_name,
-            u.phone AS advisor_phone, a.trip_emails_cc AS cc
+            u.phone AS advisor_phone, a.trip_emails_cc AS cc, a.trip_emails_review AS review,
+            te.status AS email_status
        FROM trip_emails te
        JOIN bookings b ON b.id = te.booking_id
        JOIN users u ON u.id = te.user_id
        JOIN agencies a ON a.id = u.agency_id
-      WHERE te.status = 'scheduled' AND te.due_on <= ? AND a.trip_emails_since IS NOT NULL
+      WHERE te.status IN ('scheduled', 'approved') AND te.due_on <= ? AND a.trip_emails_since IS NOT NULL
         AND b.emails_off = 0 AND b.product_type IN (${TRIP_TYPE_SQL}) AND (te.kind = 'confirmed' OR ? = 1)
       ORDER BY te.due_on ASC LIMIT ?`
   ).bind(today, daytime, limit).all();
@@ -519,6 +521,13 @@ export async function sendDueTripEmails(env, { at = now(), limit = 40 } = {}) {
     if (await isSuppressed(env, row.agency_id, to)) {
       await settle(env, row, 'skipped', 'The client asked not to get automatic email.');
       out.dropped += 1;
+      continue;
+    }
+
+    // Held for review: the owner reads it first, and an approved one is sent without asking again.
+    if (row.review && row.email_status === 'scheduled') {
+      await settle(env, row, 'held', 'Waiting for the owner to read it.');
+      out.held += 1;
       continue;
     }
 
@@ -607,7 +616,7 @@ async function shapeForBooking(env, owner, booking) {
     .map((r) => ({
       kind: r.kind, label: BY_KIND.get(r.kind).label, dueOn: r.due_on, status: r.status,
       statusLabel: STATUS_LABEL[r.status] || r.status, sentAt: r.sent_at || null, note: r.note || '',
-      canSkip: r.status === 'scheduled', canRestore: r.status === 'skipped',
+      canSkip: r.status === 'scheduled' || r.status === 'held', canRestore: r.status === 'skipped',
     }));
   if (!base.items.length) base.reason = 'The emails for this reservation will be planned within a few minutes.';
   return base;
@@ -667,7 +676,7 @@ export async function handleSaveBookingTripEmails(request, env, bookingId) {
   if (body.skip && BY_KIND.has(body.skip)) {
     await env.DB.prepare(
       `UPDATE trip_emails SET status = 'skipped', note = 'You skipped this one.', updated_at = ?
-        WHERE booking_id = ? AND user_id = ? AND kind = ? AND status = 'scheduled'`
+        WHERE booking_id = ? AND user_id = ? AND kind = ? AND status IN ('scheduled', 'held')`
     ).bind(ts, bookingId, owner.id, body.skip).run();
   }
   if (body.restore && BY_KIND.has(body.restore)) {
@@ -693,6 +702,21 @@ async function settingsFor(env, user) {
   const since = await agencySwitch(env, user.agency_id);
   const ccRow = await env.DB.prepare('SELECT trip_emails_cc FROM agencies WHERE id = ?').bind(user.agency_id).first().catch(() => null);
   const cc = ccRow ? Number(ccRow.trip_emails_cc) : 1;
+  const reviewRow = await env.DB.prepare('SELECT trip_emails_review FROM agencies WHERE id = ?').bind(user.agency_id).first().catch(() => null);
+  const review = reviewRow ? Number(reviewRow.trip_emails_review) : 0;
+  const heldRows = await env.DB.prepare(
+    `SELECT te.id AS id, te.kind AS kind, te.due_on AS due_on, te.booking_id AS booking_id, b.client_name AS client_name,
+            COALESCE(NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), ''), u.email) AS advisor
+       FROM trip_emails te
+       JOIN bookings b ON b.id = te.booking_id
+       JOIN users u ON u.id = te.user_id
+      WHERE u.agency_id = ? AND te.status = 'held'
+      ORDER BY te.due_on ASC LIMIT 100`
+  ).bind(user.agency_id).all().catch(() => ({ results: [] }));
+  const held = (heldRows.results || []).filter((r) => BY_KIND.has(r.kind)).map((r) => ({
+    id: r.id, label: BY_KIND.get(r.kind).label, dueOn: r.due_on, bookingId: r.booking_id,
+    client: r.client_name || '', advisor: r.advisor || '',
+  }));
   const wording = await wordingFor(env, user.agency_id);
   const thirty = now() - 30 * 86400;
   const sent = await env.DB.prepare(
@@ -719,7 +743,7 @@ async function settingsFor(env, user) {
       label: BY_KIND.get(r.kind).label, status: r.status, at: r.sent_at || r.at, note: r.note || '',
       bookingId: r.booking_id, client: r.client_name || '', advisor: r.advisor || '',
     })),
-    on: Boolean(since), since, cc: cc !== 0,
+    on: Boolean(since), since, cc: cc !== 0, review: review !== 0, held,
     variables: VARIABLES.map(([name, what]) => ({ name, what })),
     kinds: ALL_KINDS.map((k) => {
       const w = wording.get(k.kind);
@@ -781,6 +805,13 @@ export async function handleSaveTripEmailSettings(request, env) {
     await db.logActivity(env, user.id, 'tripemails.wording', 'Changed the wording of the automatic client emails');
   }
 
+  if (typeof body.review === 'boolean') {
+    await env.DB.prepare('UPDATE agencies SET trip_emails_review = ?, updated_at = ? WHERE id = ?')
+      .bind(body.review ? 1 : 0, ts, user.agency_id).run();
+    await db.logActivity(env, user.id, 'tripemails.review',
+      body.review ? 'Switched on reading each client email before it goes' : 'Switched off reading each client email before it goes');
+  }
+
   if (typeof body.cc === 'boolean') {
     await env.DB.prepare('UPDATE agencies SET trip_emails_cc = ?, updated_at = ? WHERE id = ?')
       .bind(body.cc ? 1 : 0, ts, user.agency_id).run();
@@ -836,6 +867,54 @@ export async function handleTestTripEmail(request, env) {
     return json({ ok: true, sentTo: to, subject: msg.subject, paragraphs: msg.paragraphs });
   }
   return json({ ok: true, subject: msg.subject, paragraphs: msg.paragraphs });
+}
+
+/**
+ * POST /api/trip-emails/held/:id { action: 'preview' | 'send' | 'skip' } : an owner's. Reads one held email as the client
+ * would, lets it go, or drops it.
+ */
+export async function handleHeldTripEmail(request, env, id) {
+  const { user, response } = await requireAdmin(request, env);
+  if (response) return response;
+  if (!user.agency_id) return badRequest('This account is not part of an agency.');
+  const body = await readJson(request);
+  const action = body.action;
+  if (!['preview', 'send', 'skip'].includes(action)) return badRequest('Read it, send it, or skip it?');
+
+  if (action === 'preview') {
+    const row = await env.DB.prepare(
+      `SELECT te.id, te.booking_id, te.user_id, te.kind,
+              b.product_name, b.supplier, b.destination, b.client_name, b.client_id,
+              b.confirmation_number, b.depart_date, b.return_date,
+              u.first_name, u.last_name, u.email AS advisor_email, u.agency_id, u.agency_name, u.phone AS advisor_phone
+         FROM trip_emails te
+         JOIN bookings b ON b.id = te.booking_id
+         JOIN users u ON u.id = te.user_id
+        WHERE te.id = ? AND te.status = 'held' AND u.agency_id = ?`
+    ).bind(id, user.agency_id).first();
+    if (!row) return json({ error: 'That email is not waiting any more.' }, 404);
+    const client = row.client_id
+      ? await db.getClient(env, db.selfScope({ id: row.user_id }), { id: row.client_id }).catch(() => null)
+      : null;
+    const pay = PAYMENT_KINDS.has(row.kind) ? await openPayment(env, row) : null;
+    const wording = await wordingFor(env, user.agency_id);
+    const msg = await composeEmail(env, {
+      kind: row.kind, wording, vars: varsFor(row, client, isoDay(now()), pay), userId: row.user_id });
+    return json({ ok: true, subject: msg.subject, paragraphs: msg.paragraphs, to: (client && client.email) || '' });
+  }
+
+  const ts = now();
+  const res = action === 'send'
+    ? await env.DB.prepare(
+      `UPDATE trip_emails SET status = 'approved', due_on = ?, note = NULL, updated_at = ?
+        WHERE id = ? AND status = 'held' AND user_id IN (SELECT id FROM users WHERE agency_id = ?)`
+    ).bind(isoDay(ts), ts, id, user.agency_id).run()
+    : await env.DB.prepare(
+      `UPDATE trip_emails SET status = 'skipped', note = 'The owner chose not to send this one.', updated_at = ?
+        WHERE id = ? AND status = 'held' AND user_id IN (SELECT id FROM users WHERE agency_id = ?)`
+    ).bind(ts, id, user.agency_id).run();
+  if (!res.meta || res.meta.changes === 0) return json({ error: 'That email is not waiting any more.' }, 404);
+  return json({ ok: true, ...(await settingsFor(env, user)) });
 }
 
 /** A short personal note from an advisor to one person, in the agency's look, with the way out every email to a client has. */

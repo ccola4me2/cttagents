@@ -30,9 +30,20 @@
             <span class="muted" id="said"></span>
           </div>
           <label style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:1rem 0 0;">
+            <input type="checkbox" id="review" style="margin-top:.25rem;">
+            <span>Let me read each email before it goes. Each one waits here until you press Send. A good way to start: switch it on for the first week, then off once you trust the wording.</span></label>
+          <label style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:1rem 0 0;">
             <input type="checkbox" id="cc" style="margin-top:.25rem;">
             <span>Send each advisor a copy of every email their clients are sent. They see exactly what went, in their own inbox. Worth keeping on for the first few weeks.</span></label>
         </div>
+      </section>
+
+      <section class="card" id="held-card" style="margin-top:1.25rem;" hidden>
+        <div class="card-head"><h2>Waiting for your OK</h2></div>
+        <div class="card-pad" style="padding-bottom:0;">
+          <p class="muted" style="margin:0;font-size:.92rem;">These fell due while you are reading each email first. Nothing goes to a client until you press Send.
+            A sent one leaves within a few minutes, during the day.</p></div>
+        <div id="held"></div>
       </section>
 
       <section class="card" id="words-card" style="margin-top:1.25rem;" hidden>
@@ -66,6 +77,7 @@ let data = null;
 
 function drawSwitch() {
   document.getElementById('cc').checked = data.cc !== false;
+  document.getElementById('review').checked = Boolean(data.review);
   document.getElementById('status').innerHTML = data.on
     ? '<span class="badge badge-green">On</span> New reservations get these emails.'
     : '<span class="badge badge-amber">Off</span> No client is sent any of these.';
@@ -144,6 +156,55 @@ function drawRecent() {
     </tr>`).join('')}</tbody></table></div>`;
 }
 
+function drawHeld() {
+  const rows = data.held || [];
+  document.getElementById('held-card').hidden = !rows.length;
+  if (!rows.length) return;
+  document.getElementById('held').innerHTML = `<div class="table-wrap"><table><thead><tr>
+    <th>Due</th><th>Email</th><th>Client</th><th>Advisor</th><th></th></tr></thead><tbody>${rows.map((r) => `<tr data-held="${esc(r.id)}">
+      <td>${esc(r.dueOn)}</td><td>${esc(r.label)}</td>
+      <td><a href="/app/reservation?id=${encodeURIComponent(r.bookingId)}">${esc(r.client || 'reservation')}</a></td>
+      <td>${esc(r.advisor)}</td>
+      <td class="num" style="white-space:nowrap;">
+        <button class="btn btn-ghost btn-sm" type="button" data-act="preview">Read it</button>
+        <button class="btn btn-primary btn-sm" type="button" data-act="send">Send</button>
+        <button class="btn btn-ghost btn-sm" type="button" data-act="skip">Skip</button></td>
+    </tr><tr class="sub" data-prev="${esc(r.id)}" hidden><td colspan="5"></td></tr>`).join('')}</tbody></table></div>`;
+}
+
+document.getElementById('held').addEventListener('click', async (e) => {
+  const b = e.target.closest('button[data-act]');
+  if (!b) return;
+  const id = b.closest('tr').dataset.held;
+  const act = b.dataset.act;
+  try {
+    const r = await api(`/api/trip-emails/held/${encodeURIComponent(id)}`, { method: 'POST', body: { action: act } });
+    if (act === 'preview') {
+      const row = document.querySelector(`tr[data-prev="${CSS.escape(id)}"]`);
+      row.hidden = !row.hidden;
+      if (row.hidden) return;
+      row.firstElementChild.innerHTML = `<div style="max-width:40rem;padding:.4rem 0;">
+        <p class="muted" style="margin:0 0 .4rem;font-size:.85rem;">To ${r.to ? esc(r.to) : 'no address yet'}</p>
+        <p style="margin:0 0 .6rem;"><strong>${esc(r.subject)}</strong></p>
+        ${r.paragraphs.map((p) => `<p style="margin:0 0 .7rem;">${esc(p).split('\n').join('<br>')}</p>`).join('')}</div>`;
+      return;
+    }
+    data = r;
+    drawHeld();
+    drawRecent();
+    said.textContent = act === 'send' ? 'Approved. It goes out within a few minutes.' : 'Skipped.';
+  } catch (ex) { showError(err, ex); }
+});
+
+document.getElementById('review').addEventListener('change', async (e) => {
+  said.textContent = 'Saving...';
+  try {
+    data = await api('/api/trip-emails/settings', { method: 'PUT', body: { review: e.target.checked } });
+    drawHeld();
+    said.textContent = data.review ? 'You will read each one first.' : 'Emails go out on their own again.';
+  } catch (ex) { said.textContent = ''; showError(err, ex); e.target.checked = !e.target.checked; }
+});
+
 document.getElementById('cc').addEventListener('change', async (e) => {
   said.textContent = 'Saving...';
   try {
@@ -180,6 +241,7 @@ document.getElementById('save').addEventListener('click', async () => {
 try {
   data = await api('/api/trip-emails/settings');
   drawSwitch();
+  drawHeld();
   drawKinds();
   drawRecent();
 } catch (e) { showError(err, e); }
