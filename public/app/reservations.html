@@ -276,7 +276,8 @@ async function load() {
     // Trips are a convenience on this page. If they cannot be read the list is
     // still worth showing, so a failure here is not allowed to blank it.
     try {
-      const t = await api('/api/trips');
+      const tp = advisorParam() ? `?advisor=${encodeURIComponent(new URLSearchParams(advisorParam()).get('advisor'))}` : '';
+      const t = await api(`/api/trips${tp}`);
       tripNames = new Map((t.trips || []).map((x) => [x.id, x.name]));
       drawTrips(t.trips || []);
     } catch { tripNames = new Map(); drawTrips([]); }
@@ -290,7 +291,9 @@ async function load() {
 // Adding a reservation is a page now, so the button is a link in the markup.
 
 /** The trips already made, so there is a way back into one. */
-function drawTrips(trips) {
+function drawTrips(all) {
+  // A trip with nothing left in it is not worth a link, so it is not listed.
+  const trips = all.filter((t) => t.parts > 0);
   document.getElementById('trips-strip').innerHTML = trips.length
     ? `<p class="muted" style="margin:.2rem 0 .8rem;">Trips: ${trips.map((t) => `<a class="badge badge-navy" href="/app/trip?id=${
       esc(t.id)}">${esc(t.name)} (${t.parts})</a>`).join(' ')}</p>`
