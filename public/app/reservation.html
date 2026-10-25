@@ -2450,7 +2450,17 @@ function render() {
               ${p.reminded_at ? `<div class="muted" style="font-size:.7rem;">chased ${
                 esc(timeAgo(p.reminded_at))}${p.reminder_count > 1 ? `, ${p.reminder_count} times` : ''}</div>` : ''}</td>
           </tr>`;
-        }).join('')}</tbody></table></div>${footAction}`
+        }).join('')}</tbody></table></div>${(() => {
+          // When more than one person is paying for the trip, who has paid how much.
+          const by = new Map();
+          for (const x of d.payments) {
+            if (!x.paid_date || !x.paid_by_name) continue;
+            by.set(x.paid_by_name, (by.get(x.paid_by_name) || 0) + (x.kind === 'refund' ? -x.amount_cents : x.amount_cents));
+          }
+          if (by.size < 2) return '';
+          return `<p class="muted" style="margin:.7rem 0 0;font-size:.88rem;"><strong>Paid so far, by person:</strong> ${
+            [...by.entries()].map(([n, c]) => `${esc(n)} ${money(c)}`).join(', ')}</p>`;
+        })()}${footAction}`
     : `<div class="empty"><h3>No schedule yet</h3>
         <p>Nothing will warn you about a payment that was never written down.</p>
         ${d.editable ? `<p style="margin-top:1rem;">
