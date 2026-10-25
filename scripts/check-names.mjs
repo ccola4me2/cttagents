@@ -61,6 +61,8 @@ const GLOBALS = new Set([
   'atob', 'TextEncoder', 'TextDecoder', 'matchMedia', 'getComputedStyle',
   'HTMLElement', 'Node', 'NodeList', 'DocumentFragment', 'Element', 'self',
   'performance', 'scrollTo', 'open', 'close', 'print', 'getSelection',
+  // CSS.escape, for building a selector out of an id somebody else chose.
+  'CSS', 'DOMException', 'AbortError', 'ClipboardItem', 'MediaQueryList',
   // Binary and parsing, which the vendor import and the push subscription use
   'ArrayBuffer', 'DataView', 'Uint8Array', 'Uint16Array', 'Uint32Array',
   'Int8Array', 'Int16Array', 'Int32Array', 'Float32Array', 'Float64Array',
