@@ -291,7 +291,10 @@ const PANELS = {
           <span class="badge ${s.done ? 'badge-green' : 'badge-navy'}">${s.done ? 'Done' : 'To do'}</span>
           ${s.done ? `<span class="name" style="margin-left:.4rem;opacity:.65;">${esc(s.label)}</span>`
     : `<a class="name" style="margin-left:.4rem;" href="${esc(s.href)}">${esc(s.label)}</a>`}
-          ${s.done ? '' : `<div class="muted">${esc(s.hint)}</div>`}</div></li>`).join('')}</ul>`;
+          ${s.done ? '' : `<div class="muted">${esc(s.hint)}</div>`}</div></li>`).join('')}</ul>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:.8rem;flex-wrap:wrap;padding:.7rem 1.25rem;">
+          <span class="muted" style="font-size:.85rem;">Not now? Hide it. Bring it back any time with Customise.</span>
+          <button class="btn btn-ghost btn-sm" type="button" data-hide-start>Hide for now</button></div>`;
     } },
   ], 'steps'),
 
@@ -958,6 +961,16 @@ function drawPanels() {
   }));
   // Delegated, because a widget redraws its body whenever a tab is clicked and
   // per checkbox listeners would be lost the first time that happened.
+  widgetsEl.querySelectorAll('[data-panel="start"]').forEach((panel) => {
+    panel.addEventListener('click', (e) => {
+      if (!e.target.closest('[data-hide-start]')) return;
+      const w = layout.widgets.find((x) => x.id === 'start');
+      if (!w) return;
+      w.hidden = true;
+      saveLayout();
+      document.getElementById('notice').innerHTML = '<div class="notice notice-ok">Get started is hidden. Tick it again under Customise to bring it back.</div>';
+    });
+  });
   widgetsEl.querySelectorAll('[data-panel="tasks"]').forEach((panel) => {
     panel.addEventListener('change', async (e) => {
       const box = e.target.closest('[data-task]');
