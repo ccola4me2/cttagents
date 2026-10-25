@@ -579,6 +579,24 @@ async function updateCheckWithLines(env, admin, id, body, { vendorName, statemen
 }
 
 /**
+ * Mark a check as at the bank, or take that back. The pay run warns before an advisor is paid out of a check that has not
+ * been confirmed there.
+ */
+export async function handleDepositCheck(request, env, id) {
+  const { user: admin, response } = await requireAdmin(request, env);
+  if (response) return response;
+  if (!admin.agency_id) return noAgency();
+  const body = await readJson(request);
+  const on = body.on === '' || body.on === null || body.on === undefined ? null : cleanDate(body.on);
+  if (body.on && !on) return badRequest('That is not a date.');
+  const res = await env.DB.prepare(
+    'UPDATE commission_checks SET deposited_on = ?, updated_at = ? WHERE id = ? AND agency_id = ?'
+  ).bind(on, now(), id, admin.agency_id).run();
+  if (!res.meta || res.meta.changes === 0) return notFound('That check was not found.');
+  return json({ ok: true, depositedOn: on });
+}
+
+/**
  * Take a check back out, with its lines.
  *
  * Refused once any reservation on it has been paid out to an advisor. Payouts are
@@ -772,7 +790,7 @@ export async function handleCommissionDesk(request, env) {
 
     env.DB.prepare(
       `SELECT c.id, c.vendor_name, c.reference, c.received_on, c.remitted_on, c.statement_cents,
-              c.fee_cents, c.fee_note, c.notes, c.filename, c.created_at,
+              c.fee_cents, c.fee_note, c.notes, c.filename, c.created_at, c.deposited_on,
               COALESCE((SELECT SUM(r.amount_cents) FROM commission_receipts r
                          WHERE r.check_id = c.id AND ${scopeR.sql}), 0) AS matched_cents,
               (SELECT COUNT(*) FROM commission_receipts r
@@ -805,6 +823,7 @@ export async function handleCommissionDesk(request, env) {
     // SQLite makes awkward and JavaScript makes plain.
     env.DB.prepare(
       `SELECT r.id, r.booking_id, r.amount_cents, r.kind, r.payout_on, r.received_on, r.check_id,
+              (SELECT ck.deposited_on FROM commission_checks ck WHERE ck.id = r.check_id AND ck.agency_id = ?) AS check_deposited_on,
               b.depart_date, b.user_id, b.commission_status, b.personal, b.lead_source, b.advisor_split_pct,
               b.agreed_split_pct, b.agreed_lead_split_pct, b.client_name, b.supplier, b.product_name,
               u.default_split_pct, u.lead_split_pct,
@@ -816,7 +835,7 @@ export async function handleCommissionDesk(request, env) {
         WHERE ${scopeR.sql}
         ORDER BY r.received_on DESC
         LIMIT 8000`
-    ).bind(...scopeR.binds).all(),
+    ).bind(admin.agency_id, ...scopeR.binds).all(),
 
     env.DB.prepare(
       `SELECT l.booking_id, COALESCE(SUM(l.amount_cents), 0) AS cents FROM advisor_payout_lines l
@@ -868,10 +887,12 @@ export async function handleCommissionDesk(request, env) {
       const a = advisors.get(head.user_id);
       a.cents += b.cents;
       // The lines behind this amount that fall on this date, so a pay date can be changed from the schedule.
-      const onThisDate = lines.filter((r) => (r.payout_on && r.payout_on > next ? r.payout_on : next) === b.date)
-        .map((r) => r.id);
+      const onDate = lines.filter((r) => (r.payout_on && r.payout_on > next ? r.payout_on : next) === b.date);
+      const onThisDate = onDate.map((r) => r.id);
+      // Money that came on a check nobody has confirmed at the bank. Money entered one reservation at a time has no check to ask.
+      const notAtBank = onDate.some((r) => r.check_id && !r.check_deposited_on);
       a.trips.push({ bookingId, client: head.client_name, supplier: head.supplier, cents: b.cents, receipts: onThisDate,
-        departDate: head.depart_date || null });
+        departDate: head.depart_date || null, notAtBank });
     }
   }
   const payDates = [...dates.entries()].sort(([x], [y]) => (x < y ? -1 : 1)).map(([date, advisors]) => {
@@ -880,7 +901,7 @@ export async function handleCommissionDesk(request, env) {
       date,
       isNext: date === next,
       totalCents: list.reduce((n, a) => n + a.cents, 0),
-      advisors: list,
+      advisors: list.map((a) => ({ ...a, notAtBank: a.trips.some((t) => t.notAtBank) })),
     };
   }).filter((d) => d.advisors.length);
 

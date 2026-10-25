@@ -12637,6 +12637,23 @@ async function main() {
   check(after.data?.tiles?.feesCents >= 400 && after.data?.tiles?.receivedCents >= 20000,
     'and counted in the year\'s totals');
 
+  // A new check is not at the bank until the owner says so, and the pay run says it is waiting.
+  check(checkRow && !checkRow.deposited_on && mine?.notAtBank === true,
+    'a new check is not at the bank yet, and the pay run says so', JSON.stringify([checkRow?.deposited_on, mine?.notAtBank]));
+  const advDeposit = await call(advisor, 'POST', `/api/commission-checks/${checkId}/deposit`, { on: isoDay(0) });
+  check(advDeposit.status === 403, 'an advisor cannot mark a check deposited', `status ${advDeposit.status}`);
+  const badDeposit = await call(admin, 'POST', `/api/commission-checks/${checkId}/deposit`, { on: 'soon' });
+  check(badDeposit.status === 400, 'a deposit date that is not a date is refused', `status ${badDeposit.status}`);
+  const deposited = await call(admin, 'POST', `/api/commission-checks/${checkId}/deposit`, { on: isoDay(0) });
+  const afterDeposit = await call(admin, 'GET', '/api/commission-desk');
+  const dayD = (afterDeposit.data?.payDates || []).find((p) => p.date === laterPay);
+  const mineD = (dayD?.advisors || []).find((x) => x.userId === advisorId);
+  check(deposited.status === 200 && (afterDeposit.data?.checks || []).find((c) => c.id === checkId)?.deposited_on === isoDay(0)
+    && mineD?.notAtBank === false,
+  'marked deposited, the warning goes', JSON.stringify([deposited.status, mineD?.notAtBank]));
+  const elsewhere = await call(admin, 'POST', '/api/commission-checks/no-such-check/deposit', { on: isoDay(0) });
+  check(elsewhere.status === 404, 'a check that is not there is not found', `status ${elsewhere.status}`);
+
   // Only an owner moves a date.
   const advMove = await call(advisor, 'PUT', `/api/commissions/receipts/${receipt?.id}/pay-date`, { payoutOn: nextPay });
   check(advMove.status === 403, 'an advisor cannot move a pay date', `status ${advMove.status}`);

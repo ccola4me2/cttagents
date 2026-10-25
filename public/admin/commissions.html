@@ -258,12 +258,12 @@ function drawScheduled() {
       </div>
       ${p.advisors.map((a) => `
         <div class="cd-adv">
-          <span class="nm">${esc(a.name)}</span>
+          <span class="nm">${esc(a.name)}${a.notAtBank ? ' <span class="badge badge-amber" title="Some of this came on a check that has not been marked as at the bank. Open Money received and mark it deposited.">check not at the bank yet</span>' : ''}</span>
           <span class="cd-money">${money(a.cents)}</span>
           <span class="acts"><button class="btn btn-ghost btn-sm" type="button" data-editsched="${esc(p.date)}|${esc(a.userId)}">${
   editingSched.has(`${p.date}|${a.userId}`) ? 'Done' : 'Edit'}</button>${p.isNext
     ? ` <button class="btn btn-secondary btn-sm" type="button" data-pay="${esc(a.userId)}" data-date="${esc(p.date)}"
-                 data-name="${esc(a.name)}" data-cents="${a.cents}">Mark paid</button>` : ''}</span>
+                 data-name="${esc(a.name)}" data-cents="${a.cents}"${a.notAtBank ? ' data-notatbank="1"' : ''}>Mark paid</button>` : ''}</span>
           ${editingSched.has(`${p.date}|${a.userId}`)
     ? `<div class="trips" style="display:grid;gap:.4rem;">${a.trips.map((t) => `<div style="display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;">
         <span style="min-width:16rem;">${esc(t.client)}${t.supplier ? ` (${esc(t.supplier)})` : ''}: ${money(t.cents)}</span>
@@ -289,7 +289,7 @@ function checkRow(c) {
       <td class="r cd-money">${money(c.net_cents)}</td>
       <td>${Math.abs(gap) <= 1
     ? '<span class="badge badge-green">All matched</span>'
-    : `<span class="badge badge-amber">${money(gap)} not matched</span>`}
+    : `<span class="badge badge-amber">${money(gap)} not matched</span>`}${c.deposited_on ? '' : ' <span class="badge badge-amber">not at the bank yet</span>'}
         <span class="muted"> ${c.lines} line${c.lines === 1 ? '' : 's'}</span></td>
     </tr>${open ? `<tr class="sub"><td colspan="6">${checkDetail(c)}</td></tr>` : ''}`;
 }
@@ -316,6 +316,9 @@ function checkDetail(c) {
     <div style="display:flex;gap:.5rem;margin-top:.7rem;flex-wrap:wrap;">
       <button class="btn btn-primary btn-sm" type="button" data-editcheck="${esc(c.id)}">Edit the check</button>
       <button class="btn btn-secondary btn-sm" type="button" data-addline="${esc(c.id)}">Add a line</button>
+      ${c.deposited_on
+    ? `<button class="btn btn-ghost btn-sm" type="button" data-deposit="${esc(c.id)}" data-on="">Deposited ${esc(dateFmt(c.deposited_on))}. Undo</button>`
+    : `<button class="btn btn-secondary btn-sm" type="button" data-deposit="${esc(c.id)}" data-on="${esc(d.today)}">It is at the bank</button>`}
       <button class="btn btn-ghost btn-sm" type="button" data-delcheck="${esc(c.id)}">Delete this check</button>
     </div></div>`;
 }
@@ -1000,6 +1003,13 @@ panel.addEventListener('click', async (e) => {
     try { await setChase(t.dataset.chase, '', ''); } catch (ex) { showError(errEl, ex); }
     return;
   }
+  if (t.dataset.deposit) {
+    try {
+      await api(`/api/commission-checks/${encodeURIComponent(t.dataset.deposit)}/deposit`, { method: 'POST', body: { on: t.dataset.on } });
+      await load();
+    } catch (ex) { showError(errEl, ex); }
+    return;
+  }
   if (t.dataset.pay) { openPay(t.dataset); return; }
   if (t.dataset.editcheck) { openEditCheck(d.checks.find((c) => c.id === t.dataset.editcheck)); return; }
   if (t.dataset.addline) { openCheckDialog(d.checks.find((c) => c.id === t.dataset.addline)); return; }
@@ -1088,7 +1098,8 @@ function openPay(ds) {
   $('pay-title').textContent = 'Mark as paid';
   $('pay-save').textContent = 'Mark as paid';
   $('pay-err').hidden = true;
-  $('pay-what').innerHTML = `Pay <strong>${esc(ds.name)}</strong> ${money(Number(ds.cents))} for the ${esc(dateFmt(ds.date))} payout.`;
+  $('pay-what').innerHTML = `Pay <strong>${esc(ds.name)}</strong> ${money(Number(ds.cents))} for the ${esc(dateFmt(ds.date))} payout.`
+    + (ds.notatbank ? ' <strong>Part of this came on a check that is not marked as at the bank yet.</strong> Be sure it has cleared before you pay.' : '');
   $('paidOn').value = d.today;
   $('method').innerHTML = methods.map((m) => `<option value="${esc(m.key)}">${esc(m.label)}</option>`).join('');
   $('payRef').value = '';

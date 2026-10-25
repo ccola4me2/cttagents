@@ -325,6 +325,7 @@ import {
   handleSearchForCheck,
   handleCreateCheck,
   handleUpdateCheck,
+  handleDepositCheck,
   handleDeleteCheck,
   handleAddCheckLine,
   handleSetPayDate,
@@ -918,6 +919,7 @@ async function routeApi(request, env, path, method) {
   const receiptMatch = path.match(/^\/api\/commissions\/receipts\/([^/]+)$/);
   const payoutMatch = path.match(/^\/api\/payouts\/([^/]+)$/);
   const checkMatch = path.match(/^\/api\/commission-checks\/([^/]+)$/);
+  const checkDepositMatch = path.match(/^\/api\/commission-checks\/([^/]+)\/deposit$/);
   const checkLineMatch = path.match(/^\/api\/commission-checks\/([^/]+)\/lines$/);
   const payDateMatch = path.match(/^\/api\/commissions\/receipts\/([^/]+)\/pay-date$/);
   const vendorStatementMatch = path.match(/^\/api\/commissions\/statements\/([^/]+)$/);
@@ -1485,6 +1487,7 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/commission-checks/search' && method === 'GET') return handleSearchForCheck(request, env);
   if (path === '/api/commission-checks' && method === 'POST') return handleCreateCheck(request, env);
   if (checkLineMatch && method === 'POST') return handleAddCheckLine(request, env, checkLineMatch[1]);
+  if (checkDepositMatch && method === 'POST') return handleDepositCheck(request, env, checkDepositMatch[1]);
   if (checkMatch && method === 'PUT') return handleUpdateCheck(request, env, checkMatch[1]);
   if (checkMatch && method === 'DELETE') return handleDeleteCheck(request, env, checkMatch[1]);
   if (payDateMatch && method === 'PUT') return handleSetPayDate(request, env, payDateMatch[1]);
