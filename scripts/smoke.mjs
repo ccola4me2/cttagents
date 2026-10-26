@@ -9430,6 +9430,48 @@ async function main() {
     const stranger = await call(advisor, 'PUT', '/api/agency-events/not-an-event/going', { going: true });
     check(stranger.status === 404, 'an event that does not exist cannot be answered', `status ${stranger.status}`);
 
+    // Who is invited: everybody, or the advisors an owner picks.
+    check(seen.data?.canManage === false && (await call(admin, 'GET', '/api/agency-events')).data?.canManage === true,
+      'only an owner is offered the button to add an event', `${seen.data?.canManage}`);
+    const people = owner.data?.people || [];
+    const ownerPerson = people.find((p) => p.role === 'admin');
+    check(people.some((p) => p.id === advisorId) && Boolean(ownerPerson),
+      'the owner can pick from the advisors in the agency', JSON.stringify(people.map((p) => p.role)));
+    const noOne = await call(admin, 'POST', '/api/agency-events',
+      { title: `Nobody ${stamp}`, onDate: day, startTime: '14:00', invitees: [] });
+    check(noOne.status === 400, 'an invite list cannot be empty', `status ${noOne.status}`);
+    const outsider = await call(admin, 'POST', '/api/agency-events',
+      { title: `Outsider ${stamp}`, onDate: day, startTime: '14:00', invitees: ['not-a-person'] });
+    check(outsider.status === 400, 'nor name somebody who is not in the agency', `status ${outsider.status}`);
+    const mine = await call(admin, 'POST', '/api/agency-events',
+      { title: `Owners only ${stamp}`, onDate: day, startTime: '09:00', invitees: [ownerPerson?.id] });
+    const privId = mine.data?.id;
+    check(mine.status === 201 && Boolean(privId), 'an owner can invite only some advisors', `status ${mine.status}`);
+    if (privId) cleanup('the invite only event', () => call(admin, 'DELETE', `/api/agency-events/${privId}`));
+    const hidden = (await call(advisor, 'GET', '/api/agency-events')).data?.events?.some((e) => e.id === privId);
+    const hiddenCal = (await call(advisor, 'GET', `/api/calendar?from=${day}&to=${day}`)).data?.events?.some((e) => e.id === privId);
+    check(hidden === false && hiddenCal === false, 'an advisor who is not invited does not see it on the dashboard or calendar');
+    const hiddenGoing = await call(advisor, 'PUT', `/api/agency-events/${privId}/going`, { going: true });
+    check(hiddenGoing.status === 404, 'and cannot say they are going to it', `status ${hiddenGoing.status}`);
+    const ownerRow = ((await call(admin, 'GET', '/api/admin/agency-events')).data?.events || []).find((e) => e.id === privId);
+    check(ownerRow?.audience === 'some' && ownerRow?.invitedCount === 1, 'the owner still sees it, with who is invited', JSON.stringify(ownerRow?.invitedCount));
+    await call(admin, 'PUT', `/api/agency-events/${privId}`, { title: `Owners only ${stamp} b`, onDate: day, startTime: '09:00' });
+    const stillHidden = (await call(advisor, 'GET', '/api/agency-events')).data?.events?.some((e) => e.id === privId);
+    check(stillHidden === false, 'changing the time does not widen the list');
+    await call(admin, 'PUT', `/api/agency-events/${privId}`,
+      { title: `Owners only ${stamp} b`, onDate: day, startTime: '09:00', invitees: [ownerPerson?.id, advisorId] });
+    const nowSees = (await call(advisor, 'GET', '/api/agency-events')).data?.events?.some((e) => e.id === privId);
+    check(nowSees === true, 'adding the advisor to the list puts it in front of them');
+    const announceByAdvisor = await call(advisor, 'POST', `/api/agency-events/${privId}/announce`, { mode: 'new' });
+    check(announceByAdvisor.status === 403, 'an advisor cannot email the agency about an event', `status ${announceByAdvisor.status}`);
+    const announceMissing = await call(admin, 'POST', '/api/agency-events/not-an-event/announce', { mode: 'new' });
+    check(announceMissing.status === 404, 'and an event that is not there is not found', `status ${announceMissing.status}`);
+    const remindOff = await call(admin, 'PUT', `/api/agency-events/${privId}`,
+      { title: `Owners only ${stamp} b`, onDate: day, startTime: '09:00', remind: false });
+    const remindRow = ((await call(admin, 'GET', '/api/admin/agency-events')).data?.events || []).find((e) => e.id === privId);
+    check(remindOff.status === 200 && remindRow?.remind === false, 'the day before reminder can be switched off for one event');
+    await call(admin, 'DELETE', `/api/agency-events/${privId}`);
+
     const changed = await call(admin, 'PUT', `/api/agency-events/${evId}`,
       { title: `Vendor training ${stamp} moved`, onDate: day, startTime: '16:00' });
     check(changed.status === 200, 'an owner can change it', `status ${changed.status}`);

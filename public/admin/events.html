@@ -57,6 +57,29 @@
       <div class="field"><label for="notes">Notes for the advisors</label>
         <textarea id="notes" name="notes" maxlength="2000" rows="3"
           placeholder="What it covers, whether there is a recording, anything to bring"></textarea></div>
+      <div class="field">
+        <label>Who is invited</label>
+        <label style="display:flex;gap:.5rem;align-items:center;font-weight:400;margin:0 0 .3rem;">
+          <input type="radio" name="aud" value="all" style="width:auto;" checked> All advisors</label>
+        <label style="display:flex;gap:.5rem;align-items:center;font-weight:400;margin:0 0 .3rem;">
+          <input type="radio" name="aud" value="some" style="width:auto;"> Choose which advisors</label>
+        <div id="pick" hidden style="border:1px solid var(--navy-100);border-radius:10px;padding:.6rem .8rem;margin-top:.4rem;">
+          <div style="display:flex;gap:.6rem;align-items:center;margin-bottom:.4rem;">
+            <button class="btn btn-ghost btn-sm" type="button" id="pick-all">Select everyone</button>
+            <button class="btn btn-ghost btn-sm" type="button" id="pick-none">Clear</button>
+            <span class="muted" id="pick-count" style="font-size:.85rem;"></span></div>
+          <div id="pick-list" style="max-height:11rem;overflow:auto;display:grid;gap:.15rem;"></div>
+        </div>
+        <div class="muted" style="font-size:.84rem;margin-top:.3rem;">Only the advisors invited see it on their calendar and dashboard, and only they are emailed.</div>
+      </div>
+      <div class="field">
+        <label style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:0 0 .5rem;">
+          <input type="checkbox" id="notify" style="width:auto;margin-top:.25rem;">
+          <span id="notify-label">Email every advisor about it when I save</span></label>
+        <label style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:0;">
+          <input type="checkbox" id="remind" style="width:auto;margin-top:.25rem;">
+          <span>Remind the advisors who have not said they are going, the day before</span></label>
+      </div>
     </div>
     <div class="card-foot">
       <button class="btn btn-primary" type="submit">Save</button>
@@ -83,9 +106,12 @@ function row(e, advisors) {
         e.link ? ` &middot; ${linkBits(e.link)}` : ''}</div></td>
     <td>${esc(dateFmt(e.onDate))}<div class="muted" style="font-size:.84rem;">${esc(e.startTime)}${
       e.endTime ? ` to ${esc(e.endTime)}` : ''}${e.tz ? ` ${esc(e.tz)}` : ''}</div></td>
-    <td>${going.length} of ${advisors}${going.length
-      ? `<div class="muted" style="font-size:.84rem;">${esc(going.join(', '))}</div>` : ''}</td>
+    <td>${going.length} of ${e.invitedCount}${going.length
+      ? `<div class="muted" style="font-size:.84rem;">${esc(going.join(', '))}</div>` : ''}
+      <div class="muted" style="font-size:.8rem;">${e.audience === 'some' ? `Invited: ${e.invitedCount} of ${advisors}. ` : ''}${e.announcedAt ? `Emailed ${esc(new Date(e.announcedAt * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))}` : 'Advisors not emailed yet'}${
+        e.remind ? '' : '. No reminder'}</div></td>
     <td style="white-space:nowrap;text-align:right;">
+      ${e.cancelledAt ? '' : `<button class="btn btn-ghost btn-sm" data-tell="${esc(e.id)}">${e.announcedAt ? 'Email an update' : 'Email advisors'}</button>`}
       <button class="btn btn-ghost btn-sm" data-edit="${esc(e.id)}">Edit</button>
       <button class="btn btn-ghost btn-sm" data-cancel="${esc(e.id)}">${e.cancelledAt ? 'Restore' : 'Cancel'}</button>
       <button class="btn btn-ghost btn-sm" data-drop="${esc(e.id)}">Delete</button>
@@ -115,7 +141,14 @@ function render() {
       await api(`/api/agency-events/${encodeURIComponent(e.id)}`,
         { method: 'PUT', body: { cancelled: !e.cancelledAt } });
       await load();
+      // Advisors who were told about it are told it is off, if the owner wants.
+      if (!e.cancelledAt && e.announcedAt && confirm('Email the advisors that it is cancelled?')) await tell(e.id, 'cancel');
     } catch (x) { showError(err, x); }
+  }));
+  panel.querySelectorAll('[data-tell]').forEach((b) => b.addEventListener('click', async () => {
+    const e = events.find((x) => x.id === b.dataset.tell);
+    if (!confirm(`Email all ${advisors} advisors about "${e.title}"?`)) return;
+    await tell(e.id, e.announcedAt ? 'update' : 'new');
   }));
   panel.querySelectorAll('[data-drop]').forEach((b) => b.addEventListener('click', async () => {
     const e = events.find((x) => x.id === b.dataset.drop);
@@ -138,16 +171,83 @@ function open(id) {
     form.elements[k].value = e[k] || '';
   }
   kind.value = e.kind;
+  // New: ticked, because an event nobody hears about is the one that gets missed. Changed: ticked only when they were told before.
+  const some = Boolean(editing && editing.audience === 'some');
+  form.elements.aud.value = some ? 'some' : 'all';
+  const chosen = new Set(some ? editing.invitees : []);
+  document.getElementById('pick-list').innerHTML = (data.people || []).map((p) => `
+    <label style="display:flex;gap:.5rem;align-items:center;font-weight:400;margin:0;">
+      <input type="checkbox" data-person="${esc(p.id)}" style="width:auto;"${chosen.has(p.id) ? ' checked' : ''}>
+      ${esc(p.name)}${p.role === 'admin' ? ' <span class="muted">(owner)</span>' : ''}</label>`).join('');
+  showPick();
+  document.getElementById('notify').checked = editing ? Boolean(editing.announcedAt) : true;
+  document.getElementById('remind').checked = editing ? editing.remind : true;
+  document.getElementById('notify-label').textContent = editing
+    ? 'Email the advisors about this change when I save' : 'Email every advisor about it when I save';
   dlg.showModal();
 }
 
+function showPick() {
+  const some = form.elements.aud.value === 'some';
+  document.getElementById('pick').hidden = !some;
+  const n = document.querySelectorAll('#pick-list [data-person]:checked').length;
+  document.getElementById('pick-count').textContent = `${n} of ${(data.people || []).length} chosen`;
+}
+form.addEventListener('change', (ev) => {
+  if (ev.target.name === 'aud' || ev.target.matches('[data-person]')) showPick();
+});
+document.getElementById('pick-all').addEventListener('click', () => {
+  document.querySelectorAll('#pick-list [data-person]').forEach((c) => { c.checked = true; });
+  showPick();
+});
+document.getElementById('pick-none').addEventListener('click', () => {
+  document.querySelectorAll('#pick-list [data-person]').forEach((c) => { c.checked = false; });
+  showPick();
+});
+
 document.getElementById('add').addEventListener('click', () => open(null));
 document.getElementById('cancel').addEventListener('click', () => dlg.close());
+
+/** Say how an announcement went, in words, including anyone it could not reach. */
+function toldMessage(r) {
+  if (r.error) return `<div class="notice notice-error">The event is saved, but the emails did not go: ${esc(r.error)}</div>`;
+  const bad = (r.failed || []).length;
+  return `<div class="notice ${bad ? 'notice-error' : 'notice-ok'}">Emailed ${r.sent} of ${r.total} advisors.${
+    bad ? ` These could not be reached: ${esc(r.failed.join(', '))}.` : ''}</div>`;
+}
+
+async function tell(id, mode) {
+  err.innerHTML = '<p class="spinner">Sending...</p>';
+  try {
+    const r = await api(`/api/agency-events/${encodeURIComponent(id)}/announce`, { method: 'POST', body: { mode } });
+    err.innerHTML = toldMessage(r);
+    await load();
+  } catch (x) { err.innerHTML = ''; showError(err, x); }
+}
+
 onSubmit(form, async () => {
   const body = Object.fromEntries(new FormData(form).entries());
-  if (editing) await api(`/api/agency-events/${encodeURIComponent(editing.id)}`, { method: 'PUT', body });
-  else await api('/api/agency-events', { method: 'POST', body });
+  body.remind = document.getElementById('remind').checked;
+  delete body.aud;
+  body.invitees = form.elements.aud.value === 'some'
+    ? [...document.querySelectorAll('#pick-list [data-person]:checked')].map((c) => c.dataset.person) : 'all';
+  const notify = document.getElementById('notify').checked;
+  let told = null;
+  if (editing) {
+    await api(`/api/agency-events/${encodeURIComponent(editing.id)}`, { method: 'PUT', body });
+    if (notify) {
+      try {
+        told = await api(`/api/agency-events/${encodeURIComponent(editing.id)}/announce`,
+          { method: 'POST', body: { mode: editing.announcedAt ? 'update' : 'new' } });
+      } catch (x) { told = { error: x.message }; }
+    }
+  } else {
+    body.notify = notify;
+    const made = await api('/api/agency-events', { method: 'POST', body });
+    told = made.told || null;
+  }
   dlg.close();
+  err.innerHTML = told ? toldMessage(told) : '';
   await load();
 });
 
@@ -156,5 +256,7 @@ async function load() {
   catch (e) { showError(err, e); panel.innerHTML = ''; }
 }
 await load();
+// The dashboard sends an owner here to add one.
+if (data && new URLSearchParams(location.search).get('new') === '1') open(null);
 </script>
 </body></html>

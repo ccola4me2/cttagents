@@ -308,8 +308,9 @@ import {
   handleAdminAgencyEvents,
   handleSaveAgencyEvent,
   handleDeleteAgencyEvent,
-  handleGoing,
+  handleGoing, handleAnnounceAgencyEvent,
 } from './agencyevents.js';
+import { sendEventReminders } from './agencyeventmail.js';
 import {
   handleListSupplierSpecials,
   handleReadSpecialsFile,
@@ -704,6 +705,10 @@ export default {
     // made afterwards. A no-op, one query, on every tick where nothing is switched on.
     job('client emails', () => runTripEmails(env));
 
+    // The day before an agency event, a note to the advisors who have not said they are going. One query on every
+    // tick where there is no event tomorrow.
+    job('event reminders', () => sendEventReminders(env));
+
     // The call list and the deadlines on groups used to be emails of their own. They go in the one
     // morning message with the task list now, so there is nothing further to run for either.
 
@@ -897,6 +902,7 @@ async function routeApi(request, env, path, method) {
   const creditMatch = path.match(/^\/api\/credits\/([^/]+)$/);
   const specialMatch = path.match(/^\/api\/specials\/([^/]+)$/);
   const agencyEventMatch = path.match(/^\/api\/agency-events\/([^/]+)$/);
+  const agencyAnnounceMatch = path.match(/^\/api\/agency-events\/([^/]+)\/announce$/);
   const agencyGoingMatch = path.match(/^\/api\/agency-events\/([^/]+)\/going$/);
   const supplierSpecialMatch = path.match(/^\/api\/supplier-specials\/([^/]+)$/);
   const supplierListMatch = path.match(/^\/api\/supplier-specials\/lists\/([^/]+)$/);
@@ -1392,6 +1398,7 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/waiver-wording' && method === 'DELETE') return handleResetWaiverWording(request, env);
   if (path === '/api/corporate-targets' && method === 'GET') return handleGetCorporate(request, env);
   if (path === '/api/corporate-targets' && method === 'PUT') return handleSaveCorporate(request, env);
+  if (agencyAnnounceMatch && method === 'POST') return handleAnnounceAgencyEvent(request, env, agencyAnnounceMatch[1]);
   if (agencyGoingMatch && method === 'PUT') return handleGoing(request, env, agencyGoingMatch[1]);
   if (agencyEventMatch && method === 'PUT') return handleSaveAgencyEvent(request, env, agencyEventMatch[1]);
   if (agencyEventMatch && method === 'DELETE') return handleDeleteAgencyEvent(request, env, agencyEventMatch[1]);

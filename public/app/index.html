@@ -59,6 +59,7 @@ let d = null;
 let layout = { widgets: [], links: [] };
 // The agency's own events, fetched on their own so a problem with them cannot take the dashboard down.
 let agencyEvents = [];
+let canManageEvents = false;
 
 const fmtShort = (iso) => (iso ? dateFmt(iso).replace(/,? \d{4}$/, '') : '-');
 
@@ -316,8 +317,10 @@ const PANELS = {
   events: () => widget('Trainings and events', { href: '/app/calendar', label: 'Calendar' }, [
     { key: 'soon', label: 'Coming up', render: () => {
       const rows = agencyEvents.filter((e) => e.onDate >= d.today).slice(0, 8);
-      if (!rows.length) return '<p class="wempty">Nothing scheduled for the agency.</p>';
-      return `<ul class="rows">${rows.map((e) => `<li>
+      const add = canManageEvents
+        ? '<div style="padding:.6rem 1.25rem;"><a class="btn btn-secondary btn-sm" href="/admin/events?new=1">Add an event</a></div>' : '';
+      if (!rows.length) return `<p class="wempty">Nothing scheduled for the agency.</p>${add}`;
+      return `${add}<ul class="rows">${rows.map((e) => `<li>
         <div>
           <span class="badge badge-navy">${esc(e.kindLabel)}</span>
           <span class="name" style="margin-left:.4rem;">${esc(e.title)}</span>
@@ -1271,8 +1274,11 @@ try {
       ${hints.map((h) => `<div style="margin-top:.4rem;">${esc(h)}</div>`).join('')}</div>`;
   }
 
-  try { agencyEvents = (await api('/api/agency-events')).events || []; }
-  catch { agencyEvents = []; }
+  try {
+    const ev = await api('/api/agency-events');
+    agencyEvents = ev.events || [];
+    canManageEvents = Boolean(ev.canManage);
+  } catch { agencyEvents = []; }
 
   build();
 }

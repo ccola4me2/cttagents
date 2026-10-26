@@ -11,6 +11,7 @@ import { json, badRequest, notFound, forbidden, clean, cleanText, cleanDate, bad
   from './util.js';
 import { requireUser, requireAdmin, borrowedSeat } from './auth.js';
 import * as db from './db.js';
+import { announceEvent } from './agencyeventmail.js';
 
 export const KINDS = ['training', 'webinar', 'meeting', 'other'];
 export const KIND_LABELS = {
@@ -73,6 +74,10 @@ function shape(r, going, goingCount) {
     link: r.link || '',
     notes: r.notes || '',
     cancelledAt: r.cancelled_at || null,
+    announcedAt: r.announced_at || null,
+    audience: r.audience === 'some' ? 'some' : 'all',
+    remind: r.remind !== 0,
+    remindedAt: r.reminded_at || null,
     going: Boolean(going),
     goingCount: goingCount || 0,
   };
@@ -84,13 +89,17 @@ function shape(r, going, goingCount) {
  */
 export async function agencyEventsBetween(env, user, from, to) {
   const agencyId = user.agency_id || '';
+  // An owner sees every event. An advisor sees the ones for everybody and the ones they are invited to.
+  const everything = user.role === 'admin';
   const [rows, mine, counts] = await Promise.all([
     env.DB.prepare(
-      `SELECT id, kind, title, vendor, on_date, start_time, end_time, tz, link, notes, cancelled_at
+      `SELECT id, kind, title, vendor, on_date, start_time, end_time, tz, link, notes, cancelled_at,
+              announced_at, remind, reminded_at, audience
          FROM agency_events
-        WHERE agency_id = ? AND on_date >= ? AND on_date <= ?
+        WHERE agency_id = ? AND on_date >= ? AND on_date <= ?${everything ? '' : `
+          AND (audience = 'all' OR id IN (SELECT event_id FROM agency_event_invites WHERE agency_id = ? AND user_id = ?))`}
         ORDER BY on_date, start_time LIMIT 300`
-    ).bind(agencyId, from, to).all().catch(() => ({ results: [] })),
+    ).bind(agencyId, from, to, ...(everything ? [] : [agencyId, user.id])).all().catch(() => ({ results: [] })),
     env.DB.prepare(
       `SELECT event_id FROM agency_event_going WHERE agency_id = ? AND user_id = ?`
     ).bind(agencyId, user.id).all().catch(() => ({ results: [] })),
@@ -116,7 +125,8 @@ export async function handleListAgencyEvents(request, env) {
   const to = cleanDate(params.get('to')) || dayOffset(from, 120);
   const events = (await agencyEventsBetween(env, user, from, to > dayOffset(from, 400) ? dayOffset(from, 400) : to))
     .filter((e) => !e.cancelledAt);
-  return json({ events, today, kinds: KINDS.map((k) => [k, KIND_LABELS[k]]) });
+  // Whether this reader may put an event on the calendar, so the dashboard can offer the button to the people it is for.
+  return json({ events, today, canManage: user.role === 'admin' && !borrowedSeat(user), kinds: KINDS.map((k) => [k, KIND_LABELS[k]]) });
 }
 
 /**
@@ -141,13 +151,56 @@ export async function handleAdminAgencyEvents(request, env) {
     list.push(`${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email);
     names.set(r.event_id, list);
   }
-  const advisors = (await db.listUsers(env, { status: 'active', agencyId: agencyId || undefined })).length;
+  const people = await db.listUsers(env, { status: 'active', agencyId: agencyId || undefined });
+  const advisors = people.length;
+  const invited = new Map();
+  const inv = await env.DB.prepare(
+    'SELECT event_id, user_id FROM agency_event_invites WHERE agency_id = ?'
+  ).bind(agencyId).all().catch(() => ({ results: [] }));
+  for (const r of inv.results || []) {
+    const list = invited.get(r.event_id) || [];
+    list.push(r.user_id);
+    invited.set(r.event_id, list);
+  }
   return json({
-    events: events.map((e) => ({ ...e, attendees: names.get(e.id) || [] })),
+    events: events.map((e) => {
+      const ids = invited.get(e.id) || [];
+      return { ...e, attendees: names.get(e.id) || [], invitees: ids, invitedCount: e.audience === 'some' ? ids.length : advisors };
+    }),
     advisors,
+    people: people.map((u) => ({
+      id: u.id, name: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email, role: u.role,
+    })),
     today,
     kinds: KINDS.map((k) => [k, KIND_LABELS[k]]),
   });
+}
+
+/**
+ * Who an event is for, from what the owner sent: "all", or a list of advisors. Only people who are active in this agency
+ * are kept, so a stale or made up id cannot put an event in front of somebody outside it. Undefined means "leave it as it
+ * is", which is how a change to the time does not quietly widen a short list.
+ */
+async function audienceFrom(env, agencyId, invitees) {
+  if (invitees === undefined) return { keep: true };
+  if (invitees === 'all' || invitees === null) return { audience: 'all', ids: [] };
+  if (!Array.isArray(invitees)) return { error: 'Who is invited: everyone, or pick advisors.' };
+  const people = await db.listUsers(env, { status: 'active', agencyId: agencyId || undefined });
+  const known = new Set(people.map((u) => u.id));
+  const ids = [...new Set(invitees.map(String))].filter((x) => known.has(x));
+  if (!ids.length) return { error: 'Pick at least one advisor, or invite everyone.' };
+  return { audience: 'some', ids };
+}
+
+function inviteWrites(env, agencyId, eventId, aud, ts) {
+  if (aud.keep) return [];
+  return [
+    env.DB.prepare('UPDATE agency_events SET audience = ? WHERE id = ? AND agency_id = ?').bind(aud.audience, eventId, agencyId),
+    env.DB.prepare('DELETE FROM agency_event_invites WHERE event_id = ? AND agency_id = ?').bind(eventId, agencyId),
+    ...aud.ids.map((uid_) => env.DB.prepare(
+      'INSERT OR IGNORE INTO agency_event_invites (event_id, agency_id, user_id, created_at) VALUES (?, ?, ?, ?)'
+    ).bind(eventId, agencyId, uid_, ts)),
+  ];
 }
 
 /** POST /api/agency-events, and PUT /api/agency-events/:id (also { cancelled } to cancel or restore). */
@@ -169,27 +222,75 @@ export async function handleSaveAgencyEvent(request, env, id = null) {
   const parsed = parse(body);
   if (parsed.error) return badRequest(parsed.error);
   const f = parsed.fields;
+  const aud = await audienceFrom(env, agencyId, body.invitees);
+  if (aud.error) return badRequest(aud.error);
 
   if (!id) {
     const newId = uid();
     await env.DB.prepare(
       `INSERT INTO agency_events (id, agency_id, kind, title, vendor, on_date, start_time, end_time,
-                                  tz, link, notes, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                                  tz, link, notes, remind, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(newId, agencyId, f.kind, f.title, f.vendor, f.onDate, f.startTime, f.endTime,
-      f.tz, f.link, f.notes, user.id, ts, ts).run();
-    await db.logActivity(env, user.id, 'agency_event.create', `Put "${f.title}" on everyone's calendar`, { id: newId });
-    return json({ ok: true, id: newId }, 201);
+      f.tz, f.link, f.notes, body.remind === false ? 0 : 1, user.id, ts, ts).run();
+    const writes = inviteWrites(env, agencyId, newId, aud.keep ? { audience: 'all', ids: [] } : aud, ts);
+    if (writes.length) await env.DB.batch(writes);
+    await db.logActivity(env, user.id, 'agency_event.create',
+      aud.audience === 'some' ? `Put "${f.title}" on ${aud.ids.length} advisors' calendars` : `Put "${f.title}" on everyone's calendar`,
+      { id: newId });
+    // Told on the way in, when the owner asked: one save, one announcement, and the answer says how it went.
+    let told = null;
+    if (body.notify === true) {
+      try {
+        const ev = await loadEvent(env, newId, agencyId);
+        told = await announceEvent(env, user, ev, 'new');
+      } catch (e) { told = { sent: 0, failed: [], total: 0, error: String(e.message || e).slice(0, 160) }; }
+    }
+    return json({ ok: true, id: newId, told }, 201);
   }
 
   const res = await env.DB.prepare(
     `UPDATE agency_events SET kind = ?, title = ?, vendor = ?, on_date = ?, start_time = ?, end_time = ?,
-            tz = ?, link = ?, notes = ?, updated_at = ?
+            tz = ?, link = ?, notes = ?, remind = COALESCE(?, remind), updated_at = ?
       WHERE id = ? AND agency_id = ?`
-  ).bind(f.kind, f.title, f.vendor, f.onDate, f.startTime, f.endTime, f.tz, f.link, f.notes, ts,
-    id, agencyId).run();
+  ).bind(f.kind, f.title, f.vendor, f.onDate, f.startTime, f.endTime, f.tz, f.link, f.notes,
+    typeof body.remind === 'boolean' ? (body.remind ? 1 : 0) : null, ts, id, agencyId).run();
   if (!res.meta || !res.meta.changes) return notFound('Event not found.');
+  const writes = inviteWrites(env, agencyId, id, aud, ts);
+  if (writes.length) await env.DB.batch(writes);
+  // A date that moved is a reminder that has not been sent for the new date.
+  await env.DB.prepare('UPDATE agency_events SET reminded_at = NULL WHERE id = ? AND agency_id = ? AND on_date >= ?')
+    .bind(id, agencyId, new Date().toISOString().slice(0, 10)).run();
   return json({ ok: true, id });
+}
+
+async function loadEvent(env, id, agencyId) {
+  return env.DB.prepare(
+    `SELECT id, agency_id, kind, title, vendor, on_date, start_time, end_time, tz, link, notes, cancelled_at,
+            updated_at, announced_at, audience
+       FROM agency_events WHERE id = ? AND agency_id = ?`
+  ).bind(id, agencyId).first();
+}
+
+/**
+ * POST /api/agency-events/:id/announce { mode: 'new' | 'update' | 'cancel' } : email every advisor in the agency.
+ * An owner's, and always the owner's own agency: the event is looked up by the agency on their session.
+ */
+export async function handleAnnounceAgencyEvent(request, env, id) {
+  const { user, response } = await requireAdmin(request, env);
+  if (response) return response;
+  if (borrowedSeat(user)) return forbidden('Stop working as an advisor to email the agency.');
+  const ev = await loadEvent(env, id, user.agency_id || '');
+  if (!ev) return notFound('Event not found.');
+  const mode = oneOf((await readJson(request)).mode, ['new', 'update', 'cancel']) || 'new';
+  try {
+    const told = await announceEvent(env, user, ev, mode);
+    await db.logActivity(env, user.id, 'agency_event.announce',
+      `Emailed the advisors about "${ev.title}" (${mode})`, { id, sent: told.sent });
+    return json({ ok: true, ...told });
+  } catch (e) {
+    return badRequest(String(e.message || 'The emails could not be sent.').slice(0, 200));
+  }
 }
 
 /** DELETE /api/agency-events/:id : gone from every calendar, and the answers with it. */
@@ -201,6 +302,8 @@ export async function handleDeleteAgencyEvent(request, env, id) {
     .bind(id, agencyId).run();
   if (!res.meta || !res.meta.changes) return notFound('Event not found.');
   await env.DB.prepare('DELETE FROM agency_event_going WHERE event_id = ? AND agency_id = ?')
+    .bind(id, agencyId).run();
+  await env.DB.prepare('DELETE FROM agency_event_invites WHERE event_id = ? AND agency_id = ?')
     .bind(id, agencyId).run();
   await db.logActivity(env, user.id, 'agency_event.delete', 'Removed an agency event', { id });
   return json({ ok: true });
@@ -217,9 +320,16 @@ export async function handleGoing(request, env, id) {
   const agencyId = user.agency_id || '';
 
   const event = await env.DB.prepare(
-    'SELECT id FROM agency_events WHERE id = ? AND agency_id = ?'
+    'SELECT id, audience FROM agency_events WHERE id = ? AND agency_id = ?'
   ).bind(id, agencyId).first();
   if (!event) return notFound('Event not found.');
+  // An event for somebody else is not one this person can answer.
+  if (event.audience === 'some' && user.role !== 'admin') {
+    const invited = await env.DB.prepare(
+      'SELECT user_id FROM agency_event_invites WHERE event_id = ? AND agency_id = ? AND user_id = ?'
+    ).bind(id, agencyId, user.id).first();
+    if (!invited) return notFound('Event not found.');
+  }
 
   const going = (await readJson(request)).going !== false;
   if (going) {
