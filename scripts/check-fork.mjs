@@ -51,6 +51,7 @@ const THERE = 'trip-vara-website';
 const ALLOWED = new Map([
   ['suppression.js:handleListSuppressions', ['cttagents', 'the opt-out list screen belongs to Lists and Emails, which trip-vara does not have. Both portals share the unsubscribe link and the restore button on a client record']],
   ['suppression.js:handleAddSuppression', ['cttagents', 'the other half of the opt-out list screen']],
+  ['agencyevents.js:handleAnnounceAgencyEvent', ['cttagents', 'emailing the invited advisors about an agency event, and the day before reminder. Built for cttagents on request; trip-vara has the calendar and the dashboard panel but no emails']],
   ['admin.js:handleCreateAdvisor', ['cttagents', 'an owner creates advisors here; trip-vara advisors apply through a join link']],
   ['admin.js:handleReissueInvite', ['cttagents', 'same: there are no invites where people sign themselves up']],
   ['admin.js:handleStartActing', ['cttagents', 'working as an advisor is a cttagents feature']],
