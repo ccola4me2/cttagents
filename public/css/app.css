@@ -1103,6 +1103,12 @@ table.grid input:focus { border-color: var(--navy-400); background: #fff; }
 .cal-ag-day { padding: .5rem 0; border-top: 1px solid var(--navy-100); }
 .cal-ag-label { background: none; border: 0; padding: 0 0 .25rem; font: inherit; font-size: .82rem; font-weight: 700; color: var(--navy-800); cursor: pointer; }
 .cal-ag-label:hover { text-decoration: underline; }
+
+/* The full calendar page: Week and Work week are columns that grow to hold everything in the day, and Agenda is a list. */
+.cal-wrap .cal-grid.cal-wk .cal-day { min-height: 12rem; }
+.cal-wrap .cal-grid.cal-wk .cal-day .ev { display: block; -webkit-line-clamp: unset; }
+.cal-agenda-page { background: #fff; padding: .4rem 1rem 1rem; }
+.cal-bar .cal-views.wtabs { margin-right: .5rem; }
 .cal-event { display: flex; align-items: flex-start; gap: .5rem; text-decoration: none; padding: .1rem 0; }
 .cal-event .dot { margin-top: .42rem; }
 .cal-event .t { display: block; font-size: .83rem; font-weight: 600; color: var(--navy-800); }

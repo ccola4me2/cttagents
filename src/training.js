@@ -309,16 +309,16 @@ export const LESSONS = [
     why: 'A birds eye view you can rearrange. What is on it is your choice, so it is worth setting up once rather than scrolling past it every morning.',
     manual: 'daily',
     page: '/app/',
-    doing: 'Press Customise and move the panels into the order you actually read. A Get started list sits at the top until you have done its steps, then goes by itself. Read the Notices panel too: it tells you when something has changed, such as the supplier specials being updated or leads waiting on you, and Trainings and events shows what the agency has arranged.',
+    doing: 'Press Customise and move the panels into the order you actually read. A Get started list sits at the top until you have done its steps, then goes by itself; if it is in your way, press Hide for now at the bottom of it and tick it again under Customise to bring it back. Read the Notices panel too: it tells you when something has changed, such as the supplier specials being updated or leads waiting on you. Trainings and events shows what the agency has arranged: click one to open it and see how to join. The Calendar panel switches between Month, Week, Work week, Day and Agenda along its top.',
   },
   {
     key: 'calendar',
     section: 'day',
     title: 'Calendar',
-    why: 'Your appointments and everything else that lands on a day: departures, deadlines, tasks. It syncs with Google and Outlook.',
+    why: 'Your appointments and everything else that lands on a day: departures, deadlines, tasks. A meeting invite from Google or Outlook can be pasted in with Add from an invite.',
     manual: 'daily',
     page: '/app/calendar',
-    doing: 'Put one appointment on it and see it appear in tomorrow morning\'s email. After it has happened, open it, tick Completed and write what came of it. A training or meeting the owner has arranged for the whole agency shows in teal: press I\'m going so they know you are coming.',
+    doing: 'Put one appointment on it and see it appear in tomorrow morning\'s email. After it has happened, open it, tick Completed and write what came of it. Try the buttons along the top: Month, Week, Work week, Day and Agenda, which keep to the one you chose. A training or meeting the owner has arranged for the whole agency shows in teal: click it for the join link and notes, and press I\'m going so they know you are coming. Set your time zone in Settings so the hour on it is yours.',
   },
   {
     key: 'tasks',
@@ -435,7 +435,7 @@ export const LESSONS = [
     why: 'Your details, your password, your notification choices, and what you pay the agency for access to the portal.',
     manual: 'money',
     page: '/app/settings',
-    doing: 'Check your notification email is one you read, and turn the morning list on or off deliberately.',
+    doing: 'Check your notification email is one you read, set your time zone so trainings and events show in your own time, and turn the morning list on or off deliberately.',
   },
 ];
 

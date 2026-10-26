@@ -23,6 +23,7 @@
     <div class="content">
       <div class="notice notice-error" id="err" hidden></div>
       <div class="toolbar cal-bar">
+        <div class="wtabs cal-views" id="views" role="tablist" aria-label="Calendar view"></div>
         <button class="btn btn-ghost btn-sm" id="prev" aria-label="The month before">&larr;</button>
         <strong id="month-name" style="min-width:11rem;text-align:center;"></strong>
         <button class="btn btn-ghost btn-sm" id="next" aria-label="The month after">&rarr;</button>
@@ -178,6 +179,60 @@ let today = iso(new Date());
 let editing = null;
 let openDay = null;
 
+// Month, Week, Work week, Day and Agenda. The choice is kept on this device and shared with the dashboard's calendar, so the
+// view somebody settled on is the view they get on both.
+const VIEWS = [['month', 'Month'], ['week', 'Week'], ['workweek', 'Work week'], ['day', 'Day'], ['agenda', 'Agenda']];
+let view = 'month';
+try {
+  const savedView = localStorage.getItem('cal-view');
+  if (VIEWS.some(([k]) => k === savedView)) view = savedView;
+} catch { /* no storage, so the month */ }
+
+const focusIso = () => iso(cursor);
+const words = (s, o) => new Date(`${s}T00:00:00Z`).toLocaleDateString('en-US', { ...o, timeZone: 'UTC' });
+
+/** The days a view shows, and how many columns it takes. */
+function rangeOf() {
+  const f = focusIso();
+  const dow = new Date(`${f}T00:00:00Z`).getUTCDay();
+  if (view === 'week') { const from = addDays(f, -dow); return { from, to: addDays(from, 6), cols: 7 }; }
+  if (view === 'workweek') {
+    // Monday to Friday. Opened on a weekend it shows the week that is coming, because nobody looking at Saturday wants last week.
+    const from = addDays(f, dow === 0 ? 1 : dow === 6 ? 2 : 1 - dow);
+    return { from, to: addDays(from, 4), cols: 5 };
+  }
+  if (view === 'day') return { from: f, to: f, cols: 1 };
+  if (view === 'agenda') return { from: f, to: addDays(f, 13), cols: 1 };
+  const from = gridStart(cursor);
+  return { from, to: addDays(from, 41), cols: 7 };
+}
+
+function titleOf(r) {
+  if (view === 'month') return monthLabel(cursor);
+  if (view === 'day') return words(r.from, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  return `${words(r.from, { month: 'short', day: 'numeric' })} to ${words(r.to, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+}
+
+function drawViewBar() {
+  document.getElementById('views').innerHTML = VIEWS.map(([k, label]) =>
+    `<button class="wtab" type="button" role="tab" data-view="${k}" aria-selected="${k === view}">${label}</button>`).join('');
+  const unit = { month: 'month', week: 'week', workweek: 'week', day: 'day', agenda: 'fortnight' }[view];
+  document.getElementById('prev').setAttribute('aria-label', `The ${unit} before`);
+  document.getElementById('next').setAttribute('aria-label', `The ${unit} after`);
+  document.querySelectorAll('#views [data-view]').forEach((b) => b.addEventListener('click', () => {
+    if (view === 'month') {
+      // Leaving the month: land on today when it is the month in view, and on the first of it otherwise.
+      const now = new Date();
+      if (now.getUTCFullYear() === cursor.getUTCFullYear() && now.getUTCMonth() === cursor.getUTCMonth()) cursor = now;
+    }
+    view = b.dataset.view;
+    try { localStorage.setItem('cal-view', view); } catch { /* it just is not remembered */ }
+    openDay = null;
+    dayCard.hidden = true;
+    load();
+  }));
+}
+
 /** The Sunday on or before the first of this month, so the grid starts whole. */
 function gridStart(date) {
   const first = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
@@ -194,9 +249,11 @@ function monthLabel(date) {
 
 async function load() {
   err.hidden = true;
-  const from = gridStart(cursor);
-  const to = addDays(from, 41);
-  monthName.textContent = monthLabel(cursor);
+  const r = rangeOf();
+  const from = r.from;
+  const to = r.to;
+  monthName.textContent = titleOf(r);
+  drawViewBar();
   try {
     const who = advisorParam();
     const d = await api(`/api/calendar?from=${from}&to=${to}${who ? `&${who}` : ''}`);
@@ -206,7 +263,7 @@ async function load() {
     mountScopePicker(document.getElementById('scope'), d, load);
     events = d.events || [];
     today = d.today || today;
-    draw(from);
+    draw();
     if (openDay) showDay(openDay);
   } catch (e) { showError(err, e); grid.innerHTML = ''; }
 }
@@ -217,7 +274,7 @@ function saveKinds() {
   catch { /* private window, or storage switched off */ }
 }
 
-function draw(from) {
+function drawMonthGrid(from) {
   const byDay = new Map();
   for (const e of events.filter((e) => showing.has(e.kind))) {
     if (!byDay.has(e.date)) byDay.set(e.date, []);
@@ -262,6 +319,9 @@ function draw(from) {
       showDay(b.dataset.day);
     }));
 
+}
+
+function drawKey() {
   // A legend that is also the control. Each one says how many it is hiding or
   // showing, because a filter whose effect you cannot see is one people forget
   // they left on.
@@ -285,7 +345,7 @@ function draw(from) {
       // Never all off: a blank grid looks broken rather than filtered.
       if (!showing.size) showing = new Set(KINDS.map(([x]) => x));
       saveKinds();
-      draw(from);
+      draw();
       if (openDay) showDay(openDay);
     }));
 
@@ -294,9 +354,110 @@ function draw(from) {
       ? new Set(['appointment'])
       : new Set(KINDS.map(([k]) => k));
     saveKinds();
-    draw(from);
+    draw();
     if (openDay) showDay(openDay);
   });
+}
+
+/** Sorted for reading: by time, with the kinds that should give way last. */
+function dayList(byDay, day) {
+  return (byDay.get(day) || []).slice()
+    .sort((a, b) => (a.time || '99:99').localeCompare(b.time || '99:99') || LAST.indexOf(a.kind) - LAST.indexOf(b.kind));
+}
+
+function chipHtml(e) {
+  return `<span class="ev ev-${esc(e.kind)}${e.muted ? ' off' : ''}"${e.kind === 'agency' ? ` data-ev="${esc(e.id)}" title="Open the details"` : ''}>${
+    e.time ? `<b>${esc(sayTime(e.time))}</b> ` : ''}${esc(e.title)}</span>`;
+}
+
+/** Wires a click on a day, or on a training inside it. */
+function wireDays() {
+  grid.querySelectorAll('[data-day]').forEach((b) =>
+    b.addEventListener('click', (ev) => {
+      // Pressing a training itself opens it, with how to join. Anywhere else in the day opens the day.
+      const chip = ev.target.closest('[data-ev]');
+      if (chip) { openEvent(chip.dataset.ev); return; }
+      showDay(b.dataset.day);
+    }));
+}
+
+/** Week and Work week: every day a column, and every thing in it written out rather than counted. */
+function drawColumns(r) {
+  const byDay = new Map();
+  for (const e of events.filter((x) => showing.has(x.kind))) {
+    if (!byDay.has(e.date)) byDay.set(e.date, []);
+    byDay.get(e.date).push(e);
+  }
+  const days = Array.from({ length: r.cols }, (_x, i) => addDays(r.from, i));
+  grid.className = 'cal-grid cal-wk';
+  grid.style.gridTemplateColumns = `repeat(${r.cols}, minmax(8rem, 1fr))`;
+  grid.innerHTML = days.map((d) => `<div class="cal-head">${words(d, { weekday: 'short' })}</div>`).join('')
+    + days.map((day) => {
+      const list = dayList(byDay, day);
+      return `<button type="button" class="cal-day${day === today ? ' is-today' : ''}${list.length ? '' : ' empty'}" data-day="${day}">
+        <span class="d">${words(day, { month: 'short', day: 'numeric' })}</span>
+        ${list.map(chipHtml).join('')}
+      </button>`;
+    }).join('');
+  wireDays();
+}
+
+/** Agenda: the next two weeks as a list, only the days that have something. */
+function drawAgenda(r) {
+  const byDay = new Map();
+  for (const e of events.filter((x) => showing.has(x.kind))) {
+    if (!byDay.has(e.date)) byDay.set(e.date, []);
+    byDay.get(e.date).push(e);
+  }
+  const days = [...byDay.keys()].sort();
+  grid.className = 'cal-agenda-page';
+  grid.style.gridTemplateColumns = '';
+  grid.innerHTML = days.length ? days.map((day) => `
+    <div class="cal-ag-day">
+      <button type="button" class="cal-ag-label" data-goday="${day}">${day === today ? 'Today'
+    : day === addDays(today, 1) ? 'Tomorrow' : words(day, { weekday: 'long', month: 'short', day: 'numeric' })}</button>
+      <ul class="rows">${dayList(byDay, day).map((e) => `<li><div>
+        <span class="badge badge-navy">${esc(KIND_LABEL[e.kind] || e.kind)}</span>
+        <span class="name" style="margin-left:.45rem;">${e.time ? `${esc(sayTime(e.time))}${e.endTime ? ` to ${esc(sayTime(e.endTime))}` : ''}${e.kind === 'agency' && e.tz ? ` ${esc(e.tz)}` : ''} &middot; ` : ''}<a href="#" class="row-open" data-ag="${esc(e.kind)}|${esc(e.id)}|${esc(day)}">${esc(e.title)}</a></span>
+        ${e.who || e.where ? `<div class="muted where">${[esc(e.who), linkBits(e.where)].filter(Boolean).join('  &middot;  ')}</div>` : ''}
+      </div></li>`).join('')}</ul>
+    </div>`).join('')
+    : '<p class="cal-none" style="padding:1rem;">Nothing dated in this stretch.</p>';
+  grid.querySelectorAll('[data-goday]').forEach((b) => b.addEventListener('click', () => {
+    cursor = new Date(`${b.dataset.goday}T00:00:00Z`);
+    view = 'day';
+    try { localStorage.setItem('cal-view', view); } catch { /* not remembered */ }
+    load();
+  }));
+  grid.querySelectorAll('[data-ag]').forEach((a) => a.addEventListener('click', (ev) => {
+    ev.preventDefault();
+    const [kind, id, day] = a.dataset.ag.split('|');
+    if (kind === 'agency') openEvent(id);
+    else if (kind === 'appointment') openAppt(id);
+    else showDay(day);
+  }));
+}
+
+function draw() {
+  const r = rangeOf();
+  const card = grid.closest('.card');
+  const closeBtn = document.getElementById('day-close');
+  grid.style.gridTemplateColumns = '';
+  if (view === 'day') {
+    // One day is the day panel, opened and kept open: there is no grid to go back to.
+    card.hidden = true;
+    closeBtn.hidden = true;
+    openDay = r.from;
+    showDay(openDay);
+    drawKey();
+    return;
+  }
+  card.hidden = false;
+  closeBtn.hidden = false;
+  if (view === 'month') { grid.className = 'cal-grid'; drawMonthGrid(r.from); }
+  else if (view === 'agenda') drawAgenda(r);
+  else drawColumns(r);
+  drawKey();
 }
 
 function showDay(day) {
@@ -429,14 +590,16 @@ document.getElementById('ev-close').addEventListener('click', () => evDlg.close(
 document.getElementById('day-close').addEventListener('click', () => {
   dayCard.hidden = true; openDay = null;
 });
-document.getElementById('prev').addEventListener('click', () => {
-  cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() - 1, 1));
+function step(n) {
+  if (view === 'month') cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + n, 1));
+  else {
+    const days = { week: 7, workweek: 7, day: 1, agenda: 14 }[view];
+    cursor = new Date(`${addDays(focusIso(), n * days)}T00:00:00Z`);
+  }
   openDay = null; dayCard.hidden = true; load();
-});
-document.getElementById('next').addEventListener('click', () => {
-  cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
-  openDay = null; dayCard.hidden = true; load();
-});
+}
+document.getElementById('prev').addEventListener('click', () => step(-1));
+document.getElementById('next').addEventListener('click', () => step(1));
 document.getElementById('today-btn').addEventListener('click', () => {
   cursor = new Date(); openDay = null; dayCard.hidden = true; load();
 });
