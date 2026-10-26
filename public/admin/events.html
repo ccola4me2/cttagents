@@ -226,9 +226,9 @@ async function tell(id, mode) {
 }
 
 onSubmit(form, async () => {
-  const body = Object.fromEntries(new FormData(form).entries());
+  // The audience radio is read through the invitees below, not sent as a field of its own.
+  const body = Object.fromEntries([...new FormData(form).entries()].filter(([k]) => k !== 'aud'));
   body.remind = document.getElementById('remind').checked;
-  delete body.aud;
   body.invitees = form.elements.aud.value === 'some'
     ? [...document.querySelectorAll('#pick-list [data-person]:checked')].map((c) => c.dataset.person) : 'all';
   const notify = document.getElementById('notify').checked;
