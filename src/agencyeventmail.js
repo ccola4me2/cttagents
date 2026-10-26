@@ -11,35 +11,16 @@ import { appUrl } from './share.js';
 import { readableOnWhite } from './brand.js';
 import { brandForUser } from './brand.js';
 import { zonedToEpoch } from './ics.js';
+import { zoneFor, inZone, zoneOfUser } from './eventzone.js';
 import * as db from './db.js';
 
 const KIND_WORDS = { training: 'training', webinar: 'vendor webinar', meeting: 'agency meeting', other: 'event' };
-
-// The zone an owner types is a short label. These are the ones that mean something to an advisor in this country.
-const ZONES = {
-  ET: 'America/New_York', EST: 'America/New_York', EDT: 'America/New_York',
-  CT: 'America/Chicago', CST: 'America/Chicago', CDT: 'America/Chicago',
-  MT: 'America/Denver', MST: 'America/Denver', MDT: 'America/Denver',
-  PT: 'America/Los_Angeles', PST: 'America/Los_Angeles', PDT: 'America/Los_Angeles',
-  AKT: 'America/Anchorage', HT: 'Pacific/Honolulu', UTC: 'UTC', GMT: 'UTC',
-};
 
 const FIRST_HOUR = 13;
 const LAST_HOUR = 21;
 
 const isoDay = (secs) => new Date(secs * 1000).toISOString().slice(0, 10);
 const addDays = (iso, days) => new Date(Date.parse(`${iso}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
-
-/** The IANA name for what an owner typed, or null when it is not a zone this knows. A guessed zone moves a meeting by hours. */
-export function zoneFor(tz) {
-  const text = String(tz || '').trim();
-  if (!text) return null;
-  if (ZONES[text.toUpperCase()]) return ZONES[text.toUpperCase()];
-  if (text.includes('/')) {
-    try { new Intl.DateTimeFormat('en-US', { timeZone: text }); return text; } catch { return null; }
-  }
-  return null;
-}
 
 function clock12(hhmm) {
   const m = String(hhmm || '').match(/^(\d{1,2}):(\d{2})/);
@@ -158,9 +139,8 @@ export function calendarLinks(ev) {
  * covers, and a button for each calendar people use. A banner above the title says when this is a change, a cancellation
  * or a reminder; a brand new event has none.
  */
-function eventEmail(brand, ev, { banner = '', goingHref = '', mode = 'new' } = {}) {
+function eventEmail(brand, ev, { banner = '', goingHref = '', links = null } = {}) {
   const head = readableOnWhite(brand.color) ? brand.color : '#12315e';
-  const links = mode === 'cancel' ? null : calendarLinks(ev);
   const day = new Date(`${ev.on_date}T12:00:00Z`).toLocaleDateString('en-US',
     { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
   const time = `${clock12(ev.start_time)}${ev.end_time ? ` to ${clock12(ev.end_time)}` : ''}${ev.tz ? ` ${ev.tz}` : ''}`;
@@ -206,8 +186,19 @@ async function agencyAdvisors(env, agencyId, ev = null) {
 async function deliver(env, { owner, ev, people, subject, banner, goingHref, mode }) {
   const brand = await brandForUser(env, owner.id);
   const ics = eventIcs(ev, { method: mode === 'cancel' ? 'CANCEL' : 'PUBLISH' });
-  // The same message for everybody: it carries nothing personal, so it is built once.
-  const html = eventEmail(brand, ev, { banner, goingHref, mode });
+  // The buttons and the attached file are in universal time, so they are right for everybody. Only the words differ: each
+  // advisor reads the day and the hour in their own zone, built once per zone.
+  const links = mode === 'cancel' ? null : calendarLinks(ev);
+  const byZone = new Map();
+  const htmlFor = (user) => {
+    const zone = zoneOfUser(env, user);
+    if (!byZone.has(zone)) {
+      const shown = inZone(ev, zone);
+      byZone.set(zone, eventEmail(brand, { ...ev, on_date: shown.onDate, start_time: shown.startTime, end_time: shown.endTime, tz: shown.tz },
+        { banner, goingHref, links }));
+    }
+    return byZone.get(zone);
+  };
   let sent = 0;
   const failed = [];
   for (const u of people) {
@@ -215,7 +206,7 @@ async function deliver(env, { owner, ev, people, subject, banner, goingHref, mod
       await sendHtml(env, {
         to: u.notify_email || u.email,
         replyTo: owner.notify_email || owner.email,
-        subject, html,
+        subject, html: htmlFor(u),
         attachments: ics ? [{ filename: 'event.ics', content: base64Utf8(ics) }] : [],
       });
       sent += 1;

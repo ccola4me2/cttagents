@@ -333,3 +333,14 @@ export class PermanentError extends Error {
     this.permanent = true;
   }
 }
+
+/**
+ * Every 24 hour clock time in a piece of text, said the way people say it: "14:30 to 15:00" is "2:30 PM to 3:00 PM". The
+ * portal stores times as hours and minutes on the 24 hour clock; nothing a person reads should show them that way.
+ */
+export function sayClocks(text) {
+  return String(text ?? '').replace(/\b([01]?\d|2[0-3]):([0-5]\d)\b/g, (_m, h, min) => {
+    const hour = Number(h);
+    return `${hour % 12 || 12}:${min} ${hour >= 12 ? 'PM' : 'AM'}`;
+  });
+}

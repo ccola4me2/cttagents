@@ -356,7 +356,7 @@ function sayTime(hhmm) {
   let h = Number(m[1]);
   const suffix = h < 12 ? 'am' : 'pm';
   if (h === 0) h = 12; else if (h > 12) h -= 12;
-  return `${h}:${m[2]}${suffix}`;
+  return `${h}:${m[2]} ${suffix.toUpperCase()}`;
 }
 
 /**

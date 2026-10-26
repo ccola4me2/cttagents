@@ -373,7 +373,7 @@
 </dialog>
 
 <script type="module">
-import { api, mountShell, esc, money, dateFmt, daysUntil, timeAgo, showError, onSubmit } from '/js/app.js';
+import { api, mountShell, esc, money, dateFmt, daysUntil, timeAgo, showError, onSubmit, sayTime } from '/js/app.js';
 import { mountClientSuggest } from '/js/client-suggest.js';
 import { mountSupplierPicker } from '/js/supplier-picker.js';
 import { mountThread } from '/js/chat-thread.js';
@@ -3027,14 +3027,6 @@ const itinDlg = document.getElementById('itin-dlg');
 const itinForm = document.getElementById('itin-form');
 let editingItem = null;
 
-const sayTime = (t) => {
-  const m = String(t || '').match(/^(\d{2}):(\d{2})$/);
-  if (!m) return '';
-  let h = Number(m[1]);
-  const suffix = h < 12 ? 'am' : 'pm';
-  if (h === 0) h = 12; else if (h > 12) h -= 12;
-  return `${h}:${m[2]}${suffix}`;
-};
 
 function drawItinerary() {
   const box = document.getElementById('itinerary');
@@ -3919,9 +3911,9 @@ else await load();
       </div>
       <div class="field-row">
         <div class="field"><label for="it-start">Starts</label>
-          <input id="it-start" name="startTime" placeholder="09:30"></div>
+          <input id="it-start" name="startTime" placeholder="9:30 AM"></div>
         <div class="field"><label for="it-end">Ends</label>
-          <input id="it-end" name="endTime" placeholder="17:00">
+          <input id="it-end" name="endTime" placeholder="5:00 PM">
           <p class="field-hint">Leave blank for "some time that day".</p></div>
       </div>
       <div class="field"><label for="it-name">What happens</label>

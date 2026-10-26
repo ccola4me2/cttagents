@@ -118,7 +118,7 @@
 </dialog>
 
 <script type="module">
-import { api, mountShell, esc, dateFmt, showError, onSubmit,
+import { api, mountShell, esc, dateFmt, showError, onSubmit, sayTime,
          mountScopePicker, advisorParam, linkBits } from '/js/app.js';
 const ME = (await mountShell()).id;
 
@@ -242,7 +242,7 @@ function draw(from) {
       day === today ? ' is-today' : ''}${list.length ? '' : ' empty'}" data-day="${day}">
       <span class="d">${Number(day.slice(8, 10))}</span>
       ${shown.map((e) => `<span class="ev ev-${esc(e.kind)}${e.muted ? ' off' : ''}">${
-        e.time ? `<b>${esc(e.time)}</b> ` : ''}${esc(e.title)}</span>`).join('')}
+        e.time ? `<b>${esc(sayTime(e.time))}</b> ` : ''}${esc(e.title)}</span>`).join('')}
       ${more > 0 ? `<span class="ev more">${more} more</span>` : ''}
     </button>`);
   }
@@ -310,7 +310,7 @@ function showDay(day) {
           <span class="badge badge-navy">${esc(KIND_LABEL[e.kind] || e.kind)}</span>${
             e.kind === 'appointment' && e.done ? ' <span class="badge badge-green">Completed</span>' : ''}
           <span class="name" style="margin-left:.45rem;">${
-            e.time ? `${esc(e.time)}${e.endTime ? ` to ${esc(e.endTime)}` : ''} &middot; ` : ''}${
+            e.time ? `${esc(sayTime(e.time))}${e.endTime ? ` to ${esc(sayTime(e.endTime))}` : ''}${e.kind === 'agency' && e.tz ? ` ${esc(e.tz)}` : ''} &middot; ` : ''}${
             // The row opens the thing it names. A departure should reach the
             // reservation from the line that says it departs, not only from a
             // small button at the other end of the row.
@@ -548,7 +548,7 @@ onSubmit(icsForm, async () => {
   });
   const a = res.appointment || {};
   const when = a.allDay ? `${dateFmt(a.onDate)}, all day`
-    : `${dateFmt(a.onDate)} at ${a.startTime}${a.endTime ? ` to ${a.endTime}` : ''}`;
+    : `${dateFmt(a.onDate)} at ${sayTime(a.startTime)}${a.endTime ? ` to ${sayTime(a.endTime)}` : ''}`;
   icsOk.innerHTML = `<strong>${esc(SAID[res.outcome] || res.outcome)}.</strong>
     ${esc(a.title || '')} &middot; ${esc(when)}
     ${res.was ? `<div class="muted">It was ${esc(res.was)}.</div>` : ''}

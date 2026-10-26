@@ -144,6 +144,8 @@ export async function updateUserProfile(env, id, fields) {
             push_alerts = COALESCE(?, push_alerts),
             -- And this one, for the same reason as the four above it.
             chat_toasts = COALESCE(?, chat_toasts),
+            -- The zone their day is in. Left alone unless said, like everything else here.
+            timezone = COALESCE(?, timezone),
             updated_at = ?
       WHERE id = ?`
   ).bind(
@@ -160,6 +162,7 @@ export async function updateUserProfile(env, id, fields) {
     fields.alertsFeed === undefined ? null : (fields.alertsFeed ? 1 : 0),
     fields.pushAlerts === undefined ? null : (fields.pushAlerts ? 1 : 0),
     fields.chatToasts === undefined ? null : (fields.chatToasts ? 1 : 0),
+    fields.timezone === undefined ? null : (fields.timezone || ''),
     now(),
     id
   ).run();

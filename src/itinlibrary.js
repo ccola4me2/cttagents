@@ -52,9 +52,9 @@ function parse(body) {
     return { error: 'A picture address has to start with https://.' };
   }
   const startTime = cleanTime(body.startTime);
-  if (body.startTime && !startTime) return { error: 'A time reads like 09:30, or leave it blank.' };
+  if (body.startTime && !startTime) return { error: 'A time reads like 9:30 AM, or leave it blank.' };
   const endTime = cleanTime(body.endTime);
-  if (body.endTime && !endTime) return { error: 'A time reads like 09:30, or leave it blank.' };
+  if (body.endTime && !endTime) return { error: 'A time reads like 9:30 AM, or leave it blank.' };
 
   return {
     fields: {

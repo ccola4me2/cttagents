@@ -12,6 +12,7 @@ import {
   isValidEmail, normalizeEmail, clean, readJson,
 } from './util.js';
 import { hostOf } from './hostname.js';
+import { validZone } from './eventzone.js';
 import * as db from './db.js';
 import { sendPasswordResetEmail } from './email.js';
 import { required as billingRequired, writeState, exemptFromGate } from './billinggate.js';
@@ -54,6 +55,8 @@ function publicUser(u) {
     sellerOfTravel: u.seller_of_travel,
     // Where leads are announced, which is not always where they sign in.
     notifyEmail: u.notify_email,
+    // The zone their day is in, blank until somebody sets it (the portal's own is used meanwhile).
+    timezone: u.timezone || '',
     // Whether the portal chases their clients for payment on their behalf.
     autoRemindClients: Boolean(u.auto_remind_clients),
     // Whether Monday brings them the list of people nothing else is chasing.
@@ -263,7 +266,10 @@ export async function handleUpdateProfile(request, env) {
   // reason: this page sends the whole profile with every tick, and the server
   // must not depend on the next caller doing that too.
   const said = (key, max) => (body[key] === undefined ? undefined : clean(body[key], max));
+  const timezone = said('timezone', 64);
+  if (timezone && !validZone(timezone)) return badRequest('That time zone is not one this knows.');
   const updated = await db.updateUserProfile(env, user.id, {
+    timezone,
     firstName: said('firstName', 80),
     lastName: said('lastName', 80),
     phone: said('phone', 40),

@@ -9472,6 +9472,43 @@ async function main() {
     check(remindOff.status === 200 && remindRow?.remind === false, 'the day before reminder can be switched off for one event');
     await call(admin, 'DELETE', `/api/agency-events/${privId}`);
 
+    // Time zones: an event is entered once, and each advisor reads it in their own zone.
+    const badZone = await call(advisor, 'PUT', '/api/auth/profile', { timezone: 'Mars/Olympus' });
+    check(badZone.status === 400, 'a time zone that does not exist is refused', `status ${badZone.status}`);
+    const setZone = await call(advisor, 'PUT', '/api/auth/profile', { timezone: 'America/Chicago' });
+    check(setZone.status === 200 && setZone.data?.user?.timezone === 'America/Chicago', 'an advisor can set their own time zone', `status ${setZone.status}`);
+    cleanup('the advisor time zone', () => call(advisor, 'PUT', '/api/auth/profile', { timezone: '' }));
+    const keepZone = await call(advisor, 'PUT', '/api/auth/profile', { phone: '555-0199' });
+    check(keepZone.data?.user?.timezone === 'America/Chicago', 'and saving something else leaves it alone', `${keepZone.data?.user?.timezone}`);
+    const zoned = await call(admin, 'POST', '/api/agency-events',
+      { title: `Zone ${stamp}`, onDate: day, startTime: '14:00', endTime: '15:00', tz: 'ET' });
+    const zid = zoned.data?.id;
+    if (zid) cleanup('the zone event', () => call(admin, 'DELETE', `/api/agency-events/${zid}`));
+    const central = ((await call(advisor, 'GET', '/api/agency-events')).data?.events || []).find((e) => e.id === zid);
+    check(central?.startTime === '13:00' && central?.endTime === '14:00' && central?.tz === 'CT' && central?.onDate === day,
+      'an advisor on Central time reads an Eastern 2:00 PM as 1:00 PM', JSON.stringify(central));
+    const entered = ((await call(admin, 'GET', '/api/admin/agency-events')).data?.events || []).find((e) => e.id === zid);
+    check(entered?.startTime === '14:00' && entered?.tz === 'ET', 'while the owner editing it sees it as entered', JSON.stringify(entered));
+    const monthKey = day.slice(0, 7);
+    const zMonth = await call(advisor, 'GET', `/api/month?month=${monthKey}`);
+    check((zMonth.data?.events || []).some((e) => e.kind === 'agency' && e.date === day && e.title === `Zone ${stamp}`),
+      'and it is on the dashboard month calendar', `status ${zMonth.status}`);
+    const zLate = await call(admin, 'POST', '/api/agency-events', { title: `Early ${stamp}`, onDate: day, startTime: '01:00', tz: 'ET' });
+    const lid = zLate.data?.id;
+    if (lid) cleanup('the early event', () => call(admin, 'DELETE', `/api/agency-events/${lid}`));
+    const honolulu = await call(advisor, 'PUT', '/api/auth/profile', { timezone: 'Pacific/Honolulu' });
+    const shifted = ((await call(advisor, 'GET', `/api/agency-events?from=${isoDay(30)}&to=${isoDay(50)}`)).data?.events || []).find((e) => e.id === lid);
+    check(honolulu.status === 200 && shifted?.onDate === isoDay(39), 'an early Eastern event lands on the day before in Hawaii', JSON.stringify(shifted));
+    const zAdvisors = (await call(admin, 'GET', '/api/admin/advisors')).data?.users || [];
+    const zAdv = zAdvisors.find((u) => u.id === advisorId);
+    const ownerSet = await call(admin, 'PUT', `/api/admin/advisors/${advisorId}`,
+      { firstName: zAdv?.firstName || 'Adv', lastName: zAdv?.lastName || 'Isor', timezone: 'America/Denver' });
+    check(ownerSet.status === 200 && ownerSet.data?.user?.timezone === 'America/Denver', 'an owner can set an advisor\'s time zone', `status ${ownerSet.status}`);
+    const ownerBad = await call(admin, 'PUT', `/api/admin/advisors/${advisorId}`,
+      { firstName: zAdv?.firstName || 'Adv', lastName: zAdv?.lastName || 'Isor', timezone: 'Nowhere/Land' });
+    check(ownerBad.status === 400, 'and a zone that does not exist is refused there too', `status ${ownerBad.status}`);
+    await call(advisor, 'PUT', '/api/auth/profile', { timezone: '' });
+
     const changed = await call(admin, 'PUT', `/api/agency-events/${evId}`,
       { title: `Vendor training ${stamp} moved`, onDate: day, startTime: '16:00' });
     check(changed.status === 200, 'an owner can change it', `status ${changed.status}`);

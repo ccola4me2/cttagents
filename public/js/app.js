@@ -94,6 +94,26 @@ export function dateFmt(iso) {
   return Number.isNaN(d.getTime()) ? text : d.toLocaleDateString('en-US', asDay);
 }
 
+/**
+ * 14:30 as 2:30 PM. Every time on every screen is said this way: the portal stores a time as hours and minutes on the
+ * 24 hour clock, and nobody who is not in the military reads 14:30 as half past two. Anything that is not a clock time
+ * comes back empty.
+ */
+export function sayTime(t) {
+  const m = String(t || '').match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return '';
+  const h = Number(m[1]);
+  return `${h % 12 || 12}:${m[2]} ${h >= 12 ? 'PM' : 'AM'}`;
+}
+
+/** The time zones an advisor can say their day is in: most of the country first, then the rest of what clients travel from. */
+export const TIME_ZONES = [
+  ['America/New_York', 'Eastern'], ['America/Chicago', 'Central'], ['America/Denver', 'Mountain'],
+  ['America/Phoenix', 'Arizona'], ['America/Los_Angeles', 'Pacific'], ['America/Anchorage', 'Alaska'],
+  ['Pacific/Honolulu', 'Hawaii'], ['America/Puerto_Rico', 'Puerto Rico'], ['America/Halifax', 'Atlantic Canada'],
+  ['Europe/London', 'United Kingdom'], ['UTC', 'UTC'],
+];
+
 /** Unix seconds or an ISO string to "3 days ago". */
 export function timeAgo(value) {
   if (!value) return '';
@@ -922,7 +942,7 @@ function mountTodo(sidebar, user) {
    * cancelling it and marking it done are both said out loud.
    */
   function apptRow(t, late) {
-    const when = [t.due_time, t.end_time].filter(Boolean).join(' to ');
+    const when = [sayTime(t.due_time), sayTime(t.end_time)].filter(Boolean).join(' to ');
     // Already escaped, and the join link shortened to a word. A raw Teams URL
     // is about two hundred characters with nothing to break on, and it used to
     // walk straight out of the side of the card.
@@ -966,7 +986,7 @@ function mountTodo(sidebar, user) {
     const marks = [
       t.due_date
         ? `<span class="when${late ? ' late' : ''}">${esc(whenWords(t.due_date))}${
-            t.due_time ? ` ${esc(t.due_time)}` : ''}</span>`
+            t.due_time ? ` ${esc(sayTime(t.due_time))}` : ''}</span>`
         : '',
       t.priority === 'high' ? '<span class="tag hot">high</span>' : '',
       KIND_MARK[t.kind] ? `<span class="tag">${esc(KIND_MARK[t.kind])}</span>` : '',

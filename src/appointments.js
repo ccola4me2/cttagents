@@ -50,7 +50,7 @@ function parse(body) {
   if (!onDate) return { error: 'Which day?' };
 
   const startTime = cleanTime(body.startTime);
-  if (!startTime) return { error: 'What time? Use the 24 hour clock, like 14:30.' };
+  if (!startTime) return { error: 'What time does it start?' };
 
   const endTime = cleanTime(body.endTime);
   if (endTime && endTime < startTime) {

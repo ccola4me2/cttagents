@@ -128,6 +128,10 @@
         <input id="ed-notify" name="notifyEmail" type="email" maxlength="254">
         <p class="field-hint">Blank sends it to the address above. Useful where
           somebody signs in as one address and reads another.</p></div>
+      <div class="field"><label for="ed-tz">Time zone</label>
+        <select id="ed-tz" name="timezone"></select>
+        <p class="field-hint">The zone their day is in. Trainings and events show in it, and so do the emails they get
+          about them. They can also set it themselves in Settings.</p></div>
       <div class="field"><label for="ed-agency">Agency name on documents</label>
         <input id="ed-agency" name="agencyName" maxlength="160"></div>
       <div class="field"><label for="ed-address">Agency address</label>
@@ -168,7 +172,7 @@
 </dialog>
 
 <script type="module">
-import { api, mountShell, esc, timeAgo, showError } from '/js/app.js';
+import { api, mountShell, esc, timeAgo, showError, TIME_ZONES } from '/js/app.js';
 await mountShell({ admin: true });
 
 const panel = document.getElementById('panel');
@@ -394,7 +398,7 @@ function render(users, counts) {
             firstName: u.firstName || '', lastName: u.lastName || '', email: u.email || '',
             phone: u.phone || '', notifyEmail: u.notifyEmail || '',
             agencyName: u.agencyName || '', agencyAddress: u.agencyAddress || '',
-            sellerOfTravel: u.sellerOfTravel || '', name: u.name || u.email,
+            sellerOfTravel: u.sellerOfTravel || '', timezone: u.timezone || '', name: u.name || u.email,
           }))}">Edit</button>
         <button class="btn btn-ghost btn-sm" data-invite="${esc(u.id)}">New link</button>
         ${u.status === 'active' ? `<button class="btn btn-danger btn-sm" data-set="suspended" data-id="${esc(u.id)}">Suspend</button>` : ''}
@@ -625,6 +629,10 @@ function openEdit(id, u) {
   editForm.reset();
   editForm.querySelector('.notice-error').hidden = true;
   document.getElementById('edit-who').textContent = `Editing ${u.name}.`;
+  const zones = TIME_ZONES.slice();
+  if (u.timezone && !zones.some(([v]) => v === u.timezone)) zones.push([u.timezone, u.timezone]);
+  editForm.elements.timezone.innerHTML = `<option value="">Not set (Eastern is used)</option>${zones.map(([v, label]) =>
+    `<option value="${esc(v)}">${esc(label)}</option>`).join('')}`;
   for (const [field, value] of Object.entries(u)) {
     if (field === 'name') continue;
     if (editForm.elements[field]) editForm.elements[field].value = value;
@@ -639,7 +647,7 @@ editForm.addEventListener('submit', async (e) => {
   try {
     const body = {};
     for (const field of ['firstName', 'lastName', 'email', 'phone', 'notifyEmail',
-                         'agencyName', 'agencyAddress', 'sellerOfTravel']) {
+                         'agencyName', 'agencyAddress', 'sellerOfTravel', 'timezone']) {
       body[field] = editForm.elements[field].value;
     }
     const res = await api(`/api/admin/advisors/${encodeURIComponent(editing)}`,

@@ -12,6 +12,7 @@ import { json, badRequest, notFound, forbidden, clean, cleanText, cleanDate, bad
 import { requireUser, requireAdmin, borrowedSeat } from './auth.js';
 import * as db from './db.js';
 import { announceEvent } from './agencyeventmail.js';
+import { inZone, zoneOfUser } from './eventzone.js';
 
 export const KINDS = ['training', 'webinar', 'meeting', 'other'];
 export const KIND_LABELS = {
@@ -40,7 +41,7 @@ function parse(body) {
   const onDate = cleanDate(body.onDate);
   if (!onDate) return { error: 'Which day?' };
   const startTime = cleanTime(body.startTime);
-  if (!startTime) return { error: 'What time does it start? Use the 24 hour clock, like 14:30.' };
+  if (!startTime) return { error: 'What time does it start?' };
   const endTime = cleanTime(body.endTime);
   if (endTime && endTime < startTime) return { error: 'That ends before it starts. Check the two times.' };
   const link = cleanLink(body.link);
@@ -87,8 +88,13 @@ function shape(r, going, goingCount) {
  * The agency's events between two days, as the reader sees them: whether they are going, and how
  * many are. Never throws: a page that shows this beside other things must not fail with them.
  */
-export async function agencyEventsBetween(env, user, from, to) {
+export async function agencyEventsBetween(env, user, from, to, { raw = false } = {}) {
   const agencyId = user.agency_id || '';
+  // Each event is read in the reader's own zone, so a late one can land on the next or the previous day. The search is a
+  // day wider each way for that, and the answer is trimmed back to what was asked for. An owner editing sees them as entered.
+  const zone = zoneOfUser(env, user);
+  const wideFrom = raw ? from : dayOffset(from, -1);
+  const wideTo = raw ? to : dayOffset(to, 1);
   // An owner sees every event. An advisor sees the ones for everybody and the ones they are invited to.
   const everything = user.role === 'admin';
   const [rows, mine, counts] = await Promise.all([
@@ -99,7 +105,7 @@ export async function agencyEventsBetween(env, user, from, to) {
         WHERE agency_id = ? AND on_date >= ? AND on_date <= ?${everything ? '' : `
           AND (audience = 'all' OR id IN (SELECT event_id FROM agency_event_invites WHERE agency_id = ? AND user_id = ?))`}
         ORDER BY on_date, start_time LIMIT 300`
-    ).bind(agencyId, from, to, ...(everything ? [] : [agencyId, user.id])).all().catch(() => ({ results: [] })),
+    ).bind(agencyId, wideFrom, wideTo, ...(everything ? [] : [agencyId, user.id])).all().catch(() => ({ results: [] })),
     env.DB.prepare(
       `SELECT event_id FROM agency_event_going WHERE agency_id = ? AND user_id = ?`
     ).bind(agencyId, user.id).all().catch(() => ({ results: [] })),
@@ -109,7 +115,15 @@ export async function agencyEventsBetween(env, user, from, to) {
   ]);
   const going = new Set((mine.results || []).map((r) => r.event_id));
   const count = new Map((counts.results || []).map((r) => [r.event_id, r.n]));
-  return (rows.results || []).map((r) => shape(r, going.has(r.id), count.get(r.id)));
+  const read = (rows.results || []).map((r) => {
+    if (raw) return r;
+    const shown = inZone(r, zone);
+    return { ...r, on_date: shown.onDate, start_time: shown.startTime, end_time: shown.endTime, tz: shown.tz };
+  });
+  return read
+    .filter((r) => r.on_date >= from && r.on_date <= to)
+    .sort((a, b) => (a.on_date + a.start_time < b.on_date + b.start_time ? -1 : 1))
+    .map((r) => shape(r, going.has(r.id), count.get(r.id)));
 }
 
 const dayOffset = (iso, days) =>
@@ -138,7 +152,7 @@ export async function handleAdminAgencyEvents(request, env) {
   if (response) return response;
   const agencyId = user.agency_id || '';
   const today = new Date().toISOString().slice(0, 10);
-  const events = await agencyEventsBetween(env, user, dayOffset(today, -30), dayOffset(today, 400));
+  const events = await agencyEventsBetween(env, user, dayOffset(today, -30), dayOffset(today, 400), { raw: true });
 
   const { results } = await env.DB.prepare(
     `SELECT g.event_id, u.first_name, u.last_name, u.email

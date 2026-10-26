@@ -17,7 +17,7 @@
 // appointment starts, the moment a form was submitted. Anything later than
 // when the bell was last cleared is unread. Clearing it is the only write.
 
-import { json, now } from './util.js';
+import { json, now, sayClocks } from './util.js';
 import { requireUser, borrowedSeat } from './auth.js';
 import * as db from './db.js';
 import { pushReady, pushTo, devicesFor } from './push.js';
@@ -194,7 +194,7 @@ export async function gather(env, user) {
     // still offering this morning's meeting at four in the afternoon is a bell
     // people stop reading.
     if (hasFinished(r, zone)) continue;
-    const when = [r.start_time, r.end_time].filter(Boolean).join(' to ');
+    const when = sayClocks([r.start_time, r.end_time].filter(Boolean).join(' to '));
     items.push({
       id: `appt:${r.id}`, kind: 'appointment',
       at: momentOf(r.on_date, r.start_time),

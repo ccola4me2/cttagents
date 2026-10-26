@@ -61,7 +61,7 @@ function sayTime(hhmm) {
   const m = String(hhmm || '').match(/^(\d{2}):(\d{2})$/);
   if (!m) return '';
   const h = Number(m[1]);
-  return `${((h + 11) % 12) + 1}:${m[2]} ${h < 12 ? 'am' : 'pm'}`;
+  return `${((h + 11) % 12) + 1}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
 /**

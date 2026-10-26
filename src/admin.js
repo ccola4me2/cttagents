@@ -15,6 +15,7 @@ import { remindTasks } from './taskmail.js';
 import { remindDuePayments } from './payremind.js';
 import { sendCallLists } from './calllist.js';
 import { schemaDrift } from './schema-drift.js';
+import { validZone } from './eventzone.js';
 import { jobHealth } from './cronlog.js';
 import { seal, open as unseal, piiReady } from './pii.js';
 import { turnstileReady } from './turnstile.js';
@@ -353,9 +354,14 @@ export async function handleUpdateAdvisor(request, env, userId) {
     }
   }
 
+  // Undefined leaves the zone alone, so a save from a screen that never heard of it cannot clear it.
+  const timezone = body.timezone === undefined ? undefined : clean(body.timezone, 64);
+  if (timezone && !validZone(timezone)) return badRequest('That time zone is not one this knows.');
+
   const updated = await db.updateUserProfile(env, userId, {
     firstName,
     lastName,
+    timezone,
     phone: clean(body.phone, 40),
     notifyEmail: clean(body.notifyEmail, 254),
     agencyName: clean(body.agencyName, 160),
@@ -381,6 +387,7 @@ export async function handleUpdateAdvisor(request, env, userId) {
   say('phone', before.phone, clean(body.phone, 40));
   say('agency name', before.agency_name, clean(body.agencyName, 160));
   say('seller of travel', before.seller_of_travel, clean(body.sellerOfTravel, 120));
+  if (timezone !== undefined) say('time zone', before.timezone, timezone);
 
   if (changed.length) {
     await db.logActivity(env, admin.id, 'admin.advisor.edit',

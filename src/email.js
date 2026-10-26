@@ -8,7 +8,7 @@
 // automation engine can record what happened, and distinguishes a failure
 // worth retrying from one that is not.
 
-import { PermanentError, escapeHtml, usDate } from './util.js';
+import { PermanentError, escapeHtml, usDate, sayClocks } from './util.js';
 import { unsubscribeToken } from './unsubtoken.js';
 
 import { DEFAULT_BRAND, HEX_COLOR, readableOnWhite, paymentFormFor } from './brand.js';
@@ -388,7 +388,7 @@ export function sendSignupNoticeEmail(env, { to, advisorFirstName, what, href,
 export function sendTaskDigestEmail(env, { to, firstName, due = [], late = [], chat = [], groups = [], calls = [] }) {
   const line = (t) => {
     const about = [t.client_name, t.booking_client, t.group_name].filter(Boolean)[0];
-    const when = t.due_time ? ` at ${t.due_time}` : '';
+    const when = t.due_time ? ` at ${sayClocks(t.due_time)}` : '';
     return `<li style="margin:0 0 6px;">${escapeHtml(t.title)}${escapeHtml(when)}`
       + `${about ? ` <span style="color:#5c7286;">&middot; ${escapeHtml(about)}</span>` : ''}`
       + `${t.priority === 'high' ? ' <strong style="color:#c2410c;">high</strong>' : ''}</li>`;

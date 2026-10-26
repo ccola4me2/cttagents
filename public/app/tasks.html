@@ -126,7 +126,7 @@
 </dialog>
 
 <script type="module">
-import { api, mountShell, esc, dateFmt, showError, onSubmit,
+import { api, mountShell, esc, dateFmt, showError, onSubmit, sayTime,
          mountScopePicker, advisorParam } from '/js/app.js';
 import { mountClientSuggest } from '/js/client-suggest.js';
 const ME = (await mountShell()).id;
@@ -183,7 +183,7 @@ function render(d) {
                          : '<span class="muted">no date</span>',
               t.priority === 'high' ? '<span class="badge badge-coral">high</span>' : '',
               t.priority === 'low' ? '<span class="badge badge-navy">low</span>' : '',
-              t.due_time ? esc(t.due_time) : '',
+              t.due_time ? esc(sayTime(t.due_time)) : '',
               t.kind && t.kind !== 'other' ? `<span class="badge badge-navy">${esc(t.kind)}</span>` : '',
               t.steps ? `<span class="badge ${t.steps_done === t.steps ? 'badge-green' : 'badge-navy'}">${t.steps_done}/${t.steps} steps</span>` : '',
               t.repeat_rule && t.repeat_rule !== 'none'

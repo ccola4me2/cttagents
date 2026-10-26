@@ -36,6 +36,12 @@
                 reminder, as a number a client can tap. That last one tells them a booking may be
                 cancelled if a date passes, so a number to ring is worth more there than
                 anywhere.</p></div>
+            <div class="field"><label for="timezone">Your time zone</label>
+              <select id="timezone" name="timezone"></select>
+              <p class="field-hint">Trainings and events the agency arranges are shown in your own time, so a 2:00 PM Eastern
+                webinar reads 1:00 PM to somebody on Central time, in the portal and in the emails you get.
+                <button type="button" class="btn btn-ghost btn-sm" id="tz-detect">Use this device's time zone</button>
+                <span class="muted" id="tz-said"></span></p></div>
             <div class="field"><label for="agencyName">Agency or host</label><input id="agencyName" name="agencyName">
               <p class="field-hint">The name that stands beside yours on everything a client is
                 sent.</p></div>
@@ -341,7 +347,7 @@
 </dialog>
 
 <script type="module">
-import { api, mountShell, esc, onSubmit, showError } from '/js/app.js';
+import { api, mountShell, esc, onSubmit, showError, TIME_ZONES } from '/js/app.js';
 const user = await mountShell();
 
 const pf = document.getElementById('profile-form');
@@ -353,6 +359,25 @@ pf.elements.agencyAddress.value = user.agencyAddress || '';
 pf.elements.sellerOfTravel.value = user.sellerOfTravel || '';
 pf.elements.notifyEmail.value = user.notifyEmail || '';
 pf.elements.notifyEmail.placeholder = user.email || '';
+
+// The zone their day is in. Blank is allowed: the portal's own zone is used until somebody says.
+{
+  const sel = pf.elements.timezone;
+  const zones = TIME_ZONES.slice();
+  if (user.timezone && !zones.some(([v]) => v === user.timezone)) zones.push([user.timezone, user.timezone]);
+  sel.innerHTML = `<option value="">Not set (Eastern is used)</option>${zones.map(([v, label]) =>
+    `<option value="${esc(v)}">${esc(label)}</option>`).join('')}`;
+  sel.value = user.timezone || '';
+  document.getElementById('tz-detect').addEventListener('click', () => {
+    let here = '';
+    try { here = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { here = ''; }
+    const said = document.getElementById('tz-said');
+    if (!here) { said.textContent = 'This device did not say. Pick yours from the list.'; return; }
+    if (![...sel.options].some((o) => o.value === here)) sel.insertAdjacentHTML('beforeend', `<option value="${esc(here)}">${esc(here)}</option>`);
+    sel.value = here;
+    said.textContent = `Set to ${here.replace(/_/g, ' ')}. Press Save to keep it.`;
+  });
+}
 
 onSubmit(pf, async (values) => {
   // The reminder switch is not in this form. It saves on the tick, so sending
@@ -427,6 +452,7 @@ const profileBody = (extra) => ({
   notifyEmail: pf.elements.notifyEmail.value,
   agencyAddress: pf.elements.agencyAddress.value,
   sellerOfTravel: pf.elements.sellerOfTravel.value,
+  timezone: pf.elements.timezone.value,
   ...extra,
 });
 

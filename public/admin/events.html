@@ -58,11 +58,8 @@
         <textarea id="notes" name="notes" maxlength="2000" rows="3"
           placeholder="What it covers, whether there is a recording, anything to bring"></textarea></div>
       <div class="field">
-        <label>Who is invited</label>
-        <label style="display:flex;gap:.5rem;align-items:center;font-weight:400;margin:0 0 .3rem;">
-          <input type="radio" name="aud" value="all" style="width:auto;" checked> All advisors</label>
-        <label style="display:flex;gap:.5rem;align-items:center;font-weight:400;margin:0 0 .3rem;">
-          <input type="radio" name="aud" value="some" style="width:auto;"> Choose which advisors</label>
+        <label for="aud">Who is invited</label>
+        <select id="aud"><option value="all">All advisors</option><option value="some">Choose which advisors</option></select>
         <div id="pick" hidden style="border:1px solid var(--navy-100);border-radius:10px;padding:.6rem .8rem;margin-top:.4rem;">
           <div style="display:flex;gap:.6rem;align-items:center;margin-bottom:.4rem;">
             <button class="btn btn-ghost btn-sm" type="button" id="pick-all">Select everyone</button>
@@ -88,7 +85,7 @@
 </dialog>
 
 <script type="module">
-import { api, mountShell, esc, dateFmt, showError, onSubmit, linkBits } from '/js/app.js';
+import { api, mountShell, esc, dateFmt, showError, onSubmit, linkBits, sayTime } from '/js/app.js';
 await mountShell({ admin: true });
 
 const panel = document.getElementById('panel');
@@ -104,8 +101,8 @@ function row(e, advisors) {
     <td><strong>${esc(e.title)}</strong>${e.cancelledAt ? ' <span class="badge badge-red">Cancelled</span>' : ''}
       <div class="muted" style="font-size:.84rem;">${esc(e.kindLabel)}${e.vendor ? ` &middot; ${esc(e.vendor)}` : ''}${
         e.link ? ` &middot; ${linkBits(e.link)}` : ''}</div></td>
-    <td>${esc(dateFmt(e.onDate))}<div class="muted" style="font-size:.84rem;">${esc(e.startTime)}${
-      e.endTime ? ` to ${esc(e.endTime)}` : ''}${e.tz ? ` ${esc(e.tz)}` : ''}</div></td>
+    <td>${esc(dateFmt(e.onDate))}<div class="muted" style="font-size:.84rem;">${esc(sayTime(e.startTime))}${
+      e.endTime ? ` to ${esc(sayTime(e.endTime))}` : ''}${e.tz ? ` ${esc(e.tz)}` : ''}</div></td>
     <td>${going.length} of ${e.invitedCount}${going.length
       ? `<div class="muted" style="font-size:.84rem;">${esc(going.join(', '))}</div>` : ''}
       <div class="muted" style="font-size:.8rem;">${e.audience === 'some' ? `Invited: ${e.invitedCount} of ${advisors}. ` : ''}${e.announcedAt ? `Emailed ${esc(new Date(e.announcedAt * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }))}` : 'Advisors not emailed yet'}${
@@ -173,7 +170,7 @@ function open(id) {
   kind.value = e.kind;
   // New: ticked, because an event nobody hears about is the one that gets missed. Changed: ticked only when they were told before.
   const some = Boolean(editing && editing.audience === 'some');
-  form.elements.aud.value = some ? 'some' : 'all';
+  document.getElementById('aud').value = some ? 'some' : 'all';
   const chosen = new Set(some ? editing.invitees : []);
   document.getElementById('pick-list').innerHTML = (data.people || []).map((p) => `
     <label style="display:flex;gap:.5rem;align-items:center;font-weight:400;margin:0;">
@@ -188,13 +185,13 @@ function open(id) {
 }
 
 function showPick() {
-  const some = form.elements.aud.value === 'some';
+  const some = document.getElementById('aud').value === 'some';
   document.getElementById('pick').hidden = !some;
   const n = document.querySelectorAll('#pick-list [data-person]:checked').length;
   document.getElementById('pick-count').textContent = `${n} of ${(data.people || []).length} chosen`;
 }
 form.addEventListener('change', (ev) => {
-  if (ev.target.name === 'aud' || ev.target.matches('[data-person]')) showPick();
+  if (ev.target.id === 'aud' || ev.target.matches('[data-person]')) showPick();
 });
 document.getElementById('pick-all').addEventListener('click', () => {
   document.querySelectorAll('#pick-list [data-person]').forEach((c) => { c.checked = true; });
@@ -226,10 +223,9 @@ async function tell(id, mode) {
 }
 
 onSubmit(form, async () => {
-  // The audience radio is read through the invitees below, not sent as a field of its own.
-  const body = Object.fromEntries([...new FormData(form).entries()].filter(([k]) => k !== 'aud'));
+  const body = Object.fromEntries(new FormData(form).entries());
   body.remind = document.getElementById('remind').checked;
-  body.invitees = form.elements.aud.value === 'some'
+  body.invitees = document.getElementById('aud').value === 'some'
     ? [...document.querySelectorAll('#pick-list [data-person]:checked')].map((c) => c.dataset.person) : 'all';
   const notify = document.getElementById('notify').checked;
   let told = null;

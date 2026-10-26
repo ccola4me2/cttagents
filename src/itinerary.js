@@ -90,11 +90,11 @@ function parse(body) {
 
   const startTime = cleanTime(body.startTime);
   if (body.startTime && !startTime) {
-    return { error: 'A time reads like 09:30, or leave it blank.' };
+    return { error: 'A time reads like 9:30 AM, or leave it blank.' };
   }
   const endTime = cleanTime(body.endTime);
   if (body.endTime && !endTime) {
-    return { error: 'A time reads like 09:30, or leave it blank.' };
+    return { error: 'A time reads like 9:30 AM, or leave it blank.' };
   }
 
   const imageUrl = clean(body.imageUrl, 500);
