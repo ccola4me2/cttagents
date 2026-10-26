@@ -9416,8 +9416,14 @@ async function main() {
     const onCal = (cal.data?.events || []).find((e) => e.kind === 'agency' && e.id === evId);
     check(Boolean(onCal) && onCal.where === 'https://example.com/join',
       'and on their calendar, with the join link', JSON.stringify(onCal));
+    check(String(onCal?.addToCalendar?.google || '').startsWith('https://calendar.google.com/')
+      && String(onCal?.addToCalendar?.outlook || '').startsWith('https://outlook.office.com/')
+      && /[?&]open=/.test(onCal?.href || ''),
+    'with buttons to add it to Google Calendar or Outlook, and a way to open its details', JSON.stringify(onCal?.addToCalendar));
 
     const going = await call(advisor, 'PUT', `/api/agency-events/${evId}/going`, { going: true });
+    const goingAgain = await call(advisor, 'PUT', `/api/agency-events/${evId}/going`, { going: true });
+    check(goingAgain.status === 200 && goingAgain.data?.going === true, 'saying you are going twice changes nothing and does not fail', `status ${goingAgain.status}`);
     const after = (await call(advisor, 'GET', '/api/agency-events')).data?.events?.find((e) => e.id === evId);
     check(going.status === 200 && after?.going === true && after?.goingCount === 1,
       'an advisor can say they are going', JSON.stringify(after));

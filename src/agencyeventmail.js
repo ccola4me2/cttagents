@@ -6,7 +6,7 @@
 // carry, and it never sends the same reminder twice: reminded_at is set once the loop has been through.
 
 import { escapeHtml, usDate, now, PermanentError } from './util.js';
-import { sendHtml } from './email.js';
+import { layout, sendHtml } from './email.js';
 import { appUrl } from './share.js';
 import { readableOnWhite } from './brand.js';
 import { brandForUser } from './brand.js';
@@ -281,4 +281,56 @@ export async function sendEventReminders(env, { at = now() } = {}) {
     out.failed += result.failed.length;
   }
   return out;
+}
+
+/**
+ * Tell the person who put an event on the calendar that somebody is going to it, or no longer is. The headcount is the
+ * reason an owner arranges a training the way they do, and asking everybody is slower than being told. Never throws: an
+ * advisor pressing I'm going must not be told it failed because an email did.
+ */
+export async function tellOrganizer(env, { event, person, going }) {
+  try {
+    if (!event.created_by || event.created_by === person.id) return { skipped: 'nobody to tell' };
+    const organizer = await db.getUserById(env, event.created_by);
+    if (!organizer || organizer.status !== 'active' || organizer.agency_id !== event.agency_id) return { skipped: 'organizer is not here' };
+
+    const { results } = await env.DB.prepare(
+      `SELECT u.first_name, u.last_name, u.email
+         FROM agency_event_going g JOIN users u ON u.id = g.user_id
+        WHERE g.event_id = ? AND g.agency_id = ? ORDER BY u.first_name, u.last_name`
+    ).bind(event.id, event.agency_id).all();
+    const names = (results || []).map((r) => `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email);
+    let invited;
+    if (event.audience === 'some') {
+      const n = await env.DB.prepare(
+        'SELECT COUNT(*) AS n FROM agency_event_invites WHERE event_id = ? AND agency_id = ?'
+      ).bind(event.id, event.agency_id).first();
+      invited = n ? n.n : 0;
+    } else {
+      invited = (await agencyAdvisors(env, event.agency_id)).length;
+    }
+
+    const who = [person.first_name, person.last_name].filter(Boolean).join(' ') || person.email;
+    const mine = inZone(event, zoneOfUser(env, organizer));
+    const when = whenText({ ...event, on_date: mine.onDate, start_time: mine.startTime, end_time: mine.endTime, tz: mine.tz });
+    const kind = KIND_WORDS[event.kind] || 'event';
+    const line = going
+      ? `${who} says they are going to the ${kind}, ${when}.`
+      : `${who} is no longer going to the ${kind}, ${when}.`;
+    const body = `<p style="margin:0 0 14px;">${escapeHtml(line)}</p>
+      <p style="margin:0 0 14px;"><strong>${names.length} of ${invited}</strong> invited advisors are going.</p>
+      ${names.length ? `<p style="margin:0 0 14px;color:#5c7286;">${escapeHtml(names.join(', '))}</p>` : ''}`;
+    await sendHtml(env, {
+      to: organizer.notify_email || organizer.email,
+      subject: going ? `${who} is going: ${event.title}` : `${who} can no longer make it: ${event.title}`,
+      html: layout(env, {
+        brand: await brandForUser(env, organizer.id), heading: event.title, body,
+        cta: { href: `${appUrl(env)}/admin/events`, label: 'See who is going' },
+      }),
+    });
+    return { sent: true };
+  } catch (e) {
+    console.error('going notice failed', e);
+    return { skipped: 'could not send' };
+  }
 }

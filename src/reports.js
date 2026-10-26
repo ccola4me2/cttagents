@@ -271,7 +271,7 @@ export async function handleMonth(request, env) {
     if (e.cancelledAt) continue;
     events.push({
       date: e.onDate, kind: 'agency', at: e.startTime, title: e.title,
-      detail: [e.kindLabel, e.vendor].filter(Boolean).join(' · '), href: '/app/calendar',
+      detail: [e.kindLabel, e.vendor].filter(Boolean).join(' · '), href: `/app/calendar?open=${encodeURIComponent(e.id)}&on=${e.onDate}`,
     });
   }
   events.sort((a, b) => (a.date + (a.at || '99:99') < b.date + (b.at || '99:99') ? -1 : 1));

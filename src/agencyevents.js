@@ -11,7 +11,7 @@ import { json, badRequest, notFound, forbidden, clean, cleanText, cleanDate, bad
   from './util.js';
 import { requireUser, requireAdmin, borrowedSeat } from './auth.js';
 import * as db from './db.js';
-import { announceEvent } from './agencyeventmail.js';
+import { announceEvent, tellOrganizer, calendarLinks } from './agencyeventmail.js';
 import { inZone, zoneOfUser } from './eventzone.js';
 
 export const KINDS = ['training', 'webinar', 'meeting', 'other'];
@@ -79,6 +79,7 @@ function shape(r, going, goingCount) {
     audience: r.audience === 'some' ? 'some' : 'all',
     remind: r.remind !== 0,
     remindedAt: r.reminded_at || null,
+    addToCalendar: r.addToCalendar || null,
     going: Boolean(going),
     goingCount: goingCount || 0,
   };
@@ -123,7 +124,9 @@ export async function agencyEventsBetween(env, user, from, to, { raw = false } =
   const read = visible.map((r) => {
     if (raw) return r;
     const shown = inZone(r, zone);
-    return { ...r, on_date: shown.onDate, start_time: shown.startTime, end_time: shown.endTime, tz: shown.tz };
+    // The add to calendar buttons are in universal time from the event as entered, so they are right in any zone.
+    return { ...r, on_date: shown.onDate, start_time: shown.startTime, end_time: shown.endTime, tz: shown.tz,
+      addToCalendar: calendarLinks(r) };
   });
   return read
     .filter((r) => r.on_date >= from && r.on_date <= to)
@@ -339,7 +342,8 @@ export async function handleGoing(request, env, id) {
   const agencyId = user.agency_id || '';
 
   const event = await env.DB.prepare(
-    'SELECT id, audience FROM agency_events WHERE id = ? AND agency_id = ?'
+    `SELECT id, agency_id, kind, title, on_date, start_time, end_time, tz, created_by, audience
+       FROM agency_events WHERE id = ? AND agency_id = ?`
   ).bind(id, agencyId).first();
   if (!event) return notFound('Event not found.');
   // An event for somebody else is not one this person can answer.
@@ -351,15 +355,21 @@ export async function handleGoing(request, env, id) {
   }
 
   const going = (await readJson(request)).going !== false;
+  let changed = false;
   if (going) {
-    await env.DB.prepare(
+    const res = await env.DB.prepare(
       `INSERT OR IGNORE INTO agency_event_going (event_id, agency_id, user_id, created_at)
        VALUES (?, ?, ?, ?)`
     ).bind(id, agencyId, user.id, now()).run();
+    changed = Boolean(res.meta && res.meta.changes);
   } else {
-    await env.DB.prepare(
+    const res = await env.DB.prepare(
       'DELETE FROM agency_event_going WHERE event_id = ? AND agency_id = ? AND user_id = ?'
     ).bind(id, agencyId, user.id).run();
+    changed = Boolean(res.meta && res.meta.changes);
   }
+  // The organizer is told when the answer actually changed: pressing the button twice, or taking back an answer that was
+  // never given, is not news.
+  if (changed) await tellOrganizer(env, { event, person: user, going });
   return json({ ok: true, going });
 }

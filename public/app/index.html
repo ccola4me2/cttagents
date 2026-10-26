@@ -323,7 +323,7 @@ const PANELS = {
       return `${add}<ul class="rows">${rows.map((e) => `<li>
         <div>
           <span class="badge badge-navy">${esc(e.kindLabel)}</span>
-          <span class="name" style="margin-left:.4rem;">${esc(e.title)}</span>
+          <a class="name" style="margin-left:.4rem;" href="/app/calendar?open=${encodeURIComponent(e.id)}&on=${esc(e.onDate)}">${esc(e.title)}</a>
           <div class="muted">${esc(fmtShort(e.onDate))} &middot; ${esc(sayTime(e.startTime))}${
             e.endTime ? ` to ${esc(sayTime(e.endTime))}` : ''}${e.tz ? ` ${esc(e.tz)}` : ''}${
             e.vendor ? ` &middot; ${esc(e.vendor)}` : ''}${

@@ -132,8 +132,8 @@ export async function handleCalendar(request, env) {
     events.push({
       kind: 'agency', id: e.id, date: e.onDate, time: e.startTime, endTime: e.endTime,
       title: e.title, who: e.vendor, where: e.link, note: e.kindLabel,
-      tz: e.tz, notes: e.notes, going: e.going, goingCount: e.goingCount,
-      muted: Boolean(e.cancelledAt), href: '/app/calendar',
+      tz: e.tz, notes: e.notes, going: e.going, goingCount: e.goingCount, addToCalendar: e.addToCalendar,
+      muted: Boolean(e.cancelledAt), href: `/app/calendar?open=${encodeURIComponent(e.id)}&on=${e.onDate}`,
     });
   }
   for (const t of taskRows.results || []) {

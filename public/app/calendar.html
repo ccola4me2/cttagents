@@ -40,6 +40,12 @@
   </div>
 </div>
 
+<dialog id="ev-dlg" style="max-width:min(34rem, 96vw);width:96vw;">
+  <div class="card-head"><h2 id="ev-title"></h2>
+    <button class="btn btn-ghost btn-sm" type="button" id="ev-close">Close</button></div>
+  <div class="card-pad" id="ev-body"></div>
+</dialog>
+
 <dialog id="ics-dlg">
   <form id="ics-form" method="dialog">
     <div class="card-head"><h2>Add from an invite</h2>
@@ -241,7 +247,7 @@ function draw(from) {
     cells.push(`<button type="button" class="cal-day${here ? '' : ' away'}${
       day === today ? ' is-today' : ''}${list.length ? '' : ' empty'}" data-day="${day}">
       <span class="d">${Number(day.slice(8, 10))}</span>
-      ${shown.map((e) => `<span class="ev ev-${esc(e.kind)}${e.muted ? ' off' : ''}">${
+      ${shown.map((e) => `<span class="ev ev-${esc(e.kind)}${e.muted ? ' off' : ''}"${e.kind === 'agency' ? ` data-ev="${esc(e.id)}" title="Open the details"` : ''}>${
         e.time ? `<b>${esc(sayTime(e.time))}</b> ` : ''}${esc(e.title)}</span>`).join('')}
       ${more > 0 ? `<span class="ev more">${more} more</span>` : ''}
     </button>`);
@@ -249,7 +255,12 @@ function draw(from) {
 
   grid.innerHTML = head + cells.join('');
   grid.querySelectorAll('[data-day]').forEach((b) =>
-    b.addEventListener('click', () => showDay(b.dataset.day)));
+    b.addEventListener('click', (ev) => {
+      // Pressing a training itself opens it, with how to join. Anywhere else in the day opens the day.
+      const chip = ev.target.closest('[data-ev]');
+      if (chip) { openEvent(chip.dataset.ev); return; }
+      showDay(b.dataset.day);
+    }));
 
   // A legend that is also the control. Each one says how many it is hiding or
   // showing, because a filter whose effect you cannot see is one people forget
@@ -314,9 +325,11 @@ function showDay(day) {
             // The row opens the thing it names. A departure should reach the
             // reservation from the line that says it departs, not only from a
             // small button at the other end of the row.
-            e.kind === 'appointment' || !e.href
-              ? esc(e.title)
-              : `<a href="${esc(e.href)}" class="row-open">${esc(e.title)}</a>`}</span>
+            e.kind === 'agency'
+              ? `<a href="#" class="row-open" data-open-ev="${esc(e.id)}">${esc(e.title)}</a>`
+              : e.kind === 'appointment' || !e.href
+                ? esc(e.title)
+                : `<a href="${esc(e.href)}" class="row-open">${esc(e.title)}</a>`}</span>
           <div class="muted where">${[esc(e.who), linkBits(e.where), e.kind === 'agency' ? esc(e.note) : linkBits(e.note)]
             .filter(Boolean).join('  &middot;  ')}${e.kind === 'agency' && e.tz ? ` &middot; ${esc(e.tz)}` : ''}${
             e.kind === 'agency' && e.goingCount ? ` &middot; ${e.goingCount} going` : ''}</div>
@@ -356,6 +369,8 @@ function showDay(day) {
         await load();
       } catch (e) { showError(err, e); }
     }));
+  document.getElementById('day-body').querySelectorAll('[data-open-ev]').forEach((a) =>
+    a.addEventListener('click', (ev) => { ev.preventDefault(); openEvent(a.dataset.openEv); }));
   document.getElementById('day-body').querySelectorAll('[data-edit]').forEach((b) =>
     b.addEventListener('click', () => openAppt(b.dataset.edit)));
   document.getElementById('day-body').querySelectorAll('[data-complete]').forEach((b) =>
@@ -364,6 +379,52 @@ function showDay(day) {
 }
 
 const KIND_LABEL = Object.fromEntries(KINDS);
+
+// ---------------------------------------------------------- one event --
+//
+// A training the agency has arranged, opened: when it is, who is giving it, how to join, what it covers, and whether you
+// are going. The join link is the point, so it is a button, and the address is written out under it for the times a
+// button does not work.
+const evDlg = document.getElementById('ev-dlg');
+let evOpen = null;
+
+function openEvent(id) {
+  const e = events.find((x) => x.kind === 'agency' && x.id === id);
+  if (!e) return;
+  evOpen = id;
+  document.getElementById('ev-title').textContent = e.title;
+  const when = `${dateFmt(e.date)}${e.time ? ` &middot; ${esc(sayTime(e.time))}${e.endTime ? ` to ${esc(sayTime(e.endTime))}` : ''}${e.tz ? ` ${esc(e.tz)}` : ''}` : ''}`;
+  const cal = e.addToCalendar;
+  document.getElementById('ev-body').innerHTML = `
+    <p style="margin:0 0 .6rem;"><span class="badge badge-navy">${esc(e.note || 'Event')}</span>${
+      e.muted ? ' <span class="badge badge-red">Cancelled</span>' : ''}</p>
+    <p style="margin:0 0 .4rem;font-weight:600;">${when}</p>
+    ${e.who ? `<p class="muted" style="margin:0 0 .8rem;">Given by ${esc(e.who)}</p>` : ''}
+    ${e.where
+    ? `<div style="margin:.4rem 0 1rem;">
+        <a class="btn btn-primary" href="${esc(e.where)}" target="_blank" rel="noopener noreferrer">Join the call</a>
+        <div class="muted" style="margin-top:.45rem;font-size:.85rem;overflow-wrap:anywhere;">${linkBits(e.where)}</div></div>`
+    : '<p class="muted" style="margin:.4rem 0 1rem;">No join link has been added yet. Ask whoever arranged it.</p>'}
+    ${e.notes ? `<div style="white-space:pre-wrap;margin:0 0 1rem;">${linkBits(e.notes)}</div>` : ''}
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;">
+      ${e.muted ? '' : `<button class="btn ${e.going ? 'btn-primary' : 'btn-secondary'}" type="button" id="ev-going"
+        aria-pressed="${e.going}">${e.going ? 'Going' : "I'm going"}</button>`}
+      ${cal ? `<a class="btn btn-ghost btn-sm" href="${esc(cal.google)}" target="_blank" rel="noopener noreferrer">Add to Google Calendar</a>
+        <a class="btn btn-ghost btn-sm" href="${esc(cal.outlook)}" target="_blank" rel="noopener noreferrer">Add to Outlook</a>` : ''}
+      <span class="muted" style="font-size:.85rem;">${e.goingCount ? `${e.goingCount} going` : 'Nobody has said they are going yet'}</span>
+    </div>`;
+  const going = document.getElementById('ev-going');
+  if (going) going.addEventListener('click', async () => {
+    going.disabled = true;
+    try {
+      await api(`/api/agency-events/${encodeURIComponent(id)}/going`, { method: 'PUT', body: { going: !e.going } });
+      await load();
+      openEvent(id);
+    } catch (x) { going.disabled = false; showError(err, x); }
+  });
+  if (!evDlg.open) evDlg.showModal();
+}
+document.getElementById('ev-close').addEventListener('click', () => evDlg.close());
 
 document.getElementById('day-close').addEventListener('click', () => {
   dayCard.hidden = true; openDay = null;
@@ -494,6 +555,15 @@ await load();
 // Arriving from the dashboard's month, where somebody pressed Appointment on a
 // day. Landing on the month and making them find that day again would be the
 // screen forgetting what it was just told.
+// The dashboard sends somebody here to read one training: land on its month and open it.
+const wanted = new URLSearchParams(location.search).get('open');
+const wantedDay = new URLSearchParams(location.search).get('on');
+if (wanted && /^\d{4}-\d{2}-\d{2}$/.test(wantedDay || '')) {
+  cursor = new Date(`${wantedDay}T00:00:00Z`);
+  await load();
+  openEvent(wanted);
+}
+
 const asked = new URLSearchParams(location.search).get('add');
 if (asked && /^\d{4}-\d{2}-\d{2}$/.test(asked)) {
   cursor = new Date(`${asked}T00:00:00Z`);

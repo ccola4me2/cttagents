@@ -1415,8 +1415,16 @@ th.num .th-sort { justify-content: flex-end; }
 .cal-wrap .cal-day.is-today .d { background: var(--coral-600); color: #fff;
   border-radius: 999px; padding: 0 .4rem; align-self: flex-start; }
 
-.cal-wrap .cal-day .ev { font-size: .72rem; line-height: 1.25; padding: .1rem .3rem; border-radius: 3px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-wrap .cal-day { min-width: 0; overflow: hidden; }
+/* Wrapped inside its own day, at most three lines, so a long title never runs into the next date. */
+.cal-wrap .cal-day .ev { display: block; box-sizing: border-box; min-width: 0; max-width: 100%;
+  font-size: .72rem; line-height: 1.25; padding: .1rem .3rem; border-radius: 3px;
+  white-space: normal; overflow-wrap: anywhere; word-break: break-word; overflow: hidden; text-align: left; }
+@supports (-webkit-line-clamp: 3) {
+  .cal-wrap .cal-day .ev { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+}
+.cal-wrap .cal-day .ev[data-ev] { cursor: pointer; }
+.cal-wrap .cal-day .ev[data-ev]:hover { filter: brightness(.96); text-decoration: underline; }
 .cal-wrap .cal-day .ev b { font-weight: 600; }
 .cal-wrap .cal-day .ev.off { text-decoration: line-through; opacity: .55; }
 .cal-wrap .cal-day .ev.more { color: var(--ink-500); padding-left: .3rem; }
