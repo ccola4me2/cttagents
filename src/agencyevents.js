@@ -97,25 +97,30 @@ export async function agencyEventsBetween(env, user, from, to, { raw = false } =
   const wideTo = raw ? to : dayOffset(to, 1);
   // An owner sees every event. An advisor sees the ones for everybody and the ones they are invited to.
   const everything = user.role === 'admin';
-  const [rows, mine, counts] = await Promise.all([
+  const [rows, mine, counts, invites] = await Promise.all([
     env.DB.prepare(
       `SELECT id, kind, title, vendor, on_date, start_time, end_time, tz, link, notes, cancelled_at,
               announced_at, remind, reminded_at, audience
          FROM agency_events
-        WHERE agency_id = ? AND on_date >= ? AND on_date <= ?${everything ? '' : `
-          AND (audience = 'all' OR id IN (SELECT event_id FROM agency_event_invites WHERE agency_id = ? AND user_id = ?))`}
+        WHERE agency_id = ? AND on_date >= ? AND on_date <= ?
         ORDER BY on_date, start_time LIMIT 300`
-    ).bind(agencyId, wideFrom, wideTo, ...(everything ? [] : [agencyId, user.id])).all().catch(() => ({ results: [] })),
+    ).bind(agencyId, wideFrom, wideTo).all().catch(() => ({ results: [] })),
     env.DB.prepare(
       `SELECT event_id FROM agency_event_going WHERE agency_id = ? AND user_id = ?`
     ).bind(agencyId, user.id).all().catch(() => ({ results: [] })),
     env.DB.prepare(
       `SELECT event_id, COUNT(*) AS n FROM agency_event_going WHERE agency_id = ? GROUP BY event_id`
     ).bind(agencyId).all().catch(() => ({ results: [] })),
+    // The events an advisor was picked for. Read on its own and applied below, so the list needs no clever SQL.
+    everything ? Promise.resolve({ results: [] }) : env.DB.prepare(
+      'SELECT event_id FROM agency_event_invites WHERE agency_id = ? AND user_id = ?'
+    ).bind(agencyId, user.id).all().catch(() => ({ results: [] })),
   ]);
+  const invitedTo = new Set((invites.results || []).map((r) => r.event_id));
   const going = new Set((mine.results || []).map((r) => r.event_id));
   const count = new Map((counts.results || []).map((r) => [r.event_id, r.n]));
-  const read = (rows.results || []).map((r) => {
+  const visible = (rows.results || []).filter((r) => everything || r.audience !== 'some' || invitedTo.has(r.id));
+  const read = visible.map((r) => {
     if (raw) return r;
     const shown = inZone(r, zone);
     return { ...r, on_date: shown.onDate, start_time: shown.startTime, end_time: shown.endTime, tz: shown.tz };
