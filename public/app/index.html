@@ -698,7 +698,7 @@ let monthCursor = null;
 // Which day the calendar is looking at, and how. The view is remembered on this device, so somebody who works from the week
 // does not have to ask for it every morning.
 let calFocus = null;
-const CAL_VIEWS = [['month', 'Month'], ['week', 'Week'], ['day', 'Day'], ['agenda', 'Agenda']];
+const CAL_VIEWS = [['month', 'Month'], ['week', 'Week'], ['workweek', 'Work week'], ['day', 'Day'], ['agenda', 'Agenda']];
 let calView = 'month';
 try {
   const saved = localStorage.getItem('cal-view');
@@ -828,7 +828,7 @@ function wireCalChrome(host) {
       monthCursor = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}`;
       calFocus = monthCursor === d.today.slice(0, 7) ? d.today : `${monthCursor}-01`;
     } else {
-      const days = { week: 7, day: 1, agenda: 14 }[calView];
+      const days = { week: 7, workweek: 7, day: 1, agenda: 14 }[calView];
       calFocus = shiftDay(calFocus, step * days);
       monthCursor = calFocus.slice(0, 7);
     }
@@ -850,9 +850,12 @@ async function drawRangeView(host) {
   let to = calFocus;
   let title;
   let unit;
-  if (calView === 'week') {
-    from = shiftDay(calFocus, -new Date(`${calFocus}T00:00:00Z`).getUTCDay());
-    to = shiftDay(from, 6);
+  if (calView === 'week' || calView === 'workweek') {
+    const dow = new Date(`${calFocus}T00:00:00Z`).getUTCDay();
+    // Sunday to Saturday, or Monday to Friday. A work week opened on a weekend shows the one that is coming, because
+    // nobody looking at Saturday morning wants last week.
+    from = calView === 'week' ? shiftDay(calFocus, -dow) : shiftDay(calFocus, dow === 0 ? 1 : dow === 6 ? 2 : 1 - dow);
+    to = shiftDay(from, calView === 'week' ? 6 : 4);
     title = `${dayWords(from, { month: 'short', day: 'numeric' })} to ${dayWords(to, { month: 'short', day: 'numeric', year: 'numeric' })}`;
     unit = 'week';
   } else if (calView === 'day') {
@@ -878,8 +881,8 @@ async function drawRangeView(host) {
   let body;
   if (calView === 'day') {
     body = `<div class="cal-detail" id="cal-detail">${dayDetailHtml(calFocus, byDay.get(calFocus) || [])}</div>`;
-  } else if (calView === 'week') {
-    const days = Array.from({ length: 7 }, (_x, i) => shiftDay(from, i));
+  } else if (calView === 'week' || calView === 'workweek') {
+    const days = Array.from({ length: calView === 'week' ? 7 : 5 }, (_x, i) => shiftDay(from, i));
     body = `<div class="cal-week">${days.map((iso) => {
       const list = byDay.get(iso) || [];
       return `<div class="cal-wk-day${iso === d.today ? ' today' : ''}">
