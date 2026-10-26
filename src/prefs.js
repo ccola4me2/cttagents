@@ -25,7 +25,7 @@ export const PANELS = [
   { id: 'notices', title: 'Notices', hint: 'Things that need your attention' },
   { id: 'tasks', title: 'To do', hint: 'Your own working list' },
   { id: 'events', title: 'Trainings and events', hint: 'Vendor trainings, webinars and agency meetings coming up' },
-  { id: 'month', title: 'This month', hint: 'Departures, deadlines and tasks on a calendar' },
+  { id: 'month', title: 'Calendar', hint: 'Departures, deadlines and tasks, by month, week, day or agenda' },
   { id: 'deadlines', title: 'Deadlines', hint: 'Reminders, vendor dates and anything past due' },
   { id: 'bookings', title: 'Latest bookings', hint: 'Newest and recently changed reservations' },
   { id: 'travelling', title: "Who's travelling", hint: 'Leaving soon, away now, just back' },

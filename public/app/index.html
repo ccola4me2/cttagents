@@ -695,6 +695,19 @@ function clockOf(hhmm) {
 }
 
 let monthCursor = null;
+// Which day the calendar is looking at, and how. The view is remembered on this device, so somebody who works from the week
+// does not have to ask for it every morning.
+let calFocus = null;
+const CAL_VIEWS = [['month', 'Month'], ['week', 'Week'], ['day', 'Day'], ['agenda', 'Agenda']];
+let calView = 'month';
+try {
+  const saved = localStorage.getItem('cal-view');
+  if (CAL_VIEWS.some(([k]) => k === saved)) calView = saved;
+} catch { /* no storage, so the month */ }
+
+const isoOf = (dt) => dt.toISOString().slice(0, 10);
+const shiftDay = (iso, n) => isoOf(new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86400000));
+const dayWords = (iso, opts) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-US', { ...opts, timeZone: 'UTC' });
 
 /**
  * The one-line add under a day.
@@ -715,7 +728,7 @@ function wireDayAdd(detail) {
     try {
       await api('/api/tasks', { method: 'POST', body: { title, dueDate: form.dataset.day } });
       form.elements.title.value = '';
-      // The whole month, because a new task changes the dot on that day as
+      // The whole view, because a new task changes the dot on that day as
       // well as the list under it.
       await drawMonth(document.getElementById('month-body'), form.dataset.day);
     } catch (err) {
@@ -727,16 +740,189 @@ function wireDayAdd(detail) {
 function monthWidget() {
   const el = document.createElement('section');
   el.className = 'widget';
-  el.innerHTML = `<header><h2>This month</h2></header>
+  el.innerHTML = `<header><h2>Calendar</h2></header>
     <div class="wbody whole" id="month-body"><p class="spinner">Loading...</p></div>`;
   // Drawn after the element is in the DOM, so the fetch cannot race the mount.
   queueMicrotask(() => drawMonth(el.querySelector('#month-body')));
   return el;
 }
 
+/** Every dated thing between two days, across however many months that touches. */
+async function eventsBetween(from, to) {
+  const months = [];
+  let cur = from.slice(0, 7);
+  while (cur <= to.slice(0, 7)) {
+    months.push(cur);
+    const [y, m] = cur.split('-').map(Number);
+    const next = new Date(Date.UTC(y, m, 1));
+    cur = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}`;
+  }
+  const parts = await Promise.all(months.map((mo) =>
+    api(`/api/month?month=${mo}${advisorParam() ? '&' + advisorParam() : ''}`)));
+  return parts.flatMap((p) => p.events).filter((e) => e.date >= from && e.date <= to);
+}
+
+/** One thing on a day: when, what, and what kind. It opens whatever it names. */
+function calEventLi(e) {
+  return `<li><a href="${esc(e.href)}" class="cal-event">
+    <i class="dot ${KIND_TONE[e.kind] || 'task'}"></i>
+    <span><span class="t">${e.at ? `<b class="cal-at">${esc(clockOf(e.at))}</b> ` : ''}${esc(e.title)}</span>
+      <span class="m">${esc(KIND_NAME[e.kind] || 'Item')}${e.detail ? ' · ' + esc(e.detail) : ''}${
+        e.amountCents ? ' · ' + esc(money(e.amountCents)) : ''}</span></span>
+  </a></li>`;
+}
+
+/** A day opened: its things, and the line to add one. Shared by the month's day panel and the day view. */
+function dayDetailHtml(iso, events) {
+  // The day says which day it is. Opening on today and showing an unlabelled
+  // list left it ambiguous whether you were looking at today or at whatever
+  // you last clicked.
+  const label = iso === d.today
+    ? 'Today'
+    // The year as well. The calendar walks into next year quite happily, and "Monday, 3 March" is two different Mondays by then.
+    : dayWords(iso, { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' });
+  const head = `<div class="cal-day-head">
+    <strong>${esc(label)}</strong>
+    <span class="muted">${events.length ? `${events.length} thing${events.length === 1 ? '' : 's'}` : 'clear'}</span>
+  </div>`;
+  // The date is the thing you already have. Sending somebody to another
+  // screen to type it again is the whole reason this was worth adding.
+  const add = `<form class="cal-add" data-day="${esc(iso)}">
+    <input name="title" maxlength="200" autocomplete="off"
+      placeholder="Add a task on this day" aria-label="Add a task on ${esc(label)}">
+    <button class="btn btn-primary btn-sm" type="submit">Add</button>
+    <a class="btn btn-ghost btn-sm" href="/app/calendar?add=${esc(iso)}">Appointment</a>
+  </form>`;
+  return events.length
+    ? `${head}<ul class="rows">${events.map(calEventLi).join('')}</ul>${add}`
+    : `${head}<p class="cal-none">Nothing on this day.</p>${add}`;
+}
+
+/** Month, Week, Day and Agenda, and the way back to today. */
+function viewBarHtml() {
+  return `<div class="cal-top">
+    <div class="wtabs cal-views" role="tablist" aria-label="Calendar view">${CAL_VIEWS.map(([k, label]) =>
+    `<button class="wtab" type="button" role="tab" data-view="${k}" aria-selected="${k === calView}">${label}</button>`).join('')}</div>
+    <button class="btn btn-ghost btn-sm" type="button" data-today>Today</button>
+  </div>`;
+}
+
+/** Switching view, Today, and stepping back and forward, which moves by a month, a week, a day or a fortnight. */
+function wireCalChrome(host) {
+  host.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {
+    calView = b.dataset.view;
+    try { localStorage.setItem('cal-view', calView); } catch { /* it just is not remembered */ }
+    monthCursor = (calFocus || d.today).slice(0, 7);
+    drawMonth(host);
+  }));
+  host.querySelector('[data-today]').addEventListener('click', () => {
+    calFocus = d.today;
+    monthCursor = d.today.slice(0, 7);
+    drawMonth(host);
+  });
+  host.querySelectorAll('[data-move]').forEach((btn) => btn.addEventListener('click', () => {
+    const step = Number(btn.dataset.move);
+    if (calView === 'month') {
+      const [y, m] = (monthCursor || calFocus.slice(0, 7)).split('-').map(Number);
+      const next = new Date(Date.UTC(y, m - 1 + step, 1));
+      monthCursor = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}`;
+      calFocus = monthCursor === d.today.slice(0, 7) ? d.today : `${monthCursor}-01`;
+    } else {
+      const days = { week: 7, day: 1, agenda: 14 }[calView];
+      calFocus = shiftDay(calFocus, step * days);
+      monthCursor = calFocus.slice(0, 7);
+    }
+    drawMonth(host);
+  }));
+}
+
 async function drawMonth(host, reopen) {
   if (!host) return;
-  const month = monthCursor || d.today.slice(0, 7);
+  if (!calFocus) calFocus = d.today;
+  if (reopen) calFocus = reopen;
+  if (calView === 'month') return drawMonthView(host, reopen);
+  return drawRangeView(host);
+}
+
+/** Week, Day and Agenda: a run of days read as a list, which is what a narrow panel is good at. */
+async function drawRangeView(host) {
+  let from = calFocus;
+  let to = calFocus;
+  let title;
+  let unit;
+  if (calView === 'week') {
+    from = shiftDay(calFocus, -new Date(`${calFocus}T00:00:00Z`).getUTCDay());
+    to = shiftDay(from, 6);
+    title = `${dayWords(from, { month: 'short', day: 'numeric' })} to ${dayWords(to, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    unit = 'week';
+  } else if (calView === 'day') {
+    title = dayWords(calFocus, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    unit = 'day';
+  } else {
+    to = shiftDay(from, 13);
+    title = `${dayWords(from, { month: 'short', day: 'numeric' })} to ${dayWords(to, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    unit = 'fortnight';
+  }
+
+  let events;
+  try { events = await eventsBetween(from, to); } catch {
+    host.innerHTML = '<p class="wempty">Could not load the calendar.</p>';
+    return;
+  }
+  const byDay = new Map();
+  for (const e of events) {
+    if (!byDay.has(e.date)) byDay.set(e.date, []);
+    byDay.get(e.date).push(e);
+  }
+
+  let body;
+  if (calView === 'day') {
+    body = `<div class="cal-detail" id="cal-detail">${dayDetailHtml(calFocus, byDay.get(calFocus) || [])}</div>`;
+  } else if (calView === 'week') {
+    const days = Array.from({ length: 7 }, (_x, i) => shiftDay(from, i));
+    body = `<div class="cal-week">${days.map((iso) => {
+      const list = byDay.get(iso) || [];
+      return `<div class="cal-wk-day${iso === d.today ? ' today' : ''}">
+        <button type="button" class="cal-wk-label" data-goday="${esc(iso)}" aria-label="Open ${esc(dayWords(iso, { weekday: 'long', month: 'long', day: 'numeric' }))}">
+          <span>${esc(dayWords(iso, { weekday: 'short' }))}</span><b>${Number(iso.slice(8, 10))}</b></button>
+        <div class="cal-wk-items">${list.length
+    ? `<ul class="rows">${list.map(calEventLi).join('')}</ul>` : '<span class="muted cal-wk-none">Nothing</span>'}</div>
+      </div>`;
+    }).join('')}</div>`;
+  } else {
+    const days = [...byDay.keys()].sort();
+    body = days.length
+      ? `<div class="cal-agenda">${days.map((iso) => `
+        <div class="cal-ag-day">
+          <button type="button" class="cal-ag-label" data-goday="${esc(iso)}">${esc(iso === d.today ? 'Today'
+    : iso === shiftDay(d.today, 1) ? 'Tomorrow' : dayWords(iso, { weekday: 'long', month: 'short', day: 'numeric' }))}</button>
+          <ul class="rows">${byDay.get(iso).map(calEventLi).join('')}</ul>
+        </div>`).join('')}</div>`
+      : '<p class="cal-none">Nothing dated in this stretch.</p>';
+  }
+
+  host.innerHTML = `<div class="cal">
+    ${viewBarHtml()}
+    <div class="cal-head">
+      <button type="button" class="cal-nav" data-move="-1" aria-label="Previous ${unit}">&lsaquo;</button>
+      <strong>${esc(title)}</strong>
+      <button type="button" class="cal-nav" data-move="1" aria-label="Next ${unit}">&rsaquo;</button>
+    </div>
+    ${body}
+  </div>`;
+  wireCalChrome(host);
+  host.querySelectorAll('[data-goday]').forEach((b) => b.addEventListener('click', () => {
+    calFocus = b.dataset.goday;
+    calView = 'day';
+    try { localStorage.setItem('cal-view', calView); } catch { /* not remembered */ }
+    drawMonth(host);
+  }));
+  const detail = host.querySelector('#cal-detail');
+  if (detail) wireDayAdd(detail);
+}
+
+async function drawMonthView(host, reopen) {
+  const month = monthCursor || calFocus.slice(0, 7);
   let data;
   try {
     data = await api(`/api/month?month=${month}${advisorParam() ? '&' + advisorParam() : ''}`);
@@ -773,6 +959,7 @@ async function drawMonth(host, reopen) {
   }
 
   host.innerHTML = `<div class="cal">
+      ${viewBarHtml()}
       <div class="cal-head">
         <button type="button" class="cal-nav" data-move="-1" aria-label="Previous month">&lsaquo;</button>
         <strong>${esc(title)}</strong>
@@ -784,59 +971,13 @@ async function drawMonth(host, reopen) {
       </div>
       <div class="cal-detail" id="cal-detail"></div>
     </div>`;
-
-  host.querySelectorAll('[data-move]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const step = Number(btn.dataset.move);
-      const next = new Date(Date.UTC(y, m - 1 + step, 1));
-      monthCursor = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}`;
-      drawMonth(host);
-    });
-  });
+  wireCalChrome(host);
 
   const detail = host.querySelector('#cal-detail');
   const show = (iso) => {
-    const events = byDay.get(iso) || [];
+    calFocus = iso;
     host.querySelectorAll('.cal-day').forEach((c) => c.classList.toggle('picked', c.dataset.day === iso));
-
-    // The day says which day it is. Opening on today and showing an unlabelled
-    // list left it ambiguous whether you were looking at today or at whatever
-    // you last clicked.
-    const when = new Date(`${iso}T00:00:00Z`);
-    const label = iso === data.today
-      ? 'Today'
-      : when.toLocaleDateString('en-US', {
-        // The year as well. The calendar walks into next year quite happily,
-        // and "Monday, 3 March" is two different Mondays by then.
-        weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
-
-    const head = `<div class="cal-day-head">
-      <strong>${esc(label)}</strong>
-      <span class="muted">${events.length
-        ? `${events.length} thing${events.length === 1 ? '' : 's'}` : 'clear'}</span>
-    </div>`;
-
-    // The date is the thing you already have. Sending somebody to another
-    // screen to type it again is the whole reason this was worth adding.
-    const add = `<form class="cal-add" data-day="${esc(iso)}">
-      <input name="title" maxlength="200" autocomplete="off"
-        placeholder="Add a task on this day" aria-label="Add a task on ${esc(label)}">
-      <button class="btn btn-primary btn-sm" type="submit">Add</button>
-      <a class="btn btn-ghost btn-sm" href="/app/calendar?add=${esc(iso)}">Appointment</a>
-    </form>`;
-
-    if (!events.length) {
-      detail.innerHTML = `${head}<p class="cal-none">Nothing on this day.</p>${add}`;
-      wireDayAdd(detail);
-      return;
-    }
-    detail.innerHTML = `${head}<ul class="rows">${events.map((e) => `<li>
-      <a href="${esc(e.href)}" class="cal-event">
-        <i class="dot ${KIND_TONE[e.kind] || 'task'}"></i>
-        <span><span class="t">${e.at ? `<b class="cal-at">${esc(clockOf(e.at))}</b> ` : ''}${esc(e.title)}</span>
-          <span class="m">${esc(KIND_NAME[e.kind] || 'Item')}${e.detail ? ' · ' + esc(e.detail) : ''}${
-            e.amountCents ? ' · ' + esc(money(e.amountCents)) : ''}</span></span>
-      </a></li>`).join('')}</ul>${add}`;
+    detail.innerHTML = dayDetailHtml(iso, byDay.get(iso) || []);
     wireDayAdd(detail);
   };
 
