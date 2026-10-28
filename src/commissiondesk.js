@@ -987,7 +987,8 @@ export async function handleCommissionDesk(request, env) {
       payout_on: r.payout_on, split_pct: splitPct(r, r.default_split_pct, r.lead_split_pct),
     }));
 
-  const scheduledCents = payDates.filter((d) => !d.unscheduled).reduce((n, d) => n + d.totalCents, 0);
+  // Everything waiting on a pay run, with or without a day yet, as the other portal counts it; the part with no day is shown apart.
+  const scheduledCents = payDates.reduce((n, d) => n + d.totalCents, 0);
   const unscheduledCents = payDates.filter((d) => d.unscheduled).reduce((n, d) => n + d.totalCents, 0);
   const received = receivedRow?.cents || 0;
   const fees = feeRow?.cents || 0;

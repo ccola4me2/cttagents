@@ -267,8 +267,8 @@ function drawScheduled() {
   return d.payDates.map((p) => `
     <section class="card cd-date">
       <div class="cd-date-head">
-        <h3>${esc(dayLabel(p.date))}</h3>
-        <span class="badge ${p.unscheduled ? 'badge-amber' : p.isNext ? 'badge-green' : 'badge-navy'}">${p.unscheduled ? 'Needs a date' : p.isNext ? 'Next payout' : 'Scheduled'}</span>
+        <h3>${p.unscheduled ? 'No pay date yet' : esc(dayLabel(p.date))}</h3>
+        <span class="badge ${p.unscheduled ? 'badge-amber' : p.isNext ? 'badge-green' : 'badge-navy'}">${p.unscheduled ? 'Not scheduled' : p.isNext ? 'Next payout' : 'Scheduled'}</span>
         <span class="muted" style="font-size:.8rem;">${p.unscheduled ? 'Received, but not given a pay day. Press Edit and choose one.' : p.isNext
     ? 'Advisors can see this one' : 'Advisors cannot see this yet'}</span>
         <span class="tot cd-money">${money(p.totalCents)}</span>
@@ -1375,7 +1375,7 @@ function lineHtml(l, i) {
       </div>
       <div><label>Commission Paid Amount</label><input data-amount="${i}" inputmode="decimal" value="${esc(l.amount)}" placeholder="0.00 or -4.00" autocomplete="off">${amt < 0 ? '<div class="sub">Money taken back from this reservation</div>' : ''}</div>
       <div><label>Pay out date</label>
-        <select data-pay="${i}">${l.payoutOn ? '' : `<option value="" selected>${l.bookingId ? 'Next pay date' : 'Automatic, 30 days before they sail'}</option>`}<option value="none"${l.payoutOn === NOT_SCHEDULED ? ' selected' : ''}>Not scheduled yet</option>${dates.map((x) =>
+        <select data-pay="${i}">${l.payoutOn ? '' : `<option value="" selected>Automatic, 30 days before they sail${l.suggested ? ` (${esc(dateFmt(l.suggested))})` : ''}</option>`}<option value="none"${l.payoutOn === NOT_SCHEDULED ? ' selected' : ''}>Not scheduled yet</option>${dates.map((x) =>
     `<option value="${esc(x)}" ${x === l.payoutOn ? 'selected' : ''}>${esc(dateFmt(x))}${x === l.suggested ? ' (suggested)' : ''}</option>`).join('')}
           <optgroup label="Already paid out">${past.map((x) =>
     `<option value="paid:${esc(x)}" ${x === l.paidOutOn ? 'selected' : ''}>Already paid out ${esc(dateFmt(x))}</option>`).join('')}</optgroup></select></div>
