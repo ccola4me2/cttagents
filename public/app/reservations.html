@@ -16,6 +16,7 @@
       <div><h1>Reservations</h1><p class="sub">Trips, vendor deadlines and commission.</p></div>
       <div class="toolbar" style="margin:0;">
         <span id="scope"></span>
+        <button class="btn btn-ghost btn-sm" type="button" id="docs-bulk">Attach documents</button>
         <a class="btn btn-ghost btn-sm" href="/app/new">Type one in</a>
         <a class="btn btn-primary btn-sm" href="/app/import">Paste a confirmation</a>
       </div>
@@ -46,6 +47,27 @@
           <span class="notice-error" id="pick-err" hidden></span>
         </div>
       </div>
+      <dialog id="dd-dlg" style="max-width:68rem;width:96vw;">
+        <div class="card-head"><h2>Attach documents to reservations</h2>
+          <button class="btn btn-ghost btn-sm" type="button" id="dd-close">Close</button></div>
+        <div class="card-pad">
+          <p class="field-hint" style="margin:0 0 .8rem;">Drop in confirmations, invoices, policies, tickets: any mix, for any of your reservations. Each file is
+            matched to a reservation by the confirmation number in its name or, for a PDF, on its pages. Check every match, change
+            any that are wrong, and nothing is attached until you press Attach.</p>
+          <div class="notice notice-error" id="dd-err" hidden></div>
+          <div class="dropzone" id="dd-drop" tabindex="0" role="button" aria-label="Choose documents">
+            <strong>Drop the documents here</strong>
+            <span class="muted">or <u>choose files</u>. Up to 40 at a time, ten megabytes each.</span>
+          </div>
+          <input type="file" id="dd-files" multiple hidden>
+          <div id="dd-list" style="margin-top:1rem;"></div>
+          <div id="dd-foot" style="display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;margin-top:1rem;" hidden>
+            <button class="btn btn-primary" type="button" id="dd-go">Attach</button>
+            <button class="btn btn-ghost btn-sm" type="button" id="dd-clear">Clear the list</button>
+            <span class="muted" id="dd-status" aria-live="polite"></span>
+          </div>
+        </div>
+      </dialog>
       <dialog id="quote-dlg" style="max-width:62rem;width:96vw;">
         <form id="quote-form" method="dialog">
           <div class="card-head"><h2 id="quote-title">Send quotes</h2>
@@ -287,6 +309,142 @@ async function load() {
     showError(panel, err);
   }
 }
+
+// ---------------------------------------------------- documents, many reservations --
+//
+// Files dropped in are matched to reservations by the confirmation number on them, each one asked of the portal separately,
+// and shown for the advisor to confirm: a wrong match filed against somebody's trip is worse than a file left unattached, so
+// nothing goes anywhere until Attach is pressed, and an unmatched file can be given a reservation by hand.
+const ddDlg = document.getElementById('dd-dlg');
+const DD_CATEGORIES = [['other', 'Unfiled'], ['confirmation', 'Confirmation'], ['invoice', 'Invoice'], ['insurance', 'Insurance'],
+  ['air', 'Air'], ['visa', 'Visa'], ['passport', 'Passport']];
+let ddRows = [];
+
+function guessCategory(name) {
+  const n = String(name).toLowerCase();
+  if (/insur|policy|allianz|travel.?guard/.test(n)) return 'insurance';
+  if (/passport/.test(n)) return 'passport';
+  if (/visa/.test(n)) return 'visa';
+  if (/e-?ticket|flight|boarding|\bair\b/.test(n)) return 'air';
+  if (/invoice|statement/.test(n)) return 'invoice';
+  if (/confirm|booking|reservation/.test(n)) return 'confirmation';
+  return 'other';
+}
+
+const ddLabel = (m) => [m.client || m.client_name, m.product || m.product_name || m.supplier,
+  (m.departDate || m.depart_date) ? dateFmt(m.departDate || m.depart_date) : '', (m.confirmation || m.confirmation_number)
+    ? `#${m.confirmation || m.confirmation_number}` : '', m.advisor || ''].filter(Boolean).join(' · ');
+
+function drawDd() {
+  const box = document.getElementById('dd-list');
+  document.getElementById('dd-foot').hidden = !ddRows.length;
+  if (!ddRows.length) { box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>File</th><th>Reservation</th><th>What it is</th><th></th></tr></thead>
+    <tbody>${ddRows.map((r, i) => `<tr>
+      <td><span class="name">${esc(r.file.name)}</span><div class="muted">${esc(String(Math.max(1, Math.round(r.file.size / 1024))))} KB</div></td>
+      <td>${r.state === 'reading' ? '<span class="muted">Finding it...</span>'
+    : r.state === 'done' ? `<a href="/app/reservation?id=${encodeURIComponent(r.pick)}">${esc(ddLabel(r.matches.find((m) => m.id === r.pick) || {}))}</a>`
+    : r.matches.length
+      ? `<select data-dd-pick="${i}" aria-label="Reservation for ${esc(r.file.name)}"><option value="">Choose a reservation...</option>${r.matches.map((m) =>
+        `<option value="${esc(m.id)}"${m.id === r.pick ? ' selected' : ''}>${esc(ddLabel(m))}</option>`).join('')}</select>`
+      : `<input data-dd-find="${i}" placeholder="Search a client or number, then press Enter" style="min-width:18rem;">
+         <div class="muted" style="font-size:.82rem;">${esc(r.note || 'No confirmation number on this file matched one of your reservations.')}</div>`}</td>
+      <td>${r.state === 'done' ? '' : `<select data-dd-cat="${i}" aria-label="What ${esc(r.file.name)} is">${DD_CATEGORIES.map(([k, l]) =>
+    `<option value="${k}"${k === r.category ? ' selected' : ''}>${l}</option>`).join('')}</select>`}</td>
+      <td class="num">${r.state === 'done' ? '<span class="badge badge-green">Attached</span>'
+    : r.state === 'sending' ? '<span class="muted">Attaching...</span>'
+      : r.state === 'failed' ? `<span class="badge badge-red" title="${esc(r.note)}">Not attached</span><div class="muted" style="font-size:.8rem;">${esc(r.note)}</div>` : ''}
+        ${r.state === 'done' || r.state === 'sending' ? '' : `<button class="btn btn-ghost btn-sm" type="button" data-dd-drop="${i}" aria-label="Take ${esc(r.file.name)} off the list">&times;</button>`}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+
+  box.querySelectorAll('[data-dd-pick]').forEach((s) => s.addEventListener('change', () => { ddRows[Number(s.dataset.ddPick)].pick = s.value; drawDdFoot(); }));
+  box.querySelectorAll('[data-dd-cat]').forEach((s) => s.addEventListener('change', () => { ddRows[Number(s.dataset.ddCat)].category = s.value; }));
+  box.querySelectorAll('[data-dd-drop]').forEach((b) => b.addEventListener('click', () => { ddRows.splice(Number(b.dataset.ddDrop), 1); drawDd(); }));
+  box.querySelectorAll('[data-dd-find]').forEach((inp) => inp.addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const row = ddRows[Number(inp.dataset.ddFind)];
+    const q = inp.value.trim();
+    if (!q) return;
+    try {
+      const got = await api(`/api/bookings?q=${encodeURIComponent(q)}&all=1`);
+      row.matches = (got.bookings || []).slice(0, 12).map((b) => ({ id: b.id, client: b.client_name, product: b.product_name,
+        supplier: b.supplier, departDate: b.depart_date, confirmation: b.confirmation_number, advisor: b.advisor_name || '' }));
+      row.pick = '';
+      row.note = row.matches.length ? '' : `Nothing matched ${q}.`;
+    } catch (ex) { row.note = ex.message || 'That search failed.'; }
+    drawDd();
+  }));
+  drawDdFoot();
+}
+
+function drawDdFoot() {
+  const ready = ddRows.filter((r) => r.state !== 'done' && r.state !== 'reading' && r.pick).length;
+  const go = document.getElementById('dd-go');
+  go.disabled = ready === 0;
+  go.textContent = ready ? `Attach ${ready} file${ready === 1 ? '' : 's'}` : 'Attach';
+}
+
+async function ddAdd(list) {
+  const files = [...list].slice(0, Math.max(0, 40 - ddRows.length));
+  for (const file of files) {
+    const row = { file, matches: [], pick: '', category: guessCategory(file.name), state: 'reading', note: '' };
+    ddRows.push(row);
+    drawDd();
+    const body = new FormData();
+    body.append('name', file.name);
+    if (file.size <= 10 * 1024 * 1024 && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name))) body.append('file', file);
+    try {
+      const res = await fetch('/api/documents/match', { method: 'POST', body });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(out.error || 'That one could not be matched.');
+      row.matches = out.reservations || [];
+      const [first, second] = row.matches;
+      // Chosen for them only when it is plain: the one reservation, or one clearly ahead of the rest.
+      row.pick = first && (!second || (first.inName && !second.inName) || first.hits > second.hits) ? first.id : '';
+    } catch (e) { row.note = e.message; }
+    row.state = 'ready';
+    drawDd();
+  }
+}
+
+async function ddSend() {
+  const status = document.getElementById('dd-status');
+  const todo = ddRows.filter((r) => r.state !== 'done' && r.state !== 'reading' && r.pick);
+  let done = 0;
+  document.getElementById('dd-go').disabled = true;
+  for (const row of todo) {
+    status.textContent = `Attaching ${row.file.name} (${done + 1} of ${todo.length})...`;
+    row.state = 'sending';
+    drawDd();
+    if (row.file.size > 10 * 1024 * 1024) { row.state = 'failed'; row.note = 'Over 10MB.'; continue; }
+    const body = new FormData();
+    body.append('file', row.file);
+    body.append('category', row.category);
+    try {
+      const res = await fetch(`/api/bookings/${encodeURIComponent(row.pick)}/documents`, { method: 'POST', body });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Upload failed (${res.status})`);
+      row.state = 'done';
+      done += 1;
+    } catch (e) { row.state = 'failed'; row.note = e.message; }
+  }
+  status.textContent = done === todo.length ? `${done} attached.` : `${done} of ${todo.length} attached. The rest are marked.`;
+  drawDd();
+}
+
+document.getElementById('docs-bulk').addEventListener('click', () => { ddDlg.showModal(); });
+document.getElementById('dd-close').addEventListener('click', () => ddDlg.close());
+const ddDrop = document.getElementById('dd-drop');
+const ddFiles = document.getElementById('dd-files');
+ddDrop.addEventListener('click', () => ddFiles.click());
+ddDrop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ddFiles.click(); } });
+ddFiles.addEventListener('change', () => { const picked = [...ddFiles.files]; ddFiles.value = ''; ddAdd(picked); });
+['dragenter', 'dragover'].forEach((n) => ddDrop.addEventListener(n, (e) => { e.preventDefault(); ddDrop.classList.add('over'); }));
+['dragleave', 'drop'].forEach((n) => ddDrop.addEventListener(n, (e) => { e.preventDefault(); ddDrop.classList.remove('over'); }));
+ddDrop.addEventListener('drop', (e) => ddAdd(e.dataTransfer.files));
+document.getElementById('dd-go').addEventListener('click', ddSend);
+document.getElementById('dd-clear').addEventListener('click', () => { ddRows = []; document.getElementById('dd-status').textContent = ''; drawDd(); });
 
 // Adding a reservation is a page now, so the button is a link in the markup.
 

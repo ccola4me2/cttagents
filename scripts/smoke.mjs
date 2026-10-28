@@ -129,6 +129,18 @@ async function call(cookieJar, method, path, body, extraHeaders = {}) {
   return { status: res.status, data, raw, location: res.headers.get('location') || '' };
 }
 
+/** Ask which reservation a file belongs to, by the confirmation number in its name. */
+async function matchDoc(cookieJar, name) {
+  const body = new FormData();
+  body.append('name', name);
+  const res = await fetch(`${BASE}/api/documents/match`, {
+    method: 'POST',
+    headers: { ...(cookieJar && cookieJar.header() ? { cookie: cookieJar.header() } : {}) },
+    body,
+  });
+  return { status: res.status, data: await res.json().catch(() => ({})) };
+}
+
 /**
  * Attach a file, which is the one request here that is not a JSON body.
  * Returns the created document, or null if the bucket is not bound: document
@@ -10311,6 +10323,23 @@ async function main() {
 
   const rec = await call(advisor, 'GET', `/api/bookings/${paperId}/record`);
   check(Array.isArray(rec.data?.documents), 'a reservation carries its documents');
+
+  // Matching a dropped file to a reservation by the confirmation number in its name.
+  const matchNo = `MT${stamp}7`.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const matchBooking = await call(advisor, 'POST', '/api/bookings', {
+    clientName: `Matchme ${stamp}`, supplier: 'Cunard', status: 'booked', departDate: isoDay(130), confirmationNumber: matchNo,
+  });
+  const matchId = matchBooking.data?.booking?.id;
+  if (matchId) cleanup('the reservation for matching', () => dropBooking(matchId));
+  const m1 = await matchDoc(advisor, `Invoice ${matchNo}.pdf`);
+  check(m1.status === 200 && m1.data?.reservations?.[0]?.id === matchId && m1.data.reservations[0].inName === true,
+    'a file is matched to its reservation by the confirmation number in its name', JSON.stringify(m1.data?.reservations?.map((r) => r.id)));
+  const m2 = await matchDoc(advisor, `Policy ${matchNo.slice(0, 4)}-${matchNo.slice(4)}.pdf`);
+  check(m2.data?.reservations?.[0]?.id === matchId, 'even with dashes put in the number', JSON.stringify(m2.data?.reservations?.map((r) => r.id)));
+  const m3 = await matchDoc(advisor, 'Invoice.pdf');
+  check(m3.status === 200 && (m3.data?.reservations || []).length === 0, 'a file with no number matches nothing');
+  const m4 = await matchDoc(null, `Invoice ${matchNo}.pdf`);
+  check(m4.status === 401, 'and matching needs a signed in person', `status ${m4.status}`);
 
   if (!rec.data?.documentsReady) {
     // The feature ships before the bucket exists, so the useful thing to check
