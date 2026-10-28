@@ -332,6 +332,8 @@ import {
   handleDeleteCheck,
   handleAddCheckLine,
   handleSetPayDate,
+  handleUpdateReceipt,
+  handleRemoveReceipt,
 } from './commissiondesk.js';
 import {
   handleListAgencies,
@@ -939,6 +941,7 @@ async function routeApi(request, env, path, method) {
   const heldEmailMatch = path.match(/^\/api\/trip-emails\/held\/([^/]+)$/);
   const checkDepositMatch = path.match(/^\/api\/commission-checks\/([^/]+)\/deposit$/);
   const checkLineMatch = path.match(/^\/api\/commission-checks\/([^/]+)\/lines$/);
+  const receiptRemoveMatch = path.match(/^\/api\/commissions\/receipts\/([^/]+)\/remove$/);
   const payDateMatch = path.match(/^\/api\/commissions\/receipts\/([^/]+)\/pay-date$/);
   const vendorStatementMatch = path.match(/^\/api\/commissions\/statements\/([^/]+)$/);
   const candidatesMatch = path.match(/^\/api\/commissions\/statements\/([^/]+)\/candidates$/);
@@ -1516,6 +1519,8 @@ async function routeApi(request, env, path, method) {
   if (checkMatch && method === 'PUT') return handleUpdateCheck(request, env, checkMatch[1]);
   if (checkMatch && method === 'DELETE') return handleDeleteCheck(request, env, checkMatch[1]);
   if (payDateMatch && method === 'PUT') return handleSetPayDate(request, env, payDateMatch[1]);
+  if (receiptMatch && method === 'PUT') return handleUpdateReceipt(request, env, receiptMatch[1]);
+  if (receiptRemoveMatch && method === 'POST') return handleRemoveReceipt(request, env, receiptRemoveMatch[1]);
   if (vendorStatementMatch && method === 'PUT') return handleUpdateStatement(request, env, vendorStatementMatch[1]);
   if (vendorStatementMatch && method === 'DELETE') return handleDeleteStatement(request, env, vendorStatementMatch[1]);
   if (path === '/api/commissions/status' && method === 'POST') {

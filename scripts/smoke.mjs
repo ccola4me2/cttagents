@@ -12784,6 +12784,21 @@ async function main() {
     await call(admin, 'DELETE', `/api/commission-checks/${unsched.data.id}`);
   }
 
+  // A line recorded one reservation at a time can be corrected and taken off; one that came on a check is corrected with the check.
+  const loose = await call(admin, 'POST', '/api/commissions/receipts', { bookingId: tripId, amount: '3.00', receivedOn: isoDay(0), payoutOn: laterPay });
+  check(loose.status === 201 || loose.status === 200, 'a line can be recorded on its own', JSON.stringify(loose.data));
+  if (loose.data?.id) {
+    const fix = await call(admin, 'PUT', `/api/commissions/receipts/${loose.data.id}`, { amount: '5.00', receivedOn: isoDay(0), reference: 'FIXED', payoutOn: 'none' });
+    check(fix.status === 200, 'and its amount, day and reference corrected', JSON.stringify(fix.data));
+    const recFix = await call(admin, 'GET', `/api/bookings/${tripId}/record`);
+    const got = (recFix.data?.commission?.receipts || []).find((r) => r.id === loose.data.id);
+    check(got && got.amount_cents === 500 && got.reference === 'FIXED', 'the correction is what is read back', JSON.stringify(got));
+    const advFix = await call(advisor, 'PUT', `/api/commissions/receipts/${loose.data.id}`, { amount: '9.00' });
+    check(advFix.status === 403 || advFix.status === 401, 'an advisor cannot correct a commission line', `status ${advFix.status}`);
+    const gone = await call(admin, 'POST', `/api/commissions/receipts/${loose.data.id}/remove`, {});
+    check(gone.status === 200, 'and the line can be taken off', JSON.stringify(gone.data));
+  }
+
   // Finding a reservation says what the advisor keeps of it, so a line can show the share.
   const found = await call(admin, 'GET', `/api/commission-checks/search?q=${encodeURIComponent(`Check ${stamp}`)}`);
   const foundTrip = (found.data?.reservations || []).find((r) => r.id === tripId);

@@ -196,6 +196,30 @@
     <div class="card-foot"><button class="btn btn-primary" type="submit" id="pay-save">Mark as paid</button></div>
   </form>
 </dialog>
+<dialog id="rcp-dlg">
+  <form method="dialog" id="rcp-form">
+    <div class="card-head"><h2>Edit this commission line</h2>
+      <button class="btn btn-ghost btn-sm" type="button" id="rcp-close">Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" id="rcp-err" hidden></div>
+      <p id="rcp-what" style="margin-top:0;"></p>
+      <div class="field-row">
+        <div class="field"><label for="rcpAmount">Amount received</label>
+          <input id="rcpAmount" inputmode="decimal" autocomplete="off">
+          <p class="field-hint">A minus amount, such as -4.00, is money the vendor took back.</p></div>
+        <div class="field"><label for="rcpOn">Received on</label><input id="rcpOn" type="date"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="rcpRef">Check number or reference</label><input id="rcpRef" maxlength="80" autocomplete="off"></div>
+        <div class="field"><label for="rcpPay">Pay out date</label><select id="rcpPay"></select></div>
+      </div>
+      <div class="field"><label for="rcpNotes">Note</label><input id="rcpNotes" maxlength="300" autocomplete="off"></div>
+    </div>
+    <div class="card-foot" style="display:flex;justify-content:space-between;gap:.6rem;">
+      <button class="btn btn-ghost" type="button" id="rcp-remove">Remove this line</button>
+      <button class="btn btn-primary" type="submit" id="rcp-save">Save the changes</button></div>
+  </form>
+</dialog>
 <datalist id="vendor-names"></datalist>
 
 <script type="module">
@@ -354,12 +378,13 @@ function drawReceived() {
     ? `<div class="cd-head"><h2>Recorded one reservation at a time</h2>
       <span class="m">Entered on the reservation itself, so there is no check to show a fee or a pay date for.</span></div>
       <div class="card cd-scroll"><table class="cd-table"><thead><tr>
-      <th>Received</th><th>Reservation</th><th>Advisor</th><th class="r">Amount</th><th>Pay out date</th></tr></thead><tbody>
+      <th>Received</th><th>Reservation</th><th>Advisor</th><th class="r">Amount</th><th>Pay out date</th><th></th></tr></thead><tbody>
       ${d.loose.map((r) => `<tr><td>${esc(r.received_on ? dateFmt(r.received_on) : '')}</td>
         <td><a href="/app/reservation?id=${encodeURIComponent(r.booking_id)}">${esc(r.client_name)}</a>
           ${r.supplier ? `<span class="muted"> ${esc(r.supplier)}</span>` : ''}</td>
         <td>${esc(r.advisor_name)}</td><td class="r cd-money">${money(r.amount_cents)}</td>
-        <td>${payDateSelect(r)}</td></tr>`).join('')}
+        <td>${payDateSelect(r)}</td>
+        <td class="cd-acts"><button class="cd-link" type="button" data-editloose="${esc(r.id)}">Edit</button></td></tr>`).join('')}
       </tbody></table></div>` : '';
   return checks + loose;
 }
@@ -601,7 +626,7 @@ function allBody() {
   lines.map((l) => `<tr><td>${esc(l.on ? dateFmt(l.on) : '')}</td><td>${esc(l.from)}</td>
     <td class="r cd-money">${money(l.amount_cents)}</td>
     <td>${l.payout_on ? payDateSelect({ id: l.id, payout_on: l.payout_on }) : '<span class="muted">next payout</span>'}</td>
-    <td>${l.checkId ? `<button class="btn btn-ghost btn-sm" type="button" data-editcheck="${esc(l.checkId)}">Edit the check</button>` : ''}</td></tr>`).join('')}</tbody></table>`
+    <td>${l.checkId ? `<button class="btn btn-ghost btn-sm" type="button" data-editcheck="${esc(l.checkId)}">Edit the check</button>` : `<button class="btn btn-ghost btn-sm" type="button" data-editloose="${esc(l.id)}">Edit this line</button>`}</td></tr>`).join('')}</tbody></table>`
     : `<p class="muted" style="margin:.3rem 0;">No money from a vendor is recorded for this reservation in ${esc(year)}.</p>`}
     </td></tr>`;
   };
@@ -1133,6 +1158,7 @@ panel.addEventListener('click', async (e) => {
   const t = e.target.closest('button, tr[data-row]');
   if (!t) return;
   if (t.dataset.bucket !== undefined) { bucket = t.dataset.bucket; draw(); return; }
+  if (t.dataset.editloose) { openEditLoose(t.dataset.editloose); return; }
   if (t.dataset.recordowed) {
     const o = (d.outstanding || []).find((x) => x.id === t.dataset.recordowed)
       || (all && all.rows.filter((r) => r.id === t.dataset.recordowed).map(owedFromAll)[0]);
@@ -1482,6 +1508,49 @@ function openCheckDialog(existing) {
   drawLines();
   dlg.showModal();
 }
+
+// Correcting a line that was recorded one reservation at a time: the amount, the day, the reference, the pay day, or take it off.
+const rcpDlg = $('rcp-dlg');
+let editingLoose = null;
+function openEditLoose(id) {
+  const r = (d.loose || []).find((x) => x.id === id);
+  if (!r) return;
+  editingLoose = r;
+  $('rcp-err').hidden = true;
+  $('rcp-what').innerHTML = `<strong>${esc(r.client_name)}</strong>${r.supplier ? ` &middot; ${esc(r.supplier)}` : ''} &middot; ${esc(r.advisor_name || '')}`;
+  $('rcpAmount').value = plain(r.amount_cents);
+  $('rcpOn').value = r.received_on || '';
+  $('rcpRef').value = r.reference || '';
+  $('rcpNotes').value = r.notes || '';
+  const held = r.payout_on === NOT_SCHEDULED;
+  const dates = [...new Set([...(d.payDatesList || []), held ? null : r.payout_on].filter(Boolean))].sort();
+  $('rcpPay').innerHTML = `${r.payout_on ? '' : '<option value="" selected>Next payout</option>'}<option value="none"${held ? ' selected' : ''}>Not scheduled yet</option>${
+    dates.map((x) => `<option value="${esc(x)}"${x === r.payout_on ? ' selected' : ''}>${esc(dateFmt(x))}</option>`).join('')}`;
+  rcpDlg.showModal();
+}
+$('rcp-close').addEventListener('click', () => rcpDlg.close());
+$('rcp-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!editingLoose) return;
+  try {
+    await api(`/api/commissions/receipts/${encodeURIComponent(editingLoose.id)}`, { method: 'PUT', body: {
+      amount: $('rcpAmount').value, receivedOn: $('rcpOn').value, reference: $('rcpRef').value, notes: $('rcpNotes').value,
+      payoutOn: $('rcpPay').value,
+    } });
+    rcpDlg.close();
+    errEl.innerHTML = '<div class="notice notice-ok">The line was corrected.</div>';
+    await load();
+  } catch (ex) { showError($('rcp-err'), ex); }
+});
+$('rcp-remove').addEventListener('click', async () => {
+  if (!editingLoose || !confirm('Remove this commission line? The amount stops counting as received.')) return;
+  try {
+    await api(`/api/commissions/receipts/${encodeURIComponent(editingLoose.id)}/remove`, { method: 'POST', body: {} });
+    rcpDlg.close();
+    errEl.innerHTML = '<div class="notice notice-ok">The line was removed.</div>';
+    await load();
+  } catch (ex) { showError($('rcp-err'), ex); }
+});
 
 // Record the check for one reservation that is still owed: the form opens with it already on the first line.
 async function recordFor(o) {

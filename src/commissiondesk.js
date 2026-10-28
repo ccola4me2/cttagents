@@ -777,6 +777,77 @@ export async function handleSetPayDate(request, env, receiptId) {
   return json({ ok: true, payoutOn });
 }
 
+/** How many payouts to the advisor already cover this reservation. Money paid out cannot quietly shrink or vanish. */
+async function payoutsOn(env, ownerId, bookingId) {
+  const row = await env.DB.prepare(
+    'SELECT COUNT(*) AS n FROM advisor_payout_lines WHERE booking_id = ? AND user_id = ?'
+  ).bind(bookingId, ownerId).first();
+  return row ? row.n : 0;
+}
+
+/**
+ * PUT /api/commissions/receipts/:id { amount, receivedOn, reference, notes, payoutOn }
+ *
+ * Correct a line that was recorded one reservation at a time. A line that came on a check is corrected with the check, so the
+ * check and its lines keep agreeing. The amount may go up whenever; it may not go below what an advisor was already paid on.
+ */
+export async function handleUpdateReceipt(request, env, id) {
+  const { user: admin, response } = await requireAdmin(request, env);
+  if (response) return response;
+
+  const owner = await db.writerFor(env, admin, 'commission_receipts', id);
+  if (!owner) return notFound('That line was not found.');
+  const row = await env.DB.prepare(
+    'SELECT booking_id, amount_cents, check_id FROM commission_receipts WHERE id = ? AND user_id = ?'
+  ).bind(id, owner.id).first();
+  if (!row) return notFound('That line was not found.');
+  if (row.check_id) return badRequest('That line came on a check. Press Edit the check to change it.');
+
+  const body = await readJson(request);
+  const amountCents = signedCents(body.amount);
+  if (!amountCents) return badRequest('Enter the amount.');
+  if (amountCents < row.amount_cents && await payoutsOn(env, owner.id, row.booking_id)) {
+    return badRequest('An advisor has already been paid on this reservation, so the amount cannot go down. Take that payout back first.');
+  }
+
+  await env.DB.prepare(
+    `UPDATE commission_receipts
+        SET amount_cents = ?, received_on = COALESCE(?, received_on), reference = ?, notes = ?,
+            payout_on = COALESCE(?, payout_on), updated_at = ?
+      WHERE id = ? AND user_id = ? AND check_id IS NULL`
+  ).bind(amountCents, cleanDate(body.receivedOn), clean(body.reference, 80) || null, clean(body.notes, 300) || null,
+         payoutDateOf(body.payoutOn), now(), id, owner.id).run();
+
+  await syncCommissionStatus(env, owner.id, row.booking_id);
+  await db.logActivity(env, admin.id, 'commission.receipt.edit',
+    `Corrected a commission line: ${(row.amount_cents / 100).toFixed(2)} to ${(amountCents / 100).toFixed(2)}`,
+    { receiptId: id, bookingId: row.booking_id });
+  return json({ ok: true });
+}
+
+/** POST /api/commissions/receipts/:id/remove: take a line recorded one reservation at a time off, unless an advisor was paid on it. */
+export async function handleRemoveReceipt(request, env, id) {
+  const { user: admin, response } = await requireAdmin(request, env);
+  if (response) return response;
+
+  const owner = await db.writerFor(env, admin, 'commission_receipts', id);
+  if (!owner) return notFound('That line was not found.');
+  const row = await env.DB.prepare(
+    'SELECT booking_id, amount_cents, check_id FROM commission_receipts WHERE id = ? AND user_id = ?'
+  ).bind(id, owner.id).first();
+  if (!row) return notFound('That line was not found.');
+  if (row.check_id) return badRequest('That line came on a check. Press Edit the check to take it off.');
+  if (await payoutsOn(env, owner.id, row.booking_id)) {
+    return badRequest('An advisor has already been paid on this reservation. Take that payout back first, then remove the line.');
+  }
+
+  await env.DB.prepare('DELETE FROM commission_receipts WHERE id = ? AND user_id = ? AND check_id IS NULL').bind(id, owner.id).run();
+  await syncCommissionStatus(env, owner.id, row.booking_id);
+  await db.logActivity(env, admin.id, 'commission.receipt.remove',
+    `Removed a commission line of ${(row.amount_cents / 100).toFixed(2)}`, { receiptId: id, bookingId: row.booking_id });
+  return json({ ok: true });
+}
+
 // ---------------------------------------------------------------------------
 // The desk
 // ---------------------------------------------------------------------------
@@ -847,7 +918,7 @@ export async function handleCommissionDesk(request, env) {
     // than in SQL because it is running totals per reservation, which is the part
     // SQLite makes awkward and JavaScript makes plain.
     env.DB.prepare(
-      `SELECT r.id, r.booking_id, r.amount_cents, r.kind, r.payout_on, r.received_on, r.check_id,
+      `SELECT r.id, r.booking_id, r.amount_cents, r.kind, r.payout_on, r.received_on, r.check_id, r.reference, r.notes,
               (SELECT ck.deposited_on FROM commission_checks ck WHERE ck.id = r.check_id AND ck.agency_id = ?) AS check_deposited_on,
               b.depart_date, b.user_id, b.commission_status, b.personal, b.lead_source, b.advisor_split_pct,
               b.agreed_split_pct, b.agreed_lead_split_pct, b.client_name, b.supplier, b.product_name,
@@ -984,7 +1055,8 @@ export async function handleCommissionDesk(request, env) {
     .map((r) => ({
       id: r.id, booking_id: r.booking_id, received_on: r.received_on, client_name: r.client_name,
       supplier: r.supplier, advisor_name: r.advisor_name, amount_cents: r.amount_cents,
-      payout_on: r.payout_on, split_pct: splitPct(r, r.default_split_pct, r.lead_split_pct),
+      payout_on: r.payout_on, reference: r.reference || '', notes: r.notes || '',
+      split_pct: splitPct(r, r.default_split_pct, r.lead_split_pct),
     }));
 
   // Everything waiting on a pay run, with or without a day yet, as the other portal counts it; the part with no day is shown apart.
