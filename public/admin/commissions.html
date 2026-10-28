@@ -207,7 +207,12 @@ let methods = [{ key: 'check', label: 'Check' }, { key: 'ach', label: 'Bank tran
   { key: 'cash', label: 'Cash' }, { key: 'other', label: 'Something else' }];
 
 const short = (iso) => (iso ? dateFmt(iso).replace(/,? \d{4}$/, '') : '');
-const cents = (v) => Math.round(Number(String(v ?? '').replace(/[^0-9.-]/g, '')) * 100) || 0;
+// A minus sign or brackets make it money taken back: -4.00 and (4.00) are both minus four dollars.
+const cents = (v) => {
+  const t = String(v ?? '').trim();
+  const n = Math.round(Math.abs(Number(t.replace(/[^0-9.]/g, ''))) * 100) || 0;
+  return t.startsWith('-') || /^\(.*\)$/.test(t) ? -n : n;
+};
 const plain = (c) => (c / 100).toFixed(2);
 
 // ---------------------------------------------------------------------------
@@ -1290,7 +1295,7 @@ function lineHtml(l, i) {
            <div class="sub">${esc(l.sub)}${l.advisorName ? ` · ${esc(l.advisorName)}` : ''}${l.expected ? ` · expected ${money(l.expected)}` : ''}</div>`
     : `<input data-q="${i}" placeholder="Search by client, confirmation number or vendor" value="${esc(l.query)}" autocomplete="off">`}
       </div>
-      <div><label>Commission Paid Amount</label><input data-amount="${i}" inputmode="decimal" value="${esc(l.amount)}" placeholder="0.00" autocomplete="off"></div>
+      <div><label>Commission Paid Amount</label><input data-amount="${i}" inputmode="decimal" value="${esc(l.amount)}" placeholder="0.00 or -4.00" autocomplete="off">${amt < 0 ? '<div class="sub">Money taken back from this reservation</div>' : ''}</div>
       <div><label>Pay out date</label>
         <select data-pay="${i}">${l.payoutOn ? '' : `<option value="" selected>${l.bookingId ? 'Next pay date' : 'Automatic, 30 days before they sail'}</option>`}${dates.map((x) =>
     `<option value="${esc(x)}" ${x === l.payoutOn ? 'selected' : ''}>${esc(dateFmt(x))}${x === l.suggested ? ' (suggested)' : ''}</option>`).join('')}

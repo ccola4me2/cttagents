@@ -231,11 +231,22 @@ export async function handleSearchForCheck(request, env) {
 // Recording a check
 // ---------------------------------------------------------------------------
 
+/**
+ * A line amount in cents, with its sign. A vendor takes money back as often as it pays it: a line short because of a fee, or
+ * a chargeback, is a negative on the reservation it came off. "-4.00" and "(4.00)" are both read as minus four dollars.
+ */
+function signedCents(value) {
+  const text = String(value ?? '').trim();
+  const negative = text.startsWith('-') || /^\(.*\)$/.test(text);
+  const cents = toCents(text.replace(/^[-(]+|\)$/g, ''));
+  return negative ? -cents : cents;
+}
+
 /** One line of a check, cleaned. */
 function tidyLine(raw) {
   const bookingId = clean(raw && raw.bookingId, 64);
   if (!bookingId) return { error: 'Every line needs a reservation.' };
-  const amountCents = toCents(raw.amount);
+  const amountCents = signedCents(raw.amount);
   if (!amountCents) return { error: 'Every line needs an amount.' };
   return {
     line: {

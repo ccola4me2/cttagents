@@ -12764,6 +12764,13 @@ async function main() {
   const bigFee = await call(admin, 'POST', '/api/commission-checks', {
     vendorName: 'Smoke Vendor', reference: `CHK3-${stamp}`, statement: '10.00', fee: '20.00', lines: [] });
   check(bigFee.status === 400, 'and so is a fee bigger than the check', `status ${bigFee.status}`);
+  // A vendor that took money back is a negative line: 14.00 on one reservation and 4.00 taken off, 10.00 on the check.
+  const shorted = await call(admin, 'POST', '/api/commission-checks', {
+    vendorName: 'Smoke Vendor', reference: `CHK4-${stamp}`, statement: '10.00', receivedOn: isoDay(0),
+    lines: [{ bookingId: tripId, amount: '14.00', payoutOn: laterPay }, { bookingId: tripId, amount: '-4.00', payoutOn: laterPay }] });
+  check(shorted.status === 201 && shorted.data?.unmatchedCents === 0,
+    'a line can be a negative: money the vendor took back', JSON.stringify(shorted.data));
+  if (shorted.data?.id) await call(admin, 'DELETE', `/api/commission-checks/${shorted.data.id}`);
 
   // Finding a reservation says what the advisor keeps of it, so a line can show the share.
   const found = await call(admin, 'GET', `/api/commission-checks/search?q=${encodeURIComponent(`Check ${stamp}`)}`);
