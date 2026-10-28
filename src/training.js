@@ -408,7 +408,7 @@ export const LESSONS = [
     why: 'When something happens, do these things, on its own. This is the part that works while you are asleep, and the part worth setting up slowly.',
     manual: 'selling',
     page: '/app/automations',
-    doing: 'Read the check-in reminder end to end before you build your own: one email to the lead guest, once, when a booked trip is 45 days from sailing.',
+    doing: 'Read the check-in reminder end to end before you build your own: one email to the lead guest, once, when a booked trip is 45 days from sailing. On any email step, press See how it reads to see it as a client will, with sample details filled in, before anything is sent.',
   },
   {
     key: 'production',

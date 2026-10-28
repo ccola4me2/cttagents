@@ -444,6 +444,7 @@ import {
   handleListAutomations,
   handleGetAutomation,
   handleSaveAutomation,
+  handlePreviewAutomationEmail,
   handleDeleteAutomation,
   handleRunAutomations,
   processDueRuns,
@@ -1156,6 +1157,7 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/automations' && method === 'GET') return handleListAutomations(request, env);
   if (path === '/api/automations' && method === 'POST') return handleSaveAutomation(request, env, null);
   if (path === '/api/automations/run' && method === 'POST') return handleRunAutomations(request, env);
+  if (path === '/api/automations/preview' && method === 'POST') return handlePreviewAutomationEmail(request, env);
   if (autoMatch && method === 'GET') return handleGetAutomation(request, env, autoMatch[1]);
   if (autoMatch && method === 'PUT') return handleSaveAutomation(request, env, autoMatch[1]);
   if (autoMatch && method === 'DELETE') return handleDeleteAutomation(request, env, autoMatch[1]);

@@ -140,6 +140,10 @@ function stepRow(s = { action: 'send_email' }) {
     bodyHtml = `<div class="field" style="margin:0 0 .6rem;">
         <input class="s-subject" placeholder="Subject" value="${esc(s.subject || '')}"></div>
       <textarea class="s-body" placeholder="Hi {{first_name}}, ...">${esc(s.body || '')}</textarea>`;
+    bodyHtml += `<div style="margin-top:.6rem;"><button class="btn btn-ghost btn-sm s-preview" type="button">See how it reads</button>
+        <span class="muted s-prev-note" style="font-size:.82rem;margin-left:.4rem;"></span></div>
+      <iframe class="s-prev" title="How the email reads" sandbox hidden
+        style="width:100%;height:420px;border:1px solid var(--navy-100);border-radius:10px;margin-top:.6rem;background:#fff;"></iframe>`;
     // Only a client email can be marketing. notify_team goes to the advisor,
     // who did not subscribe to anything and cannot unsubscribe from their own
     // portal telling them a payment is due.
@@ -164,6 +168,22 @@ function stepRow(s = { action: 'send_email' }) {
 
   row.innerHTML = head + bodyHtml;
   row.querySelector('.icon-btn').addEventListener('click', () => row.remove());
+  const previewBtn = row.querySelector('.s-preview');
+  if (previewBtn) previewBtn.addEventListener('click', async () => {
+    const note = row.querySelector('.s-prev-note');
+    const frame = row.querySelector('.s-prev');
+    note.textContent = 'Working it out...';
+    try {
+      const r = await api('/api/automations/preview', { method: 'POST', body: {
+        subject: row.querySelector('.s-subject').value, body: row.querySelector('.s-body').value,
+        triggerType: form.elements.triggerType.value, internal: row.dataset.action === 'notify_team',
+      } });
+      frame.srcdoc = r.html;
+      frame.hidden = false;
+      note.textContent = `Subject: ${r.subject}.${r.unknown.length
+        ? ` Shown in brackets because they depend on the person: ${r.unknown.map((k) => `{{${k}}}`).join(', ')}.` : ''} Filled in with sample details.`;
+    } catch (e) { note.textContent = e.message || 'That could not be shown.'; }
+  });
   return row;
 }
 

@@ -1056,6 +1056,18 @@ async function main() {
     cleanup('the automation', () => call(advisor, 'DELETE', `/api/automations/${automationId}`));
   }
 
+  // Reading an email before it goes: the real layout and footer, with sample details filled in.
+  const prevEmpty = await call(advisor, 'POST', '/api/automations/preview', { subject: '', body: '' });
+  check(prevEmpty.status === 400, 'a preview of nothing is refused', `status ${prevEmpty.status}`);
+  const prevAnon = await call(null, 'POST', '/api/automations/preview', { subject: 'Hi', body: 'Hi' });
+  check(prevAnon.status === 401, 'and a preview needs a signed in person', `status ${prevAnon.status}`);
+  const prev = await call(advisor, 'POST', '/api/automations/preview', {
+    subject: 'Still thinking, {{first_name}}?', body: 'Hi {{first_name}}, about {{cruise}} and {{their_answer}}.', triggerType: 'form.submitted' });
+  check(prev.status === 200 && prev.data?.subject === 'Still thinking, Sam?'
+    && /Margaritaville at Sea/.test(prev.data?.html || '') && /Unsubscribe/.test(prev.data?.html || '')
+    && (prev.data?.unknown || []).join() === 'their_answer' && /\[their_answer\]/.test(prev.data?.html || ''),
+  'a preview fills in sample details, keeps the way out, and brackets what depends on the person', JSON.stringify(prev.data?.unknown));
+
   const submit = await call(null, 'POST', `/api/public/forms/${form.slug}`, {
     first_name: 'Anna', last_name: 'Submitter',
     email: `anna-${stamp}@test.dev`, where_to: 'Cozumel',

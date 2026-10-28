@@ -1036,6 +1036,19 @@ export function linkify(escaped) {
   );
 }
 
+/**
+ * The message an automation sends, as HTML. One function for the send and for the preview an owner reads while writing it,
+ * so what they see is built by the same code as what goes out.
+ */
+export function automationEmailHtml(env, subject, body, footer) {
+  return layout(env, {
+    heading: subject,
+    body: `<p style="margin:0;">${linkify(escapeHtml(body)).replace(/\n/g, '<br>')}</p>`,
+    // The way out for the person it is sent to. Given on every send to a client.
+    footer,
+  });
+}
+
 export async function sendAutomationEmail(env, to, subject, body,
   { footer, replyTo, fromName, unsubscribeUrl, internal = false } = {}) {
   // Neither of these improves by waiting five minutes and asking again.
@@ -1050,12 +1063,7 @@ export async function sendAutomationEmail(env, to, subject, body,
     throw new PermanentError('An email to a client has to carry its way out. Pass the footer and the unsubscribe address, or mark it internal.');
   }
 
-  const html = layout(env, {
-    heading: subject,
-    body: `<p style="margin:0;">${linkify(escapeHtml(body)).replace(/\n/g, '<br>')}</p>`,
-    // The way out for the person it is sent to. Given on every send to a client.
-    footer,
-  });
+  const html = automationEmailHtml(env, subject, body, footer);
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
