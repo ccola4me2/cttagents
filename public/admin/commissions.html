@@ -470,6 +470,7 @@ function allRows() {
     if (allFilter.vendor && r.supplier !== allFilter.vendor) return false;
     if (allFilter.state === 'hold') { if (!onHold(r)) return false; }
     else if (allFilter.state === 'due') { if (!(r.due_cents > 0)) return false; }
+    else if (allFilter.state === 'written_off') { if (r.commission_chase !== 'written_off') return false; }
     else if (allFilter.state && r.settlement !== allFilter.state) return false;
     if (allFilter.from && (r.depart_date || '') < allFilter.from) return false;
     if (allFilter.to && (r.depart_date || '9999') > allFilter.to) return false;
@@ -570,7 +571,7 @@ function drawAll() {
     <div><label for="af-vendor">Vendor</label><select id="af-vendor" data-af="vendor">${opt(vendors, allFilter.vendor)}</select></div>
     <div><label for="af-state">Status</label><select id="af-state" data-af="state">
       <option value="">All</option>
-      ${[['unpaid', 'Nothing received'], ['short', 'Paid short'], ['settled', 'Settled'], ['over', 'Overpaid'], ['due', 'Still due to an advisor'], ['hold', 'Held until 30 days before sailing']].map(([k, l]) =>
+      ${[['unpaid', 'Nothing received'], ['short', 'Paid short'], ['settled', 'Settled'], ['over', 'Overpaid'], ['due', 'Still due to an advisor'], ['hold', 'Held until 30 days before sailing'], ['written_off', 'Written off']].map(([k, l]) =>
     `<option value="${k}"${allFilter.state === k ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
     <div><label for="af-from">Sails from</label><input id="af-from" data-af="from" type="date" value="${esc(allFilter.from)}"></div>
     <div><label for="af-to">Sails to</label><input id="af-to" data-af="to" type="date" value="${esc(allFilter.to)}"></div>
