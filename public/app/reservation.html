@@ -1275,7 +1275,7 @@ function payChoices(c, selected, allowNone = false) {
   const dates = [...new Set([...(c.payDates || []), selected].filter(Boolean))].sort();
   return `${allowNone ? `<option value="" ${selected ? '' : 'selected'} disabled>Next payout</option>` : ''}${
     dates.map((x) => `<option value="${esc(x)}" ${x === selected ? 'selected' : ''}>${
-      esc(dateFmt(x))}${x === c.suggestedPayOn ? ' (suggested)' : ''}</option>`).join('')}`;
+      x === '2100-12-31' ? 'Not scheduled yet' : esc(dateFmt(x))}${x === c.suggestedPayOn ? ' (suggested)' : ''}</option>`).join('')}`;
 }
 
 /** Why that date, in words, so choosing a different one is a decision. */
@@ -1367,7 +1367,7 @@ function drawCommission() {
         <td class="num">${money(r.amount_cents)}</td>
         <td>${c.mayRecord
       ? `<select data-paydate="${esc(r.id)}" aria-label="Pay out date">${payChoices(c, r.payout_on, true)}</select>`
-      : esc(r.payout_on ? short(r.payout_on) : 'next payout')}</td>
+      : esc(r.payout_on === '2100-12-31' ? 'Not scheduled yet' : r.payout_on ? short(r.payout_on) : 'next payout')}</td>
         <td class="num">${c.mayRecord
       ? `<button class="btn btn-ghost btn-sm" data-drop-receipt="${esc(r.id)}">Remove</button>` : ''}</td>
       </tr>`).join('')}</tbody></table></div>`

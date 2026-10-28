@@ -242,6 +242,15 @@ function signedCents(value) {
   return negative ? -cents : cents;
 }
 
+// "Not scheduled yet": money received but not assigned to any pay day. Held as a date no pay run reaches, so it is hidden from
+// advisors, payable by nothing, and listed apart until somebody chooses a real day for it.
+const NOT_SCHEDULED = '2100-12-31';
+
+/** A pay out date as sent: a day, or "none" for not scheduled yet. */
+function payoutDateOf(value) {
+  return String(value || '').trim().toLowerCase() === 'none' ? NOT_SCHEDULED : cleanDate(value);
+}
+
 /** One line of a check, cleaned. */
 function tidyLine(raw) {
   const bookingId = clean(raw && raw.bookingId, 64);
@@ -253,7 +262,7 @@ function tidyLine(raw) {
       bookingId,
       amountCents,
       kind: oneOf(raw.kind, COMMISSION_KIND_KEYS),
-      payoutOn: cleanDate(raw.payoutOn),
+      payoutOn: payoutDateOf(raw.payoutOn),
       // The day the advisor was already paid this, when it was paid before the check was entered.
       paidOutOn: cleanDate(raw.paidOutOn),
       notes: clean(raw.notes, 300) || null,
@@ -758,7 +767,7 @@ export async function handleSetPayDate(request, env, receiptId) {
   const owner = await db.writerFor(env, admin, 'commission_receipts', receiptId);
   if (!owner) return notFound('That line was not found.');
 
-  const payoutOn = cleanDate((await readJson(request)).payoutOn);
+  const payoutOn = payoutDateOf((await readJson(request)).payoutOn);
   if (!payoutOn) return badRequest('Choose a date.');
 
   const res = await env.DB.prepare(
@@ -916,6 +925,7 @@ export async function handleCommissionDesk(request, env) {
     return {
       date,
       isNext: date === next,
+      unscheduled: date === NOT_SCHEDULED,
       totalCents: list.reduce((n, a) => n + a.cents, 0),
       advisors: list.map((a) => ({ ...a, notAtBank: a.trips.some((t) => t.notAtBank) })),
     };
@@ -977,7 +987,8 @@ export async function handleCommissionDesk(request, env) {
       payout_on: r.payout_on, split_pct: splitPct(r, r.default_split_pct, r.lead_split_pct),
     }));
 
-  const scheduledCents = payDates.reduce((n, d) => n + d.totalCents, 0);
+  const scheduledCents = payDates.filter((d) => !d.unscheduled).reduce((n, d) => n + d.totalCents, 0);
+  const unscheduledCents = payDates.filter((d) => d.unscheduled).reduce((n, d) => n + d.totalCents, 0);
   const received = receivedRow?.cents || 0;
   const fees = feeRow?.cents || 0;
 
@@ -995,6 +1006,7 @@ export async function handleCommissionDesk(request, env) {
       paidOutCents: paidRow?.cents || 0,
       payouts: paidRow?.payouts || 0,
       scheduledCents,
+      unscheduledCents,
       owedToUsCents: owedToUs,
       owedToUsCount: outstanding.length,
       writtenOffCents,

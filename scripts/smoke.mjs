@@ -12771,6 +12771,18 @@ async function main() {
   check(shorted.status === 201 && shorted.data?.unmatchedCents === 0,
     'a line can be a negative: money the vendor took back', JSON.stringify(shorted.data));
   if (shorted.data?.id) await call(admin, 'DELETE', `/api/commission-checks/${shorted.data.id}`);
+  // "Not scheduled yet": received, but on no pay day. It is held apart, counted on its own, and an advisor is not shown it.
+  const unsched = await call(admin, 'POST', '/api/commission-checks', {
+    vendorName: 'Smoke Vendor', reference: `CHK5-${stamp}`, statement: '6.00', receivedOn: isoDay(0),
+    lines: [{ bookingId: tripId, amount: '6.00', payoutOn: 'none' }] });
+  check(unsched.status === 201, 'a line can be left not scheduled yet', JSON.stringify(unsched.data));
+  if (unsched.data?.id) {
+    const deskNow = await call(admin, 'GET', '/api/commission-desk');
+    check((deskNow.data?.tiles?.unscheduledCents || 0) >= 600
+      && (deskNow.data?.payDates || []).some((p) => p.unscheduled),
+    'and it is counted as not scheduled, apart from the pay days', JSON.stringify(deskNow.data?.tiles?.unscheduledCents));
+    await call(admin, 'DELETE', `/api/commission-checks/${unsched.data.id}`);
+  }
 
   // Finding a reservation says what the advisor keeps of it, so a line can show the share.
   const found = await call(admin, 'GET', `/api/commission-checks/search?q=${encodeURIComponent(`Check ${stamp}`)}`);

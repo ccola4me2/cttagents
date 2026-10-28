@@ -222,6 +222,9 @@ const cents = (v) => {
   return t.startsWith('-') || /^\(.*\)$/.test(t) ? -n : n;
 };
 const plain = (c) => (c / 100).toFixed(2);
+// Money received but not given a pay day yet is held on a date nothing reaches, and shown in words.
+const NOT_SCHEDULED = '2100-12-31';
+const dayLabel = (x) => (x === NOT_SCHEDULED ? 'Not scheduled yet' : dateFmt(x));
 
 // ---------------------------------------------------------------------------
 // The tiles
@@ -239,7 +242,8 @@ function drawTiles() {
     tile('paid', `Paid out in ${esc(year)}`, money(t.paidOutCents),
       `${t.payouts} payout${t.payouts === 1 ? '' : 's'} to advisors`),
     tile('scheduled', 'Scheduled to pay out', money(t.scheduledCents),
-      next ? `next payout ${esc(short(d.nextPayDate))}: ${money(next.totalCents)}` : `next pay date ${esc(short(d.nextPayDate))}`),
+      (next ? `next payout ${esc(short(d.nextPayDate))}: ${money(next.totalCents)}` : `next pay date ${esc(short(d.nextPayDate))}`)
+        + (t.unscheduledCents ? `, and ${money(t.unscheduledCents)} not scheduled yet` : '')),
     tile('owed', 'Still owed to us', money(t.owedToUsCents),
       `${t.owedToUsCount} reservation${t.owedToUsCount === 1 ? '' : 's'} not yet paid${t.writtenOffCount
         ? `, and ${money(t.writtenOffCents)} written off` : ''}`),
@@ -263,12 +267,12 @@ function drawScheduled() {
   return d.payDates.map((p) => `
     <section class="card cd-date">
       <div class="cd-date-head">
-        <h3>${esc(dateFmt(p.date))}</h3>
-        <span class="badge ${p.isNext ? 'badge-green' : 'badge-navy'}">${p.isNext ? 'Next payout' : 'Scheduled'}</span>
-        <span class="muted" style="font-size:.8rem;">${p.isNext
+        <h3>${esc(dayLabel(p.date))}</h3>
+        <span class="badge ${p.unscheduled ? 'badge-amber' : p.isNext ? 'badge-green' : 'badge-navy'}">${p.unscheduled ? 'Needs a date' : p.isNext ? 'Next payout' : 'Scheduled'}</span>
+        <span class="muted" style="font-size:.8rem;">${p.unscheduled ? 'Received, but not given a pay day. Press Edit and choose one.' : p.isNext
     ? 'Advisors can see this one' : 'Advisors cannot see this yet'}</span>
         <span class="tot cd-money">${money(p.totalCents)}</span>
-        <button class="btn btn-ghost btn-sm" type="button" data-printrun="${esc(p.date)}">Print the pay run</button>
+        ${p.unscheduled ? '' : `<button class="btn btn-ghost btn-sm" type="button" data-printrun="${esc(p.date)}">Print the pay run</button>`}
       </div>
       ${p.advisors.map((a) => `
         <div class="cd-adv">
@@ -283,8 +287,8 @@ function drawScheduled() {
         <span style="min-width:16rem;">${esc(t.client)}${t.supplier ? ` (${esc(t.supplier)})` : ''}: ${money(t.cents)}</span>
         <label class="muted" style="font-size:.8rem;margin:0;">Pay out on
           <select data-move="${esc((t.receipts || []).join(','))}" aria-label="Pay out date for ${esc(t.client)}">${
-  [...new Set([...(d.payDatesList || []), p.date])].sort().map((x) =>
-    `<option value="${esc(x)}"${x === p.date ? ' selected' : ''}>${esc(dateFmt(x))}</option>`).join('')}</select></label></div>`).join('')}
+  `<option value="none"${p.unscheduled ? ' selected' : ''}>Not scheduled yet</option>${[...new Set([...(d.payDatesList || []), p.unscheduled ? null : p.date].filter(Boolean))].sort().map((x) =>
+    `<option value="${esc(x)}"${x === p.date ? ' selected' : ''}>${esc(dateFmt(x))}</option>`).join('')}`}</select></label></div>`).join('')}
         <span class="muted" style="font-size:.8rem;">Moving a line to another day changes when it is paid. The amount stays the same.</span></div>`
     : `<div class="trips">${a.trips.map((t) => `<span>${esc(t.client)}${t.supplier ? ` (${esc(t.supplier)})` : ''}: ${money(t.cents)}${
   t.departDate && p.date < safeOn(t.departDate) ? ' <span class="badge badge-amber" title="Sails in more than 30 days after this pay date, so the vendor could still take the commission back">before the 30 day mark</span>' : ''}</span>`).join('')}</div>`}
@@ -309,10 +313,11 @@ function checkRow(c) {
 }
 
 function payDateSelect(line) {
-  const dates = [...new Set([...(d.payDatesList || []), line.payout_on].filter(Boolean))].sort();
+  const held = line.payout_on === NOT_SCHEDULED;
+  const dates = [...new Set([...(d.payDatesList || []), held ? null : line.payout_on].filter(Boolean))].sort();
   // A line with no date was entered before pay dates, and is paid at the next payout
   // until one is chosen.
-  return `<select data-receipt="${esc(line.id)}">${line.payout_on ? '' : '<option value="" selected disabled>Next payout</option>'}${dates.map((x) =>
+  return `<select data-receipt="${esc(line.id)}">${line.payout_on ? '' : '<option value="" selected disabled>Next payout</option>'}<option value="none"${held ? ' selected' : ''}>Not scheduled yet</option>${dates.map((x) =>
     `<option value="${esc(x)}" ${x === line.payout_on ? 'selected' : ''}>${esc(dateFmt(x))}</option>`).join('')}</select>`;
 }
 
@@ -1356,7 +1361,7 @@ function lineHtml(l, i) {
   const amt = cents(l.amount);
   const short = l.bookingId && l.expected && amt && amt < l.expected - 1;
   const travel = l.returnDate || l.departDate;
-  const dates = [...new Set([...(d.payDatesList || []), l.paidOutOn ? null : l.payoutOn].filter(Boolean))].sort();
+  const dates = [...new Set([...(d.payDatesList || []), l.paidOutOn || l.payoutOn === NOT_SCHEDULED ? null : l.payoutOn].filter(Boolean))].sort();
   const past = [...new Set([...pastPayDates(6), l.paidOutOn].filter(Boolean))].sort().reverse();
   return `<div class="cd-line" data-i="${i}">
     ${l.page ? `<div class="page">From the page: ${esc(l.page)}</div>` : ''}
@@ -1370,7 +1375,7 @@ function lineHtml(l, i) {
       </div>
       <div><label>Commission Paid Amount</label><input data-amount="${i}" inputmode="decimal" value="${esc(l.amount)}" placeholder="0.00 or -4.00" autocomplete="off">${amt < 0 ? '<div class="sub">Money taken back from this reservation</div>' : ''}</div>
       <div><label>Pay out date</label>
-        <select data-pay="${i}">${l.payoutOn ? '' : `<option value="" selected>${l.bookingId ? 'Next pay date' : 'Automatic, 30 days before they sail'}</option>`}${dates.map((x) =>
+        <select data-pay="${i}">${l.payoutOn ? '' : `<option value="" selected>${l.bookingId ? 'Next pay date' : 'Automatic, 30 days before they sail'}</option>`}<option value="none"${l.payoutOn === NOT_SCHEDULED ? ' selected' : ''}>Not scheduled yet</option>${dates.map((x) =>
     `<option value="${esc(x)}" ${x === l.payoutOn ? 'selected' : ''}>${esc(dateFmt(x))}${x === l.suggested ? ' (suggested)' : ''}</option>`).join('')}
           <optgroup label="Already paid out">${past.map((x) =>
     `<option value="paid:${esc(x)}" ${x === l.paidOutOn ? 'selected' : ''}>Already paid out ${esc(dateFmt(x))}</option>`).join('')}</optgroup></select></div>
@@ -1381,7 +1386,7 @@ function lineHtml(l, i) {
       <span class="muted"> ${esc([r.supplier, r.productName, r.confirmationNumber].filter(Boolean).join(' · '))} · ${esc(r.advisorName || '')}${
   r.departDate ? ` · ${esc(dateFmt(r.departDate))}` : ''}${
   r.receivedCents ? ` · <strong style="color:var(--amber-600);">${money(r.receivedCents)} already received</strong>` : ''}</span></button>`).join('')}</div>` : ''}
-    ${l.bookingId && travel && l.payoutOn ? `<div class="sub">${l.departDate ? 'Sails' : 'Back'} ${esc(dateFmt(l.departDate || travel))}, so paid out ${esc(dateFmt(l.suggested))}${l.departDate ? ', the first pay date 30 days before sailing,' : ''} unless you choose another day.</div>` : ''}
+    ${l.bookingId && travel && l.payoutOn && l.payoutOn !== NOT_SCHEDULED ? `<div class="sub">${l.departDate ? 'Sails' : 'Back'} ${esc(dateFmt(l.departDate || travel))}, so paid out ${esc(dateFmt(l.suggested))}${l.departDate ? ', the first pay date 30 days before sailing,' : ''} unless you choose another day.</div>` : ''}
     ${l.paidOutOn ? `<div class="sub">${esc(l.advisorName || 'The advisor')} was already paid this on ${esc(dateFmt(l.paidOutOn))}. Saving records that payout, so it is not scheduled or owed again.</div>` : ''}
     ${l.bookingId && !l.paidOutOn && l.payoutOn && l.suggested && l.payoutOn < l.suggested ? `<div class="warn">${esc(dateFmt(l.payoutOn))} is before ${
   l.departDate ? 'the usual 30 days before sailing' : 'the usual day'}. The usual day is ${esc(dateFmt(l.suggested))}. Change it only if you mean to pay early.</div>` : ''}
@@ -1547,7 +1552,7 @@ $('lines').addEventListener('change', (e) => {
       line.payoutOn = line.paidOutOn;
     } else {
       line.paidOutOn = '';
-      line.payoutOn = sel.value;
+      line.payoutOn = sel.value === 'none' ? NOT_SCHEDULED : sel.value;
     }
     // Chosen by hand, so picking a reservation afterwards does not replace it.
     line.payoutTouched = Boolean(sel.value);
@@ -1773,7 +1778,7 @@ $('chk-form').addEventListener('submit', async (e) => {
         notes: $('notes').value, filename, lines: payload,
       } });
       dlg.close();
-      const when = payload.length ? [...new Set(payload.map((l) => l.payoutOn).filter(Boolean))].sort().map((x) => short(x)).join(', ') : '';
+      const when = payload.length ? [...new Set(payload.map((l) => l.payoutOn).filter(Boolean))].sort().map((x) => (x === NOT_SCHEDULED ? 'not scheduled yet' : short(x))).join(', ') : '';
       errEl.innerHTML = `<div class="notice notice-ok">Check recorded${when ? `, to be paid out ${esc(when)}` : ''}.${
         Math.abs(out.unmatchedCents) > 1 ? ` ${money(out.unmatchedCents)} is not matched to a reservation yet.` : ''}</div>`;
       view = 'received';
