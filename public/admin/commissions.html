@@ -1421,13 +1421,12 @@ async function recordFor(o) {
   }
   openCheckDialog(null);
   $('vendorName').value = o.supplier || '';
-  $('statement').value = plain(o.owedCents);
   const l = blankLine();
   if (found) chooseReservation(l, found);
   else { l.bookingId = o.id; l.label = o.clientName; l.sub = [o.supplier, o.productName, o.confirmationNumber].filter(Boolean).join(' · '); l.advisorName = o.advisorName || ''; }
   l.amount = plain(o.owedCents);
   lines = [l];
-  $('chk-hint').textContent = `Recording what came in for ${o.clientName}. Change the check total and amount to what the vendor actually paid.`;
+  $('chk-hint').textContent = `Recording what came in for ${o.clientName}. Enter the check total, and change the amount to what the vendor actually paid.`;
   drawLines();
 }
 
