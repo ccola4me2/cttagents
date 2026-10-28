@@ -825,12 +825,14 @@ export async function handleCommissionDesk(request, env) {
       `SELECT p.id, p.paid_on, p.amount_cents, p.method, p.reference, p.user_id,
               COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''), u.email)
                 AS advisor_name,
-              (SELECT COUNT(*) FROM advisor_payout_lines l WHERE l.payout_id = p.id AND ${scopeL.sql}) AS trips
+              (SELECT COUNT(*) FROM advisor_payout_lines l WHERE l.payout_id = p.id AND ${scopeL.sql}) AS trips,
+              (SELECT GROUP_CONCAT(pb.client_name, ', ') FROM advisor_payout_lines l
+                 JOIN bookings pb ON pb.id = l.booking_id WHERE l.payout_id = p.id AND ${scopeL.sql}) AS names
          FROM advisor_payouts p JOIN users u ON u.id = p.user_id
         WHERE ${scopeP.sql} AND substr(COALESCE(p.paid_on, ''), 1, 4) = ?
         ORDER BY p.paid_on DESC, p.created_at DESC
         LIMIT 300`
-    ).bind(...scopeL.binds, ...scopeP.binds, year).all(),
+    ).bind(...scopeL.binds, ...scopeL.binds, ...scopeP.binds, year).all(),
 
     // Every line, with what the split needs. The schedule is worked out here rather
     // than in SQL because it is running totals per reservation, which is the part

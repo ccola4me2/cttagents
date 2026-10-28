@@ -8,12 +8,20 @@
 <link rel="icon" href="/logo-mark.png" type="image/png">
 <link rel="stylesheet" href="/css/app.css">
 <style>
+  /* Four to a row, the money on top and the four ways to look at it underneath, the way the agency's other portal lays it out. */
   .cd-tiles { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+  #tiles.cd-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  #tiles .cd-tile:nth-child(n+5) .value { font-size: 1.2rem; }
+  @media (max-width: 1100px) { #tiles.cd-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 520px) { #tiles.cd-tiles { grid-template-columns: minmax(0, 1fr); } }
   .cd-tile {
     font: inherit; text-align: left; cursor: pointer; background: #fff; border: 1.5px solid var(--navy-100);
     border-radius: var(--radius); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);
     transition: border-color .15s, box-shadow .15s;
   }
+  .cd-link { background: none; border: 0; padding: 0; margin-right: .6rem; font: inherit; font-size: .82rem; text-decoration: underline; cursor: pointer; color: var(--teal-600, #1b7f8f); white-space: nowrap; }
+  .cd-link.warn { color: #b3261e; }
+  .cd-acts { white-space: nowrap; text-align: right; }
   .cd-tile:hover { border-color: var(--navy-300); }
   .cd-tile[aria-pressed="true"] { border-color: var(--teal-500); box-shadow: 0 0 0 3px var(--teal-50); }
   .cd-tile .label { margin: 0; font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-400); }
@@ -357,53 +365,90 @@ function drawPaid() {
       <p>Mark a payout as paid from Scheduled to pay out, and it will be listed here.</p></div></div>`;
   }
   return `<div class="card cd-scroll"><table class="cd-table"><thead><tr>
-    <th>Paid on</th><th>Advisor</th><th class="r">Amount</th><th>How</th><th class="r">Reservations</th><th></th>
+    <th>Paid on</th><th>Advisor</th><th>How</th><th>Reference</th><th>Reservations</th><th class="r">Amount</th><th></th>
     </tr></thead><tbody>${d.paid.map((p) => `<tr>
       <td>${esc(p.paid_on ? dateFmt(p.paid_on) : '')}</td><td>${esc(p.advisor_name)}</td>
+      <td>${esc((methods.find((m) => m.key === p.method) || { label: p.method || '' }).label)}</td>
+      <td>${esc(p.reference || '')}</td>
+      <td>${esc(p.names || (p.trips ? `${p.trips} reservation${p.trips === 1 ? '' : 's'}` : ''))}</td>
       <td class="r cd-money">${money(p.amount_cents)}</td>
-      <td>${esc((methods.find((m) => m.key === p.method) || { label: p.method || '' }).label)}${p.reference ? ` <span class="muted">${esc(p.reference)}</span>` : ''}</td>
-      <td class="r">${p.trips}</td>
-      <td class="r"><button class="btn btn-ghost btn-sm" type="button" data-editpay="${esc(p.id)}">Edit</button>
-        <button class="btn btn-ghost btn-sm" type="button" data-delpay="${esc(p.id)}">Undo</button></td>
+      <td class="cd-acts"><button class="cd-link" type="button" data-editpay="${esc(p.id)}">Edit</button><button class="cd-link warn" type="button" data-delpay="${esc(p.id)}">Undo</button></td>
     </tr>`).join('')}</tbody></table></div>`;
 }
 
-function drawOwed() {
-  const off = d.writtenOff || [];
-  const showingOff = bucket === 'written_off';
-  const rows = showingOff ? off : d.outstanding.filter((o) => !bucket || o.bucket === bucket);
-  const chips = `<div class="cd-chips">
-    <button class="cd-chip" type="button" data-bucket="" aria-pressed="${bucket === ''}">All<span class="n">${d.outstanding.length}</span></button>
-    ${d.buckets.filter((b) => b.key !== 'disputed' || b.count).map((b) => `<button class="cd-chip" type="button" data-bucket="${esc(b.key)}" aria-pressed="${bucket === b.key}"
-      title="${esc(b.hint)}">${esc(b.label)}<span class="n">${b.count} &middot; ${money(b.cents)}</span></button>`).join('')}
-    ${off.length ? `<button class="cd-chip" type="button" data-bucket="written_off" aria-pressed="${showingOff}"
-      title="Marked as not going to be collected">Written off<span class="n">${off.length} &middot; ${money(off.reduce((n, o) => n + o.owedCents, 0))}</span></button>` : ''}</div>`;
+let owedQ = '';
+
+/** The reservations still owed, narrowed by what was typed in the search box. */
+function owedRows() {
+  const q = owedQ.trim().toLowerCase();
+  return (d.outstanding || []).filter((o) => !q
+    || [o.clientName, o.confirmationNumber, o.supplier, o.productName, o.advisorName].join(' ').toLowerCase().includes(q));
+}
+
+/** Record it when the check arrives, or mark it if the vendor will not pay. A disputed one is resolved instead. */
+function owedActions(o) {
+  return `<button class="cd-link" type="button" data-recordowed="${esc(o.id)}">Record</button>`
+    + (o.chase === 'disputed'
+      ? `<button class="cd-link" type="button" data-chase="${esc(o.id)}" data-state="">Resolved</button>`
+      : `<button class="cd-link" type="button" data-chase="${esc(o.id)}" data-state="disputed" data-name="${esc(o.clientName)}" data-info="${esc(chaseInfo(o))}">Dispute</button>`)
+    + `<button class="cd-link warn" type="button" data-chase="${esc(o.id)}" data-state="written_off" data-name="${esc(o.clientName)}" data-info="${esc(chaseInfo(o))}">Won&rsquo;t be paid</button>`;
+}
+
+/** "Name · Vendor · $43.35 still expected", the line the mark dialog opens with. */
+function chaseInfo(o) {
+  return `${o.clientName} · ${o.supplier || 'No vendor'} · ${money(o.owedCents)} still expected`;
+}
+
+function owedTable(rows) {
   if (!rows.length) {
-    return `${chips}<div class="card"><div class="empty"><h3>Nothing owed here</h3>
-      <p>Every reservation in this group has had its commission paid.</p></div></div>`;
+    return `<div class="card"><div class="empty"><h3>Nothing owed here</h3>
+      <p>Every reservation has had its commission paid.</p></div></div>`;
   }
-  const acts = (o) => (o.chase === 'written_off'
-    ? `<button class="btn btn-ghost btn-sm" type="button" data-chase="${esc(o.id)}" data-state="">Put back</button>`
-    : `${o.chase === 'disputed'
-      ? `<button class="btn btn-ghost btn-sm" type="button" data-chase="${esc(o.id)}" data-state="">Resolved</button>`
-      : `<button class="btn btn-ghost btn-sm" type="button" data-chase="${esc(o.id)}" data-state="disputed" data-name="${esc(o.clientName)}">Dispute</button>`}
-       <button class="btn btn-secondary btn-sm" type="button" data-recordowed="${esc(o.id)}">Record</button>
-       <button class="btn btn-ghost btn-sm" type="button" data-chase="${esc(o.id)}" data-state="written_off" data-name="${esc(o.clientName)}">Write off</button>`);
-  return `${chips}<div class="card cd-scroll"><table class="cd-table"><thead><tr>
-    <th>Reservation</th><th>Advisor</th><th>Travelled</th><th class="r">Days</th><th class="r">Expected</th><th class="r">Received</th><th class="r">Owed</th><th></th>
+  return `<div class="card cd-scroll"><table class="cd-table"><thead><tr>
+    <th>Reservation</th><th>Advisor</th><th>Sails</th><th class="r">Expected</th><th class="r">Received</th><th class="r">Still owed</th><th></th>
     </tr></thead><tbody>${rows.map((o) => `<tr>
-      <td><a href="/app/reservation?id=${encodeURIComponent(o.id)}">${esc(o.clientName)}</a>
-        ${o.chase ? `<span class="badge ${o.chase === 'disputed' ? 'badge-amber' : 'badge-navy'}" style="margin-left:.4rem;">${o.chase === 'disputed' ? 'Disputed' : 'Written off'}</span>` : ''}
-        <div class="muted">${esc([o.supplier, o.productName].filter(Boolean).join(' · '))}</div>
+      <td><a href="/app/reservation?id=${encodeURIComponent(o.id)}"><strong>${esc(o.clientName)}</strong></a>
+        ${o.chase === 'disputed' ? '<span class="badge badge-amber" style="margin-left:.4rem;">Disputed</span>' : ''}
+        <div class="muted">${esc([o.supplier, o.productName, o.confirmationNumber].filter(Boolean).join(' · '))}</div>
         ${o.chaseNote ? `<div class="muted" style="font-style:italic;">${esc(o.chaseNote)}</div>` : ''}</td>
       <td>${esc(o.advisorName || '')}</td>
-      <td>${o.travelDate ? esc(dateFmt(o.travelDate)) : '<span class="muted">no date</span>'}</td>
-      <td class="r">${o.daysSince === null ? '' : (o.daysSince < 0 ? `<span class="muted">in ${-o.daysSince}</span>` : o.daysSince)}</td>
+      <td>${o.travelDate ? esc(dateFmt(o.travelDate)) : '<span class="muted">no date</span>'}${o.daysSince !== null && o.daysSince > 0 ? ' <span class="badge badge-amber">sailed</span>' : ''}</td>
       <td class="r cd-money">${money(o.expectedCents)}</td><td class="r cd-money">${money(o.receivedCents)}</td>
       <td class="r cd-money"><strong>${money(o.owedCents)}</strong></td>
-      <td class="r" style="white-space:nowrap;">${acts(o)}</td></tr>`).join('')}</tbody></table></div>
+      <td class="cd-acts">${owedActions(o)}</td></tr>`).join('')}</tbody></table></div>
     ${d.outstandingTruncated ? '<p class="muted">Showing the oldest 500.</p>' : ''}`;
 }
+
+function drawOwed() {
+  return `<div style="display:flex;gap:.8rem;align-items:center;margin-bottom:.8rem;">
+      <input id="owed-q" value="${esc(owedQ)}" placeholder="Search by client, confirmation number or vendor" autocomplete="off" style="flex:1;">
+      <button class="btn btn-ghost btn-sm" type="button" id="owed-csv">Download what I see</button></div>
+    <div id="owed-body">${owedTable(owedRows())}</div>`;
+}
+
+function downloadOwed() {
+  const dollars = (c) => ((Number(c) || 0) / 100).toFixed(2);
+  const head = ['Client', 'Advisor', 'Vendor', 'Ship', 'Confirmation', 'Sails', 'Expected', 'Received', 'Still owed'];
+  const lines = [head.join(',')].concat(owedRows().map((o) => [o.clientName, o.advisorName, o.supplier, o.productName, o.confirmationNumber,
+    o.travelDate, dollars(o.expectedCents), dollars(o.receivedCents), dollars(o.owedCents)].map(csvCell).join(',')));
+  const href = URL.createObjectURL(new Blob([`${lines.join('\n')}\n`], { type: 'text/csv' }));
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = `still-owed-${d.today || new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 60000);
+}
+
+panel.addEventListener('input', (e) => {
+  if (e.target.id !== 'owed-q' || view !== 'owed') return;
+  owedQ = e.target.value;
+  document.getElementById('owed-body').innerHTML = owedTable(owedRows());
+});
+panel.addEventListener('click', (e) => {
+  if (view === 'owed' && e.target.closest('#owed-csv')) downloadOwed();
+});
 
 /**
  * Marking an unpaid commission. Disputed sets it apart from routine chasing; written off takes it out of what is owed
@@ -411,12 +456,13 @@ function drawOwed() {
  */
 const chaseDlg = document.getElementById('chase-dlg');
 let chasing = null;
-function openChase(id, state, name) {
+function openChase(id, state, name, info) {
   chasing = { id, state };
-  document.getElementById('chase-title').textContent = state === 'written_off' ? `Write off ${name}'s commission` : `Dispute ${name}'s commission`;
-  document.getElementById('chase-help').textContent = state === 'written_off'
-    ? 'It stops counting as owed. It stays on record under Written off, and you can put it back.'
-    : 'It moves to its own group, Disputed, so it is not chased as routine while you wait on the vendor.';
+  document.getElementById('chase-title').textContent = 'Mark this commission';
+  document.getElementById('chase-help').innerHTML = `<strong>${esc(info || name)}</strong><br>`
+    + (state === 'written_off'
+      ? '<span class="muted">It stops counting as owed to us. You can undo this from All commissions.</span>'
+      : '<span class="muted">It moves to its own group, Disputed, so it is not chased as routine while you wait on the vendor.</span>');
   document.getElementById('chase-note').value = '';
   document.getElementById('chase-err').hidden = true;
   chaseDlg.showModal();
@@ -513,6 +559,23 @@ function linesFor(bookingId) {
   return out.sort((a, b) => String(b.on || '').localeCompare(String(a.on || '')));
 }
 
+/** What a row in the full list can be given: the check when it comes, a note that the vendor will not pay, or the advisor's payout. */
+function owedFromAll(r) {
+  return { id: r.id, clientName: r.client_name, supplier: r.supplier, productName: r.product_name, confirmationNumber: r.confirmation_number,
+    advisorName: r.advisor_name, owedCents: Math.max((r.commission_cents || 0) - (r.received_cents || 0), 0) };
+}
+
+function allActions(r) {
+  if (r.commission_chase === 'written_off') {
+    return `<button class="cd-link" type="button" data-chase="${esc(r.id)}" data-state="">Put back</button>`;
+  }
+  const o = owedFromAll(r);
+  const owing = o.owedCents > 1;
+  return (owing ? `<button class="cd-link" type="button" data-recordowed="${esc(r.id)}">Record</button>` : '')
+    + (r.due_cents > 0 ? `<button class="cd-link" type="button" data-markpaid="${esc(r.id)}">Mark advisor paid</button>` : '')
+    + (owing ? `<button class="cd-link warn" type="button" data-chase="${esc(r.id)}" data-state="written_off" data-name="${esc(r.client_name)}" data-info="${esc(chaseInfo(o))}">Won&rsquo;t be paid</button>` : '');
+}
+
 function allBody() {
   const rows = allRows();
   const sum = (k) => rows.reduce((n, r) => n + (Number(r[k]) || 0), 0);
@@ -523,7 +586,7 @@ function allBody() {
   }
   const detail = (r) => {
     const lines = linesFor(r.id);
-    return `<tr class="sub"><td colspan="11">
+    return `<tr class="sub"><td colspan="12">
       <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin:.4rem 0;">
         <a class="btn btn-secondary btn-sm" href="/app/reservation?id=${encodeURIComponent(r.id)}">Open the reservation</a>
         ${r.due_cents > 0 ? `<button class="btn btn-primary btn-sm" type="button" data-markpaid="${esc(r.id)}">Mark this reservation paid</button>` : ''}
@@ -541,7 +604,7 @@ function allBody() {
     ${th('client', 'Reservation')}${th('advisor', 'Advisor')}${th('back', 'Sails')}<th>Safe to pay from</th>
     ${th('commission_cents', 'Expected', 'r')}${th('received_cents', 'Received', 'r')}<th>Status</th>
     ${th('payout_cents', 'Advisor share of received', 'r')}${th('paid_out_cents', 'Paid out', 'r')}${th('due_cents', 'Still due to advisor', 'r')}
-    ${th('agency_received_cents', 'Agency keeps', 'r')}
+    ${th('agency_received_cents', 'Agency keeps', 'r')}<th></th>
     </tr></thead><tbody>${rows.map((r) => `<tr data-allrow="${esc(r.id)}" class="${allOpen === r.id ? 'open' : ''}" style="cursor:pointer;">
       <td><strong>${esc(r.client_name)}</strong>
         <div class="muted">${esc([r.supplier, r.product_name, r.confirmation_number].filter(Boolean).join(' · '))}</div></td>
@@ -553,14 +616,15 @@ function allBody() {
       <td><span class="badge ${STATE_BADGE[r.settlement] || ''}">${esc(STATE_LABEL[r.settlement] || r.settlement)}</span></td>
       <td class="r cd-money">${money(r.payout_cents)}</td>
       <td class="r cd-money">${money(r.paid_out_cents)}</td>
-      <td class="r cd-money"><strong>${money(Math.max(r.due_cents, 0))}</strong>${r.due_cents > 0 ? `<div><button class="btn btn-ghost btn-sm" type="button" data-markpaid="${esc(r.id)}">Mark paid</button></div>` : ''}</td>
+      <td class="r cd-money"><strong>${money(Math.max(r.due_cents, 0))}</strong></td>
       <td class="r cd-money">${money(r.agency_received_cents)}</td>
+      <td class="cd-acts">${allActions(r)}</td>
     </tr>${allOpen === r.id ? detail(r) : ''}`).join('')}
     <tr class="tot"><td colspan="4">${rows.length} reservation${rows.length === 1 ? '' : 's'}</td>
       <td class="r cd-money">${money(sum('commission_cents'))}</td><td class="r cd-money">${money(sum('received_cents'))}</td><td></td>
       <td class="r cd-money">${money(sum('payout_cents'))}</td><td class="r cd-money">${money(sum('paid_out_cents'))}</td>
       <td class="r cd-money">${money(rows.reduce((n, r) => n + Math.max(r.due_cents || 0, 0), 0))}</td>
-      <td class="r cd-money">${money(sum('agency_received_cents'))}</td></tr>
+      <td class="r cd-money">${money(sum('agency_received_cents'))}</td><td></td></tr>
     </tbody></table></div>
     ${all.rows.length >= 500 ? '<p class="muted">Showing the first 500 reservations. Narrow the list with the filters to see the rest.</p>' : ''}
     <p class="muted" style="font-size:.8rem;">Reservations marked as earning no commission, and cancelled ones, are not listed. Lines under a row are this year's, as chosen at the top.</p>`;
@@ -1017,9 +1081,9 @@ panel.addEventListener('click', (e) => {
 
 const TITLES = {
   scheduled: ['Payouts by date', 'Only the next one is visible to advisors. Each advisor sees their own, and nothing scheduled further out.'],
-  received: ['Checks received', 'Click a check to see its lines, change when each is paid out, or add one.'],
-  paid: ['Paid out', 'What the agency has paid its advisors.'],
-  owed: ['Still owed to us', 'Commission expected from vendors that has not arrived, counted from the day they travelled.'],
+  received: ['Received', 'Every check that came in from vendors this year. Click a check to see its lines, change when each is paid out, or add one.'],
+  paid: ['Paid out', 'Payments made to advisors.'],
+  owed: ['Still owed to us', 'Booked reservations whose commission hasn\u2019t fully come in. Record it when the check arrives, or mark it if the vendor won\u2019t pay.'],
   all: ['All commissions', 'Every reservation that earns commission, for every advisor. Search, filter, sort, open a row for its lines, and download what you see.'],
   reports: ['Reports', 'Commission by advisor, by vendor and by month, what is short or over, every check, and what each advisor was paid in the year for their 1099. Each one downloads as a spreadsheet file.'],
   recall: ['Recall watch', 'A cruise line can take commission back if a client cancels, until 30 days before sailing. This shows what is being held until then, what was paid out early, and cancelled trips with money to recover.'],
@@ -1028,7 +1092,8 @@ const TITLES = {
 
 function draw() {
   drawTiles();
-  const [title, sub] = TITLES[view];
+  const [base, sub] = TITLES[view];
+  const title = view === 'received' || view === 'paid' ? `${base} in ${year}` : base;
   const body = view === 'scheduled' ? drawScheduled() : view === 'received' ? drawReceived()
     : view === 'paid' ? drawPaid() : view === 'all' ? drawAll() : view === 'statements' ? drawStatements() : view === 'recall' ? drawRecall() : view === 'reports' ? drawReports() : drawOwed();
   panel.innerHTML = `<div class="cd-head"><h2>${esc(title)}</h2><span class="m">${esc(sub)}</span></div>${body}`;
@@ -1063,13 +1128,14 @@ panel.addEventListener('click', async (e) => {
   if (!t) return;
   if (t.dataset.bucket !== undefined) { bucket = t.dataset.bucket; draw(); return; }
   if (t.dataset.recordowed) {
-    const o = (d.outstanding || []).find((x) => x.id === t.dataset.recordowed);
+    const o = (d.outstanding || []).find((x) => x.id === t.dataset.recordowed)
+      || (all && all.rows.filter((r) => r.id === t.dataset.recordowed).map(owedFromAll)[0]);
     if (!o) return;
     try { await recordFor(o); } catch (ex) { showError(errEl, ex); }
     return;
   }
   if (t.dataset.chase) {
-    if (t.dataset.state) { openChase(t.dataset.chase, t.dataset.state, t.dataset.name || 'this reservation'); return; }
+    if (t.dataset.state) { openChase(t.dataset.chase, t.dataset.state, t.dataset.name || 'this reservation', t.dataset.info || ''); return; }
     try { await setChase(t.dataset.chase, '', ''); } catch (ex) { showError(errEl, ex); }
     return;
   }
