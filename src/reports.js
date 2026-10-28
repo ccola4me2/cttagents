@@ -516,6 +516,21 @@ async function noticesFor(env, user, scope) {
         href: '/admin/client-emails', label: 'Read them',
       });
     }
+    // Confirmations forwarded by email that were turned away in the last week. A bounce goes to the sender and nowhere else, so
+    // without this an owner hears about it only when somebody complains.
+    const bounced = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM activity_log a
+        WHERE a.kind = 'inbox.rejected' AND a.created_at > ?
+          AND a.user_id IN (SELECT id FROM users WHERE agency_id = ?)`
+    ).bind(now() - 7 * 86400, user.agency_id).first().catch(() => null);
+    if (bounced && bounced.n) {
+      out.push({
+        tone: 'warn',
+        title: bounced.n + (bounced.n === 1 ? ' forwarded confirmation was' : ' forwarded confirmations were') + ' turned away this week',
+        detail: 'The sender was told why. Common causes: a picture of a page with no text, or the wrong address. Ask them to drop it on the Import page instead.',
+        href: '/admin/', label: 'Open the health check',
+      });
+    }
     const failing = await env.DB.prepare(
       `SELECT name, last_error FROM cron_jobs WHERE last_error IS NOT NULL AND last_run_at > ?
         ORDER BY last_run_at DESC LIMIT 5`

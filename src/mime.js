@@ -197,13 +197,13 @@ function unquote(text) {
 }
 
 /**
- * The readable pieces of a message: the plain text, the HTML as text, and any PDF attachments.
+ * The readable pieces of a message: the plain text, the HTML as text, any PDF attachments and any pictures.
  * More than one comes back on purpose. A message that carries both a text and an HTML version
  * does not always carry the same thing in each, and which one reads best is for the confirmation
  * reader to say.
  */
 export function readableParts(raw) {
-  const out = { texts: [], pdfs: [], headers: new Map() };
+  const out = { texts: [], pdfs: [], images: [], headers: new Map() };
   const bytes = raw instanceof Uint8Array ? raw : bytesOf(String(raw || ''));
   const { head } = splitHeadBody(latin1(bytes));
   out.headers = parseHeaders(head);
@@ -217,6 +217,9 @@ export function readableParts(raw) {
       if (text) out.texts.push({ source: 'html', text });
     } else if (leaf.type === 'application/pdf' || /\.pdf$/i.test(leaf.filename || '')) {
       if (leaf.bytes.length) out.pdfs.push({ filename: leaf.filename || 'attachment.pdf', bytes: leaf.bytes });
+    } else if (['image/png', 'image/jpeg', 'image/webp'].includes(leaf.type) && leaf.bytes.length > 8000 && out.images.length < 4) {
+      // A screenshot of a confirmation. A signature logo or a tracking pixel is smaller than this, which is why there is a floor.
+      out.images.push({ filename: leaf.filename || 'picture', mime: leaf.type, bytes: leaf.bytes });
     }
   }
   return out;

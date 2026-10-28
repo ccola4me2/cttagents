@@ -6638,6 +6638,27 @@ async function main() {
     'Advisor Phone: 5617779911 Enhancement Commission: $107.70',
   ].join('\n');
 
+  // A PDF the browser could not read is read by the portal.
+  const pdfBytes = (() => {
+    const content = 'BT /F1 11 Tf 40 760 Td 14 TL\n(Confirmation Number: 54455257) Tj T*\n(Ship: Harmony of the Seas) Tj T*\nET';
+    const objs = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+      `<< /Length ${content.length} >>\nstream\n${content}\nendstream`, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
+    let pdf = '%PDF-1.4\n';
+    const offs = [];
+    objs.forEach((o, i) => { offs.push(pdf.length); pdf += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+    const x = pdf.length;
+    pdf += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offs.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`;
+    return `${pdf}trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${x}\n%%EOF`;
+  })();
+  const pdfAnon = await fetch(`${BASE}/api/import/pdf-text`, { method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: pdfBytes });
+  check(pdfAnon.status === 401, 'reading a PDF needs a signed in person', `status ${pdfAnon.status}`);
+  const pdfRes = await fetch(`${BASE}/api/import/pdf-text`, { method: 'POST', headers: { 'Content-Type': 'application/pdf', cookie: advisor.header() }, body: pdfBytes });
+  const pdfOut = await pdfRes.json().catch(() => ({}));
+  check(pdfRes.status === 200 && /Confirmation Number: 54455257/.test(pdfOut.text || ''), 'a PDF is read by the portal when the browser cannot', `status ${pdfRes.status}`);
+  const pdfEmpty = await fetch(`${BASE}/api/import/pdf-text`, { method: 'POST', headers: { 'Content-Type': 'application/pdf', cookie: advisor.header() }, body: '' });
+  check(pdfEmpty.status === 400, 'and an empty file is refused', `status ${pdfEmpty.status}`);
+
   // Pictures and saved emails dropped onto the Import page.
   const picAnon = await call(null, 'POST', '/api/import/image', { mime: 'image/png', data: 'AAAA' });
   check(picAnon.status === 401, 'reading a picture needs a signed in person', `status ${picAnon.status}`);

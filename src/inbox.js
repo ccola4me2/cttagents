@@ -20,6 +20,7 @@ import { parseConfirmation, fillSupplierFromCatalog } from './confirm.js';
 import { autoCreate } from './autoimport.js';
 import { readableParts } from './mime.js';
 import { pdfRead } from './pdftext.js';
+import { transcribe, toBase64 } from './transcribe.js';
 import { json, badRequest, notFound, uid, now, clean, PermanentError } from './util.js';
 import { requireUser, borrowedSeat } from './auth.js';
 import { inviteDomain } from './appointments.js';
@@ -50,8 +51,28 @@ function usable(read) {
   return essentials >= 1 && score(read) >= 3;
 }
 
+/**
+ * A forwarded message that was turned away, written down.
+ *
+ * A bounce goes back to the person who sent it and nowhere else, so an owner could not tell "nobody has tried" from "everybody
+ * has tried and been refused". This leaves a line in the activity log for the advisor, or for the agency's owner when the
+ * address matched nobody, and the owner's dashboard says when there have been some. Never throws.
+ */
+export async function logBounce(env, user, { to = '', from = '', subject = '', reason = '' } = {}) {
+  try {
+    let who = user && user.id;
+    if (!who) {
+      const owner = await env.DB.prepare("SELECT id FROM users WHERE role = 'admin' AND status = 'active' ORDER BY created_at ASC LIMIT 1").first();
+      who = owner && owner.id;
+    }
+    if (!who) return;
+    await db.logActivity(env, who, 'inbox.rejected', `A forwarded confirmation was turned away: ${reason}`,
+      { to: clean(String(to), 120), from: clean(String(from || ''), 120), subject: clean(String(subject || ''), 160), reason });
+  } catch (e) { console.error('inbox bounce log', e); }
+}
+
 /** The text of a message as the confirmation reader should see it, and where it came from. */
-export async function bestReading(raw) {
+export async function bestReading(raw, env = null) {
   const parts = readableParts(raw);
   const candidates = [...parts.texts];
   for (const pdf of parts.pdfs.slice(0, 3)) {
@@ -61,13 +82,25 @@ export async function bestReading(raw) {
     } catch { /* a PDF that cannot be opened is one candidate fewer */ }
   }
   let best = null;
-  for (const c of candidates) {
+  const consider = (c) => {
     const text = c.text.slice(0, MAX_TEXT_CHARS);
     const read = parseConfirmation(text);
     // The HTML wins a tie. Its tables keep a row's cells apart, and a plain text version made from the
     // same email usually runs them together, which reads the same figures with less certainty.
     const points = score(read) + (c.source === 'html' ? 1 : 0);
     if (!best || points > best.points) best = { ...c, text, read, points };
+  };
+  candidates.forEach(consider);
+  // A confirmation sent as a screenshot has no text at all. Only when nothing readable was found, and only when the AI is
+  // bound, the pictures attached to the message are read as a person would read them, so a forwarded screenshot is not bounced.
+  if ((!best || !usable(best.read)) && env && env.AI && parts.images.length) {
+    for (const img of parts.images.slice(0, 3)) {
+      if (img.bytes.length > 3500000) continue;
+      try {
+        const text = await transcribe(env, img.mime, toBase64(img.bytes));
+        if (text && text.trim()) consider({ source: 'picture', text, filename: img.filename });
+      } catch { /* a picture that cannot be read is one candidate fewer */ }
+    }
   }
   return { best, headers: parts.headers };
 }
@@ -89,22 +122,27 @@ export async function handleInboundConfirmation(env, { to, raw, from = '', dispa
         .bind(alias).first().catch(() => null)
       : null);
   // The same answer whether the token is wrong or the account is closed.
-  if (!user) return { reject: 'That address does not take confirmations.' };
+  if (!user) {
+    const reason = 'That address does not take confirmations.';
+    await logBounce(env, null, { to, from, reason });
+    return { reject: reason };
+  }
 
   const waiting = await env.DB.prepare(
     "SELECT COUNT(*) AS n FROM inbox_confirmations WHERE user_id = ? AND status = 'waiting'"
   ).bind(user.id).first().catch(() => ({ n: 0 }));
   if ((waiting?.n || 0) >= MAX_WAITING) {
-    return { user, reject: `You already have ${MAX_WAITING} confirmations waiting. Clear some on the Import page and forward it again.` };
+    const reason = `You already have ${MAX_WAITING} confirmations waiting. Clear some on the Import page and forward it again.`;
+    await logBounce(env, user, { to, from, reason });
+    return { user, reject: reason };
   }
 
-  const { best, headers } = await bestReading(raw);
+  const { best, headers } = await bestReading(raw, env);
   if (!best || !usable(best.read)) {
-    return {
-      user,
-      reject: 'I could not find a booking confirmation in that message. Forward the confirmation email itself, '
-        + 'or attach its PDF. A picture of a page cannot be read.',
-    };
+    const reason = 'I could not find a booking confirmation in that message. Forward the confirmation email itself, '
+      + 'or attach its PDF or a screenshot of it. If it keeps failing, open the Import page and drop the file in there.';
+    await logBounce(env, user, { to, from, subject: headers && headers.get('subject'), reason });
+    return { user, reject: reason };
   }
 
   // The line from the ship when the document names only the ship, as the Import page does.

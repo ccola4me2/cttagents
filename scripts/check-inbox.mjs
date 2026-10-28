@@ -133,6 +133,20 @@ const qp = (s) => unescape(encodeURIComponent(s)).replace(/=/g, '=3D').replace(/
   is('a PDF attachment is found, by its type or its name', parts.pdfs.map((p) => p.filename), ['conf.pdf']);
 }
 
+// ------------------------------------------------- picture attachments ---
+{
+  // A screenshot of a confirmation, sent as a picture. It has to be found so it can be read, and a small logo in a signature must not be.
+  const big = btoa(String.fromCharCode(...Array.from({ length: 12000 }, (_x, i) => (i * 7) % 256)));
+  const logo = btoa(String.fromCharCode(...Array.from({ length: 900 }, (_x, i) => (i * 5) % 256)));
+  const raw = message([
+    'From: a@example.test', 'Subject: Fwd: Confirmation', 'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary="m"',
+  ], `--m\r\nContent-Type: text/plain\r\n\r\nSee the screenshot.\r\n--m\r\nContent-Type: image/png; name="shot.png"\r\nContent-Disposition: attachment; filename="shot.png"\r\nContent-Transfer-Encoding: base64\r\n\r\n${big}\r\n--m\r\nContent-Type: image/png; name="logo.png"\r\nContent-Transfer-Encoding: base64\r\n\r\n${logo}\r\n--m--\r\n`);
+  const parts = readableParts(raw);
+  is('a screenshot attached to the message is found, and a small logo is not', parts.images.map((p) => p.filename), ['shot.png']);
+  const { best } = await bestReading(raw);
+  is('and with no AI bound a message with only a picture reads as nothing, without failing', best ? Object.keys(best.read.fields || {}).length : 0, 0);
+}
+
 // ----------------------------------------------------- not a booking ---
 {
   const news = alt([part('text/plain', 'Our summer cruise sale is on. Book now and save on a cruise to the Caribbean.')]);

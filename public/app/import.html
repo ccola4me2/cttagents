@@ -380,13 +380,49 @@ async function textFromPdf(file) {
 let confFile = null;
 document.getElementById('conf-text').addEventListener('input', () => { confFile = null; });
 
+/**
+ * A PDF's text, by whichever way works. The browser's reader is tried first, since it keeps the file on the machine. It can fail
+ * to load (an office firewall or an ad blocker will stop it) or fail on a file, so the portal reads it next, and for a PDF that
+ * is only a picture of a page, each page is drawn and read by the AI. Whichever gives words first is used.
+ */
+async function textFromPdfAnyWay(file) {
+  try {
+    const text = await textFromPdf(file);
+    if (text.trim()) return text;
+  } catch { /* the browser could not read it, so the portal tries */ }
+  try {
+    const res = await fetch('/api/import/pdf-text', { method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/pdf' }, body: file });
+    const got = await res.json().catch(() => ({}));
+    if (res.ok && got.text && got.text.trim()) return got.text;
+  } catch { /* on to the pictures */ }
+  if (!window.pdfjsLib) return '';
+  try {
+    const doc = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+    const out = [];
+    for (let i = 1; i <= Math.min(doc.numPages, 4); i += 1) {
+      const page = await doc.getPage(i);
+      const viewport = page.getViewport({ scale: 1.8 });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(viewport.width);
+      canvas.height = Math.round(viewport.height);
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      const data = canvas.toDataURL('image/jpeg', 0.85).split(',')[1] || '';
+      if (!data) continue;
+      const got = await api('/api/import/image', { method: 'POST', body: { mime: 'image/jpeg', data } });
+      if (got.text) out.push(got.text);
+    }
+    return out.join('\n');
+  } catch { return ''; }
+}
+
 /** One file, as text. A PDF here, a saved email and a picture by the portal. */
 async function textFromFile(file) {
   const name = file.name || 'pasted picture';
   const type = file.type || '';
   if (type === 'application/pdf' || /\.pdf$/i.test(name)) {
-    const text = await textFromPdf(file);
-    if (!text.trim()) throw new Error(`No text in ${name}. It may be a scan: take a screenshot of it and drop that in.`);
+    const text = await textFromPdfAnyWay(file);
+    if (!text.trim()) throw new Error(`No text could be read in ${name}. Take a screenshot of it and drop that in, or paste its text.`);
     return { text, pdf: file };
   }
   if (type.startsWith('image/')) {
