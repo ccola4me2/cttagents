@@ -1403,6 +1403,71 @@ $('lines').addEventListener('click', (e) => {
 // ---- Reading the PDF ------------------------------------------------------
 
 const drop = $('drop');
+
+// ---- A PDF the portal could not read itself ----------------------------------------------------
+//
+// The portal reads a PDF's text on the server, and not every PDF can be read that way: some keep their text in a form only a
+// full PDF reader opens, and some are a picture of a page. So when the server cannot read one, the browser tries, first with
+// the same reader the Import page uses, and failing that by drawing the pages and having the portal's AI copy the rows off
+// them. Whatever comes back is then read exactly as pasted rows are.
+
+function addScript(src) {
+  return new Promise((done, fail) => {
+    const el = document.createElement('script');
+    el.src = src;
+    el.onload = done;
+    el.onerror = fail;
+    document.head.appendChild(el);
+  });
+}
+
+async function pdfJs() {
+  if (!window.pdfjsLib) await addScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  return window.pdfjsLib;
+}
+
+/** The text of the first ten pages, rebuilt into lines by where each word sits. */
+async function pdfTextInBrowser(file) {
+  const lib = await pdfJs();
+  const doc = await lib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const out = [];
+  for (let i = 1; i <= Math.min(doc.numPages, 10); i += 1) {
+    const content = await (await doc.getPage(i)).getTextContent();
+    const rows = new Map();
+    for (const item of content.items) {
+      if (!item.str || !item.str.trim()) continue;
+      const y = Math.round(item.transform[5]);
+      if (!rows.has(y)) rows.set(y, []);
+      rows.get(y).push({ x: item.transform[4], str: item.str });
+    }
+    for (const y of [...rows.keys()].sort((a, b) => b - a)) {
+      out.push(rows.get(y).sort((a, b) => a.x - b.x).map((w) => w.str).join('  ').replace(/[ \t]{3,}/g, '  ').trim());
+    }
+  }
+  return out.join('\n');
+}
+
+/** The first four pages drawn as pictures, each read by the portal's AI, for a PDF that is only a picture of a statement. */
+async function pdfTextFromPictures(file) {
+  const lib = await pdfJs();
+  const doc = await lib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const out = [];
+  for (let i = 1; i <= Math.min(doc.numPages, 4); i += 1) {
+    const page = await doc.getPage(i);
+    const viewport = page.getViewport({ scale: 1.8 });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(viewport.width);
+    canvas.height = Math.round(viewport.height);
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    const data = canvas.toDataURL('image/jpeg', 0.85).split(',')[1] || '';
+    if (!data) continue;
+    const got = await api('/api/import/image', { method: 'POST', body: { mime: 'image/jpeg', data } });
+    if (got.text) out.push(got.text);
+  }
+  return out.join('\n');
+}
+
 async function readRemittance(file, pasted) {
   $('chk-err').hidden = true;
   // A screenshot or photo of a statement is turned into the rows printed on it by the portal's AI, shown in the paste box so it
@@ -1430,7 +1495,22 @@ async function readRemittance(file, pasted) {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': asText ? 'text/plain' : 'application/pdf' }, body: pasted || file,
     });
-    const out = await res.json().catch(() => ({}));
+    let out = await res.json().catch(() => ({}));
+    const isPdf = !asText && file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name));
+    if (!res.ok && isPdf && !/locked|larger than/i.test(out.error || '')) {
+      // The portal could not read it. Try the browser's reader, and then the AI, before giving up on it.
+      const why = out.error;
+      $('chk-hint').textContent = `Reading ${label} another way...`;
+      let text = '';
+      try { text = await pdfTextInBrowser(file); } catch { text = ''; }
+      if (!/\d/.test(text)) { try { text = await pdfTextFromPictures(file); } catch { text = ''; } }
+      if (text.trim()) {
+        $('chk-paste').value = text;
+        document.querySelector('#drop ~ details').open = true;
+        return readRemittance(null, text);
+      }
+      throw new Error(why || 'That file could not be read.');
+    }
     if (!res.ok) throw new Error(out.error || 'That file could not be read.');
     const r = out.remittance;
     filename = pasted ? 'pasted statement' : file.name;
