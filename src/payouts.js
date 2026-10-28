@@ -16,7 +16,7 @@
 // declare themselves paid, which is the same class of hole as an advisor
 // setting their own split, and that one was real.
 
-import { json, badRequest, notFound, clean, cleanDate, oneOf, uid, now, readJson } from './util.js';
+import { json, badRequest, notFound, clean, cleanDate, toCents, oneOf, uid, now, readJson } from './util.js';
 import { requireUser, requireAdmin, isAdmin } from './auth.js';
 import * as db from './db.js';
 import {
@@ -246,10 +246,9 @@ export async function handleCreatePayout(request, env) {
 }
 
 /**
- * Correct a payout that has been recorded: the day it went out, how, and the reference.
- *
- * Not the amount or what it covers, which come from the reservations it paid and change only by taking the payout
- * back and recording it again. Whatever the request leaves out is left as it was.
+ * Correct a payout that has been recorded: the day it went out, how, the reference and note, and, when `lines` is sent
+ * ([{ id, amount }]), what each reservation was paid. A line left out, or sent as nothing, comes off, and the payout is the
+ * sum of what is left. Whatever the request leaves out is left as it was.
  */
 export async function handleUpdatePayout(request, env, id) {
   const { user: admin, response } = await requireAdmin(request, env);
@@ -273,6 +272,35 @@ export async function handleUpdatePayout(request, env, id) {
     `UPDATE advisor_payouts SET paid_on = ?, method = ?, reference = ?, notes = ?, updated_at = ?
       WHERE id = ? AND user_id = ?`
   ).bind(paidOn, method, reference, notes, now(), id, row.user_id).run();
+
+  if (Array.isArray(body.lines)) {
+    const { results: current } = await env.DB.prepare(
+      'SELECT id, amount_cents FROM advisor_payout_lines WHERE payout_id = ? AND user_id = ?'
+    ).bind(id, row.user_id).all();
+    const byId = new Map((current || []).map((l) => [l.id, l]));
+    const keep = new Map();
+    for (const raw of body.lines) {
+      const line = byId.get(String(raw && raw.id));
+      if (!line) return badRequest('One of those lines is not on this payout.');
+      const text = String((raw && raw.amount) ?? '').trim();
+      const cents = (text.startsWith('-') ? -1 : 1) * toCents(text.replace(/^-/, ''));
+      if (cents) keep.set(line.id, cents);
+    }
+    if (!keep.size) return badRequest('A payout needs at least one line. To take the whole payout back, use Undo.');
+    const writes = [];
+    for (const line of current || []) {
+      if (!keep.has(line.id)) {
+        writes.push(env.DB.prepare('DELETE FROM advisor_payout_lines WHERE id = ? AND payout_id = ? AND user_id = ?').bind(line.id, id, row.user_id));
+      } else if (keep.get(line.id) !== line.amount_cents) {
+        writes.push(env.DB.prepare('UPDATE advisor_payout_lines SET amount_cents = ? WHERE id = ? AND payout_id = ? AND user_id = ?')
+          .bind(keep.get(line.id), line.id, id, row.user_id));
+      }
+    }
+    const total = [...keep.values()].reduce((n, c) => n + c, 0);
+    writes.push(env.DB.prepare('UPDATE advisor_payouts SET amount_cents = ?, updated_at = ? WHERE id = ? AND user_id = ?')
+      .bind(total, now(), id, row.user_id));
+    await env.DB.batch(writes);
+  }
 
   await db.logActivity(env, admin.id, 'payout.edit', 'Corrected a recorded payout', { payoutId: id, userId: row.user_id });
   return json({ ok: true });

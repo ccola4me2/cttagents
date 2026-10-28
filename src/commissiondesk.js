@@ -554,8 +554,8 @@ async function updateCheckWithLines(env, admin, id, body, { vendorName, statemen
     const paid = await env.DB.prepare(
       `SELECT COUNT(*) AS n FROM advisor_payout_lines l WHERE ${scopeL.sql} AND l.booking_id IN (${holes})`
     ).bind(...scopeL.binds, ...removed.map((r) => r.booking_id)).first();
-    if (paid && paid.n > 0) {
-      return badRequest('A line you are taking off is for a reservation an advisor has already been paid on. Take that payout back first.');
+    if (paid && paid.n > 0 && !body.confirmPaid) {
+      return json({ error: 'A line you are taking off is for a reservation an advisor has already been paid on, and taking it off does not change that payout.', code: 'paid' }, 409);
     }
   }
 
@@ -651,8 +651,8 @@ export async function handleDeleteCheck(request, env, id) {
       `SELECT COUNT(*) AS n FROM advisor_payout_lines l
         WHERE ${scopeL.sql} AND l.booking_id IN (${holes})`
     ).bind(...scopeL.binds, ...touched.map((t) => t.booking_id)).first();
-    if (paid && paid.n > 0) {
-      return badRequest('Some of this has already been paid out to an advisor. Take that payout back first, then remove the check.');
+    if (paid && paid.n > 0 && new URL(request.url).searchParams.get('confirmPaid') !== '1') {
+      return json({ error: 'Some of this has already been paid out to an advisor, and deleting the check does not change that payout.', code: 'paid' }, 409);
     }
   }
 
@@ -789,7 +789,7 @@ async function payoutsOn(env, ownerId, bookingId) {
  * PUT /api/commissions/receipts/:id { amount, receivedOn, reference, notes, payoutOn }
  *
  * Correct a line that was recorded one reservation at a time. A line that came on a check is corrected with the check, so the
- * check and its lines keep agreeing. The amount may go up whenever; it may not go below what an advisor was already paid on.
+ * check and its lines keep agreeing. Lowering it once an advisor was paid on the reservation asks first (confirmPaid).
  */
 export async function handleUpdateReceipt(request, env, id) {
   const { user: admin, response } = await requireAdmin(request, env);
@@ -806,8 +806,9 @@ export async function handleUpdateReceipt(request, env, id) {
   const body = await readJson(request);
   const amountCents = signedCents(body.amount);
   if (!amountCents) return badRequest('Enter the amount.');
-  if (amountCents < row.amount_cents && await payoutsOn(env, owner.id, row.booking_id)) {
-    return badRequest('An advisor has already been paid on this reservation, so the amount cannot go down. Take that payout back first.');
+  // Allowed once the owner has said so: the payout already made is not changed, so correct it too if the advisor was paid on the old figure.
+  if (amountCents < row.amount_cents && !body.confirmPaid && await payoutsOn(env, owner.id, row.booking_id)) {
+    return json({ error: 'An advisor has already been paid on this reservation, and lowering the amount does not change that payout.', code: 'paid' }, 409);
   }
 
   await env.DB.prepare(
@@ -825,7 +826,7 @@ export async function handleUpdateReceipt(request, env, id) {
   return json({ ok: true });
 }
 
-/** POST /api/commissions/receipts/:id/remove: take a line recorded one reservation at a time off, unless an advisor was paid on it. */
+/** POST /api/commissions/receipts/:id/remove { confirmPaid }: take a line recorded one reservation at a time off. Asks first when an advisor was paid on it. */
 export async function handleRemoveReceipt(request, env, id) {
   const { user: admin, response } = await requireAdmin(request, env);
   if (response) return response;
@@ -837,8 +838,8 @@ export async function handleRemoveReceipt(request, env, id) {
   ).bind(id, owner.id).first();
   if (!row) return notFound('That line was not found.');
   if (row.check_id) return badRequest('That line came on a check. Press Edit the check to take it off.');
-  if (await payoutsOn(env, owner.id, row.booking_id)) {
-    return badRequest('An advisor has already been paid on this reservation. Take that payout back first, then remove the line.');
+  if (!(await readJson(request)).confirmPaid && await payoutsOn(env, owner.id, row.booking_id)) {
+    return json({ error: 'An advisor has already been paid on this reservation, and removing the line does not change that payout.', code: 'paid' }, 409);
   }
 
   await env.DB.prepare('DELETE FROM commission_receipts WHERE id = ? AND user_id = ? AND check_id IS NULL').bind(id, owner.id).run();
@@ -960,6 +961,20 @@ export async function handleCommissionDesk(request, env) {
   ]);
 
   // What each advisor is owed, by pay date.
+  // What each payout paid on each reservation, so a payout can be corrected line by line. In chunks: a query takes a limited
+  // number of bound values.
+  const payoutLines = {};
+  const payoutIds = (payoutRows.results || []).map((p) => p.id);
+  for (let at = 0; at < payoutIds.length; at += 60) {
+    const chunk = payoutIds.slice(at, at + 60);
+    const { results: found } = await env.DB.prepare(
+      `SELECT l.id, l.payout_id, l.booking_id, l.amount_cents, b.client_name
+         FROM advisor_payout_lines l JOIN bookings b ON b.id = l.booking_id AND b.user_id = l.user_id
+        WHERE ${scopeL.sql} AND l.payout_id IN (${chunk.map(() => '?').join(', ')})`
+    ).bind(...scopeL.binds, ...chunk).all();
+    for (const l of found || []) (payoutLines[l.payout_id] = payoutLines[l.payout_id] || []).push(l);
+  }
+
   const paidBy = new Map((paidLines.results || []).map((r) => [r.booking_id, r.cents]));
   const byBooking = new Map();
   for (const r of receiptRows.results || []) {
@@ -1069,7 +1084,7 @@ export async function handleCommissionDesk(request, env) {
     .filter(Boolean).sort().reverse();
 
   return json({
-    year, years: yearList, today, nextPayDate: next, payDatesList: payDatesFrom(today, 10),
+    year, years: yearList, today, nextPayDate: next, payDatesList: payDatesFrom(today, 10), payoutLines,
     tiles: {
       receivedCents: received,
       receivedLines: receivedRow?.lines || 0,

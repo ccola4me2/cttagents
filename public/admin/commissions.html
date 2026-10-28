@@ -184,6 +184,7 @@
     <div class="card-pad">
       <div class="notice notice-error" id="pay-err" hidden></div>
       <p id="pay-what" style="margin-top:0;"></p>
+      <div id="pay-lines" hidden></div>
       <div class="field-row">
         <div class="field"><label for="paidOn">Paid on</label><input id="paidOn" type="date"></div>
         <div class="field"><label for="method">How</label>
@@ -1222,7 +1223,11 @@ panel.addEventListener('change', async (e) => {
 async function removeCheck(id) {
   if (!confirm('Delete this check and its lines? Money assigned to a pay date comes off the schedule.')) return;
   try {
-    await api(`/api/commission-checks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    try { await api(`/api/commission-checks/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
+    catch (ex) {
+      if (ex.code !== 'paid' || !confirm(`${ex.message}\n\nDelete it anyway? Correct that payout too if the advisor was paid on it.`)) throw ex;
+      await api(`/api/commission-checks/${encodeURIComponent(id)}?confirmPaid=1`, { method: 'DELETE' });
+    }
     openCheck = null;
     errEl.innerHTML = '<div class="notice notice-ok">The check was removed.</div>';
     await load();
@@ -1252,7 +1257,12 @@ function openEditPayout(p) {
   paying = null;
   $('pay-err').hidden = true;
   $('pay-title').textContent = 'Edit this payout';
-  $('pay-what').innerHTML = `${esc(p.advisor_name)}, ${money(p.amount_cents)}. The amount and the reservations it covers stay as they are: to change those, take the payout back and record it again.`;
+  $('pay-what').innerHTML = `${esc(p.advisor_name)}, ${money(p.amount_cents)}. Change what each reservation was paid, or clear an amount to take that reservation off this payout.`;
+  const pl = (d.payoutLines || {})[p.id] || [];
+  $('pay-lines').hidden = !pl.length;
+  $('pay-lines').innerHTML = pl.map((l) => `<div class="field-row" style="align-items:center;margin-bottom:.4rem;">
+      <div>${esc(l.client_name)}</div>
+      <div><input data-payline="${esc(l.id)}" inputmode="decimal" value="${esc(plain(l.amount_cents))}" aria-label="Paid on ${esc(l.client_name)}" autocomplete="off"></div></div>`).join('');
   $('pay-save').textContent = 'Save the changes';
   $('paidOn').value = p.paid_on || d.today;
   $('method').innerHTML = methods.map((m) => `<option value="${esc(m.key)}"${m.key === p.method ? ' selected' : ''}>${esc(m.label)}</option>`).join('');
@@ -1265,6 +1275,8 @@ function openEditPayout(p) {
 function openPayOne(r) {
   paying = { one: r.id, pay: r.user_id };
   editingPayout = null;
+  $('pay-lines').hidden = true;
+  $('pay-lines').innerHTML = '';
   $('pay-title').textContent = 'Mark this reservation paid';
   $('pay-save').textContent = 'Mark as paid';
   $('pay-err').hidden = true;
@@ -1279,6 +1291,8 @@ function openPayOne(r) {
 function openPay(ds) {
   paying = ds;
   editingPayout = null;
+  $('pay-lines').hidden = true;
+  $('pay-lines').innerHTML = '';
   $('pay-title').textContent = 'Mark as paid';
   $('pay-save').textContent = 'Mark as paid';
   $('pay-err').hidden = true;
@@ -1294,8 +1308,10 @@ $('pay-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (editingPayout) {
     try {
+      const inputs = [...document.querySelectorAll('#pay-lines [data-payline]')];
       await api(`/api/payouts/${encodeURIComponent(editingPayout.id)}`, { method: 'PUT', body: {
         paidOn: $('paidOn').value, method: $('method').value, reference: $('payRef').value,
+        ...(inputs.length ? { lines: inputs.map((i) => ({ id: i.dataset.payline, amount: i.value })) } : {}),
       } });
       payDlg.close();
       errEl.innerHTML = '<div class="notice notice-ok">The payout was updated.</div>';
@@ -1529,14 +1545,25 @@ function openEditLoose(id) {
   rcpDlg.showModal();
 }
 $('rcp-close').addEventListener('click', () => rcpDlg.close());
+/** Send a correction; if an advisor was already paid on the reservation, say so and send it again once the owner agrees. */
+async function sendLoose(url, method, body, askAgain) {
+  try {
+    await api(url, { method, body });
+  } catch (ex) {
+    if (ex.code === 'paid' && confirm(`${ex.message}\n\nChange it anyway? Correct that payout too if the advisor was paid on the old figure.`)) {
+      await api(url, { method, body: { ...body, confirmPaid: true } });
+    } else { throw ex; }
+  }
+  return askAgain;
+}
 $('rcp-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!editingLoose) return;
   try {
-    await api(`/api/commissions/receipts/${encodeURIComponent(editingLoose.id)}`, { method: 'PUT', body: {
+    await sendLoose(`/api/commissions/receipts/${encodeURIComponent(editingLoose.id)}`, 'PUT', {
       amount: $('rcpAmount').value, receivedOn: $('rcpOn').value, reference: $('rcpRef').value, notes: $('rcpNotes').value,
       payoutOn: $('rcpPay').value,
-    } });
+    });
     rcpDlg.close();
     errEl.innerHTML = '<div class="notice notice-ok">The line was corrected.</div>';
     await load();
@@ -1545,7 +1572,7 @@ $('rcp-form').addEventListener('submit', async (e) => {
 $('rcp-remove').addEventListener('click', async () => {
   if (!editingLoose || !confirm('Remove this commission line? The amount stops counting as received.')) return;
   try {
-    await api(`/api/commissions/receipts/${encodeURIComponent(editingLoose.id)}/remove`, { method: 'POST', body: {} });
+    await sendLoose(`/api/commissions/receipts/${encodeURIComponent(editingLoose.id)}/remove`, 'POST', {});
     rcpDlg.close();
     errEl.innerHTML = '<div class="notice notice-ok">The line was removed.</div>';
     await load();
@@ -1825,11 +1852,18 @@ $('chk-form').addEventListener('submit', async (e) => {
   }
   try {
     if (editingCheck) {
-      const out = await api(`/api/commission-checks/${encodeURIComponent(editingCheck.id)}`, { method: 'PUT', body: {
+      const checkBody = {
         vendorName: $('vendorName').value, reference: $('reference').value, receivedOn: $('receivedOn').value,
         statement: $('statement').value, fee: $('fee').value, feeNote: $('feeNote').value,
         notes: $('notes').value, lines: payload,
-      } });
+      };
+      const checkUrl = `/api/commission-checks/${encodeURIComponent(editingCheck.id)}`;
+      let out;
+      try { out = await api(checkUrl, { method: 'PUT', body: checkBody }); }
+      catch (ex) {
+        if (ex.code !== 'paid' || !confirm(`${ex.message}\n\nSave it anyway? Correct that payout too if the advisor was paid on the old figure.`)) throw ex;
+        out = await api(checkUrl, { method: 'PUT', body: { ...checkBody, confirmPaid: true } });
+      }
       dlg.close();
       errEl.innerHTML = `<div class="notice notice-ok">The check was updated.${
         Math.abs(out.unmatchedCents) > 1 ? ` ${money(out.unmatchedCents)} is not matched to a reservation yet.` : ''}</div>`;

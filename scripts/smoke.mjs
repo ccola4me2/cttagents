@@ -12661,6 +12661,24 @@ async function main() {
     && afterEdit?.method === 'ach' && afterEdit?.paid_on === isoDay(-2) && afterEdit?.amount_cents === paidOut.data?.amountCents,
   'an owner can correct a recorded payout, an advisor cannot, and the amount stays', JSON.stringify([editForged.status, edited.status, afterEdit?.reference, afterEdit?.amount_cents]));
 
+  // And what it paid on each reservation can be corrected too: the total follows, and putting it back restores it.
+  const deskPay = await call(admin, 'GET', '/api/commission-desk');
+  const payLines = (deskPay.data?.payoutLines || {})[payoutId] || [];
+  if (payLines.length) {
+    const was = payLines.map((l) => ({ id: l.id, amount: (l.amount_cents / 100).toFixed(2) }));
+    const bumped = was.map((l, i) => (i === 0 ? { id: l.id, amount: ((Number(l.amount) * 100 + 100) / 100).toFixed(2) } : l));
+    const up = await call(admin, 'PUT', `/api/payouts/${payoutId}`, { lines: bumped });
+    const mid = ((await call(admin, 'GET', '/api/payouts')).data?.payouts || []).find((p) => p.id === payoutId);
+    const back = await call(admin, 'PUT', `/api/payouts/${payoutId}`, { lines: was });
+    const end = ((await call(admin, 'GET', '/api/payouts')).data?.payouts || []).find((p) => p.id === payoutId);
+    check(up.status === 200 && mid?.amount_cents === paidOut.data?.amountCents + 100 && back.status === 200
+      && end?.amount_cents === paidOut.data?.amountCents,
+    'what a payout paid on each reservation can be corrected, and the total follows',
+    JSON.stringify([up.status, mid?.amount_cents, end?.amount_cents, paidOut.data?.amountCents]));
+    const empty = await call(admin, 'PUT', `/api/payouts/${payoutId}`, { lines: [] });
+    check(empty.status === 400, 'but a payout cannot be left with no lines', `status ${empty.status}`);
+  }
+
   // The point of the whole thing: the row does not come back on the next run.
   const comm = await call(advisor, 'GET', '/api/commissions');
   const row = (comm.data?.rows || []).find((r) => r.id === earnerId);
