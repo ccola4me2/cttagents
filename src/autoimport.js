@@ -87,6 +87,10 @@ export function verdict(read, today) {
   // A heading read as a name would be filed as a real client and a real reservation.
   if (looksLikeHeading(f.clientName)) return { ok: false, why: 'The name I found, ' + f.clientName + ', looks like a heading and not a guest.' };
   if (cents(f.gross) <= 0) return { ok: false, why: 'I could not read a trip total.' };
+  // Worked out and not printed: fine to show for checking, never enough to make a reservation on its own.
+  if (Array.isArray(read.derived) && read.derived.includes('returnDate')) {
+    return { ok: false, why: 'The return date was worked out from the length of the cruise, not printed, so please check it.' };
+  }
   if (String(f.departDate) < today) return { ok: false, why: 'The sailing date has already passed.' };
   if (String(f.returnDate) < String(f.departDate)) return { ok: false, why: 'The return date is before the departure.' };
   if (f.status === 'quoted') return { ok: false, why: 'This one is an offer, not a booking yet.' };

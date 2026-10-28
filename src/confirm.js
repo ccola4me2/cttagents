@@ -164,6 +164,15 @@ const ALL_LABELS = [...new Set([...Object.values(LABELS).flat(), ...COLUMN_LABEL
   .sort((a, b) => b.length - a.length);
 
 /**
+ * A few labels that are printed with no colon after them, "Booking Status Booked" and "Stateroom Obstructed View Percentage 0%". The
+ * line is cut before them, so the value in front of them does not run on and take them in: the ship was read as
+ * "OASIS OF THE SEAS Booking Status Booked".
+ */
+function splitNoColon(line) {
+  return String(line).split(/\s+(?=booking status\b|stateroom obstructed view percentage\b)/i).filter((p) => p.trim());
+}
+
+/**
  * Break a line where the next column's label begins.
  *
  * Worked colon by colon, taking the longest label that ends at each one. The
@@ -1028,6 +1037,7 @@ export function readItineraryTable(lines) {
 
 export function parseConfirmation(text) {
   const lines = stackLabels(String(text || '').split(/\r?\n/).slice(0, 400))
+    .flatMap(splitNoColon)
     .flatMap(splitColumns)
     .slice(0, 900);
   const fields = {};
@@ -1042,7 +1052,11 @@ export function parseConfirmation(text) {
     from[key] = hit.line.slice(0, 160);
   };
 
-  take('confirmationNumber', LABELS.confirmationNumber, (v) => clean(v.split(/\s{2,}/)[0], 80));
+  // A number followed by a note in brackets, "2237244 (Group ID Not Applicable)", is the number.
+  take('confirmationNumber', LABELS.confirmationNumber, (v) => {
+    const first = clean(v.split(/\s{2,}/)[0], 80);
+    return first.replace(/\s*\(.*$/, '').trim() || first;
+  });
   take('supplier', LABELS.supplier);
   take('productName', LABELS.productName);
   take('departDate', LABELS.departDate, anyDate);
@@ -1159,6 +1173,18 @@ export function parseConfirmation(text) {
     delete from.returnDate;
   }
 
+  // A return date the document never prints, worked out from a stated length: "4 NIGHT BAHAMAS" from 25 January comes back on the
+  // 29th. Said to be worked out, so it is looked at and not trusted, and an automatic reservation is never made from it.
+  const derived = [];
+  if (fields.departDate && !fields.returnDate) {
+    const stay = /(?:^|\b)(\d{1,2})[\s-]*nights?\b/i.exec(fields.destination || '');
+    if (stay && Number(stay[1]) > 0 && Number(stay[1]) < 60) {
+      fields.returnDate = addDays(fields.departDate, Number(stay[1]));
+      from.returnDate = `worked out from the ${stay[1]} night itinerary`;
+      derived.push('returnDate');
+    }
+  }
+
   const pricing = (carnival ? readCarnivalPricing(String(text || '').split(/\r?\n/), fields) : null)
     || (royal ? readRoyalPricing(lines, fields, people) : null)
     || (/booking components per guest/i.test(text) ? readNclPricing(lines, fields, people) : null)
@@ -1186,6 +1212,8 @@ export function parseConfirmation(text) {
     penalties: readCancellationSchedule(text),
     // The day by day table of ports, where the confirmation prints one.
     itinerary: readItineraryTable(String(text || '').split(/\r?\n/)),
+    // Fields the document did not print and that were worked out from something it did.
+    derived,
     // Named so the page can say what it did not find rather than leaving the
     // advisor to notice the blanks.
     missing: Object.keys(LABELS).filter((k) => fields[k] === undefined),

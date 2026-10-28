@@ -14,6 +14,7 @@
 
 import { readableParts, htmlToText } from '../src/mime.js';
 import { bestReading } from '../src/inbox.js';
+import { parseConfirmation } from '../src/confirm.js';
 
 let failures = 0;
 let checks = 0;
@@ -131,6 +132,29 @@ const qp = (s) => unescape(encodeURIComponent(s)).replace(/=/g, '=3D').replace(/
   ], `--m\r\nContent-Type: text/plain\r\n\r\nAttached.\r\n--m\r\nContent-Type: application/pdf; name="conf.pdf"\r\nContent-Disposition: attachment; filename="conf.pdf"\r\nContent-Transfer-Encoding: base64\r\n\r\n${btoa('%PDF-1.4 not a real file')}\r\n--m--\r\n`);
   const parts = readableParts(raw);
   is('a PDF attachment is found, by its type or its name', parts.pdfs.map((p) => p.filename), ['conf.pdf']);
+}
+
+// ----------------------------------------- a header laid out across a line ---
+{
+  // An agent confirmation whose first page runs several labelled facts along one line, two without a colon, and a note in brackets
+  // after the number. Invented, and shaped like the real one.
+  const header = [
+    'TEST TRAVEL LLC Reservation ID: 7654321 (Group ID Not Applicable) Booking Date: 23 OCT 2026',
+    'Attn: PAT AGENT Ship: OASIS OF THE SEAS Booking Status Booked',
+    '5551234567 Departure Date: 25 JAN 2027',
+    '1 SAMPLE STREET Itinerary: 4 NIGHT BAHAMAS & PERFECT DAY CRUISE',
+    'CITY,FL-33000 Stateroom: 1J-11191 Central Park View Balcony',
+    'UNITED STATES Stateroom Obstructed View Percentage 0%',
+    'Sailing Date: 25 JAN 2027', 'Promo Restrictions :',
+  ];
+  const r = parseConfirmation(header.join('\n'));
+  is('a ship is not run together with the label after it', r.fields.productName, 'OASIS OF THE SEAS');
+  is('a number is not run together with the note in brackets', r.fields.confirmationNumber, '7654321');
+  is('a return date worked out from "4 NIGHT" is flagged as worked out', [r.fields.returnDate, r.derived], ['2027-01-29', ['returnDate']]);
+  const h2 = parseConfirmation(['General Information', ...header].join('\n'));
+  is('a heading above it is not taken as the guest', h2.fields.clientName, undefined);
+  const printed = parseConfirmation([...header, 'Return Date: 29 JAN 2027'].join('\n'));
+  is('a return date that is printed is used and not flagged', [printed.fields.returnDate, printed.derived], ['2027-01-29', []]);
 }
 
 // ------------------------------------------------- picture attachments ---

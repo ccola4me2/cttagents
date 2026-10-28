@@ -83,6 +83,13 @@ for (const [key, word] of [['clientName', 'the client'], ['confirmationNumber', 
   is('but the second is not guessed, so it is held', verdict(blank, TODAY).ok, false);
 }
 
+{
+  const r = clean();
+  r.derived = ['returnDate'];
+  const v = verdict(r, TODAY);
+  is('a return date that was worked out and not printed holds the reservation for a look', [v.ok, /worked out/.test(v.why)], [false, true]);
+}
+
 // A heading is the same shape as a name. Read as the client, it would be filed as one and a reservation made for it.
 for (const heading of ['General Information', 'Booking Details', 'Royal Caribbean', 'Guest Information', 'Reservation Summary']) {
   is(`${heading} is a heading, not a guest`, looksLikeHeading(heading), true);
