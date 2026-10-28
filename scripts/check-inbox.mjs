@@ -149,6 +149,7 @@ const qp = (s) => unescape(encodeURIComponent(s)).replace(/=/g, '=3D').replace(/
   ];
   const r = parseConfirmation(header.join('\n'));
   is('a ship is not run together with the label after it', r.fields.productName, 'OASIS OF THE SEAS');
+  is('and nothing on the page is taken for the guest, since no guest is named', r.fields.clientName, undefined);
   is('a number is not run together with the note in brackets', r.fields.confirmationNumber, '7654321');
   is('a return date worked out from "4 NIGHT" is flagged as worked out', [r.fields.returnDate, r.derived], ['2027-01-29', ['returnDate']]);
   const h2 = parseConfirmation(['General Information', ...header].join('\n'));

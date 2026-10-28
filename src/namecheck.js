@@ -17,6 +17,8 @@ const HEADING_WORDS = new Set([
   'included', 'includes', 'name', 'names', 'number', 'royal', 'caribbean', 'celebrity', 'norwegian', 'carnival', 'princess',
   'disney', 'holland', 'america', 'viking', 'msc', 'margaritaville', 'costa', 'azamara', 'oceania', 'regent', 'seabourn',
   'silversea', 'cunard', 'line', 'lines', 'seas', 'sea', 'welcome', 'thank', 'thanks', 'your', 'our', 'the', 'and', 'of',
+  'booked', 'confirmed', 'cancelled', 'canceled', 'pending', 'paid', 'quoted', 'option', 'hold', 'applicable', 'not', 'percentage',
+  'obstructed', 'view', 'balcony', 'oceanview', 'interior', 'suite', 'category',
 ]);
 
 // A word that only ever ends a company's name. One of these anywhere in a candidate makes it a company, whatever the other words are:
