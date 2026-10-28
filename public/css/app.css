@@ -1111,6 +1111,7 @@ table.grid input:focus { border-color: var(--navy-400); background: #fff; }
 .cal-bar .cal-views.wtabs { margin-right: .5rem; }
 
 /* A place to drop files, which is also a button. */
+.docs-over { outline: 2px dashed var(--coral-500); outline-offset: -4px; background: var(--navy-50); }
 .dropzone { display: flex; flex-direction: column; gap: .25rem; align-items: center; text-align: center; padding: 1.4rem 1rem;
   border: 2px dashed var(--navy-200, #c3d2e3); border-radius: 12px; background: var(--navy-50); cursor: pointer; }
 .dropzone:hover, .dropzone.over, .dropzone:focus-visible { border-color: var(--coral-500); background: #fff; outline: none; }

@@ -835,11 +835,12 @@ function drawDocuments() {
 
   document.getElementById('doc-actions').innerHTML = d.editable
     ? `<label class="btn btn-ghost btn-sm" style="cursor:pointer;margin:0;">
-         Attach a file<input type="file" id="doc-file" hidden></label>
+         Attach files<input type="file" id="doc-file" multiple hidden></label>
        <select id="doc-category" class="btn-sm" style="width:auto;display:inline-block;margin-left:.4rem;">
          ${(d.documentCategories || []).map((c) =>
            `<option value="${esc(c)}">${esc(c === 'other' ? 'Unfiled' : c[0].toUpperCase() + c.slice(1))}</option>`).join('')}
-       </select>` : '';
+       </select>
+       <span class="muted" id="doc-status" style="margin-left:.5rem;font-size:.85rem;" aria-live="polite"></span>` : '';
 
   box.innerHTML = rows.length
     ? `<div class="table-wrap"><table>
@@ -868,7 +869,7 @@ function drawDocuments() {
                <button class="btn btn-ghost btn-sm" data-doc="${esc(f.id)}">Remove</button>` : ''}</td>
         </tr>`).join('')}</tbody></table></div>`
     : `<div class="empty"><h3>Nothing attached</h3>
-        <p>The vendor confirmation, the insurance policy, the air tickets. Ten megabytes each.</p></div>`;
+        <p>The vendor confirmation, the insurance policy, the air tickets. Ten megabytes each. Choose several at once, or drop them here.</p></div>`;
 
   // Off by default and ticked one at a time, because the agent confirmation
   // the importer reads has the commission printed on it. A page that helpfully
@@ -884,23 +885,44 @@ function drawDocuments() {
     });
   });
 
+  /**
+   * Any number of files, one after another, each as its own request: a file is the one thing in this portal that is not a
+   * JSON body, and sending them singly keeps a bad one from costing the rest. Each is filed under the kind chosen beside
+   * the button, and a note says which, if any, did not go.
+   */
+  async function attachMany(files) {
+    const list = [...files].slice(0, 20);
+    if (!list.length) return;
+    const category = document.getElementById('doc-category').value;
+    const status = document.getElementById('doc-status');
+    const input = document.getElementById('doc-file');
+    if (input) input.disabled = true;
+    const failed = [];
+    for (let i = 0; i < list.length; i += 1) {
+      const file = list[i];
+      status.textContent = `Attaching ${file.name} (${i + 1} of ${list.length})...`;
+      if (file.size > 10 * 1024 * 1024) { failed.push(`${file.name} is over 10MB`); continue; }
+      const body = new FormData();
+      body.append('file', file);
+      body.append('category', category);
+      try {
+        const res = await fetch(`/api/bookings/${encodeURIComponent(id)}/documents`, { method: 'POST', body });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Upload failed (${res.status})`);
+      } catch (e) { failed.push(`${file.name}: ${e.message}`); }
+    }
+    status.textContent = '';
+    await load();
+    if (failed.length) showError(err, new Error(`${list.length - failed.length} of ${list.length} attached. Not attached: ${failed.join('; ')}.`));
+  }
   const input = document.getElementById('doc-file');
-  if (input) input.addEventListener('change', async () => {
-    const file = input.files && input.files[0];
-    if (!file) return;
-    const body = new FormData();
-    body.append('file', file);
-    body.append('category', document.getElementById('doc-category').value);
-    input.disabled = true;
-    try {
-      // Sent as a form rather than through api(), which sends JSON: a file is
-      // the one thing in this portal that is not a JSON body.
-      const res = await fetch(`/api/bookings/${encodeURIComponent(id)}/documents`,
-        { method: 'POST', body });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Upload failed (${res.status})`);
-      await load();
-    } catch (e) { showError(err, e); input.disabled = false; }
-  });
+  if (input) input.addEventListener('change', () => { const picked = [...input.files]; input.value = ''; attachMany(picked); });
+  // Once only: this card is drawn again after every change, and a drop wired each time would attach every file once per draw.
+  if (d.editable && !box.dataset.dropWired) {
+    box.dataset.dropWired = '1';
+    ['dragenter', 'dragover'].forEach((n) => box.addEventListener(n, (e) => { e.preventDefault(); box.classList.add('docs-over'); }));
+    ['dragleave', 'drop'].forEach((n) => box.addEventListener(n, (e) => { e.preventDefault(); box.classList.remove('docs-over'); }));
+    box.addEventListener('drop', (e) => attachMany(e.dataTransfer.files));
+  }
 
   // Named properly where it sits, so a wrong name is not a delete and attach again.
   document.querySelectorAll('[data-doc-rename]').forEach((btn) => {
