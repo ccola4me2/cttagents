@@ -20,6 +20,7 @@ import { requireUser } from './auth.js';
 import { personName, splitVendor, anyDate } from './importer.js';
 import { normKey } from './catalog.js';
 import { verdict } from './autoimport.js';
+import { looksLikeHeading } from './namecheck.js';
 
 // Longest first: "grand total" must win before "total" sees the same line.
 const LABELS = {
@@ -1066,7 +1067,8 @@ export function parseConfirmation(text) {
   if (!fields.clientName) {
     for (const line of lines.slice(0, 6)) {
       const m = /^([A-Z][A-Za-z'-]+(?: [A-Z][A-Za-z'-]+){1,2})$/.exec(line.trim());
-      if (m) {
+      // A heading is the same shape as a name: "General Information" is not a guest.
+      if (m && !looksLikeHeading(m[1])) {
         fields.clientName = fixCaps(m[1]);
         from.clientName = line;
         break;

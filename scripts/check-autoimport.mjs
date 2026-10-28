@@ -10,6 +10,7 @@
  */
 
 import { verdict, senderVouched, priceColumns } from '../src/autoimport.js';
+import { looksLikeHeading } from '../src/namecheck.js';
 
 let failures = 0;
 let checks = 0;
@@ -80,6 +81,20 @@ for (const [key, word] of [['clientName', 'the client'], ['confirmationNumber', 
     guests: [{ name: '', fare: '2435.70' }, { name: '', fare: '2435.70' }], notes: [] };
   is('the first guest with no name is the client', priceColumns(blank)[0].name, 'Pat Sample');
   is('but the second is not guessed, so it is held', verdict(blank, TODAY).ok, false);
+}
+
+// A heading is the same shape as a name. Read as the client, it would be filed as one and a reservation made for it.
+for (const heading of ['General Information', 'Booking Details', 'Royal Caribbean', 'Guest Information', 'Reservation Summary']) {
+  is(`${heading} is a heading, not a guest`, looksLikeHeading(heading), true);
+}
+for (const person of ['Samantha Pollack', 'Pat Sample', 'Cruise Pollack', 'Angela Simic', "Mary O'Brien"]) {
+  is(`${person} is a person`, looksLikeHeading(person), false);
+}
+{
+  const r = clean();
+  r.fields.clientName = 'General Information';
+  const v = verdict(r, TODAY);
+  is('a reading whose client is a heading is held', [v.ok, /heading/.test(v.why)], [false, true]);
 }
 
 const headers = (o) => new Headers(o);

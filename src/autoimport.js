@@ -24,6 +24,7 @@
 import { randomToken, sha256Hex } from './util.js';
 import { SESSION_COOKIE } from './auth.js';
 import * as db from './db.js';
+import { looksLikeHeading } from './namecheck.js';
 
 const DAILY_LIMIT = 20;
 const cents = (v) => Math.round(Number(String(v == null ? '' : v).replace(/[^0-9.-]/g, '')) * 100) || 0;
@@ -83,6 +84,8 @@ export function verdict(read, today) {
     ['productName', 'the ship'], ['departDate', 'the departure date'], ['returnDate', 'the return date'], ['gross', 'the trip total']];
   const missing = needs.filter(([k]) => !f[k]).map(([, l]) => l);
   if (missing.length) return { ok: false, why: `I could not read ${missing.join(', ')}.` };
+  // A heading read as a name would be filed as a real client and a real reservation.
+  if (looksLikeHeading(f.clientName)) return { ok: false, why: 'The name I found, ' + f.clientName + ', looks like a heading and not a guest.' };
   if (cents(f.gross) <= 0) return { ok: false, why: 'I could not read a trip total.' };
   if (String(f.departDate) < today) return { ok: false, why: 'The sailing date has already passed.' };
   if (String(f.returnDate) < String(f.departDate)) return { ok: false, why: 'The return date is before the departure.' };
