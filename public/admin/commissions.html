@@ -969,6 +969,7 @@ function reportData() {
       { name: 'Still owed to advisors at year end', amount: owing },
       { name: 'CTT share of commission received', amount: received - share },
       { name: 'CTT net after fees', amount: received - share - fees },
+      { name: `Marked Won’t be paid (${d.tiles.writtenOffCount || 0}), all years: a memo, not counted above and not an expense`, amount: d.tiles.writtenOffCents || 0 },
     ], total: false };
 }
 
