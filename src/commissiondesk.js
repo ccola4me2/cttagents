@@ -961,7 +961,7 @@ export async function handleCommissionDesk(request, env) {
     .map((r) => ({
       id: r.id, booking_id: r.booking_id, received_on: r.received_on, client_name: r.client_name,
       supplier: r.supplier, advisor_name: r.advisor_name, amount_cents: r.amount_cents,
-      payout_on: r.payout_on,
+      payout_on: r.payout_on, split_pct: splitPct(r, r.default_split_pct, r.lead_split_pct),
     }));
 
   const scheduledCents = payDates.reduce((n, d) => n + d.totalCents, 0);

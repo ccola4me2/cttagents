@@ -742,14 +742,28 @@ panel.addEventListener('click', (e) => {
 // ---------------------------------------------------------------------------
 
 const rep = { kind: 'advisor', from: '', to: '' };
+// The same ten reports, in the same order, as the agency's other commission page.
 const REPORTS = [
   ['advisor', 'By advisor'], ['vendor', 'By vendor'], ['sailed', 'By month sailed'], ['received', 'By month received'],
   ['variance', 'Short and over'], ['checks', 'Every check'], ['scorecard', 'Vendor pay speed'], ['yearend', 'Paid to advisors (1099)'],
+  ['fees', 'Fees & expenses'], ['summary', 'Year-end summary'],
 ];
 
-/** One report as a table of plain values: columns say what each is, so the screen and the download agree. */
+/**
+ * One report as a table of plain values: columns say what each is, so the screen and the download agree.
+ *
+ * Besides cols and rows it says what goes under the table: `total` is true for the ordinary total row (the sum of every money and
+ * count column, headed Total), false for none, or an array of cells for a report whose total is not a plain sum; and `note` is the
+ * line above it. A column of type 'n' is a count that is shown and not added up.
+ */
 function reportData() {
   const rows = all.rows.filter((r) => (!rep.from || (r.depart_date || '') >= rep.from) && (!rep.to || (r.depart_date || '9999') <= rep.to));
+  const byId = new Map(all.rows.map((r) => [r.id, r]));
+  const sailsOk = (id) => {
+    const r = byId.get(id);
+    if (!rep.from && !rep.to) return true;
+    return Boolean(r) && (!rep.from || (r.depart_date || '') >= rep.from) && (!rep.to || (r.depart_date || '9999') <= rep.to);
+  };
   const group = (keyOf) => {
     const m = new Map();
     for (const r of rows) {
@@ -761,61 +775,71 @@ function reportData() {
   };
   const sum = (list, k) => list.reduce((n, r) => n + (Number(r[k]) || 0), 0);
   const due = (list) => list.reduce((n, r) => n + Math.max(r.due_cents || 0, 0), 0);
+  // Every line of money in this year, with the advisor's share of it at the split on the reservation.
+  const lineList = () => {
+    const out = [];
+    for (const c of d.checks) {
+      for (const l of (d.checkLines && d.checkLines[c.id]) || []) out.push({ on: c.received_on || '', id: l.booking_id, amount: l.amount_cents || 0, pct: l.split_pct });
+    }
+    for (const l of d.loose || []) out.push({ on: l.received_on || '', id: l.booking_id, amount: l.amount_cents || 0, pct: l.split_pct });
+    return out.map((l) => {
+      const share = Math.round(l.amount * (Number.isFinite(Number(l.pct)) ? Number(l.pct) : 100) / 100);
+      return { ...l, share, agency: l.amount - share };
+    });
+  };
 
-  if (rep.kind === 'advisor') {
-    return { cols: [['name', 'Advisor', 'text'], ['n', 'Reservations', 'int'], ['expected', 'Expected', 'money'], ['received', 'Received', 'money'],
+  // The advisor and vendor reports, and the month sailed, all carry the same eight columns.
+  const eight = (label, keyOf, rowName) => ({
+    cols: [['name', label, 'text'], ['n', 'Reservations', 'int'], ['expected', 'Expected', 'money'], ['received', 'Received', 'money'],
       ['share', 'Advisor share of received', 'money'], ['paid', 'Paid out', 'money'], ['due', 'Still due to advisor', 'money'], ['agency', 'Agency keeps', 'money']],
-    rows: group((r) => r.advisor_name).map(([name, l]) => ({ name, n: l.length, expected: sum(l, 'commission_cents'), received: sum(l, 'received_cents'),
-      share: sum(l, 'payout_cents'), paid: sum(l, 'paid_out_cents'), due: due(l), agency: sum(l, 'agency_received_cents') })) };
-  }
-  if (rep.kind === 'vendor') {
-    return { cols: [['name', 'Vendor', 'text'], ['n', 'Reservations', 'int'], ['gross', 'Sales', 'money'], ['expected', 'Expected', 'money'], ['rate', 'Commission rate', 'pct'],
-      ['received', 'Received', 'money'], ['owed', 'Still owed to us', 'money'], ['pct', 'Received so far', 'pct']],
-    rows: group((r) => r.supplier).map(([name, l]) => {
-      const gross = sum(l, 'gross_cents');
-      const expected = sum(l, 'commission_cents');
-      const received = sum(l, 'received_cents');
-      return { name, n: l.length, gross, expected, rate: gross ? (expected / gross) * 100 : 0, received, owed: sum(l, 'outstanding_cents'),
-        pct: expected ? (received / expected) * 100 : 0 };
-    }) };
-  }
-  if (rep.kind === 'sailed') {
-    return { cols: [['name', 'Month sailing', 'text'], ['n', 'Reservations', 'int'], ['gross', 'Sales', 'money'], ['expected', 'Expected', 'money'],
-      ['received', 'Received', 'money'], ['owed', 'Still owed to us', 'money']],
-    rows: group((r) => (r.depart_date ? r.depart_date.slice(0, 7) : '')).map(([name, l]) => ({
-      name: /^\d{4}-\d{2}$/.test(name) ? new Date(`${name}-01T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : name,
-      n: l.length, gross: sum(l, 'gross_cents'), expected: sum(l, 'commission_cents'), received: sum(l, 'received_cents'), owed: sum(l, 'outstanding_cents') })) };
-  }
+    rows: group(keyOf).map(([name, l]) => ({ name: rowName ? rowName(name) : name, n: l.length, expected: sum(l, 'commission_cents'), received: sum(l, 'received_cents'),
+      share: sum(l, 'payout_cents'), paid: sum(l, 'paid_out_cents'), due: due(l), agency: sum(l, 'agency_received_cents') })),
+    total: true,
+  });
+
+  if (rep.kind === 'advisor') return eight('Advisor', (r) => r.advisor_name);
+  if (rep.kind === 'vendor') return eight('Vendor', (r) => r.supplier);
+  if (rep.kind === 'sailed') return eight('Month sailed', (r) => (r.depart_date ? r.depart_date.slice(0, 7) : ''));
   if (rep.kind === 'received') {
     const m = new Map();
-    const at = (key) => { if (!m.has(key)) m.set(key, { checks: 0, statement: 0, fees: 0, net: 0, loose: 0 }); return m.get(key); };
-    for (const c of d.checks) {
-      if (!c.received_on) continue;
-      const e = at(c.received_on.slice(0, 7));
-      e.checks += 1; e.statement += c.statement_cents || 0; e.fees += c.fee_cents || 0; e.net += c.net_cents || 0;
+    for (const l of lineList()) {
+      if (!l.on || !sailsOk(l.id)) continue;
+      const k = l.on.slice(0, 7);
+      if (!m.has(k)) m.set(k, { name: k, lines: 0, received: 0, share: 0, agency: 0 });
+      const e = m.get(k);
+      e.lines += 1; e.received += l.amount; e.share += l.share; e.agency += l.agency;
     }
-    for (const r of d.loose || []) {
-      if (r.received_on) at(r.received_on.slice(0, 7)).loose += r.amount_cents || 0;
-    }
-    return { cols: [['name', 'Month received', 'text'], ['checks', 'Checks', 'int'], ['statement', 'Check totals', 'money'], ['fees', 'Fees', 'money'],
-      ['net', 'At the bank', 'money'], ['loose', 'Entered one at a time', 'money']],
-    rows: [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([k, e]) => ({
-      name: new Date(`${k}-01T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }), ...e })) };
+    return { cols: [['name', 'Month received', 'text'], ['lines', 'Lines', 'int'], ['received', 'Received', 'money'], ['share', 'Advisor share', 'money'],
+      ['agency', 'Agency keeps', 'money']], rows: [...m.values()].sort((a, b) => a.name.localeCompare(b.name)), total: true };
+  }
+  if (rep.kind === 'variance') {
+    return { cols: [['name', 'Reservation', 'text'], ['advisor', 'Advisor', 'text'], ['vendor', 'Vendor', 'text'], ['state', 'Status', 'text'],
+      ['expected', 'Expected', 'money'], ['received', 'Received', 'money'], ['variance', 'Difference', 'money']],
+    rows: rows.filter((r) => r.settlement === 'short' || r.settlement === 'over').map((r) => ({
+      name: r.client_name, advisor: r.advisor_name, vendor: r.supplier, state: STATE_LABEL[r.settlement], expected: r.commission_cents,
+      received: r.received_cents, variance: r.variance_cents })), total: true };
+  }
+  if (rep.kind === 'checks') {
+    const list = d.checks.map((c) => ({ name: c.received_on || '', vendor: c.vendor_name, number: c.reference || '', statement: c.statement_cents,
+      fee: c.fee_cents || 0, why: c.fee_note || '', lines: c.lines, linesTotal: c.matched_cents || 0 }));
+    return { cols: [['name', 'Received on', 'text'], ['vendor', 'Vendor', 'text'], ['number', 'Check number', 'text'], ['statement', 'Check total', 'money'],
+      ['fee', 'Fee', 'money'], ['why', 'What the fee was', 'text'], ['lines', 'Lines', 'n'], ['linesTotal', 'Lines total', 'money']], rows: list, total: true };
   }
   if (rep.kind === 'scorecard') {
     // How long each vendor takes to pay after the sailing, from the reservations they have finished paying.
     const day = (iso) => Date.parse(`${iso}T00:00:00Z`) / 86400000;
-    const rowsOf = group((r) => r.supplier);
-    return { cols: [['name', 'Vendor', 'text'], ['n', 'Reservations', 'int'], ['paid', 'Fully paid', 'int'], ['avg', 'Average days after sailing', 'days'],
-      ['slow', 'Slowest, days', 'days'], ['owed', 'Still owed to us', 'money'], ['old', 'Oldest unpaid, days past sailing', 'days']],
-    rows: rowsOf.map(([name, l]) => {
-      const finished = l.filter((r) => (r.settlement === 'settled' || r.settlement === 'over') && r.last_received_on && r.depart_date);
-      const lags = finished.map((r) => Math.round(day(r.last_received_on) - day(r.depart_date)));
-      const open = l.filter((r) => (r.outstanding_cents || 0) > 0 && r.depart_date && r.depart_date < d.today);
-      const ages = open.map((r) => Math.round(day(d.today) - day(r.depart_date)));
-      return { name, n: l.length, paid: finished.length, avg: lags.length ? Math.round(lags.reduce((a, b) => a + b, 0) / lags.length) : null,
-        slow: lags.length ? Math.max(...lags) : null, owed: sum(l, 'outstanding_cents'), old: ages.length ? Math.max(...ages) : null };
-    }) };
+    return { note: 'Negative numbers mean the vendor paid before the sail date.',
+      cols: [['name', 'Vendor', 'text'], ['paid', 'Reservations paid', 'n'], ['avg', 'Average days after sailing', 'days'], ['fast', 'Fastest', 'days'],
+        ['slow', 'Slowest', 'days'], ['n', 'All reservations', 'n'], ['owed', 'Still owed to us', 'money'], ['old', 'Oldest unpaid, days past sailing', 'days']],
+      rows: group((r) => r.supplier).map(([name, l]) => {
+        const finished = l.filter((r) => (r.settlement === 'settled' || r.settlement === 'over') && r.last_received_on && r.depart_date);
+        const lags = finished.map((r) => Math.round(day(r.last_received_on) - day(r.depart_date)));
+        const open = l.filter((r) => (r.outstanding_cents || 0) > 0 && r.depart_date && r.depart_date < d.today);
+        const ages = open.map((r) => Math.round(day(d.today) - day(r.depart_date)));
+        return { name, n: l.length, paid: finished.length, avg: lags.length ? Math.round(lags.reduce((a, b) => a + b, 0) / lags.length) : null,
+          fast: lags.length ? Math.min(...lags) : null, slow: lags.length ? Math.max(...lags) : null, owed: sum(l, 'outstanding_cents'),
+          old: ages.length ? Math.max(...ages) : null };
+      }).filter((r) => r.paid > 0), total: false };
   }
   if (rep.kind === 'yearend') {
     // What each advisor was actually paid in the year chosen at the top, which is what a 1099 reports.
@@ -829,28 +853,46 @@ function reportData() {
       if (p.paid_on && (!e.first || p.paid_on < e.first)) e.first = p.paid_on;
       if (p.paid_on && p.paid_on > e.last) e.last = p.paid_on;
     }
-    return { cols: [['name', 'Advisor', 'text'], ['payouts', 'Payouts', 'int'], ['total', `Paid in ${year}`, 'money'],
-      ['first', 'First paid', 'text'], ['last', 'Last paid', 'text']],
-    rows: [...m.values()].sort((a, b) => a.name.localeCompare(b.name)).map((e) => ({ ...e,
-      first: e.first ? dateFmt(e.first) : '', last: e.last ? dateFmt(e.last) : '' })) };
+    return { note: 'Uses the year picked at the top. Advisors paid $600 or more in a year usually need a 1099-NEC.',
+      cols: [['name', 'Advisor', 'text'], ['payouts', `Payments in ${year}`, 'int'], ['total', `Total paid in ${year}`, 'money'],
+        ['first', 'First paid', 'text'], ['last', 'Last paid', 'text']],
+      rows: [...m.values()].sort((a, b) => a.name.localeCompare(b.name)).map((e) => ({ ...e,
+        first: e.first ? dateFmt(e.first) : '', last: e.last ? dateFmt(e.last) : '' })), total: true };
   }
-  if (rep.kind === 'variance') {
-    return { cols: [['name', 'Reservation', 'text'], ['advisor', 'Advisor', 'text'], ['vendor', 'Vendor', 'text'], ['state', 'Status', 'text'],
-      ['expected', 'Expected', 'money'], ['received', 'Received', 'money'], ['variance', 'Difference', 'money']],
-    rows: rows.filter((r) => r.settlement === 'short' || r.settlement === 'over').map((r) => ({
-      name: r.client_name, advisor: r.advisor_name, vendor: r.supplier, state: STATE_LABEL[r.settlement], expected: r.commission_cents,
-      received: r.received_cents, variance: r.variance_cents })) };
+  if (rep.kind === 'fees') {
+    const list = d.checks.filter((c) => (c.fee_cents || 0) > 0).map((c) => ({ name: c.received_on || '', vendor: c.vendor_name, number: c.reference || '',
+      why: c.fee_note || '', statement: c.statement_cents, fee: c.fee_cents }));
+    const totalFees = list.reduce((n, r) => n + r.fee, 0);
+    return { note: `Fees vendors took out of commission checks in ${year} (uses the year picked at the top). These are agency expenses.`,
+      cols: [['name', 'Date', 'text'], ['vendor', 'Vendor', 'text'], ['number', 'Check number', 'text'], ['why', 'What the fee was', 'text'],
+        ['statement', 'Check total', 'money'], ['fee', 'Fee', 'money']], rows: list,
+      total: [`Total ${year}`, '', '', `${list.length} fee${list.length === 1 ? '' : 's'}`, money(list.reduce((n, r) => n + r.statement, 0)), money(totalFees)] };
   }
-  return { cols: [['name', 'Received', 'text'], ['vendor', 'Vendor', 'text'], ['number', 'Check number', 'text'], ['statement', 'Check total', 'money'],
-    ['fee', 'Fee', 'money'], ['net', 'At the bank', 'money'], ['lines', 'Lines', 'int'], ['unmatched', 'Not matched to a reservation', 'money']],
-  rows: d.checks.map((c) => ({ name: c.received_on ? dateFmt(c.received_on) : '', vendor: c.vendor_name, number: c.reference || '',
-    statement: c.statement_cents, fee: c.fee_cents || 0, net: c.net_cents, lines: c.lines, unmatched: Math.abs(c.unmatched_cents) <= 1 ? 0 : c.unmatched_cents })) };
+  // The year-end summary: one page for the accountant, as a list of what the year came to.
+  const lines = lineList();
+  const received = lines.reduce((n, l) => n + l.amount, 0);
+  const share = lines.reduce((n, l) => n + l.share, 0);
+  const fees = d.checks.reduce((n, c) => n + (c.fee_cents || 0), 0);
+  const paid = d.paid.reduce((n, p) => n + (p.amount_cents || 0), 0);
+  const owing = all.rows.reduce((n, r) => n + Math.max(r.due_cents || 0, 0), 0);
+  return { note: 'A one-page view of the year for your accountant. Download it, plus Fees & expenses, Every check and Paid to advisors (1099).',
+    cols: [['name', `Year ${year}`, 'text'], ['amount', 'Amount', 'money']],
+    rows: [
+      { name: `Commission received from vendors (${lines.length} line${lines.length === 1 ? '' : 's'})`, amount: received },
+      { name: 'Fees taken out of checks (agency expense)', amount: -fees },
+      { name: 'Deposited to the agency', amount: received - fees },
+      { name: 'Advisors’ share of what was received', amount: share },
+      { name: `Paid to advisors in ${year} (${d.paid.length} payment${d.paid.length === 1 ? '' : 's'})`, amount: paid },
+      { name: 'Still owed to advisors at year end', amount: owing },
+      { name: 'CTT share of commission received', amount: received - share },
+      { name: 'CTT net after fees', amount: received - share - fees },
+    ], total: false };
 }
 
 function reportCell(v, type) {
   if (type === 'money') return money(v);
   if (type === 'pct') return `${(Number(v) || 0).toFixed(1)}%`;
-  if (type === 'int') return String(v);
+  if (type === 'int' || type === 'n') return String(v);
   // A figure that does not exist yet is a dash, not a nought: a vendor that has finished paying nothing has not paid in no days.
   if (type === 'days') return v === null || v === undefined ? '-' : String(v);
   return esc(v);
@@ -858,16 +900,22 @@ function reportCell(v, type) {
 
 function reportTable() {
   const r = reportData();
-  if (!r.rows.length) return '<div class="card"><div class="empty"><h3>Nothing to show</h3><p>There is nothing for this report in the dates chosen.</p></div></div>';
-  const totals = r.cols.map(([k, , type]) => (type === 'money' || type === 'int'
-    ? r.rows.reduce((n, row) => n + (Number(row[k]) || 0), 0) : null));
-  const showTotal = r.cols.some(([, , type]) => type === 'money' || type === 'int');
-  return `<div class="card cd-scroll"><table class="cd-table"><thead><tr>${r.cols.map(([, label, type]) =>
+  const note = r.note ? `<p class="muted" style="margin:0 0 .6rem;">${esc(r.note)}</p>` : '';
+  if (!r.rows.length) return `${note}<div class="card"><div class="empty"><p>Nothing to show yet.</p></div></div>`;
+  let totalRow = '';
+  if (Array.isArray(r.total)) {
+    totalRow = `<tr class="tot">${r.cols.map(([, , type], i) => `<td class="${type === 'text' ? '' : 'r cd-money'}">${esc(r.total[i] || '')}</td>`).join('')}</tr>`;
+  } else if (r.total) {
+    totalRow = `<tr class="tot">${r.cols.map(([k, , type], i) => {
+      if (i === 0) return '<td>Total</td>';
+      const add = type === 'money' || type === 'int';
+      return `<td class="${type === 'text' ? '' : 'r cd-money'}">${add ? reportCell(r.rows.reduce((n, row) => n + (Number(row[k]) || 0), 0), type) : ''}</td>`;
+    }).join('')}</tr>`;
+  }
+  return `${note}<div class="card cd-scroll"><table class="cd-table"><thead><tr>${r.cols.map(([, label, type]) =>
     `<th class="${type === 'text' ? '' : 'r'}">${esc(label)}</th>`).join('')}</tr></thead><tbody>${r.rows.map((row) => `<tr>${r.cols.map(([k, , type]) =>
     `<td class="${type === 'text' ? '' : 'r cd-money'}">${reportCell(row[k], type)}</td>`).join('')}</tr>`).join('')}
-    ${showTotal ? `<tr class="tot">${r.cols.map(([k, , type], i) => `<td class="${type === 'text' ? '' : 'r cd-money'}">${
-  i === 0 ? `${r.rows.length} row${r.rows.length === 1 ? '' : 's'}` : (totals[i] === null ? '' : reportCell(totals[i], type))}</td>`).join('')}</tr>` : ''}
-    </tbody></table></div>`;
+    ${totalRow}</tbody></table></div>`;
 }
 
 function downloadReport() {
@@ -887,15 +935,16 @@ function downloadReport() {
 
 function drawReports() {
   if (!all) { loadAll(); return '<p class="spinner">Loading...</p>'; }
-  const datesApply = ['advisor', 'vendor', 'sailed', 'variance', 'scorecard'].includes(rep.kind);
+  // Always there, as on the agency's other page. They narrow the reports built from reservations, by the day each one sails; a
+  // report built from checks lists every check in the year chosen at the top.
   return `<div class="cd-chips" style="margin-bottom:.8rem;">${REPORTS.map(([k, l]) =>
     `<button class="cd-chip" type="button" data-report="${k}" aria-pressed="${rep.kind === k}">${l}</button>`).join('')}</div>
     <div class="card cd-filters">
-      ${datesApply ? `<div><label for="rp-from">Sails from</label><input id="rp-from" data-rp="from" type="date" value="${esc(rep.from)}"></div>
-      <div><label for="rp-to">Sails to</label><input id="rp-to" data-rp="to" type="date" value="${esc(rep.to)}"></div>` : `<div class="muted">This report follows the year chosen at the top.</div>`}
+      <div><label for="rp-from">Sails from</label><input id="rp-from" data-rp="from" type="date" value="${esc(rep.from)}"></div>
+      <div><label for="rp-to">Sails to</label><input id="rp-to" data-rp="to" type="date" value="${esc(rep.to)}"></div>
       <div><button class="btn btn-ghost btn-sm" type="button" id="rp-csv">Download this report</button></div>
     </div><div id="rp-body">${reportTable()}</div>
-    ${datesApply && all.rows.length >= 500 ? '<p class="muted">Based on the first 500 reservations. Use the dates to narrow it.</p>' : ''}`;
+    ${all.rows.length >= 500 ? '<p class="muted">Based on the first 500 reservations. Use the dates to narrow it.</p>' : ''}`;
 }
 
 panel.addEventListener('click', (e) => {
