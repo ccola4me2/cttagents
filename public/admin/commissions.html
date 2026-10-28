@@ -387,6 +387,7 @@ function drawOwed() {
     : `${o.chase === 'disputed'
       ? `<button class="btn btn-ghost btn-sm" type="button" data-chase="${esc(o.id)}" data-state="">Resolved</button>`
       : `<button class="btn btn-ghost btn-sm" type="button" data-chase="${esc(o.id)}" data-state="disputed" data-name="${esc(o.clientName)}">Dispute</button>`}
+       <button class="btn btn-secondary btn-sm" type="button" data-recordowed="${esc(o.id)}">Record</button>
        <button class="btn btn-ghost btn-sm" type="button" data-chase="${esc(o.id)}" data-state="written_off" data-name="${esc(o.clientName)}">Write off</button>`);
   return `${chips}<div class="card cd-scroll"><table class="cd-table"><thead><tr>
     <th>Reservation</th><th>Advisor</th><th>Travelled</th><th class="r">Days</th><th class="r">Expected</th><th class="r">Received</th><th class="r">Owed</th><th></th>
@@ -1061,6 +1062,12 @@ panel.addEventListener('click', async (e) => {
   const t = e.target.closest('button, tr[data-row]');
   if (!t) return;
   if (t.dataset.bucket !== undefined) { bucket = t.dataset.bucket; draw(); return; }
+  if (t.dataset.recordowed) {
+    const o = (d.outstanding || []).find((x) => x.id === t.dataset.recordowed);
+    if (!o) return;
+    try { await recordFor(o); } catch (ex) { showError(errEl, ex); }
+    return;
+  }
   if (t.dataset.chase) {
     if (t.dataset.state) { openChase(t.dataset.chase, t.dataset.state, t.dataset.name || 'this reservation'); return; }
     try { await setChase(t.dataset.chase, '', ''); } catch (ex) { showError(errEl, ex); }
@@ -1402,6 +1409,26 @@ function openCheckDialog(existing) {
   }
   drawLines();
   dlg.showModal();
+}
+
+// Record the check for one reservation that is still owed: the form opens with it already on the first line.
+async function recordFor(o) {
+  let found = null;
+  for (const q of [o.confirmationNumber, o.clientName]) {
+    if (!q || String(q).length < 2 || found) continue;
+    const out = await api(`/api/commission-checks/search?q=${encodeURIComponent(q)}`);
+    found = (out.reservations || []).find((x) => x.id === o.id) || null;
+  }
+  openCheckDialog(null);
+  $('vendorName').value = o.supplier || '';
+  $('statement').value = plain(o.owedCents);
+  const l = blankLine();
+  if (found) chooseReservation(l, found);
+  else { l.bookingId = o.id; l.label = o.clientName; l.sub = [o.supplier, o.productName, o.confirmationNumber].filter(Boolean).join(' · '); l.advisorName = o.advisorName || ''; }
+  l.amount = plain(o.owedCents);
+  lines = [l];
+  $('chk-hint').textContent = `Recording what came in for ${o.clientName}. Change the check total and amount to what the vendor actually paid.`;
+  drawLines();
 }
 
 $('record').addEventListener('click', () => openCheckDialog(null));
