@@ -94,6 +94,7 @@ for (const [key, word] of [['clientName', 'the client'], ['confirmationNumber', 
 for (const heading of ['General Information', 'Booking Details', 'Royal Caribbean', 'Guest Information', 'Reservation Summary']) {
   is(`${heading} is a heading, not a guest`, looksLikeHeading(heading), true);
 }
+is('a company name is not a guest', looksLikeHeading('Pollack Travel LLC'), true);
 for (const person of ['Samantha Pollack', 'Pat Sample', 'Cruise Pollack', 'Angela Simic', "Mary O'Brien"]) {
   is(`${person} is a person`, looksLikeHeading(person), false);
 }

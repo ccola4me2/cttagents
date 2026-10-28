@@ -19,10 +19,15 @@ const HEADING_WORDS = new Set([
   'silversea', 'cunard', 'line', 'lines', 'seas', 'sea', 'welcome', 'thank', 'thanks', 'your', 'our', 'the', 'and', 'of',
 ]);
 
+// A word that only ever ends a company's name. One of these anywhere in a candidate makes it a company, whatever the other words are:
+// an agency's own name at the top of a confirmation ("Pollack Travel LLC") is not the guest.
+const COMPANY_WORDS = new Set(['llc', 'inc', 'ltd', 'corp', 'corporation', 'company', 'plc', 'llp', 'gmbh']);
+
 /** True when every word of a candidate name is the sort of word a heading or a company is made of. */
 export function looksLikeHeading(name) {
   const words = String(name || '').toLowerCase().match(/[a-z']+/g) || [];
   if (!words.length) return true;
+  if (words.some((w) => COMPANY_WORDS.has(w))) return true;
   // One ordinary word in the mix is enough to be a person: "Summer Cruise" is a stretch, "Cruise Pollack" is a surname.
   return words.every((w) => HEADING_WORDS.has(w));
 }
