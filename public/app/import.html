@@ -388,7 +388,7 @@ document.getElementById('conf-text').addEventListener('input', () => { confFile 
  */
 async function pictureForReading(file) {
   let bitmap;
-  try { bitmap = await createImageBitmap(file); } catch {
+  try { bitmap = await window.createImageBitmap(file); } catch {
     throw new Error(`${file.name || 'That picture'} could not be opened. Take a screenshot of it instead.`);
   }
   const scale = Math.min(1, 1800 / Math.max(bitmap.width, bitmap.height));
@@ -396,14 +396,8 @@ async function pictureForReading(file) {
   canvas.width = Math.round(bitmap.width * scale);
   canvas.height = Math.round(bitmap.height * scale);
   canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
-  if (!blob) throw new Error('That picture could not be prepared.');
-  const data = await new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result).split(',')[1] || '');
-    r.onerror = () => reject(new Error('That picture could not be read.'));
-    r.readAsDataURL(blob);
-  });
+  const data = canvas.toDataURL('image/jpeg', 0.85).split(',')[1] || '';
+  if (!data) throw new Error('That picture could not be prepared.');
   return { mime: 'image/jpeg', data };
 }
 
