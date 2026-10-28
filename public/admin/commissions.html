@@ -520,6 +520,7 @@ function allBody() {
     return `<tr class="sub"><td colspan="11">
       <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;margin:.4rem 0;">
         <a class="btn btn-secondary btn-sm" href="/app/reservation?id=${encodeURIComponent(r.id)}">Open the reservation</a>
+        ${r.due_cents > 0 ? `<button class="btn btn-primary btn-sm" type="button" data-markpaid="${esc(r.id)}">Mark this reservation paid</button>` : ''}
         <span class="muted">Split ${esc(String(r.split_pct))}% to the advisor. Expected ${money(r.commission_cents)}, advisor's expected share ${money(r.advisor_cents)}${
   r.last_paid_out_on ? `, last paid out ${esc(dateFmt(r.last_paid_out_on))}` : ''}.</span></div>
       ${lines.length ? `<table class="cd-lines"><thead><tr><th>Received</th><th>From</th><th class="r">Amount</th><th>Pay out date</th><th></th></tr></thead><tbody>${
@@ -546,7 +547,7 @@ function allBody() {
       <td><span class="badge ${STATE_BADGE[r.settlement] || ''}">${esc(STATE_LABEL[r.settlement] || r.settlement)}</span></td>
       <td class="r cd-money">${money(r.payout_cents)}</td>
       <td class="r cd-money">${money(r.paid_out_cents)}</td>
-      <td class="r cd-money"><strong>${money(Math.max(r.due_cents, 0))}</strong></td>
+      <td class="r cd-money"><strong>${money(Math.max(r.due_cents, 0))}</strong>${r.due_cents > 0 ? `<div><button class="btn btn-ghost btn-sm" type="button" data-markpaid="${esc(r.id)}">Mark paid</button></div>` : ''}</td>
       <td class="r cd-money">${money(r.agency_received_cents)}</td>
     </tr>${allOpen === r.id ? detail(r) : ''}`).join('')}
     <tr class="tot"><td colspan="4">${rows.length} reservation${rows.length === 1 ? '' : 's'}</td>
@@ -617,6 +618,12 @@ panel.addEventListener('click', (e) => {
     const key = sort.dataset.sort;
     if (allSort.key === key) allSort.dir = -allSort.dir; else { allSort.key = key; allSort.dir = key === 'client' || key === 'advisor' || key === 'back' ? 1 : -1; }
     document.getElementById('all-body').innerHTML = allBody();
+    return;
+  }
+  const mp = e.target.closest('button[data-markpaid]');
+  if (mp) {
+    const r = allRows().find((x) => x.id === mp.dataset.markpaid);
+    if (r) openPayOne(r);
     return;
   }
   const row = e.target.closest('tr[data-allrow]');
@@ -1143,6 +1150,22 @@ function openEditPayout(p) {
   payDlg.showModal();
 }
 
+// One reservation, paid. Everything received for it counts, whatever pay date it was assigned to, so this is the way to
+// say "this one has already been paid" without touching the pay run.
+function openPayOne(r) {
+  paying = { one: r.id, pay: r.user_id };
+  editingPayout = null;
+  $('pay-title').textContent = 'Mark this reservation paid';
+  $('pay-save').textContent = 'Mark as paid';
+  $('pay-err').hidden = true;
+  $('pay-what').innerHTML = `Pay <strong>${esc(r.advisor_name || 'the advisor')}</strong> ${money(Math.max(r.due_cents, 0))} for <strong>${esc(r.client_name)}</strong>.`
+    + ' Use this when it has already been paid, or when you are paying it now. Only money already received for this reservation is counted.';
+  $('paidOn').value = d.today;
+  $('method').innerHTML = methods.map((m) => `<option value="${esc(m.key)}">${esc(m.label)}</option>`).join('');
+  $('payRef').value = '';
+  payDlg.showModal();
+}
+
 function openPay(ds) {
   paying = ds;
   editingPayout = null;
@@ -1172,8 +1195,9 @@ $('pay-form').addEventListener('submit', async (e) => {
   }
   try {
     await api('/api/payouts', { method: 'POST', body: {
-      userId: paying.pay, payDate: paying.date, paidOn: $('paidOn').value,
+      userId: paying.pay, payDate: paying.one ? '2100-12-31' : paying.date, paidOn: $('paidOn').value,
       method: $('method').value, reference: $('payRef').value,
+      ...(paying.one ? { bookingIds: [paying.one] } : {}),
     } });
     payDlg.close();
     errEl.innerHTML = `<div class="notice notice-ok">Recorded as paid.</div>`;
