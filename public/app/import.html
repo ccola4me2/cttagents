@@ -38,10 +38,18 @@
             confirmations have no standard shape and this will misread some of them.
           </p>
           <div class="field">
-            <label for="conf-pdf">The confirmation as a PDF</label>
-            <input id="conf-pdf" type="file" accept="application/pdf,.pdf">
-            <p class="field-hint">Read in your browser: only the text it contains is sent to be read. The file itself
-              goes onto the reservation only if you tick Keep this PDF below. Then check what it found, the same as pasting.</p>
+            <label for="conf-pdf">Drop in the confirmation</label>
+            <div class="dropzone" id="conf-drop" tabindex="0" role="button" aria-label="Choose confirmation files">
+              <strong>Drop a PDF, a screenshot or photo, or a saved email here</strong>
+              <span class="muted">or <u>choose files</u>. You can also paste a screenshot with Ctrl or Cmd and V. Up to 5 files, read together as one reservation.</span>
+            </div>
+            <input id="conf-pdf" type="file" multiple hidden
+              accept="application/pdf,.pdf,image/png,image/jpeg,image/webp,image/*,.eml,.txt,.html,.htm">
+            <div class="muted" id="conf-files-note" style="font-size:.88rem;margin-top:.4rem;" aria-live="polite"></div>
+            <p class="field-hint">A PDF is read in your browser: only the text it contains is sent to be read. A saved email is
+              opened by the portal and not kept. A screenshot or photo is read by Cloudflare's AI inside this portal's own account and
+              not kept either. The file itself goes onto the reservation only if you tick Keep this PDF below. Then check what it
+              found, the same as pasting.</p>
           </div>
           <div class="field">
             <label for="conf-text">Or paste it</label>
@@ -372,21 +380,106 @@ async function textFromPdf(file) {
 let confFile = null;
 document.getElementById('conf-text').addEventListener('input', () => { confFile = null; });
 
-document.getElementById('conf-pdf').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  confFile = file;
+/**
+ * A picture, made small enough to send and as readable as it was.
+ *
+ * A phone photo is several megabytes and a read does not need them. Scaled so the long side is at most 1800 pixels and saved
+ * as a JPEG, it is a few hundred kilobytes, which is also faster. Done here so nothing needs the portal to resize it.
+ */
+async function pictureForReading(file) {
+  let bitmap;
+  try { bitmap = await createImageBitmap(file); } catch {
+    throw new Error(`${file.name || 'That picture'} could not be opened. Take a screenshot of it instead.`);
+  }
+  const scale = Math.min(1, 1800 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+  if (!blob) throw new Error('That picture could not be prepared.');
+  const data = await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',')[1] || '');
+    r.onerror = () => reject(new Error('That picture could not be read.'));
+    r.readAsDataURL(blob);
+  });
+  return { mime: 'image/jpeg', data };
+}
+
+/** One file, as text. A PDF here, a saved email and a picture by the portal. */
+async function textFromFile(file) {
+  const name = file.name || 'pasted picture';
+  const type = file.type || '';
+  if (type === 'application/pdf' || /\.pdf$/i.test(name)) {
+    const text = await textFromPdf(file);
+    if (!text.trim()) throw new Error(`No text in ${name}. It may be a scan: take a screenshot of it and drop that in.`);
+    return { text, pdf: file };
+  }
+  if (type.startsWith('image/')) {
+    const r = await api('/api/import/image', { method: 'POST', body: await pictureForReading(file) });
+    return { text: r.text };
+  }
+  if (/\.eml$/i.test(name) || type === 'message/rfc822') {
+    const r = await api('/api/import/email-file', { method: 'POST', body: { raw: await file.text() } });
+    return { text: r.text };
+  }
+  if (/\.html?$/i.test(name) || type === 'text/html') {
+    const doc = new DOMParser().parseFromString(await file.text(), 'text/html');
+    doc.querySelectorAll('script,style').forEach((n) => n.remove());
+    return { text: (doc.body.innerText || doc.body.textContent || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim() };
+  }
+  if (/\.txt$/i.test(name) || type.startsWith('text/')) return { text: (await file.text()).trim() };
+  throw new Error(`${name} is not a kind of file this can read. Use a PDF, a screenshot or photo, or a saved email.`);
+}
+
+/** Up to five files, read one after another and put together in the box, as one reservation. */
+async function readFiles(list) {
+  const files = [...list].slice(0, 5);
+  const tooMany = list.length > 5;
+  if (!files.length) return;
+  const note = document.getElementById('conf-files-note');
   const err = document.getElementById('conf-error');
   err.hidden = true;
-  try {
-    const text = await textFromPdf(file);
-    if (!text.trim()) throw new Error('No text in that PDF. It may be a scan, which has none.');
-    document.getElementById('conf-text').value = text;
-    document.getElementById('conf-read').click();
-  } catch (e2) {
-    err.textContent = e2.message;
+  const parts = [];
+  const problems = [];
+  let pdfs = [];
+  for (let i = 0; i < files.length; i += 1) {
+    note.textContent = `Reading ${files[i].name || 'the picture'} (${i + 1} of ${files.length})...`;
+    try {
+      const got = await textFromFile(files[i]);
+      if (got.text && got.text.trim()) parts.push(files.length > 1 ? `----- ${files[i].name || 'picture'} -----\n${got.text.trim()}` : got.text.trim());
+      if (got.pdf) pdfs.push(got.pdf);
+    } catch (e) { problems.push(e.message); }
+  }
+  note.textContent = '';
+  // Kept for the reservation only when it is exactly one PDF, since that is the one document the text came from.
+  confFile = pdfs.length === 1 && parts.length === 1 ? pdfs[0] : null;
+  if (problems.length) {
+    err.innerHTML = problems.map((p) => `<div>${esc(p)}</div>`).join('');
     err.hidden = false;
   }
+  if (!parts.length) return;
+  document.getElementById('conf-text').value = parts.join('\n\n');
+  if (tooMany) note.textContent = 'Only the first five were read.';
+  document.getElementById('conf-read').click();
+}
+
+const dropBox = document.getElementById('conf-drop');
+const fileBox = document.getElementById('conf-pdf');
+dropBox.addEventListener('click', () => fileBox.click());
+dropBox.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileBox.click(); } });
+fileBox.addEventListener('change', async (e) => { const picked = [...e.target.files]; e.target.value = ''; await readFiles(picked); });
+['dragenter', 'dragover'].forEach((ev) => dropBox.addEventListener(ev, (e) => { e.preventDefault(); dropBox.classList.add('over'); }));
+['dragleave', 'drop'].forEach((ev) => dropBox.addEventListener(ev, (e) => { e.preventDefault(); dropBox.classList.remove('over'); }));
+dropBox.addEventListener('drop', (e) => readFiles(e.dataTransfer.files));
+// A screenshot copied to the clipboard, pasted anywhere on the page except into the rows box further down.
+document.addEventListener('paste', (e) => {
+  if (e.target && e.target.id === 'paste') return;
+  const pics = [...(e.clipboardData ? e.clipboardData.files : [])].filter((f) => f.type.startsWith('image/'));
+  if (!pics.length) return;
+  e.preventDefault();
+  readFiles(pics);
 });
 
 // ---- Confirmations forwarded by email ---------------------------------------------------

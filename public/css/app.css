@@ -1109,6 +1109,11 @@ table.grid input:focus { border-color: var(--navy-400); background: #fff; }
 .cal-wrap .cal-grid.cal-wk .cal-day .ev { display: block; -webkit-line-clamp: unset; }
 .cal-agenda-page { background: #fff; padding: .4rem 1rem 1rem; }
 .cal-bar .cal-views.wtabs { margin-right: .5rem; }
+
+/* A place to drop files, which is also a button. */
+.dropzone { display: flex; flex-direction: column; gap: .25rem; align-items: center; text-align: center; padding: 1.4rem 1rem;
+  border: 2px dashed var(--navy-200, #c3d2e3); border-radius: 12px; background: var(--navy-50); cursor: pointer; }
+.dropzone:hover, .dropzone.over, .dropzone:focus-visible { border-color: var(--coral-500); background: #fff; outline: none; }
 .cal-event { display: flex; align-items: flex-start; gap: .5rem; text-decoration: none; padding: .1rem 0; }
 .cal-event .dot { margin-top: .42rem; }
 .cal-event .t { display: block; font-size: .83rem; font-weight: 600; color: var(--navy-800); }

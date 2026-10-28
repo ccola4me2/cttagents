@@ -48,6 +48,12 @@ database_id = "c95cdf55-a781-45a4-88d0-76d63ba5ad56"
 binding = "DOCS"
 bucket_name = "cttagents-docs"
 
+# Workers AI: reads the text off a screenshot or photo of a confirmation on the Import page. It runs inside this Cloudflare
+# account, bills to it, and keeps nothing. Without the binding the Import page says pictures are not switched on and everything
+# else, PDFs and pasted text included, works as before.
+[ai]
+binding = "AI"
+
 # Non-secret config. Secrets (RESEND_API_KEY, UNSUBSCRIBE_SECRET) are set in the
 # dashboard under Settings > Variables and Secrets. Never committed.
 [vars]

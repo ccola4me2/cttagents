@@ -6626,6 +6626,21 @@ async function main() {
     'Advisor Phone: 5617779911 Enhancement Commission: $107.70',
   ].join('\n');
 
+  // Pictures and saved emails dropped onto the Import page.
+  const picAnon = await call(null, 'POST', '/api/import/image', { mime: 'image/png', data: 'AAAA' });
+  check(picAnon.status === 401, 'reading a picture needs a signed in person', `status ${picAnon.status}`);
+  const picBadType = await call(advisor, 'POST', '/api/import/image', { mime: 'application/zip', data: 'AAAA' });
+  check(picBadType.status === 400, 'a file that is not a picture is refused', `status ${picBadType.status}`);
+  const picEmpty = await call(advisor, 'POST', '/api/import/image', { mime: 'image/png', data: '' });
+  check(picEmpty.status === 400, 'and so is an empty one', `status ${picEmpty.status}`);
+  const eml = ['From: Royal Caribbean <noreply@example.com>', 'Subject: Your booking', 'Content-Type: text/plain; charset=utf-8', '',
+    'Confirmation Number: 54455257', 'Ship: Harmony of the Seas', 'Sailing Date: 03/13/2027'].join('\r\n');
+  const emlRead = await call(advisor, 'POST', '/api/import/email-file', { raw: eml });
+  check(emlRead.status === 200 && /Confirmation Number: 54455257/.test(emlRead.data?.text || ''),
+    'a saved email is opened and its confirmation read out', `status ${emlRead.status}`);
+  const emlEmpty = await call(advisor, 'POST', '/api/import/email-file', { raw: '' });
+  check(emlEmpty.status === 400, 'an empty email is refused', `status ${emlEmpty.status}`);
+
   const readConf = await call(advisor, 'POST', '/api/import/confirmation', { text: agentCopy });
   const cf = readConf.data?.fields || {};
   check(readConf.status === 200, 'a two column confirmation is read', `status ${readConf.status}`);
