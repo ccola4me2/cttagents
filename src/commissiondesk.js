@@ -173,8 +173,11 @@ export async function handleReadRemittance(request, env) {
         : 'There is no text in that file. Type the check in.');
     }
     remittance = readRemittance(file.text);
+    // Not a Travel Leaders Network remittance: try it as rows, the way a pasted statement from any vendor is read, so a
+    // commission statement from a cruise line or a host can be dropped in as it is.
+    if (!remittance.read) remittance = readStatementText(file.text);
     if (!remittance.read) {
-      return badRequest('I could not read that PDF as a payment remittance. I read the Travel Leaders Network ones, so for another vendor paste its rows from a spreadsheet, or type the check in.');
+      return badRequest('I could not find rows with a confirmation number and an amount in that PDF. Paste its rows from a spreadsheet, or type the check in.');
     }
   }
   if (remittance.lines.length > MAX_LINES) {

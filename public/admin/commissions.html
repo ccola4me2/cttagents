@@ -107,9 +107,10 @@
     <div class="card-pad">
       <div class="notice notice-error" id="chk-err" hidden></div>
       <div class="cd-drop" id="drop">
-        <strong>Drop the vendor's statement here</strong> to fill this in: a PDF remittance, or a spreadsheet saved as CSV. Or paste its rows below, or type it in.
+        <strong>Drop the vendor's statement here</strong> to fill this in: a PDF remittance or commission statement, a screenshot, or a spreadsheet saved as CSV. Or paste its rows below, or type it in.
+        You can also paste a screenshot with Ctrl or Cmd and V.
         <div style="margin-top:.6rem;"><label class="btn btn-secondary btn-sm" for="chk-file" style="cursor:pointer;">Choose a file</label>
-          <input id="chk-file" type="file" accept="application/pdf,.pdf,.csv,.txt,text/csv,text/plain" hidden></div>
+          <input id="chk-file" type="file" accept="application/pdf,.pdf,.csv,.txt,text/csv,text/plain,image/png,image/jpeg,image/webp,image/*" hidden></div>
       </div>
       <details style="margin-top:.8rem;">
         <summary style="cursor:pointer;font-weight:600;">Paste rows from any vendor's statement</summary>
@@ -190,7 +191,7 @@
 <datalist id="vendor-names"></datalist>
 
 <script type="module">
-import { api, mountShell, esc, money, dateFmt, showError } from '/js/app.js';
+import { api, mountShell, esc, money, dateFmt, showError, pictureForReading } from '/js/app.js';
 await mountShell({ admin: true });
 
 const $ = (id) => document.getElementById(id);
@@ -1404,6 +1405,22 @@ $('lines').addEventListener('click', (e) => {
 const drop = $('drop');
 async function readRemittance(file, pasted) {
   $('chk-err').hidden = true;
+  // A screenshot or photo of a statement is turned into the rows printed on it by the portal's AI, shown in the paste box so it
+  // can be checked and corrected, and then read exactly as pasted rows are.
+  if (file && /^image\//.test(file.type || '')) {
+    $('chk-hint').textContent = `Reading ${file.name || 'the screenshot'}...`;
+    try {
+      const got = await api('/api/import/image', { method: 'POST', body: await pictureForReading(file) });
+      $('chk-paste').value = got.text;
+      document.querySelector('#drop ~ details').open = true;
+      return readRemittance(null, got.text);
+    } catch (e) {
+      $('chk-hint').textContent = '';
+      $('chk-err').textContent = e.message || 'That picture could not be read.';
+      $('chk-err').hidden = false;
+      return undefined;
+    }
+  }
   // A PDF is read as the Travel Leaders Network remittance; anything saved as text, or pasted, is read as rows.
   const asText = Boolean(pasted) || /\.(csv|txt)$/i.test(file.name) || /^text\//.test(file.type);
   const label = pasted ? 'the pasted rows' : file.name;
@@ -1457,6 +1474,14 @@ $('chk-file').addEventListener('change', (e) => { const f = e.target.files[0]; e
 ['dragenter', 'dragover'].forEach((n) => drop.addEventListener(n, (e) => { e.preventDefault(); drop.classList.add('over'); }));
 ['dragleave', 'drop'].forEach((n) => drop.addEventListener(n, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
 drop.addEventListener('drop', (e) => { const f = e.dataTransfer.files[0]; if (f) readRemittance(f); });
+// A screenshot copied to the clipboard, pasted while the form is open (but not into the rows box, where it means the text).
+document.addEventListener('paste', (e) => {
+  if (!$('chk-dlg') || !$('chk-dlg').open || (e.target && e.target.id === 'chk-paste')) return;
+  const pics = [...(e.clipboardData ? e.clipboardData.files : [])].filter((f) => f.type.startsWith('image/'));
+  if (!pics.length) return;
+  e.preventDefault();
+  readRemittance(pics[0]);
+});
 
 // ---- Saving ---------------------------------------------------------------
 

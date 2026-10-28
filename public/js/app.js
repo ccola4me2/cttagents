@@ -1741,3 +1741,24 @@ export function onSubmit(form, handler, { errorBox } = {}) {
     }
   });
 }
+
+/**
+ * A picture, made small enough to send and as readable as it was.
+ *
+ * A phone photo is several megabytes and a read does not need them. Scaled so the long side is at most 1800 pixels and saved
+ * as a JPEG it is a few hundred kilobytes, which is also faster. Done in the browser so nothing needs the portal to resize it.
+ */
+export async function pictureForReading(file) {
+  let bitmap;
+  try { bitmap = await window.createImageBitmap(file); } catch {
+    throw new Error(`${file.name || 'That picture'} could not be opened. Take a screenshot of it instead.`);
+  }
+  const scale = Math.min(1, 1800 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const data = canvas.toDataURL('image/jpeg', 0.85).split(',')[1] || '';
+  if (!data) throw new Error('That picture could not be prepared.');
+  return { mime: 'image/jpeg', data };
+}

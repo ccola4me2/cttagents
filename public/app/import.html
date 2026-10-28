@@ -152,7 +152,7 @@ Guest 1: COLE/DEBORAH"></textarea>
      loaded only on this page. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script type="module">
-import { api, mountShell, esc, money, dateFmt, showError } from '/js/app.js';
+import { api, mountShell, esc, pictureForReading, money, dateFmt, showError } from '/js/app.js';
 import { confirmNewClient, reviewGuests } from '/js/new-client.js';
 await mountShell();
 
@@ -379,27 +379,6 @@ async function textFromPdf(file) {
 // the file is no longer what is being read.
 let confFile = null;
 document.getElementById('conf-text').addEventListener('input', () => { confFile = null; });
-
-/**
- * A picture, made small enough to send and as readable as it was.
- *
- * A phone photo is several megabytes and a read does not need them. Scaled so the long side is at most 1800 pixels and saved
- * as a JPEG, it is a few hundred kilobytes, which is also faster. Done here so nothing needs the portal to resize it.
- */
-async function pictureForReading(file) {
-  let bitmap;
-  try { bitmap = await window.createImageBitmap(file); } catch {
-    throw new Error(`${file.name || 'That picture'} could not be opened. Take a screenshot of it instead.`);
-  }
-  const scale = Math.min(1, 1800 / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.round(bitmap.width * scale);
-  canvas.height = Math.round(bitmap.height * scale);
-  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  const data = canvas.toDataURL('image/jpeg', 0.85).split(',')[1] || '';
-  if (!data) throw new Error('That picture could not be prepared.');
-  return { mime: 'image/jpeg', data };
-}
 
 /** One file, as text. A PDF here, a saved email and a picture by the portal. */
 async function textFromFile(file) {
