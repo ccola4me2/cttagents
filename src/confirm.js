@@ -1053,11 +1053,11 @@ export function parseConfirmation(text) {
   };
 
   // A number followed by a note in brackets, "2237244 (Group ID Not Applicable)", is the number.
-  // Only something that looks like a number: "Booking ID" is also how a page introduces a paragraph of terms, and a sentence is
+  // Only something short: "Booking ID" is also how a page introduces a paragraph of terms, and a sentence is
   // not a confirmation number. A line that fails is passed over, so a real number further down is still found.
   const numberLike = (v) => {
     const first = clean(String(v).split(/\s{2,}/)[0], 80).replace(/\s*\(.*$/, '').trim();
-    return /\d/.test(first) && first.length <= 30 && first.split(/\s+/).length <= 3;
+    return Boolean(first) && first.length <= 30 && first.split(/\s+/).length <= 3;
   };
   take('confirmationNumber', LABELS.confirmationNumber, (v) => {
     const first = clean(v.split(/\s{2,}/)[0], 80);
