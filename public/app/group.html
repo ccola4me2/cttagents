@@ -540,6 +540,73 @@ function quoteSaid(d) {
   return parts.join(' ');
 }
 
+/**
+ * A proposal PDF's text, read in the browser. The portal's own reader has a few seconds a Worker allows, and a proposal with big
+ * embedded fonts can take longer than that and come back as an error page. The browser opens the same file in a fraction of a second,
+ * and the text is all the reader needs. Rebuilt into lines by vertical position, the way the Import page does it.
+ */
+async function proposalText(file) {
+  if (!window.pdfjsLib) {
+    await new Promise((resolve, reject) => {
+      const tag = document.createElement('script');
+      tag.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      tag.onload = resolve;
+      tag.onerror = () => reject(new Error('The PDF reader did not load.'));
+      document.head.appendChild(tag);
+    });
+  }
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const doc = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const out = [];
+  for (let i = 1; i <= Math.min(doc.numPages, 12); i += 1) {
+    const content = await (await doc.getPage(i)).getTextContent();
+    const rows = new Map();
+    for (const item of content.items) {
+      if (!item.str || !item.str.trim()) continue;
+      const y = Math.round(item.transform[5]);
+      if (!rows.has(y)) rows.set(y, []);
+      rows.get(y).push({ x: item.transform[4], str: item.str });
+    }
+    for (const y of [...rows.keys()].sort((a, b) => b - a)) {
+      out.push(rows.get(y).sort((a, b) => a.x - b.x).map((w) => w.str).join(' ').replace(/\s+/g, ' ').trim());
+    }
+  }
+  return out.join('\n');
+}
+
+/** What the portal made of the file, by whichever way works: the answer, never an error page. */
+async function readProposal(file) {
+  const send = async (body, type, ms) => {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), ms);
+    try {
+      const res = await fetch('/api/groups/quote', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': type }, body, signal: ctl.signal,
+      });
+      // A Worker that ran out of time answers with a web page, not JSON.
+      return await res.json().catch(() => null);
+    } catch { return null; } finally { clearTimeout(timer); }
+  };
+  const viaText = async () => {
+    try {
+      const text = await proposalText(file);
+      return text.length < 200 ? null : await send(new Blob([text], { type: 'text/plain' }), 'text/plain', 20000);
+    } catch { return null; }
+  };
+  // A group that exists wants only the rates, so the quick way goes first. A new group keeps the portal's own reader first.
+  if (groupId) {
+    const quick = await viaText();
+    if (quick && quick.read) return quick;
+  }
+  const direct = await send(file, 'application/pdf', 25000);
+  if (direct && direct.read) return direct;
+  const text = groupId ? null : await viaText();
+  if (text && text.read) return text;
+  const best = direct || text;
+  if (best) return best;
+  throw new Error('The portal could not open that file. It is not a problem with the proposal: try again, or paste the figures in by hand.');
+}
+
 const quoteFile = document.getElementById('quote-file');
 if (quoteFile) quoteFile.addEventListener('change', async () => {
   const file = quoteFile.files && quoteFile.files[0];
@@ -550,12 +617,7 @@ if (quoteFile) quoteFile.addEventListener('change', async () => {
   ok.hidden = false;
   ok.textContent = 'Reading ' + file.name + '...';
   try {
-    const res = await fetch('/api/groups/quote', {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/pdf' }, body: file,
-    });
-    const d = await res.json();
-    if (!res.ok) throw new Error(d.error || 'That file could not be read.');
+    const d = await readProposal(file);
     if (!d.read) {
       ok.hidden = true;
       bad.hidden = false;

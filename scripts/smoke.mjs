@@ -2820,6 +2820,10 @@ async function main() {
 
   // A proposal read for a group that already exists fills in its rates and nothing else.
   if (groupId) {
+    // A proposal the browser read: its text is accepted in place of the PDF, and answered the same way.
+    const asText = await call(advisor, 'POST', '/api/groups/quote', 'This is a paragraph of ordinary words about a holiday that is not a group proposal of any kind.', { 'Content-Type': 'text/plain' });
+    check(asText.status === 200 && asText.data?.read === false && asText.data?.chars > 40,
+      'the text of a proposal is accepted in place of the PDF', JSON.stringify([asText.status, asText.data?.read, asText.data?.chars, asText.data?.why]));
     const empty = await call(advisor, 'PUT', `/api/groups/${groupId}/rates`, { rates: [] });
     check(empty.status === 400, 'saving no rates is refused', `status ${empty.status}`);
     const filled = await call(advisor, 'PUT', `/api/groups/${groupId}/rates`, { rates: [

@@ -1044,7 +1044,12 @@ export async function handleParseQuote(request, env) {
     return badRequest('That file is larger than 8MB, which is bigger than any proposal.');
   }
 
-  const file = await pdfRead(buf);
+  // Either the PDF itself, which the server opens, or just its text, which the page read in the browser. The second is for a file
+  // the server cannot open in the time a Worker has: the text of a proposal is the same either way.
+  const asText = String(request.headers.get('content-type') || '').toLowerCase().startsWith('text/plain');
+  const file = asText
+    ? { text: new TextDecoder().decode(buf).slice(0, 400000), images: 0, conflicts: 0, encryption: 'none' }
+    : await pdfRead(buf);
   const out = parseGroupQuote(file.text);
 
   // Why it could not be read, in terms the screen can act on. An empty result

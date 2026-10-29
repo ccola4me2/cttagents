@@ -55,6 +55,9 @@ export function cabinRows(t) {
   const rows = [];
   const re = /([A-Z][A-Za-z'&\- ]+?)\s+(Single|Double|Triple|Quad)(?:\s*\(([^)]*)\))?\s+(\d+)\s+(\d+)\s+((?:\$[\d,]+\.\d{2}\s*){3,5})/g;
   let m;
+  // Amounts left over by the row before. Some files hand the extra adult and extra child prices back on the line above or below the row
+  // they belong to, so a row's own three figures can be followed by the next row's extras.
+  let carried = [];
   while ((m = re.exec(block[1]))) {
     const amounts = m[6].match(/\$[\d,]+\.\d{2}/g).map(money);
     const row = {
@@ -69,6 +72,7 @@ export function cabinRows(t) {
       taxes: amounts[amounts.length - 2],
       totalFare: amounts[amounts.length - 1],
     };
+    const words = m[3] || '';
     const middle = amounts.slice(1, -2);
     if (middle.length === 2) {
       [row.extraAdult, row.extraChild] = middle;
@@ -76,12 +80,56 @@ export function cabinRows(t) {
       // One extra, and the row does not say whose. Only the words can: adult and
       // child extras add up to the same total, so the arithmetic below cannot
       // tell them apart, only confirm that the figure belongs on the row at all.
-      const words = m[3] || '';
       if (/child/i.test(words) && !/adult/i.test(words)) row.extraChild = middle[0];
       else row.extraAdult = middle[0];
     }
     row.reconciles = reconcile({ ...row, occupancy: m[2] })
       .fits(row.extraAdult || row.extraChild);
+    let leftover = [];
+    if (!row.reconciles) {
+      // The row as read does not add up. Try it as the main rate, the tax and the total, with whatever amounts were left lying about
+      // (the row before's, or the ones after this row's own three) standing in for the extras.
+      const own = { ...row, perGuest: amounts[0], taxes: amounts[1], totalFare: amounts[2], extraAdult: 0, extraChild: 0 };
+      const trailing = amounts.slice(3);
+      const loose = [...carried, ...trailing];
+      const capacity = m[2] === 'Single' ? own.cabins : 2 * own.cabins;
+      const beyond = Math.max(0, own.guests - capacity);
+      // Who the extra guests are, from the words: "3 Adults, 1 Child" in a cabin is one extra adult and one extra child, "2 Adults,
+      // 2 Child" is two extra children, "2 Adult, 1 Child" one. The first two in a cabin are the adults who pay the main rate.
+      const adults = Number((/(\d+)\s*adult/i.exec(words) || [])[1]);
+      const children = Number((/(\d+)\s*child/i.exec(words) || [])[1]);
+      let exAdult = 0;
+      let exChild = 0;
+      if (Number.isFinite(adults) || Number.isFinite(children)) {
+        exAdult = Math.max(0, (adults || 0) - 2) * own.cabins;
+        exChild = (children || 0) * own.cabins;
+      }
+      if (exAdult + exChild !== beyond) { exAdult = beyond; exChild = 0; }
+      const total = (a, c) => own.guests * own.taxes + Math.min(own.guests, capacity) * own.perGuest + exAdult * a + exChild * c;
+      const fits = (a, c) => Math.abs(total(a, c) - own.totalFare) <= 0.01;
+      let found = null;
+      if (beyond === 0) {
+        if (fits(0, 0)) found = { adult: 0, child: 0, used: [] };
+      } else {
+        for (let i = 0; i < loose.length && !found; i += 1) {
+          for (let j = 0; j < loose.length && !found; j += 1) {
+            if (exAdult > 0 && exChild > 0) {
+              // Both kinds: one price each, or one price that serves both when only one was printed.
+              if ((i === j || loose[i] !== loose[j] || i < j) && fits(loose[i], loose[j])) found = { adult: loose[i], child: loose[j], used: i === j ? [i] : [i, j] };
+            } else if (j === i) {
+              if (exAdult > 0 && fits(loose[i], 0)) found = { adult: loose[i], child: 0, used: [i] };
+              if (!found && exChild > 0 && fits(0, loose[i])) found = { adult: 0, child: loose[i], used: [i] };
+            }
+          }
+        }
+      }
+      if (found) {
+        Object.assign(row, own, { extraAdult: found.adult, extraChild: found.child, reconciles: true });
+        // Only what this row's own line carried after its three figures can belong to the row after; the rest was the row before's.
+        leftover = trailing.filter((_v, idx) => !found.used.includes(carried.length + idx));
+      }
+    }
+    carried = leftover;
     rows.push(row);
   }
   return rows;
