@@ -33,6 +33,13 @@ const clean = () => ({
 });
 
 is('a plain complete reading is clean', verdict(clean(), TODAY).ok, true);
+{
+  // A guest copy reads cleanly enough, but has no commission: it is held, never made into a reservation by itself.
+  const guest = clean();
+  guest.notice = 'This is the cruise line\u2019s Guest Copy.';
+  const v = verdict(guest, TODAY);
+  is('a guest copy is held, however complete it reads', [v.ok, /Agent Copy/.test(v.why || '')], [false, true]);
+}
 
 for (const [key, word] of [['clientName', 'the client'], ['confirmationNumber', 'the confirmation number'], ['supplier', 'the cruise line'],
   ['productName', 'the ship'], ['departDate', 'the departure date'], ['returnDate', 'the return date'], ['gross', 'the trip total']]) {

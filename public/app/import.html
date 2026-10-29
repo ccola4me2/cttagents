@@ -792,6 +792,13 @@ document.getElementById('conf-create').addEventListener('click', async () => {
   const createErr = document.getElementById('conf-create-error');
   const btn = document.getElementById('conf-create');
   createErr.hidden = true;
+  // Every reservation is made from the agent copy. The guest copy has no commission, so it is not made into a reservation here.
+  if (lastRead && lastRead.notice) {
+    createErr.textContent = 'This is the Guest Copy, which has no commission. Upload the Agent Copy for this booking instead.';
+    createErr.hidden = false;
+    createErr.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    return;
+  }
   const body = { status: 'booked' };
   const bad = [];
   document.querySelectorAll('[data-conf]').forEach((el) => {
