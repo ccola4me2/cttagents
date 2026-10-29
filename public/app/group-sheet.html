@@ -13,7 +13,16 @@
   .sheet input[type="number"] { width: 4.2rem; min-width: 0; }
   .sheet input[type="checkbox"] { width: auto; min-width: 0; }
   .sheet tr.cancelled td { opacity: .5; }
-  .sheet .wide input { min-width: 11rem; }
+  .sheet .wide input { min-width: 15rem; }
+  /* Every box wide enough for what goes in it, so nothing is cut off at the edge and read as something else. */
+  .sheet input[data-field="cabinNo"] { min-width: 5rem; }
+  .sheet input[data-field="category"] { min-width: 10rem; }
+  .sheet input[data-field="bookedBy"] { min-width: 9.5rem; }
+  .sheet input[data-field="bookingNo"] { min-width: 8rem; }
+  .sheet select[data-field="status"] { min-width: 9rem; }
+  /* The dollar sign sits inside the left of a money box. The sheet's own padding was winning over the room made for it, so the sign was
+     drawn on top of the first digit and 1,140.44 read as 140.44. */
+  .sheet input[data-money] { min-width: 8.5rem; padding-left: 1.3rem; }
   .pills { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
 </style>
 </head>
