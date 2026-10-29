@@ -481,18 +481,20 @@ function drawRates(rates) {
   const perGuest = (r) => {
     const base = cash(get(r, 'per_guest_cents', 'perGuestCents'));
     const more = extraGuestsOf(r);
-    if (!more.length) return base;
-    return `<span class="pg-main">${base}</span><span class="pg-note">Guests 1 &amp; 2</span>${more.map((e) =>
+    // Every cabin says whose price this is, under the price, doubles included.
+    const lead = `<span class="pg-main">${base}</span><span class="pg-note">per guest &middot; guests 1 &amp; 2</span>`;
+    if (!more.length) return lead;
+    return `${lead}${more.map((e) =>
       `<span class="pg-extra"><span>${ordinalOf(e.nth)} guest${e.kind ? ` (${e.kind})` : ''}</span><b>${cash(e.cents)}</b></span>`).join('')}`;
   };
   host.innerHTML = `<p class="label" style="margin:1.2rem 0 .5rem;">Rates the vendor quoted</p>
     <div class="rates-wrap"><table class="rates-grid">
-      <thead><tr><th>Room type</th><th class="num">Cabins</th><th class="num">Guests</th><th class="num">Per guest</th><th class="num">Tax</th><th class="num">Total</th></tr></thead>
+      <thead><tr><th>Room type</th><th class="num">Cabins</th><th class="num">Guests</th><th class="num">Price</th><th class="num">Tax</th><th class="num">Total</th></tr></thead>
       <tbody>${rates.map((r) => `<tr>
         <td class="room">${esc(r.room_type || r.roomType || '')}${
           (r.occupancy) ? `<span class="muted">${esc(r.occupancy)}</span>` : ''}</td>
         <td class="num" data-label="Cabins">${r.cabins || 0}</td><td class="num" data-label="Guests">${r.guests || 0}</td>
-        <td class="num perguest${extraGuestsOf(r).length ? ' has-extra' : ''}" data-label="Per guest">${perGuest(r)}</td>
+        <td class="num perguest${extraGuestsOf(r).length ? ' has-extra' : ''}" data-label="Price">${perGuest(r)}</td>
         <td class="num" data-label="Tax">${cash(get(r, 'taxes_cents', 'taxesCents'))}</td>
         <td class="num total" data-label="Total">${cash(get(r, 'total_cents', 'totalCents'))}${
           r.reconciles === false

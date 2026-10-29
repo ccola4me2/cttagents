@@ -356,7 +356,7 @@ ${head}
   .rate b{font-size:1.02rem;color:var(--navy)}
   .rate .price{font-size:1.15rem;font-weight:700;color:var(--navy);
                font-variant-numeric:tabular-nums;white-space:nowrap}
-  .rate .per{font-size:.76rem;font-weight:400;color:var(--soft)}
+  .rate .per{display:block;margin-top:.1rem;font-size:.76rem;font-weight:400;color:var(--soft);text-align:right}
   .rate .meta{margin:.45rem 0 0;font-size:.86rem;color:var(--soft)}
   .occ-note{margin:0 0 1rem;padding:.65rem .9rem;border-left:3px solid var(--navy);background:#f3f7fb;border-radius:0 8px 8px 0;font-size:.88rem;color:var(--ink)}
   .occ-note b{color:var(--navy)}
@@ -741,7 +741,7 @@ function rateCards(rates, base, state) {
     return `<div class="rate${out ? ' gone' : ''}">
       <div class="rate-top"><b>${esc(r.room_type)}</b>
         ${r.per_guest_cents
-    ? `<span class="price">${money(r.per_guest_cents + (Number(r.taxes_cents) || 0))}<span class="per"> per guest${more.length ? ', guests 1 and 2' : ''}</span></span>`
+    ? `<span class="price">${money(r.per_guest_cents + (Number(r.taxes_cents) || 0))}<span class="per">per guest &middot; guests 1 and 2</span></span>`
     : '<span class="price"><span class="per">Price to come</span></span>'}</div>
       ${meta ? `<p class="meta">${meta}</p>` : ''}
       ${extras}

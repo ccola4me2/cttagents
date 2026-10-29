@@ -1773,13 +1773,13 @@ code { overflow-wrap: anywhere; }
 
 /* A cabin that is not a double: the price for the first two guests, then each further guest on a highlighted line of their own. */
 .rates-grid .pg-main { display: block; }
-.rates-grid .pg-note { display: block; margin-top: .05rem; font-size: .7rem; color: var(--ink-400); text-transform: uppercase; letter-spacing: .05em; }
+.rates-grid .pg-note { display: block; margin-top: .1rem; font-size: .72rem; color: var(--ink-400); }
 .rates-grid .pg-extra { display: flex; justify-content: space-between; align-items: baseline; gap: .8rem; margin-top: .35rem; padding: .3rem .55rem;
   background: var(--teal-50); border-left: 3px solid var(--teal-500); border-radius: 6px; font-size: .78rem; text-align: left; white-space: nowrap; }
 .rates-grid .pg-extra b { color: var(--navy-800); font-weight: 700; }
 .rates-grid .perguest { min-width: 11.5rem; }
 @media (max-width: 640px) {
-  .rates-grid td.has-extra { grid-column: 1 / -1; display: block; text-align: left; }
-  .rates-grid td.has-extra::before { display: block; margin-bottom: .2rem; }
+  .rates-grid td.perguest { grid-column: 1 / -1; display: block; text-align: left; }
+  .rates-grid td.perguest::before { display: block; margin-bottom: .2rem; }
   .rates-grid .perguest { min-width: 0; }
 }
