@@ -212,6 +212,27 @@ const qp = (s) => unescape(encodeURIComponent(s)).replace(/=/g, '=3D').replace(/
     [guestCopy.fields.clientName, guestCopy.guests.length, guestCopy.fields.confirmationNumber, guestCopy.fields.gross], ['Anna Sample', 3, '1234567', '2800.00']);
   is('and it says there is no commission, instead of leaving the blank unexplained', [guestCopy.fields.commission, /Guest Copy/.test(guestCopy.notice)], [undefined, true]);
   is('while an agent copy says nothing of the kind', g.notice, '');
+
+  // A copy where one guest pays only the port taxes: the fare row has two figures and a total for three guests, and the commission row the same.
+  // The count of guests comes from the gross row, which every guest has.
+  const oneTaxOnly = parseConfirmation([
+    'Booking Confirmation - Agent Copy', 'General Information',
+    'TEST TRAVEL LLC Reservation ID: 1234568 (Group ID Not Applicable) Booking Date: 12 OCT 2026',
+    'Attn:PAT AGENT Ship: EXPLORER OF THE SEAS Booking Status Offer', 'Departure Date: 16 DEC 2026', 'Itinerary: 5 NIGHT WESTERN CARIBBEAN CRUISE',
+    'Sailing Date: 16 DEC 2026', 'Guest Information Guest #1 Guest #2 Guest #3 Guest #4',
+    'Guest Name ANNA BEN CARA', 'SAMPLE SAMPLE SAMPLE', 'Crown & Anchor Number', 'Age Range 21 - 24 21 - 24 21 - 24',
+    'Booking Charges Comm/', 'Guest #1 Guest #2 Guest #3 Guest #4 Total', 'Currency: USD Admin Rate',
+    'Cruise Fare 1129.00 1129.00 2258.00 10%', 'Non Comm Cruise Fare 145.00 145.00 290.00 0%',
+    'Savings NRD -200.00 -200.00 10%', 'Taxes, fees, and port expenses 118.23 118.23 118.23 354.69 0%',
+    'Gross Charges 1192.23 1192.23 118.23 2502.69 0%', 'Comm/Admin 92.90 92.90 185.80', 'Total Comm/Admin 185.80',
+    'Net Charges 1099.33 1099.33 118.23 2316.89', 'Amount Paid 0.00', 'Net Balance Due 2316.89',
+  ].join('\n'));
+  is('a guest who pays only the port taxes does not hide the others: three names, the client first, the total and the commission',
+    [oneTaxOnly.guests, oneTaxOnly.fields.clientName, oneTaxOnly.fields.travellers, oneTaxOnly.fields.gross, oneTaxOnly.fields.commission],
+    [['Anna Sample', 'Ben Sample', 'Cara Sample'], 'Anna Sample', 3, '2502.69', '185.80']);
+  is('and the figures land on the guests who pay a fare, and the taxes-only guest owes only their taxes',
+    (oneTaxOnly.pricing && oneTaxOnly.pricing.guests || []).map((x) => [x.name, x.fare, x.taxes]),
+    [['Anna Sample', '1074.00', '118.23'], ['Ben Sample', '1074.00', '118.23'], ['Cara Sample', '0.00', '118.23']]);
   is('a Royal Caribbean copy puts its itinerary line in the reservation\'s itinerary, as printed',
     [guestCopy.fields.itinerary, guestCopy.fields.itinerary === guestCopy.fields.destination], ['5 NIGHT WESTERN CARIBBEAN', true]);
 }

@@ -688,14 +688,26 @@ function readRoyalPricing(lines, fields, listed) {
   const fare = rcRow(lines, /^cruise fare\s+/i);
   const gross = rcRow(lines, /^gross charges\s+/i);
   if (!fare || !gross) return null;
-  const n = fare.values.length - 1;
-  if (n < 1 || gross.values.length !== n + 1) return null;
+  const n = gross.values.length - 1;
+  if (n < 1) return null;
 
   const nonComm = rcRow(lines, /^non comm cruise fare\s+/i);
   const taxes = rcRow(lines, /^taxes, fees,? and port expenses\s+/i);
   const comm = rcRow(lines, /^comm\/admin\s+/i);
-  const col = (row) => (row && row.values.length === n + 1 ? row.values.slice(0, n) : new Array(n).fill(0));
-  const f = col(fare); const nc = col(nonComm); const tx = col(taxes); const gr = col(gross); const cm = col(comm);
+  const whole = (row) => (row && row.values.length === n + 1 ? row.values.slice(0, n) : null);
+  const tx = whole(taxes) || new Array(n).fill(0);
+  const gr = gross.values.slice(0, n);
+  // A row with a figure for only some of the guests does not say which. The guests who pay a fare are the ones whose gross is more than their
+  // taxes, so when the count of figures matches the count of those guests, that is where they go.
+  const paying = gr.map((x, i) => i).filter((i) => gr[i] - tx[i] > 0.005);
+  const col = (row) => {
+    const full = whole(row);
+    if (full) return full;
+    const out = new Array(n).fill(0);
+    if (row && row.values.length - 1 === paying.length) paying.forEach((guest, k) => { out[guest] = row.values[k]; });
+    return out;
+  };
+  const f = col(fare); const nc = col(nonComm); const cm = col(comm);
 
   const netFare = f.map((x, i) => x + nc[i] + (gr[i] - x - nc[i] - tx[i]));
   const sum = (a) => a.reduce((s, x) => s + x, 0);
@@ -1149,8 +1161,11 @@ export function parseConfirmation(text) {
   let royalPeople = [];
   if (royal) {
     readRoyal(lines, String(text || ''), fields, from);
+    // Every guest has a gross charge, so that row says how many there are. The fare row does not: a guest who pays only the port taxes has
+    // a blank under the fare, and counting from it came up one short and dropped every name.
+    const grossRow = rcRow(lines, /^gross charges\s+/i);
     const fareRow = rcRow(lines, /^cruise fare\s+/i);
-    royalPeople = rcGuests(lines, fareRow ? fareRow.values.length - 1 : 0);
+    royalPeople = rcGuests(lines, grossRow ? grossRow.values.length - 1 : (fareRow ? fareRow.values.length - 1 : 0));
   }
 
   // Carnival's advisor copy, an email with the labels and figures separated by tabs.
