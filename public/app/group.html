@@ -1472,8 +1472,10 @@ async function load() {
       // Somebody else's group. Readable, because an owner can see the whole
       // agency, but not editable from here.
       [...form.elements, ...regForm.elements].forEach((el) => { el.disabled = true; });
+      // The label replaces the buttons, so on the desk the Cabin sheet button is written in beside it: every member works every sheet.
       document.getElementById('actions').innerHTML =
-        `<span class="badge badge-navy">${esc(group.advisor_name || 'Another advisor')}'s group</span>`;
+        `${me.desk ? `<a class="btn btn-primary" id="sheet-link" href="/app/group-sheet?id=${encodeURIComponent(group.id)}">Cabin sheet</a> ` : ''}`
+        + `<span class="badge badge-navy">${esc(group.advisor_name || 'Another advisor')}'s group</span>`;
     }
   } catch (err) { showError(document.getElementById('err'), err); }
 }
