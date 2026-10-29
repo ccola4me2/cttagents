@@ -646,16 +646,28 @@ const addDays = (iso, n) => new Date(Date.parse(`${iso}T00:00:00Z`) + n * 864000
 
 /** Whether a document is one of this family's agent copies. */
 function isRoyalFamily(text) {
-  return /booking confirmation\s*-\s*agent copy/i.test(text) && /total comm\/admin/i.test(text);
+  if (!/booking confirmation\s*-\s*agent copy/i.test(text)) return false;
+  // An offer or a copy with the commission left off may not print the commission total, but it still has this family's two grids.
+  return /total comm\/admin/i.test(text) || (/general information/i.test(text) && /guest information/i.test(text));
 }
 
-/** The people: a row of first names and a row of surnames, one word each, a column a guest. */
+/**
+ * The people: a row of first names and a row of surnames, one word each, a column a guest.
+ *
+ * `n` is how many guests the price columns say there are; when the charges could not be read it is 0, and the names are
+ * taken as they stand, since a guest list is worth having whether or not the money could be read.
+ */
 function rcGuests(lines, n) {
   const at = lines.findIndex((l) => /^guest name\b/i.test(l.trim()));
   if (at < 0) return [];
   const first = lines[at].trim().replace(/^guest name\s*/i, '').split(/\s+/).filter(Boolean);
-  const last = (lines[at + 1] || '').trim().split(/\s+/).filter(Boolean);
-  if (first.length !== n || last.length !== n) return [];
+  let next = at + 1;
+  while (next < lines.length && !lines[next].trim()) next += 1;
+  const last = (lines[next] || '').trim().split(/\s+/).filter(Boolean);
+  if (!first.length || first.length > 12 || last.length !== first.length) return [];
+  if (n > 0 && first.length !== n) return [];
+  // A row of surnames is words and nothing else: a figure or a label there means the next line is not the surnames.
+  if (last.some((w) => /\d/.test(w) || /^(?:crown|age|dining|departure|special)$/i.test(w))) return [];
   return first.map((f, i) => ({ name: fixCaps(`${f} ${last[i]}`), line: lines[at].trim() }));
 }
 
@@ -1134,8 +1146,8 @@ export function parseConfirmation(text) {
   let royalPeople = [];
   if (royal) {
     readRoyal(lines, String(text || ''), fields, from);
-    const n = (rcRow(lines, /^cruise fare\s+/i) || { values: [0, 0] }).values.length - 1;
-    royalPeople = rcGuests(lines, n);
+    const fareRow = rcRow(lines, /^cruise fare\s+/i);
+    royalPeople = rcGuests(lines, fareRow ? fareRow.values.length - 1 : 0);
   }
 
   // Carnival's advisor copy, an email with the labels and figures separated by tabs.
@@ -1195,6 +1207,16 @@ export function parseConfirmation(text) {
     || (royal ? readRoyalPricing(lines, fields, people) : null)
     || (/booking components per guest/i.test(text) ? readNclPricing(lines, fields, people) : null)
     || readPricing(lines, fields, people);
+
+  // The charges row, when the table was run together and the figures could not be read by label: the total is the figure after the
+  // guests' own, in the first line under "Gross Charges" with a figure for each guest and a total.
+  if (royal && !fields.gross && royalPeople.length) {
+    const g = lines.findIndex((l) => /gross charges/i.test(l));
+    for (let k = g; g >= 0 && k < Math.min(lines.length, g + 3); k += 1) {
+      const figs = (lines[k].match(RC_MONEY) || []).map(cleanMoney);
+      if (figs.length > royalPeople.length) { fields.gross = fixed(figs[royalPeople.length]); from.gross = lines[k].trim().slice(0, 160); break; }
+    }
+  }
 
   // Said once it is plain, so it does not depend on a reservation form's default.
   if (fields.productName || fields.cabin || /\b(?:cruise|stateroom|sailing|embark)/i.test(text)) {

@@ -166,6 +166,33 @@ const qp = (s) => unescape(encodeURIComponent(s)).replace(/=/g, '=3D').replace(/
   is('and a real number further down is still found', parseConfirmation([...offer, 'Booking ID: 8765432'].join('\n')).fields.confirmationNumber, '8765432');
 }
 
+// ------------------------------------------- Royal Caribbean: guests in a grid ---
+{
+  // Guest 1 is the client. The names are a row of first names and a row of surnames, a column a guest, and the charges table may come
+  // out with its rows run together, so the guests and the total are found without depending on it. Invented, shaped like the real one.
+  const grid = [
+    'Booking Confirmation - Agent Copy', 'Issue Date: 13 OCT 2026', 'General Information',
+    'TEST TRAVEL LLC Reservation ID: 1234567 (Group ID Not Applicable) Booking Date: 12 OCT 2026',
+    'Attn:PAT AGENT Ship: EXPLORER OF THE SEAS Booking Status Offer', '5551234567 Departure Date: 16 DEC 2026',
+    '1 SAMPLE STREET Itinerary: 5 NIGHT WESTERN CARIBBEAN', 'CITY,FL-33000 Stateroom: NQ-GTY BALCONY QUD GTY',
+    'Sailing Date: 16 DEC 2026',
+    'Guest Information Guest #1 Guest #2 Guest #3 Guest #4', 'Guest Name ANNA BEN CARA DAN', 'SAMPLE SAMPLE SAMPLE SAMPLE',
+    'Crown & Anchor Number', 'Age Range 25 - 45 25 - 45 00 - 17 00 - 17',
+    'Booking Charges', 'Currency: USD Guest #1 Guest #2 Guest #3 Guest #4 Total Admin Rate',
+    'Cruise Fare 1000.00 1000.00 500.00 500.00 3000.00 Non Comm Cruise Fare 100.00 100.00 100.00 100.00 400.00',
+    'Gross Charges Comm/Admin 300.00',
+    '1100.00 1100.00 600.00 600.00 3400.00 100.00 100.00 50.00 50.00 300.00',
+    'Total Comm/Admin 300.00',
+  ];
+  const g = parseConfirmation(grid.join('\n'));
+  is('the first guest in the grid is the client', g.fields.clientName, 'Anna Sample');
+  is('every guest is listed, in order', g.guests, ['Anna Sample', 'Ben Sample', 'Cara Sample', 'Dan Sample']);
+  is('and the trip total is the gross charges, even when the table runs together', g.fields.gross, '3400.00');
+  const noComm = parseConfirmation(grid.filter((l) => !/^Total Comm/.test(l)).join('\n'));
+  is('an offer that prints no commission total is still read as this family', [noComm.fields.supplier, noComm.fields.clientName], ['Royal Caribbean', 'Anna Sample']);
+  is('and the number is the reservation id, not the dining booking id', g.fields.confirmationNumber, '1234567');
+}
+
 // ------------------------------------------------- picture attachments ---
 {
   // A screenshot of a confirmation, sent as a picture. It has to be found so it can be read, and a small logo in a signature must not be.
