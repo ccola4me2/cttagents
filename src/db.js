@@ -5,6 +5,7 @@
 // opportunities and conversations are read live from GoHighLevel (see ghl.js)
 // and are deliberately not mirrored here.
 
+import { validZone } from './eventzone.js';
 import { uid, now } from './util.js';
 import {
   SPLIT_PCT_SQL, ADVISOR_SHARE_SQL, UNSPLIT_SQL, EARNED_SQL, COMMISSION_RECEIVED,
@@ -74,14 +75,22 @@ export async function emailExists(env, email) {
   return Boolean(row);
 }
 
+/** The zone a new account starts in: one that was asked for and is real, else the portal's, else Eastern. */
+function startingZone(env, asked) {
+  for (const zone of [asked, env && env.PORTAL_TZ]) {
+    if (zone && validZone(zone)) return zone;
+  }
+  return 'America/New_York';
+}
+
 export async function createUser(env, fields) {
   const ts = now();
   const id = uid();
   await env.DB.prepare(
     `INSERT INTO users
        (id, email, password_hash, first_name, last_name, phone, agency_name,
-        role, status, created_at, updated_at, agency_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        role, status, created_at, updated_at, agency_id, timezone)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     id,
     fields.email,
@@ -94,7 +103,10 @@ export async function createUser(env, fields) {
     fields.status || 'pending',
     ts,
     ts,
-    fields.agencyId || null
+    fields.agencyId || null,
+    // A new account starts on the portal's own zone, Eastern unless the portal says otherwise, so the setting on their Settings page
+    // is never blank. They change it there.
+    startingZone(env, fields.timezone)
   ).run();
   return getUserById(env, id);
 }

@@ -296,6 +296,7 @@ async function main() {
   const list = await call(admin, 'GET', '/api/admin/advisors');
   const created = (list.data?.users || []).find((a) => a.email === ADVISOR_EMAIL);
   check(Boolean(created), 'and they show up in the advisor list');
+  check(created && created.timezone === 'America/New_York', 'a new account starts on Eastern, not blank', String(created && created.timezone));
   check(created?.status === 'active', 'active from the start, since nobody asked to join', created?.status);
 
   const advisor = jar();
