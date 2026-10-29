@@ -493,7 +493,7 @@ export function parseClientPaste(text, mapping) {
       passportCountry: clean(raw.passportCountry, 80),
       passportExpiry: anyDate(raw.passportExpiry),
       knownTraveler: clean(raw.knownTraveler, 40),
-      gender: clean(raw.gender, 40),
+      gender: (() => { const g = clean(raw.gender, 40); return /^(m|male|man)$/i.test(g) ? 'Male' : /^(f|female|woman)$/i.test(g) ? 'Female' : g; })(),
       source: clean(raw.source, 80),
       notes: clean(raw.notes, 4000),
       problems: [],

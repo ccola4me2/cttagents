@@ -346,7 +346,7 @@ function travelFields(body) {
     legalFirst: clean(body.legalFirst, 80) || null,
     legalMiddle: clean(body.legalMiddle, 80) || null,
     legalLast: clean(body.legalLast, 80) || null,
-    gender: clean(body.gender, 40) || null,
+    gender: genderOf(body.gender),
     citizenship: clean(body.citizenship, 80) || null,
     passportNumber: clean(body.passportNumber, 40) || null,
     passportCountry: clean(body.passportCountry, 80) || null,
@@ -362,6 +362,18 @@ function travelFields(body) {
     knownTraveler: clean(body.knownTraveler, 40) || null,
     redress: clean(body.redress, 40) || null,
   };
+}
+
+/**
+ * Male or Female, however it was typed: "m", "F", "female ", "MALE". Something else is kept as it was written rather than guessed at, since a
+ * passport may say X and a vendor's form may say Unspecified.
+ */
+function genderOf(value) {
+  const text = clean(value, 40);
+  if (!text) return null;
+  if (/^(m|male|man)$/i.test(text)) return 'Male';
+  if (/^(f|female|woman)$/i.test(text)) return 'Female';
+  return text;
 }
 
 const TRAVEL_SET = `legal_first = ?, legal_middle = ?, legal_last = ?, gender = ?,

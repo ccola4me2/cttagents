@@ -594,6 +594,19 @@ async function main() {
     check(made.data?.existing === false, 'and is new');
     const cid = made.data?.client?.id;
 
+    // Gender is Male or Female however it was typed; something else is kept as written. On a client of its own, since a full save
+    // replaces everything and would blank what the checks below rely on.
+    const gnm = `Gender Check ${stamp}`;
+    const asF = await call(advisor, 'POST', '/api/clients', { name: gnm, gender: ' f ' });
+    check(asF.data?.client?.gender === 'Female', 'a client\'s gender typed as f is kept as Female', asF.data?.client?.gender);
+    const gid = asF.data?.client?.id;
+    if (gid) {
+      const asM = await call(advisor, 'PUT', `/api/clients/${gid}`, { name: gnm, gender: 'MALE' });
+      check(asM.data?.client?.gender === 'Male', 'and MALE as Male', asM.data?.client?.gender);
+      const asX = await call(advisor, 'PUT', `/api/clients/${gid}`, { name: gnm, gender: 'X' });
+      check(asX.data?.client?.gender === 'X', 'and something else as it was written', asX.data?.client?.gender);
+    }
+
     const listed = await call(advisor, 'GET', `/api/clients?q=${encodeURIComponent(nm)}`);
     check((listed.data?.clients || []).some((c) => c.id === cid),
       'and shows up on the client list');

@@ -176,6 +176,14 @@ const sourceKindName = (d, id) =>
   ((d.sourceKinds || []).find((k) => k.id === id) || {}).name || 'Not recorded';
 const me = await mountShell();
 
+/** Male or Female, however an older record spelled it ("M", "female"); anything else as it was written. */
+function genderLabel(value) {
+  const text = String(value || '').trim();
+  if (/^(m|male|man)$/i.test(text)) return 'Male';
+  if (/^(f|female|woman)$/i.test(text)) return 'Female';
+  return text;
+}
+
 const params = new URLSearchParams(location.search);
 const id = params.get('id') || '';
 const name = params.get('name') || '';
@@ -665,9 +673,9 @@ function drawContact(d) {
           ${c.phone ? `<dt>Phone</dt><dd><a href="tel:${esc(c.phone)}">${esc(c.phone)}</a></dd>` : ''}
           ${c.email ? `<dt>Email</dt><dd><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></dd>` : ''}
           ${c.birthday ? `<dt>Birthday</dt><dd>${esc(dateFmt(c.birthday))}</dd>` : ''}
+          ${c.gender ? `<dt>Gender</dt><dd>${esc(genderLabel(c.gender))}</dd>` : ''}
           ${c.anniversary ? `<dt>Anniversary</dt><dd>${esc(dateFmt(c.anniversary))}</dd>` : ''}
           ${legal ? `<dt>Name on passport</dt><dd>${esc(legal)}</dd>` : ''}
-          ${c.gender ? `<dt>Gender</dt><dd>${esc(c.gender)}</dd>` : ''}
           ${c.citizenship ? `<dt>Citizenship</dt><dd>${esc(c.citizenship)}</dd>` : ''}
           ${c.passport_number ? `<dt>Passport</dt><dd>${esc(c.passport_number)}${
             c.passport_country ? ` &middot; ${esc(c.passport_country)}` : ''}</dd>` : ''}
@@ -749,6 +757,10 @@ function drawContact(d) {
         <p class="field-hint">Puts them on Who to call a month before it comes round.</p></div>
       <div class="field"><label for="canniversary">Anniversary</label>
         <input id="canniversary" name="anniversary" type="date" value="${esc(c.anniversary || '')}"></div>
+      <div class="field"><label for="cgen">Gender</label>
+        <select id="cgen" name="gender"><option value="">Not set</option>${
+  ['Male', 'Female'].map((g) => `<option value="${g}"${genderLabel(c.gender) === g ? ' selected' : ''}>${g}</option>`).join('')}${
+  c.gender && !['Male', 'Female'].includes(genderLabel(c.gender)) ? `<option value="${esc(c.gender)}" selected>${esc(c.gender)}</option>` : ''}</select></div>
     </div>
     <h3 style="margin:1.4rem 0 .6rem;font-size:.95rem;">What a vendor asks for</h3>
     <p class="muted" style="margin:0 0 .8rem;font-size:.82rem;">Held here so a reservation
@@ -762,10 +774,6 @@ function drawContact(d) {
         <input id="cll" name="legalLast" maxlength="80" value="${esc(c.legal_last || '')}"></div>
     </div>
     <div class="field-row">
-      <div class="field"><label for="cgen">Gender</label>
-        <input id="cgen" name="gender" maxlength="40" value="${esc(c.gender || '')}"
-          placeholder="As the document says">
-        <p class="field-hint">Whatever the passport shows. Vendors want a letter; this is free text.</p></div>
       <div class="field"><label for="ccit">Citizenship</label>
         <input id="ccit" name="citizenship" maxlength="80" value="${esc(c.citizenship || '')}"></div>
     </div>
