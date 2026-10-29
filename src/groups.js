@@ -971,6 +971,33 @@ export async function handleUpdateGroup(request, env, id) {
     rates: await ratesFor(env, id, owner.id) });
 }
 
+/**
+ * PUT /api/groups/:id/rates { rates }
+ *
+ * The rate grid on its own: a proposal read for a group that already exists. Only the grid is written, so a date somebody
+ * corrected by hand, the sign-up page and the wording are left exactly as they are. The grid is replaced as a whole, the same as
+ * when the group is saved, because a proposal is reissued as a whole.
+ */
+export async function handleSaveGroupRates(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const owner = await db.writerFor(env, user, 'travel_groups', id);
+  if (!owner) return notFound('Group not found.');
+
+  const raw = await readJson(request);
+  const rates = Array.isArray(raw.rates) ? raw.rates.filter((r) => r && clean(r.roomType, 160)) : [];
+  if (!rates.length) return badRequest('There are no cabin rates to save.');
+
+  await saveRates(env, id, owner.id, rates);
+  await env.DB.prepare('UPDATE travel_groups SET updated_at = ? WHERE id = ? AND user_id = ?')
+    .bind(now(), id, owner.id).run();
+  await db.logActivity(env, user.id, 'group.rates',
+    `Filled in the rates on ${owner.id === user.id ? 'a group' : 'somebody else\'s group'}: ${rates.length} cabin type${rates.length === 1 ? '' : 's'}`,
+    { groupId: id });
+  return json({ ok: true, rates: await ratesFor(env, id, owner.id) });
+}
+
 export async function handleDeleteGroup(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;

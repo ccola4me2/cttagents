@@ -123,6 +123,9 @@
                 style="font-size:.9rem;">
               <p class="notice notice-ok" id="quote-ok" hidden style="margin:.8rem 0 0;"></p>
               <p class="notice notice-error" id="quote-bad" hidden style="margin:.8rem 0 0;"></p>
+              <div id="rates-save-row" hidden style="margin-top:.8rem;">
+                <button class="btn btn-primary btn-sm" type="button" id="rates-save">Save these rates</button>
+              </div>
             </div>
           </section>
 
@@ -559,6 +562,21 @@ if (quoteFile) quoteFile.addEventListener('change', async () => {
       bad.textContent = quoteSaid(d);
       return;
     }
+    // A group that already exists: only its rates are taken from the proposal, so nothing somebody has corrected by hand is
+    // overwritten. Shown for checking first, and saved only on the button.
+    if (groupId) {
+      if (!(d.rates || []).length) {
+        ok.hidden = true;
+        bad.hidden = false;
+        bad.textContent = 'No cabin rates could be read from that file. Margaritaville at Sea proposals are read in full; for another cruise line, upload its proposal when the group is first created.';
+        return;
+      }
+      pendingRates = d.rates;
+      drawRates(pendingRates);
+      document.getElementById('rates-save-row').hidden = false;
+      ok.textContent = `${d.rates.length} cabin type${d.rates.length === 1 ? '' : 's'} read. Look them over below, then press Save these rates. Nothing on this group has changed yet.`;
+      return;
+    }
     forgetLastRead();
     const set = (n, v) => {
       if (v === '' || v === 0 || v === undefined || v === null) return;
@@ -580,6 +598,27 @@ if (quoteFile) quoteFile.addEventListener('change', async () => {
     ok.hidden = true;
     bad.hidden = false;
     bad.textContent = e.message || 'That file could not be read.';
+  }
+});
+
+document.getElementById('rates-save').addEventListener('click', async () => {
+  const ok = document.getElementById('quote-ok');
+  const bad = document.getElementById('quote-bad');
+  if (!groupId || !pendingRates || !pendingRates.length) return;
+  if ((lastRates || []).length && !confirm('Replace the rates on this group with these? The ones it has now are removed.')) return;
+  bad.hidden = true;
+  try {
+    await api(`/api/groups/${encodeURIComponent(groupId)}/rates`, { method: 'PUT', body: { rates: pendingRates } });
+    pendingRates = null;
+    document.getElementById('rates-save-row').hidden = true;
+    document.getElementById('quote-file').value = '';
+    ok.hidden = false;
+    ok.textContent = 'The rates are saved. The quote and the group page show them now.';
+    await load();
+  } catch (e) {
+    ok.hidden = true;
+    bad.hidden = false;
+    bad.textContent = e.message || 'The rates could not be saved.';
   }
 });
 
@@ -1447,6 +1486,13 @@ async function load() {
     // reads an advisor's group and does not change it.
     canEdit = isMine || Boolean(me.desk);
     fill(group);
+    // On a group that exists the proposal card fills in the rates and nothing else.
+    if (canEdit) {
+      const card = document.getElementById('quote-card');
+      card.hidden = false;
+      card.querySelector('h2').textContent = "Fill in the rates from the vendor's proposal";
+      card.querySelector('.field-hint').innerHTML = "Upload the cruise line's group proposal (a PDF) and its cabin rates are read in for you to check. <strong>Only the rates</strong> are taken: the dates, the details and the sign-up page on this group stay exactly as they are. <strong>Margaritaville at Sea</strong> proposals are read in full.";
+    }
     // Whatever the proposal quoted, if a proposal was ever read. Cleared on
     // load so a group saved without one does not inherit the last group's
     // grid from a page that was not reloaded in between.

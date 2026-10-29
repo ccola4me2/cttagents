@@ -239,6 +239,7 @@ import {
   handleCreateGroup,
   handleParseQuote,
   handleUpdateGroup,
+  handleSaveGroupRates,
   handleDeleteGroup,
   handleRepeatGroup,
 } from './groups.js';
@@ -897,6 +898,7 @@ async function routeApi(request, env, path, method) {
   const groupDecideMatch = path.match(/^\/api\/groups\/([^/]+)\/access\/([^/]+)$/);
   const groupSlugMatch = path.match(/^\/api\/groups\/([^/]+)\/slug$/);
   const groupRepeatMatch = path.match(/^\/api\/groups\/([^/]+)\/repeat$/);
+  const groupRatesMatch = path.match(/^\/api\/groups\/([^/]+)\/rates$/);
   const groupPictureMatch = path.match(/^\/api\/groups\/([^/]+)\/picture$/);
   const cabinsMatch = path.match(/^\/api\/groups\/([^/]+)\/cabins$/);
   const cabinsCsvMatch = path.match(/^\/api\/groups\/([^/]+)\/cabins\.csv$/);
@@ -1277,6 +1279,7 @@ async function routeApi(request, env, path, method) {
   if (groupSlugMatch && method === 'PUT') return handleSetSlug(request, env, groupSlugMatch[1]);
   if (path === '/api/group-slugs/release' && method === 'POST') return handleReleaseSlug(request, env);
   if (groupRepeatMatch && method === 'POST') return handleRepeatGroup(request, env, groupRepeatMatch[1]);
+  if (groupRatesMatch && method === 'PUT') return handleSaveGroupRates(request, env, groupRatesMatch[1]);
   if (groupFilesMatch && method === 'POST') return handleUploadGroupFile(request, env, groupFilesMatch[1]);
   if (groupFileMatch && method === 'DELETE') return handleDeleteGroupFile(request, env, groupFileMatch[1], groupFileMatch[2]);
   // The sheet behind a group: who booked which cabin, and the tour conductor credits the guests have earned.

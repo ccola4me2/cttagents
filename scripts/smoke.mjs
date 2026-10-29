@@ -2818,6 +2818,21 @@ async function main() {
   check(grp.data?.group?.cabins_sold === 0, 'holding cabins none of which are sold yet',
     grp.data?.group?.cabins_sold);
 
+  // A proposal read for a group that already exists fills in its rates and nothing else.
+  if (groupId) {
+    const empty = await call(advisor, 'PUT', `/api/groups/${groupId}/rates`, { rates: [] });
+    check(empty.status === 400, 'saving no rates is refused', `status ${empty.status}`);
+    const filled = await call(advisor, 'PUT', `/api/groups/${groupId}/rates`, { rates: [
+      { roomType: 'Cozy Interiors', occupancy: 'Double', cabins: 2, guests: 4, perGuestCents: 27265, taxesCents: 21200, totalCents: 193860 },
+      { roomType: 'Grand Terrace Suite', occupancy: 'Double', cabins: 1, guests: 2, perGuestCents: 125115, taxesCents: 21200, totalCents: 292630 },
+    ] });
+    check(filled.status === 200 && (filled.data?.rates || []).length === 2, 'the rates of an existing group can be filled in from a proposal',
+      JSON.stringify(filled.data).slice(0, 160));
+    const after = await call(advisor, 'GET', `/api/groups/${groupId}`);
+    check(after.data?.group?.name === `Islander New Year ${stamp}` && after.data?.group?.cabins_held === 20 && (after.data?.rates || []).length === 2,
+      'and nothing else on the group moved', JSON.stringify([after.data?.group?.name, after.data?.group?.cabins_held]));
+  }
+
   const inGroup = await call(advisor, 'POST', '/api/bookings', {
     clientName: `Group Client ${stamp}`, supplier: 'Margaritaville at Sea',
     departDate: isoDay(120), gross: '2400', status: 'booked', groupId,
