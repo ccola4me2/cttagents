@@ -156,6 +156,14 @@ const qp = (s) => unescape(encodeURIComponent(s)).replace(/=/g, '=3D').replace(/
   is('a heading above it is not taken as the guest', h2.fields.clientName, undefined);
   const printed = parseConfirmation([...header, 'Return Date: 29 JAN 2027'].join('\n'));
   is('a return date that is printed is used and not flagged', [printed.fields.returnDate, printed.derived], ['2027-01-29', []]);
+
+  // An offer with no number yet: "Booking ID" there introduces a paragraph of terms, and a sentence is not a number.
+  const offer = [
+    'Attn: PAT AGENT Ship: EXPLORER OF THE SEAS Booking Status Offer', 'Sailing Date: 16 DEC 2026',
+    'Booking ID: When you make your booking with us, please ensure that you provide your first name and last name as it appears on your passport.',
+  ];
+  is('a sentence after Booking ID is not taken as the confirmation number', parseConfirmation(offer.join('\n')).fields.confirmationNumber, undefined);
+  is('and a real number further down is still found', parseConfirmation([...offer, 'Booking ID: 8765432'].join('\n')).fields.confirmationNumber, '8765432');
 }
 
 // ------------------------------------------------- picture attachments ---

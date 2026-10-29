@@ -69,7 +69,7 @@ const MONEY = /-?\$?\s*[\d,]+(?:\.\d{2})?/;
  * usually prose about the label rather than the value, and "your total is due
  * on the date shown below" is not a total.
  */
-function pick(lines, aliases) {
+function pick(lines, aliases, accept) {
   for (const alias of aliases) {
     for (const raw of lines) {
       const line = raw.trim();
@@ -83,7 +83,7 @@ function pick(lines, aliases) {
       const m = rest.match(/^\s*[:\-–—]\s*(.+)$/) || rest.match(/^\s{2,}(.+)$/) || rest.match(/^\t+(.+)$/);
       if (!m) continue;
       const value = m[1].trim();
-      if (value) return { value, line };
+      if (value && (!accept || accept(value))) return { value, line };
     }
   }
   return null;
@@ -1043,8 +1043,8 @@ export function parseConfirmation(text) {
   const fields = {};
   const from = {};
 
-  const take = (key, aliases, transform) => {
-    const hit = pick(lines, aliases);
+  const take = (key, aliases, transform, accept) => {
+    const hit = pick(lines, aliases, accept);
     if (!hit) return;
     const value = transform ? transform(hit.value) : clean(hit.value, 200);
     if (value === null || value === undefined || value === '' || value === 0) return;
@@ -1053,10 +1053,16 @@ export function parseConfirmation(text) {
   };
 
   // A number followed by a note in brackets, "2237244 (Group ID Not Applicable)", is the number.
+  // Only something that looks like a number: "Booking ID" is also how a page introduces a paragraph of terms, and a sentence is
+  // not a confirmation number. A line that fails is passed over, so a real number further down is still found.
+  const numberLike = (v) => {
+    const first = clean(String(v).split(/\s{2,}/)[0], 80).replace(/\s*\(.*$/, '').trim();
+    return /\d/.test(first) && first.length <= 30 && first.split(/\s+/).length <= 3;
+  };
   take('confirmationNumber', LABELS.confirmationNumber, (v) => {
     const first = clean(v.split(/\s{2,}/)[0], 80);
     return first.replace(/\s*\(.*$/, '').trim() || first;
-  });
+  }, numberLike);
   take('supplier', LABELS.supplier);
   take('productName', LABELS.productName);
   take('departDate', LABELS.departDate, anyDate);
