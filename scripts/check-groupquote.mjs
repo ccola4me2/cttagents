@@ -402,6 +402,9 @@ is('and a Margaritaville proposal is never handed to the fallback',
   is('and the standard deposit, the suite deposit and the two dates, from the payment ladder',
     [p.fields.depositPerGuest, p.fields.suiteDepositPerGuest, p.fields.depositDue, p.fields.finalPaymentDue],
     ['150.00', '400.00', '2027-07-17', '2027-08-01']);
+  const noSuite = parseGroupQuote(MVAS_4788.replace('Grand Terrace Suite', 'Grand Terrace Balcony'));
+  is('a contract with no suite among its cabins leaves the suite deposit empty, though the page prints one',
+    [noSuite.fields.depositPerGuest, noSuite.fields.suiteDepositPerGuest], ['150.00', '']);
   const full = parseGroupQuote(MVAS_4589);
   is('a ladder that calls it a Full Deposit is read the same way',
     [full.fields.depositPerGuest, full.fields.suiteDepositPerGuest, full.fields.depositDue, full.fields.finalPaymentDue],

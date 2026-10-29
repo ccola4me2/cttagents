@@ -204,7 +204,9 @@ function parse(t) {
   const finalRow = payments.find((p) => /^final\b/i.test(p.what));
   const dollarsOf = (x) => (x ? Number(String(x).replace(/,/g, '')).toFixed(2) : '');
   const standardDeposit = bookingRow ? dollarsOf((/\$\s*([\d,]+(?:\.\d{2})?)\s*p\/(?:full fare )?(?:guest|person)/i.exec(bookingRow.what) || [])[1]) : '';
-  const suiteDeposit = bookingRow ? dollarsOf((/\(\s*\$\s*([\d,]+(?:\.\d{2})?)\s*for suites?\s*\)/i.exec(bookingRow.what) || [])[1]) : '';
+  const hasSuites = grades.some((c) => /\bsuites?\b/i.test(String(c.roomType || '')));
+  // Only a contract that actually has a suite in it asks a suite deposit; without one the amount stays empty, which is nought.
+  const suiteDeposit = bookingRow && hasSuites ? dollarsOf((/\(\s*\$\s*([\d,]+(?:\.\d{2})?)\s*for suites?\s*\)/i.exec(bookingRow.what) || [])[1]) : '';
 
   const rates = grades.map((c, i) => ({
     roomType: c.roomType,
