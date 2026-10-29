@@ -381,15 +381,19 @@ ${head}
   .pick-btn:hover{background:#c94430}
   .pick-btn.wait{background:#fff;color:var(--navy);border:1px solid #c7d9e9}
   /* How to book. */
-  .steps{list-style:none;margin:0;padding:0;display:grid;gap:.7rem;
-         grid-template-columns:repeat(auto-fit,minmax(10rem,1fr))}
-  .steps li{border:1px solid var(--line);border-radius:11px;padding:.85rem;
-            display:flex;flex-direction:column;gap:.2rem}
-  .steps .n{width:1.7rem;height:1.7rem;border-radius:50%;background:var(--navy);color:#fff;
-            font-size:.8rem;font-weight:700;display:flex;align-items:center;justify-content:center;
-            margin-bottom:.3rem}
-  .s-title{font-weight:700;color:var(--navy)}
-  .s-text{font-size:.9rem;color:var(--soft);font-variant-numeric:tabular-nums}
+  .steps{list-style:none;margin:0;padding:0;display:grid;gap:.6rem}
+  .steps li{border:1px solid var(--line);border-radius:11px;padding:.8rem .95rem;display:grid;
+            grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:.3rem .9rem}
+  .steps .n{width:1.9rem;height:1.9rem;border-radius:50%;background:var(--navy);color:#fff;
+            font-size:.88rem;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .s-body{display:grid;gap:.1rem;min-width:0}
+  .s-title{font-weight:700;color:var(--navy);font-size:1rem}
+  .s-text{font-size:.9rem;color:var(--soft)}
+  .s-when{font-weight:700;color:var(--navy);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  @media (max-width:560px){
+    .steps li{grid-template-columns:auto minmax(0,1fr)}
+    .s-when,.s-act{grid-column:2;text-align:left;white-space:normal}
+  }
   .perks{list-style:none;margin:0;padding:0;display:grid;gap:.55rem}
   .files{list-style:none;margin:0;padding:0;display:grid;gap:.6rem}
   .files a{display:flex;align-items:center;gap:.8rem;border:1px solid var(--line);border-radius:11px;
@@ -651,28 +655,12 @@ export function fromPrice(rates) {
   return all.length ? Math.min(...all) : 0;
 }
 
-/** Everything about the sailing itself, always, whether or not there is a headline over it. */
-function detailsBlock(g) {
-  const nights = nightsOf(g);
-  const rows = [
-    ['Cruise line', g.vendor],
-    ['Ship', g.product_name],
-    ['Itinerary', g.destination],
-    ['Sails', g.depart_date ? sayDate(g.depart_date) : ''],
-    ['Returns', g.return_date ? sayDate(g.return_date) : ''],
-    ['Length', nights ? `${nights} night${nights === 1 ? '' : 's'}` : ''],
-    ['Sailing from', portName(g.departure_port)],
-  ].filter(([, v]) => v);
-  if (rows.length < 2) return '';
-  return `<div class="card"><h2>The sailing</h2><dl class="facts-list">${
-    rows.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl></div>`;
-}
-
 export function glance(g, rates) {
   const nights = nightsOf(g);
   // How many cabins are left is for the desk, not for a client.
   const tiles = [
     g.depart_date ? ['Sails', sayDate(g.depart_date), ''] : null,
+    g.return_date ? ['Returns', sayDate(g.return_date), ''] : null,
     nights ? ['Nights', String(nights), ''] : null,
     g.departure_port ? ['Sailing from', portName(g.departure_port), ''] : null,
   ].filter(Boolean).slice(0, 4);
@@ -771,46 +759,46 @@ export function rateCards(rates, base, state, contact = {}) {
 }</div></div>`;
 }
 
-function stepsBlock(g, base, state) {
-  if (state !== 'open' && state !== 'full') return '';
-  const steps = [
-    ['Choose your cabin', 'Pick a cabin below and tell us who is travelling. Nothing is charged on this page.'],
-    ['Pay your deposit', g.deposit_per_guest_cents
-      ? `${money(g.deposit_per_guest_cents)} per guest holds your place${g.deposit_due ? `, due ${sayDate(g.deposit_due)}` : ''}.`
-      : g.deposit_due ? `Due ${sayDate(g.deposit_due)}.` : 'We tell you how much and when.'],
-    ['Pay the balance', g.final_payment_due ? `Due ${sayDate(g.final_payment_due)}.` : 'We confirm the date with you.'],
-  ];
-  return `<div class="card"><h2>How to book</h2><ol class="steps">${
-    steps.map(([title, text], i) => `<li><span class="n">${i + 1}</span>
-      <span class="s-title">${esc(title)}</span><span class="s-text">${esc(text)}</span></li>`).join('')
-  }</ol></div>`;
-}
-
-/** What is due and when. The deposit leads, with what it is per guest, since that is the question. */
-function paymentsBlock(g) {
-  const cells = [];
-  if (g.deposit_due || g.deposit_per_guest_cents) {
-    cells.push(`<div class="cell main"><span class="lbl">Deposit to hold your cabin</span>${
-      g.deposit_per_guest_cents
-        ? `<span class="amt">${esc(money(g.deposit_per_guest_cents))}<span class="per"> per guest</span></span>`
-        : ''}${g.deposit_due ? `<span class="when">Due ${esc(sayDate(g.deposit_due))}</span>` : ''}</div>`);
+/**
+ * How to book, with the dates in it. One list a client can follow from the top: choose, deposit, passports, final payment, each with what
+ * it is in plain words and the day it is due. Once booking has closed it is only the dates, with no step to choose a cabin.
+ */
+export function bookingBlock(g, base, state) {
+  const open = state === 'open' || state === 'full';
+  const steps = [];
+  if (open) {
+    steps.push({
+      title: 'Choose your cabin',
+      text: 'Pick the cabin you like above, then tell us who is travelling. You pay nothing on this page.',
+      action: `<a class="pick-btn" href="${base}/register">${state === 'full' ? 'Join the waitlist' : 'Reserve your cabin'}</a>`,
+    });
   }
-  if (g.final_payment_due) {
-    cells.push(`<div class="cell"><span class="lbl">Final payment</span>
-      <span class="when">Due ${esc(sayDate(g.final_payment_due))}</span></div>`);
-  }
+  steps.push({
+    title: 'Pay your deposit',
+    text: g.deposit_per_guest_cents
+      ? `${money(g.deposit_per_guest_cents)} per guest holds your cabin.`
+      : 'A small deposit holds your cabin. We will tell you how much.',
+    when: g.deposit_due ? `Due ${sayDate(g.deposit_due)}` : '',
+  });
   if (g.passport_due) {
-    cells.push(`<div class="cell"><span class="lbl">Passports</span>
-      <span class="when">In by ${esc(sayDate(g.passport_due))}</span></div>`);
+    steps.push({ title: 'Passports', text: 'Send us each traveller\'s passport details.', when: `In by ${sayDate(g.passport_due)}` });
   }
-  if (!cells.length) return '';
+  steps.push({
+    title: 'Final payment',
+    text: 'Pay the rest of the trip cost.',
+    when: g.final_payment_due ? `Due ${sayDate(g.final_payment_due)}` : 'We will confirm the date with you',
+  });
+  if (!open && !g.deposit_due && !g.deposit_per_guest_cents && !g.final_payment_due && !g.passport_due) return '';
   const next = [g.deposit_due, g.final_payment_due, g.passport_due]
     .filter((d) => d && daysUntil(d) >= 0).sort()[0];
   const count = next
     ? `${daysUntil(next) === 0 ? 'The next date is today. ' : `The next date is in ${daysUntil(next)} day${
       daysUntil(next) === 1 ? '' : 's'}. `}` : '';
-  return `<div class="card"><h2>What you pay and when</h2><div class="pay">${cells.join('')}</div>
-    <p class="muted" style="margin:.8rem 0 0;">${count}Paid to the travel supplier through us, never on this page.</p></div>`;
+  return `<div id="book" class="card"><h2>${open ? 'How to book' : 'Payment dates'}</h2><ol class="steps">${
+    steps.map((st, i) => `<li><span class="n">${i + 1}</span>
+      <span class="s-body"><span class="s-title">${esc(st.title)}</span><span class="s-text">${esc(st.text)}</span></span>${
+      st.when ? `<span class="s-when">${esc(st.when)}</span>` : ''}${st.action ? `<span class="s-act">${st.action}</span>` : ''}</li>`).join('')
+  }</ol><p class="muted" style="margin:.9rem 0 0;">${count}You pay the travel supplier through us, never on this page.</p></div>`;
 }
 
 function extrasList(json) {
@@ -936,7 +924,7 @@ export async function renderGroupTripPage(request, env, rawRef) {
   const parts = {
     cabins: live ? section('cabins', rateCards(rates, base, state, contact)) : '',
     group: live ? section('group', amenitiesBlock(g)) : '',
-    pay: live ? paymentsBlock(g) : '',
+    pay: live ? bookingBlock(g, base, state) : '',
     plan: itineraryBlock(g) ? section('itinerary', itineraryBlock(g)) : '',
     drinks: live ? section('extras', extrasBlock('Drink packages',
       'Prices and availability are subject to change. Ask us to add one to your booking.', g.drinks_json)) : '',
@@ -946,8 +934,9 @@ export async function renderGroupTripPage(request, env, rawRef) {
   };
   const nav = [
     parts.group && ['group', 'What you get'],
-    parts.cabins && ['cabins', 'Cabins'],
     parts.plan && ['itinerary', 'Itinerary'],
+    parts.cabins && ['cabins', 'Cabins'],
+    parts.pay && ['book', 'How to book'],
     (parts.drinks || parts.add) && ['extras', 'Extras'],
     parts.faq && ['faq', 'Questions'],
     ['ask', 'Contact'],
@@ -972,17 +961,15 @@ export async function renderGroupTripPage(request, env, rawRef) {
       : notice ? `<div class="note warn">${esc(notice)}</div>` : '',
     glance(g, rates),
     g.registration_blurb ? `<div class="card blurb">${paragraphs(g.registration_blurb)}</div>` : '',
-    detailsBlock(g),
     parts.group,
+    perksBlock(g),
+    parts.plan,
     parts.cabins,
     parts.pay,
-    live ? stepsBlock(g, base, state) : '',
-    parts.plan,
+    moneyBlock(g),
     parts.drinks,
     parts.add,
-    perksBlock(g),
     filesBlock(files),
-    moneyBlock(g),
     parts.faq,
     termsBlock(g),
     // The short enquiry stays. Not everybody reading this is ready to name

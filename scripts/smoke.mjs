@@ -6983,7 +6983,7 @@ async function main() {
     check(!/\d+ guests?\b/.test(landing.raw.replace(/<script[\s\S]*?<\/script>/g, '')),
       'without a count of guests, which is not what somebody choosing a cabin asks');
     check(landing.raw.includes('Is airfare included?'), 'the FAQ is on it');
-    check(landing.raw.includes('Deposit to hold your cabin') && landing.raw.includes('Final payment')
+    check(landing.raw.includes('Pay your deposit') && landing.raw.includes('Final payment')
       && landing.raw.includes('Passports') && landing.raw.includes('In by'),
       'and the dates somebody is held to');
     // The one thing this page must never do.
@@ -7489,9 +7489,9 @@ async function main() {
     check(page.raw.includes('Onboard credit') && page.raw.includes('$100 per cabin')
       && page.raw.indexOf('Onboard credit') < page.raw.indexOf('Cabins and rates'),
     'amenities such as onboard credit are shown, above the cabins');
-    check(page.raw.includes('Deposit to hold your cabin') && page.raw.includes('$250.00')
+    check(page.raw.includes('Pay your deposit') && page.raw.includes('$250.00')
       && page.raw.includes('Final payment'),
-    'the deposit is shown as an amount per guest with its date, beside the final payment');
+    'the deposit is shown as an amount per guest with its date, in the steps beside the final payment');
     check(page.raw.includes('Browse shore excursions') && page.raw.includes('href="https://example.com/shore?ship=1"')
       && page.raw.includes('noopener'),
     'the itinerary offers a button to look at shore excursions, when the advisor gave a link');

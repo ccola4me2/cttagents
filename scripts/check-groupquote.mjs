@@ -26,7 +26,7 @@
  */
 import { parseGroupQuote, tidy, FORMATS } from '../src/groupquote.js';
 import { cabinRows } from '../src/groupquote-mvas.js';
-import { extraGuestsOf, rateCards, ratePicker, glance, fromPrice, occupancyWords } from '../src/grouppage.js';
+import { extraGuestsOf, rateCards, ratePicker, glance, fromPrice, occupancyWords, bookingBlock } from '../src/grouppage.js';
 import { parseDate, titleCase, lastFirst } from '../src/groupquote-util.js';
 import { md5, rc4, openEncryption } from '../src/pdfcrypt.js';
 import { decodeContent, isPlainText, parseCMap } from '../src/pdftext.js';
@@ -459,6 +459,16 @@ is('and a Margaritaville proposal is never handed to the fallback',
   const picker = ratePicker([inStock, soldOut]);
   is('the sign up page lists a sold out cabin without its price or a count, and cannot pick it',
     [/none left|cabins? available/i.test(picker), /Call for pricing/.test(picker), /disabled/.test(picker), /\$1,?201/.test(picker)], [false, true, true, false]);
+  {
+    const g = { deposit_per_guest_cents: 25000, deposit_due: '2099-03-04', final_payment_due: '2099-06-01', passport_due: '2099-05-01' };
+    const open = bookingBlock(g, '/g/x', 'open');
+    is('how to book is one list in the order a client does it',
+      [open.indexOf('Choose your cabin') < open.indexOf('Pay your deposit'), open.indexOf('Pay your deposit') < open.indexOf('Passports'),
+        open.indexOf('Passports') < open.indexOf('Final payment')], [true, true, true]);
+    is('each step carries its amount and its date', [open.includes('$250.00 per guest'), open.includes('Due 03/04/2099'), open.includes('In by')], [true, true, true]);
+    is('a closed group shows only the dates, with no cabin to choose', [bookingBlock(g, '/g/x', 'closed').includes('Choose your cabin'), bookingBlock(g, '/g/x', 'closed').includes('Payment dates')], [false, true]);
+    is('a group with no dates at all and booking closed shows nothing', bookingBlock({}, '/g/x', 'closed'), '');
+  }
   is('occupancy is put in plain words', [occupancyWords('Double'), occupancyWords('Quad (3 Adults, 1 Child)'), occupancyWords('Triple (2 Adult, 1 Child)'), occupancyWords('Quad (2 Adults, 2 Child)')],
     ['Double occupancy', 'Quad occupancy: 3 adults and 1 child', 'Triple occupancy: 2 adults and 1 child', 'Quad occupancy: 2 adults and 2 children']);
 }
