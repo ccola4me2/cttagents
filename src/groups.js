@@ -997,14 +997,16 @@ export async function handleSaveGroupRates(request, env, id) {
   // The deposits and dates read from the same proposal, when it printed them. Only what was read is written, so a group that has a
   // final payment date typed in keeps it when the proposal has none.
   const dep = raw.deposits && typeof raw.deposits === 'object' ? raw.deposits : {};
-  const changes = [];
-  const put = (column, value) => { if (value) changes.push([column, value]); };
-  put('deposit_per_guest_cents', Math.max(0, Math.min(toCents(dep.depositPerGuest) || 0, 10000000)));
-  put('suite_deposit_per_guest_cents', Math.max(0, Math.min(toCents(dep.suiteDepositPerGuest) || 0, 10000000)));
-  put('deposit_due', cleanDate(dep.depositDue));
-  put('final_payment_due', cleanDate(dep.finalPaymentDue));
-  await env.DB.prepare(`UPDATE travel_groups SET ${changes.map(([c]) => `${c} = ?, `).join('')}updated_at = ? WHERE id = ? AND user_id = ?`)
-    .bind(...changes.map(([, v]) => v), now(), id, owner.id).run();
+  // Nothing read is null, which COALESCE leaves as it was.
+  const or = (v) => (v || null);
+  await env.DB.prepare(
+    `UPDATE travel_groups SET deposit_per_guest_cents = COALESCE(?, deposit_per_guest_cents),
+       suite_deposit_per_guest_cents = COALESCE(?, suite_deposit_per_guest_cents),
+       deposit_due = COALESCE(?, deposit_due), final_payment_due = COALESCE(?, final_payment_due), updated_at = ?
+     WHERE id = ? AND user_id = ?`
+  ).bind(or(Math.max(0, Math.min(toCents(dep.depositPerGuest) || 0, 10000000))),
+    or(Math.max(0, Math.min(toCents(dep.suiteDepositPerGuest) || 0, 10000000))),
+    or(cleanDate(dep.depositDue)), or(cleanDate(dep.finalPaymentDue)), now(), id, owner.id).run();
   await db.logActivity(env, user.id, 'group.rates',
     `Filled in the rates on ${owner.id === user.id ? 'a group' : 'somebody else\'s group'}: ${rates.length} cabin type${rates.length === 1 ? '' : 's'}`,
     { groupId: id });
