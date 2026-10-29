@@ -18,7 +18,7 @@ import { readLayout, PANELS } from './prefs.js';
 import { dueLeads } from './tasks.js';
 import { dueAppointments, zoneOf } from './appointments.js';
 import { listTasks } from './tasks.js';
-import { documentWatch, upcomingBirthdays } from './travellers.js';
+import { documentWatch, upcomingBirthdays, birthdaysBetween } from './travellers.js';
 import { listGroups } from './groups.js';
 import { listCredits } from './credits.js';
 import { migrationHint } from './schema-drift.js';
@@ -274,7 +274,19 @@ export async function handleMonth(request, env) {
       detail: [e.kindLabel, e.vendor].filter(Boolean).join(' · '), href: `/app/calendar?open=${encodeURIComponent(e.id)}&on=${e.onDate}`,
     });
   }
-  events.sort((a, b) => (a.date + (a.at || '99:99') < b.date + (b.at || '99:99') ? -1 : 1));
+  // Birthdays, which the full calendar shows and this did not: a date that comes round, worked out for the month rather than selected.
+  // Last within a day, after everything that has a time.
+  const birthdays = await birthdaysBetween(env, scope, { from, to }).catch(() => []);
+  for (const b of birthdays) {
+    events.push({
+      date: b.on, kind: 'birthday',
+      title: `${b.name}${b.turning ? ` turns ${b.turning}` : "'s birthday"}`,
+      detail: '', href: b.clientId ? `/app/client?id=${encodeURIComponent(b.clientId)}` : '/app/clients',
+    });
+  }
+  // Within a day: what has a time first, then what has none, and birthdays after those.
+  const order = (e) => e.date + (e.at || (e.kind === 'birthday' ? '99:99z' : '99:99'));
+  events.sort((a, b) => (order(a) < order(b) ? -1 : 1));
 
   // The month used to end with the CRM calendar's appointments merged in.
   // There is no calendar now, and everything above is the portal's own.

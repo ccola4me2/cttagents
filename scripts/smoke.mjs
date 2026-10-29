@@ -3605,6 +3605,11 @@ async function main() {
         { name: `Quiet Client ${stamp}`, birthday: '', anniversary: '' }));
     }
 
+    // The dashboard calendar carries birthdays too, as the full calendar does.
+    const soonMonth = quietClient ? await call(advisor, 'GET', `/api/month?month=${soon.slice(0, 7)}`) : null;
+    if (soonMonth) check((soonMonth.data?.events || []).some((e) => e.kind === 'birthday' && e.date === soon && e.title.startsWith(`Quiet Client ${stamp}`)),
+      'a client birthday shows on the dashboard calendar', JSON.stringify((soonMonth.data?.events || []).filter((e) => e.kind === 'birthday').slice(0, 2)));
+
     const credit = await call(advisor, 'POST', '/api/credits', {
       clientName: `Quiet Client ${stamp}`, vendor: 'Princess', kind: 'credit',
       amount: '250', expiresOn: isoDay(45),
