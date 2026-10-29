@@ -212,6 +212,8 @@ const qp = (s) => unescape(encodeURIComponent(s)).replace(/=/g, '=3D').replace(/
     [guestCopy.fields.clientName, guestCopy.guests.length, guestCopy.fields.confirmationNumber, guestCopy.fields.gross], ['Anna Sample', 3, '1234567', '2800.00']);
   is('and it says there is no commission, instead of leaving the blank unexplained', [guestCopy.fields.commission, /Guest Copy/.test(guestCopy.notice)], [undefined, true]);
   is('while an agent copy says nothing of the kind', g.notice, '');
+  is('a Royal Caribbean copy puts its itinerary line in the reservation\'s itinerary, as printed',
+    [guestCopy.fields.itinerary, guestCopy.fields.itinerary === guestCopy.fields.destination], ['5 NIGHT WESTERN CARIBBEAN', true]);
 }
 
 // ------------------------------------------------- picture attachments ---

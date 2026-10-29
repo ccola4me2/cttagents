@@ -1206,6 +1206,13 @@ export function parseConfirmation(text) {
     }
   }
 
+  // Royal Caribbean prints no day by day table worth reading (the dates, ports and times come out of the PDF in separate lists), but it
+  // does print the itinerary line at the top, such as "5 NIGHT WESTERN CARIBBEAN CRUISE". That line is the reservation's itinerary.
+  if (royal && fields.destination && !fields.itinerary) {
+    fields.itinerary = fields.destination;
+    from.itinerary = from.destination;
+  }
+
   const pricing = (carnival ? readCarnivalPricing(String(text || '').split(/\r?\n/), fields) : null)
     || (royal ? readRoyalPricing(lines, fields, people) : null)
     || (/booking components per guest/i.test(text) ? readNclPricing(lines, fields, people) : null)
