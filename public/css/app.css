@@ -1738,3 +1738,48 @@ code { overflow-wrap: anywhere; }
 }
 .new-menu a:hover { background: var(--navy-50); color: var(--navy-800); }
 @media (max-width: 860px) { .sidebar .nav-new { width: auto; margin-bottom: 0; } .new-menu { left: auto; right: 0; } }
+
+/* The cabin rates a vendor quoted: a table that fits its card, with the figures kept on one line and right-aligned, and, on a phone,
+   one small card for each cabin type instead of eight columns that run off the screen. */
+.rates-wrap { overflow-x: auto; margin: 0 0 1rem; border: 1px solid var(--navy-100); border-radius: 10px; }
+.rates-grid { width: 100%; border-collapse: collapse; font-size: .86rem; }
+.rates-grid th { padding: .55rem .7rem; font-size: .66rem; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-400);
+  text-align: left; background: var(--navy-50); white-space: nowrap; }
+.rates-grid td { padding: .6rem .7rem; border-top: 1px solid var(--navy-100); vertical-align: top; }
+.rates-grid .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rates-grid th.num { text-align: right; }
+.rates-grid .room { min-width: 11rem; font-weight: 600; color: var(--navy-800); }
+.rates-grid .room .muted { display: block; font-weight: 400; font-size: .76rem; margin-top: .1rem; }
+.rates-grid .total { font-weight: 700; color: var(--navy-800); }
+@media (max-width: 640px) {
+  .rates-wrap { border: 0; border-radius: 0; overflow: visible; }
+  .rates-grid, .rates-grid tbody { display: block; }
+  .rates-grid thead { display: none; }
+  .rates-grid tr { display: grid; grid-template-columns: 1fr 1fr; gap: .15rem 1rem; padding: .7rem .8rem; margin-bottom: .7rem;
+    border: 1px solid var(--navy-100); border-radius: 10px; background: #fff; }
+  .rates-grid td { border: 0; padding: .1rem 0; display: flex; justify-content: space-between; gap: .5rem; text-align: right; }
+  .rates-grid td::before { content: attr(data-label); color: var(--ink-400); font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; }
+  .rates-grid .room { grid-column: 1 / -1; display: block; min-width: 0; text-align: left; padding-bottom: .35rem; border-bottom: 1px solid var(--navy-100);
+    margin-bottom: .3rem; }
+  .rates-grid .room::before { content: none; }
+  .rates-grid .total { grid-column: 1 / -1; margin-top: .25rem; padding-top: .35rem; border-top: 1px solid var(--navy-100); }
+}
+
+/* The "what is on the page" summary on a group: a label and what it holds. The value may be a long web address, so it may break anywhere
+   instead of pushing the whole page wider than the card, or than a phone. */
+.onpage-row { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: .2rem 1rem; padding: .7rem 0; border-top: 1px solid var(--navy-100); }
+.onpage-value { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 640px) { .onpage-row { grid-template-columns: minmax(0, 1fr); } }
+
+/* A cabin that is not a double: the price for the first two guests, then each further guest on a highlighted line of their own. */
+.rates-grid .pg-main { display: block; }
+.rates-grid .pg-note { display: block; margin-top: .05rem; font-size: .7rem; color: var(--ink-400); text-transform: uppercase; letter-spacing: .05em; }
+.rates-grid .pg-extra { display: flex; justify-content: space-between; align-items: baseline; gap: .8rem; margin-top: .35rem; padding: .3rem .55rem;
+  background: var(--teal-50); border-left: 3px solid var(--teal-500); border-radius: 6px; font-size: .78rem; text-align: left; white-space: nowrap; }
+.rates-grid .pg-extra b { color: var(--navy-800); font-weight: 700; }
+.rates-grid .perguest { min-width: 11.5rem; }
+@media (max-width: 640px) {
+  .rates-grid td.has-extra { grid-column: 1 / -1; display: block; text-align: left; }
+  .rates-grid td.has-extra::before { display: block; margin-bottom: .2rem; }
+  .rates-grid .perguest { min-width: 0; }
+}

@@ -440,33 +440,64 @@ let pendingRates = null;
  * this one. Correcting it here would make the portal disagree with the
  * paperwork and give nobody a way to tell which was right.
  */
+/** 1st, 2nd, 3rd, 4th. */
+const ordinalOf = (n) => `${n}${({ 1: 'st', 2: 'nd', 3: 'rd' })[n] || 'th'}`;
+
+/**
+ * Who pays the extra rate in a cabin that is not a double, and what. The first two in a cabin pay the main rate; the third and fourth
+ * pay their own, as an adult or as a child, which the occupancy says ("3 Adults, 1 Child" is an adult and then a child; "2 Adults,
+ * 2 Child" is two children). Empty for a double.
+ */
+function extraGuestsOf(r) {
+  const cabins = Math.max(1, Number(r.cabins) || 1);
+  const beyond = Math.max(0, Math.round((Number(r.guests) || 0) / cabins) - 2);
+  if (!beyond) return [];
+  const words = String(r.occupancy || '');
+  const adults = Number((/(\d+)\s*adult/i.exec(words) || [])[1]);
+  const children = Number((/(\d+)\s*child/i.exec(words) || [])[1]);
+  const kinds = [];
+  if (Number.isFinite(adults) || Number.isFinite(children)) {
+    for (let i = 0; i < Math.max(0, (adults || 0) - 2); i += 1) kinds.push('adult');
+    for (let i = 0; i < (children || 0); i += 1) kinds.push('child');
+  }
+  while (kinds.length < beyond) kinds.push('');
+  const adultCents = Number(r.extra_adult_cents ?? r.extraAdultCents) || 0;
+  const childCents = Number(r.extra_child_cents ?? r.extraChildCents) || 0;
+  return kinds.slice(0, beyond).map((kind, i) => ({
+    nth: i + 3,
+    kind,
+    cents: kind === 'child' ? (childCents || adultCents) : (adultCents || childCents),
+  }));
+}
+
 function drawRates(rates) {
   const host = document.getElementById('rates-card');
   if (!host) return;
   if (!rates || !rates.length) { host.innerHTML = ''; return; }
   const cash = (c) => money(c);
   const get = (r, snake, camel) => r[snake] ?? r[camel] ?? 0;
-  // The two extra columns are for the third and fourth guest in a cabin. Shown
-  // only when some row has one, because on a proposal of doubles they would be
-  // two columns of nothing.
-  const extras = rates.some((r) => get(r, 'extra_adult_cents', 'extraAdultCents')
-    || get(r, 'extra_child_cents', 'extraChildCents'));
+  // The price per guest is for the first two in a cabin. Where the cabin holds more, each extra guest is listed under it on a line of
+  // its own, highlighted, so the fare for the third and fourth guest is never left to be worked out.
+  const perGuest = (r) => {
+    const base = cash(get(r, 'per_guest_cents', 'perGuestCents'));
+    const more = extraGuestsOf(r);
+    if (!more.length) return base;
+    return `<span class="pg-main">${base}</span><span class="pg-note">Guests 1 &amp; 2</span>${more.map((e) =>
+      `<span class="pg-extra"><span>${ordinalOf(e.nth)} guest${e.kind ? ` (${e.kind})` : ''}</span><b>${cash(e.cents)}</b></span>`).join('')}`;
+  };
   host.innerHTML = `<p class="label" style="margin:1.2rem 0 .5rem;">Rates the vendor quoted</p>
-    <table class="table" style="margin-bottom:1rem;">
-      <thead><tr><th>Room type</th><th>Cabins</th><th>Guests</th><th>Per guest</th>${
-        extras ? '<th>Extra adult</th><th>Extra child</th>' : ''}<th>Tax</th><th>Total</th></tr></thead>
+    <div class="rates-wrap"><table class="rates-grid">
+      <thead><tr><th>Room type</th><th class="num">Cabins</th><th class="num">Guests</th><th class="num">Per guest</th><th class="num">Tax</th><th class="num">Total</th></tr></thead>
       <tbody>${rates.map((r) => `<tr>
-        <td>${esc(r.room_type || r.roomType || '')}${
-          (r.occupancy) ? ` <span class="muted">${esc(r.occupancy)}</span>` : ''}</td>
-        <td>${r.cabins || 0}</td><td>${r.guests || 0}</td>
-        <td>${cash(get(r, 'per_guest_cents', 'perGuestCents'))}</td>${
-          extras ? `<td>${cash(get(r, 'extra_adult_cents', 'extraAdultCents'))}</td>
-            <td>${cash(get(r, 'extra_child_cents', 'extraChildCents'))}</td>` : ''}
-        <td>${cash(get(r, 'taxes_cents', 'taxesCents'))}</td>
-        <td>${cash(get(r, 'total_cents', 'totalCents'))}${
+        <td class="room">${esc(r.room_type || r.roomType || '')}${
+          (r.occupancy) ? `<span class="muted">${esc(r.occupancy)}</span>` : ''}</td>
+        <td class="num" data-label="Cabins">${r.cabins || 0}</td><td class="num" data-label="Guests">${r.guests || 0}</td>
+        <td class="num perguest${extraGuestsOf(r).length ? ' has-extra' : ''}" data-label="Per guest">${perGuest(r)}</td>
+        <td class="num" data-label="Tax">${cash(get(r, 'taxes_cents', 'taxesCents'))}</td>
+        <td class="num total" data-label="Total">${cash(get(r, 'total_cents', 'totalCents'))}${
           r.reconciles === false
-            ? '<br><span class="muted" style="color:#b3382a;">does not add up</span>' : ''}</td></tr>`).join('')}</tbody>
-    </table>`;
+            ? '<span class="muted" style="color:#b3382a;display:block;">does not add up</span>' : ''}</td></tr>`).join('')}</tbody>
+    </table></div>`;
 }
 
 /**
@@ -734,10 +765,10 @@ function drawOnPage() {
   const g = group;
   const list = (json) => parseList(json).filter((x) => x && (x.name || x.port || typeof x === 'string'));
   const dateOf = (iso) => (iso ? dateFmt(iso) : '');
-  const row = (label, field, inner, empty) => `<div style="display:grid;grid-template-columns:11rem 1fr;gap:.2rem 1rem;padding:.7rem 0;border-top:1px solid var(--navy-100);">
+  const row = (label, field, inner, empty) => `<div class="onpage-row">
     <div><strong>${esc(label)}</strong>${canEdit && field
       ? `<div><a href="#${esc(field)}" data-goto="${esc(field)}" class="muted" style="font-size:.82rem;">${inner ? 'Change' : 'Add'}</a></div>` : ''}</div>
-    <div>${inner || `<span class="muted">${esc(empty || 'Nothing yet.')}</span>`}</div></div>`;
+    <div class="onpage-value">${inner || `<span class="muted">${esc(empty || 'Nothing yet.')}</span>`}</div></div>`;
   const items = (json) => {
     const xs = list(json);
     return xs.length ? `<ul style="margin:0;padding-left:1.1rem;">${xs.map((x) => `<li><strong>${esc(x.name)}</strong>${

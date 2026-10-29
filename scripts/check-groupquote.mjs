@@ -26,6 +26,7 @@
  */
 import { parseGroupQuote, tidy, FORMATS } from '../src/groupquote.js';
 import { cabinRows } from '../src/groupquote-mvas.js';
+import { extraGuestsOf } from '../src/grouppage.js';
 import { parseDate, titleCase, lastFirst } from '../src/groupquote-util.js';
 import { md5, rc4, openEncryption } from '../src/pdfcrypt.js';
 import { decodeContent, isPlainText, parseCMap } from '../src/pdftext.js';
@@ -418,6 +419,22 @@ is('and a Margaritaville proposal is never handed to the fallback',
   is('and an adult and a child extra are told apart by the words', [quadA.extraAdultCents, quadA.extraChildCents, quadB.extraAdultCents, quadB.extraChildCents],
     [27312, 27312, 0, 27312]);
   is("while a plain double is not given the next row's extra", [b.rates[0].extraAdultCents, b.rates[0].extraChildCents, b.rates[0].totalCents], [0, 0, 188500]);
+}
+
+
+{
+  // A cabin that is not a double lists what each further guest pays, as an adult or a child, as the occupancy says.
+  const triple = extraGuestsOf({ occupancy: 'Triple (2 Adult, 1 Child)', cabins: 1, guests: 3, extra_adult_cents: 0, extra_child_cents: 17812 });
+  is('a triple lists its third guest as a child, with the child fare', triple, [{ nth: 3, kind: 'child', cents: 17812 }]);
+  const quad = extraGuestsOf({ occupancy: 'Quad (3 Adults, 1 Child)', cabins: 1, guests: 4, extra_adult_cents: 27312, extra_child_cents: 27312 });
+  is('a quad of three adults and a child lists an adult and then a child',
+    quad.map((e) => [e.nth, e.kind, e.cents]), [[3, 'adult', 27312], [4, 'child', 27312]]);
+  const twoAndTwo = extraGuestsOf({ occupancy: 'Quad (2 Adults, 2 Child)', cabins: 1, guests: 4, extra_adult_cents: 0, extra_child_cents: 27312 });
+  is('a quad of two adults and two children lists two children', twoAndTwo.map((e) => [e.nth, e.kind, e.cents]), [[3, 'child', 27312], [4, 'child', 27312]]);
+  is('a double lists nobody', extraGuestsOf({ occupancy: 'Double', cabins: 2, guests: 4, extra_adult_cents: 0, extra_child_cents: 0 }), []);
+  is('and several doubles together still list nobody', extraGuestsOf({ occupancy: 'Double', cabins: 20, guests: 40, extra_adult_cents: 0, extra_child_cents: 0 }), []);
+  const unlabelled = extraGuestsOf({ occupancy: 'Triple', cabins: 1, guests: 3, extra_adult_cents: 9000, extra_child_cents: 0 });
+  is('a triple that does not say who still lists a third guest, with the price', unlabelled, [{ nth: 3, kind: '', cents: 9000 }]);
 }
 
 console.log(`\n${checks - failures} of ${checks} checks passed`);

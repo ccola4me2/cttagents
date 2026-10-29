@@ -358,6 +358,13 @@ ${head}
                font-variant-numeric:tabular-nums;white-space:nowrap}
   .rate .per{font-size:.76rem;font-weight:400;color:var(--soft)}
   .rate .meta{margin:.45rem 0 0;font-size:.86rem;color:var(--soft)}
+  .occ-note{margin:0 0 1rem;padding:.65rem .9rem;border-left:3px solid var(--navy);background:#f3f7fb;border-radius:0 8px 8px 0;font-size:.88rem;color:var(--ink)}
+  .occ-note b{color:var(--navy)}
+  .extra-guests{margin:.75rem 0 0;display:grid;gap:.4rem}
+  .extra-guests div{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;padding:.5rem .8rem;border-radius:8px;
+    background:#eef5fb;border-left:3px solid var(--navy)}
+  .extra-guests span{font-size:.88rem;color:var(--ink)}
+  .extra-guests b{font-size:1rem;color:var(--navy)}
   .rate-foot{display:flex;justify-content:space-between;align-items:center;gap:.8rem;
              flex-wrap:wrap;margin-top:.7rem}
   .left{display:inline-block;font-size:.72rem;font-weight:700;letter-spacing:.06em;
@@ -673,12 +680,43 @@ function glance(g, rates) {
       <span class="val">${esc(value)}</span></div>`).join('')}</div>`;
 }
 
+/**
+ * The guests beyond the first two in a cabin that is not a double, and what each pays. The occupancy says who they are ("3 Adults, 1 Child" is
+ * an adult and then a child). Empty for a double. The same reading as the group's own page uses.
+ */
+export function extraGuestsOf(r) {
+  const cabins = Math.max(1, Number(r.cabins) || 1);
+  const beyond = Math.max(0, Math.round((Number(r.guests) || 0) / cabins) - 2);
+  if (!beyond) return [];
+  const words = String(r.occupancy || '');
+  const adults = Number((/(\d+)\s*adult/i.exec(words) || [])[1]);
+  const children = Number((/(\d+)\s*child/i.exec(words) || [])[1]);
+  const kinds = [];
+  if (Number.isFinite(adults) || Number.isFinite(children)) {
+    for (let i = 0; i < Math.max(0, (adults || 0) - 2); i += 1) kinds.push('adult');
+    for (let i = 0; i < (children || 0); i += 1) kinds.push('child');
+  }
+  while (kinds.length < beyond) kinds.push('');
+  const adultCents = Number(r.extra_adult_cents) || 0;
+  const childCents = Number(r.extra_child_cents) || 0;
+  return kinds.slice(0, beyond).map((kind, i) => ({
+    nth: i + 3,
+    kind,
+    cents: kind === 'child' ? (childCents || adultCents) : (adultCents || childCents),
+  }));
+}
+
+const ordinalOf = (n) => `${n}${({ 1: 'st', 2: 'nd', 3: 'rd' })[n] || 'th'}`;
+
 function rateCards(rates, base, state) {
   if (!rates.length) return '';
   return `<div class="card"><h2>What is still available</h2>
-    <p class="muted" style="margin:-.4rem 0 1rem;">Prices are per guest and include taxes and
+    <p class="muted" style="margin:-.4rem 0 .7rem;">Prices are per guest and include taxes and
       fees. Gratuities are not included, and neither is anything bought separately. The trip is
-      paid to the travel supplier through us, and never on this page.</p><div class="rates">${
+      paid to the travel supplier through us, and never on this page.</p>${
+  // Said only when it is true of every cabin on offer: a group that does sell a solo rate must not be told it has none.
+  rates.some((r) => /single/i.test(String(r.occupancy || ''))) ? '' : `<p class="occ-note"><b>Occupancy.</b> Every stateroom is offered at a minimum
+      of double occupancy. Solo (single occupancy) rates are not available for this group.</p>`}<div class="rates">${
   rates.map((r) => {
     const out = r.metered && r.left === 0;
     const tag = !r.metered
@@ -690,10 +728,12 @@ function rateCards(rates, base, state) {
       r.occupancy ? `${esc(r.occupancy)} occupancy` : '',
       r.per_guest_cents ? 'taxes and fees included' : '',
     ].filter(Boolean).join(' · ');
-    const extras = [
-      Number(r.extra_adult_cents) > 0 ? `Third or fourth adult: ${esc(money(r.extra_adult_cents))}` : '',
-      Number(r.extra_child_cents) > 0 ? `Child: ${esc(money(r.extra_child_cents))}` : '',
-    ].filter(Boolean).join(' &middot; ');
+    // Prices on this page include taxes and fees, so the third and fourth guest's fare does too.
+    const more = extraGuestsOf(r);
+    const extras = more.length
+      ? `<div class="extra-guests">${more.map((e) => `<div><span>${ordinalOf(e.nth)} guest${e.kind ? ` (${e.kind})` : ''}</span><b>${
+        esc(money(e.cents + (Number(r.taxes_cents) || 0)))}</b></div>`).join('')}</div>`
+      : '';
     const action = state === 'open' || state === 'full'
       ? `<a class="pick-btn${out ? ' wait' : ''}" href="${base}/register?rate=${encodeURIComponent(r.id)}">${
         out ? 'Join the waitlist' : 'Book this cabin'}</a>`
@@ -701,10 +741,10 @@ function rateCards(rates, base, state) {
     return `<div class="rate${out ? ' gone' : ''}">
       <div class="rate-top"><b>${esc(r.room_type)}</b>
         ${r.per_guest_cents
-    ? `<span class="price">${money(r.per_guest_cents + (Number(r.taxes_cents) || 0))}<span class="per"> per guest</span></span>`
+    ? `<span class="price">${money(r.per_guest_cents + (Number(r.taxes_cents) || 0))}<span class="per"> per guest${more.length ? ', guests 1 and 2' : ''}</span></span>`
     : '<span class="price"><span class="per">Price to come</span></span>'}</div>
       ${meta ? `<p class="meta">${meta}</p>` : ''}
-      ${extras ? `<p class="meta">${extras} per guest</p>` : ''}
+      ${extras}
       <div class="rate-foot">${tag}${action}</div>
     </div>`;
   }).join('')
