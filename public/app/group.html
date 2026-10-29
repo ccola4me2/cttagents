@@ -1463,7 +1463,8 @@ async function load() {
     // The sheet behind the group: who booked which cabin, and the tour conductor credits earned.
     const sheetLink = document.getElementById('sheet-link');
     sheetLink.href = `/app/group-sheet?id=${encodeURIComponent(group.id)}`;
-    sheetLink.hidden = !canEdit;
+    // On the desk every member works every group's cabin sheet, so the button is there on somebody else's group too.
+    sheetLink.hidden = !(canEdit || me.desk);
     document.getElementById('repeat-note').hidden = !(canEdit
       && new URL(location.href).searchParams.get('repeated') === '1');
 
