@@ -219,6 +219,10 @@ jobs:
       - name: The weekly specials list is read the way it was written
         run: npm run check:specialsdoc
 
+      # The Margaritaville agent copy that fills a group's cabin sheet, in both layouts the PDF reader gives it.
+      - name: Margaritaville confirmation
+        run: npm run check:masconfirmation
+
       # A confirmation forwarded by email. The ways it goes wrong are quiet: an HTML
       # version holding the whole booking beside a text version that is one line, a
       # forward attached whole, a body in base64 read as gibberish.

@@ -5,7 +5,7 @@
 // onto a sheet. This reads it instead, so uploading the document is the whole job, and uploading the next one
 // after a payment brings the figures up to date.
 //
-// Read by its labels, with the whitespace folded away, and not by where anything sits on the page. The same
+// Read by its labels, with the whitespace folded away (so "$ 1,140.44" and "$1,140.44" are the same figure), and not by where anything sits on the page. The same
 // document comes out of a PDF reader with its lines in different places depending on the reader, and a label
 // followed by its value is what survives that. Anything it cannot find is left out and said so, never guessed:
 // a cabin number or a payment that is wrong looks exactly like one that is right.
@@ -75,17 +75,17 @@ export function parseMasAgentCopy(text) {
   const warnings = [];
   const grab = (re) => (re.exec(t) || [])[1];
   const status = grab(/\bStatus:\s*([A-Za-z]+)/);
-  const advisorRaw = grab(/Travel Advisor Name:\s*(.+?)\s+Advisor ID:/) || '';
+  const advisorRaw = grab(/Travel Advisor Name:\s*(.+?)\s+(?:Advisor ID:|Fare Commission Rate:)/) || '';
   // "Cruise Planners - Brent Beasley" is the agency and the person. The person is who booked it.
   const bookedBy = advisorRaw.includes(' - ') ? advisorRaw.split(' - ').slice(1).join(' - ').trim() : advisorRaw.trim();
 
   const departDate = isoOf(grab(/Departure Date:\s*([A-Za-z]{3,9}\.? \d{1,2}, \d{4})/));
   const returnDate = isoOf(grab(/Return Date:\s*([A-Za-z]{3,9}\.? \d{1,2}, \d{4})/));
-  const itinerary = (grab(/Itinerary:\s*(.+?)\s+Ship:/) || '').trim();
-  const ship = (grab(/\bShip:\s*(.+?)\s+Departure Port:/) || '').trim();
-  const totalCents = centsOf(grab(/Total Booking Amount:\s*(\$[\d,.]+)/));
-  const paidCents = centsOf(grab(/Payments Made:\s*(\$[\d,.]+)/));
-  let dueCents = centsOf(grab(/Remaining (?:Balance )?Due:\s*(\$[\d,.]+)/));
+  const itinerary = (grab(/Itinerary:\s*(.+?)\s+(?:Stateroom Category:|Ship:)/) || '').trim();
+  const ship = (grab(/\bShip:\s*(.+?)\s+(?:Stateroom\(s\):|Departure Port:)/) || '').trim();
+  const totalCents = centsOf(grab(/Total Booking Amount:\s*(\$\s*[\d,.]+)/));
+  const paidCents = centsOf(grab(/Payments Made:\s*(\$\s*[\d,.]+)/));
+  let dueCents = centsOf(grab(/Remaining (?:Balance )?Due:\s*(\$\s*[\d,.]+)/));
   if (dueCents === null && totalCents !== null && paidCents !== null) dueCents = Math.max(0, totalCents - paidCents);
   const guestsTotal = Number(grab(/Total Guests:\s*(\d+)/)) || 0;
 
@@ -99,7 +99,7 @@ export function parseMasAgentCopy(text) {
     return {
       // The heading above the first stateroom is all capitals too, and comes just before it.
       category: title(h[1].replace(/^(?:RESERVATION DETAIL|RESERVATION SUMMARY|DETAIL)\s+/, '')), cabin: h[2],
-      guests: names, subtotalCents: centsOf((/Stateroom Subtotal:\s*(\$[\d,.]+)/.exec(block) || [])[1]),
+      guests: names, subtotalCents: centsOf((/Stateroom Subtotal:\s*(\$\s*[\d,.]+)/.exec(block) || [])[1]),
     };
   });
   if (!rooms.length) {
