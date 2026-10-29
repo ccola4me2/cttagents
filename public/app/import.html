@@ -65,6 +65,7 @@ Guest 1: COLE/DEBORAH"></textarea>
         <div id="conf-result" hidden>
           <div class="card-pad" style="border-top:1px solid var(--navy-100);">
             <div class="notice notice-error" id="conf-notice" role="status" hidden style="margin:0 0 .8rem;"></div>
+            <div class="notice notice-warn" id="conf-problems" role="alert" hidden style="margin:0 0 .8rem;"></div>
             <p class="label" id="conf-ready" style="margin:0 0 .4rem;">Ready to make this reservation</p>
             <p id="conf-summary" style="margin:0 0 .5rem;font-size:1.05rem;"></p>
             <p class="field-hint" id="conf-will" style="margin:0 0 1rem;"></p>
@@ -607,6 +608,11 @@ document.getElementById('conf-read').addEventListener('click', async () => {
   const noticeEl = document.getElementById('conf-notice');
   noticeEl.textContent = read.notice || '';
   noticeEl.hidden = !read.notice;
+  // A read that is not whole is said before anything is created, and the figure or name that is wrong is the advisor's to fix.
+  const problemsEl = document.getElementById('conf-problems');
+  problemsEl.innerHTML = (read.problems || []).length
+    ? `<b>This read is not complete.</b><ul style="margin:.3rem 0 0 1.1rem;">${read.problems.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>` : '';
+  problemsEl.hidden = !(read.problems || []).length;
   document.getElementById('conf-keep-row').hidden = !confFile;
   document.getElementById('conf-itin-row').hidden = !(read.itinerary && read.itinerary.length);
   drawSummary(read);

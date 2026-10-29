@@ -1283,12 +1283,25 @@ export function parseConfirmation(text) {
     ? 'This is the cruise line\u2019s Guest Copy. It has no commission and no fare breakdown, so those are blank. Upload the Agent Copy for the same booking as well, or instead (you can drop both files together), or type the commission in.'
     : '';
 
+  // Said out loud when a read of this family is not whole. A blank client or a price that does not add up is the reader missing something,
+  // and it must never pass quietly: the advisor is told before creating, and an emailed copy waits for a person.
+  const problems = [];
+  if (royal && !notice) {
+    if (!fields.clientName) problems.push('No guest names could be read, so the client and the travellers are blank. Type them in before you create the reservation.');
+    if (fields.gross && pricing && pricing.balanced === false) {
+      problems.push(`The guests' charges are off from the cruise line's total by $${(Math.abs(pricing.differenceCents || 0) / 100).toFixed(2)}. Check the figures before you create it.`);
+    }
+    if (fields.gross && !pricing) problems.push('The charges could not be split by guest, so the guests have no individual prices.');
+    if (/agent copy/i.test(String(text || '')) && !fields.commission) problems.push('No commission was found on this agent copy.');
+  }
+
   return {
     fields,
     from,
     pricing,
     client,
     notice,
+    problems,
     guests: people.map((g) => g.name),
     // What cancelling costs, window by window, as the confirmation prints it.
     penalties: readCancellationSchedule(text),

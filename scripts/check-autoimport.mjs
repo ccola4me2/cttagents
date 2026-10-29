@@ -33,6 +33,7 @@ const clean = () => ({
 });
 
 is('a plain complete reading is clean', verdict(clean(), TODAY).ok, true);
+is('a reading the reader itself calls incomplete waits for a person', verdict({ ...clean(), problems: ['No guest names could be read.'] }, TODAY).ok, false);
 {
   // A guest copy reads cleanly enough, but has no commission: it is held, never made into a reservation by itself.
   const guest = clean();

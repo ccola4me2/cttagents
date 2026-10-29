@@ -84,6 +84,8 @@ export function verdict(read, today) {
     ['productName', 'the ship'], ['departDate', 'the departure date'], ['returnDate', 'the return date'], ['gross', 'the trip total']];
   // The cruise line's guest copy carries no commission, and every reservation is made from the agent copy.
   if (read.notice) return { ok: false, why: 'This is the cruise line\u2019s Guest Copy, which has no commission. Forward or upload the Agent Copy for this booking instead.' };
+  // The reader said its own read is not whole.
+  if (Array.isArray(read.problems) && read.problems.length) return { ok: false, why: read.problems[0] };
   const missing = needs.filter(([k]) => !f[k]).map(([, l]) => l);
   if (missing.length) return { ok: false, why: `I could not read ${missing.join(', ')}.` };
   // A heading read as a name would be filed as a real client and a real reservation.

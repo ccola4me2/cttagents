@@ -230,6 +230,16 @@ const qp = (s) => unescape(encodeURIComponent(s)).replace(/=/g, '=3D').replace(/
   is('a guest who pays only the port taxes does not hide the others: three names, the client first, the total and the commission',
     [oneTaxOnly.guests, oneTaxOnly.fields.clientName, oneTaxOnly.fields.travellers, oneTaxOnly.fields.gross, oneTaxOnly.fields.commission],
     [['Anna Sample', 'Ben Sample', 'Cara Sample'], 'Anna Sample', 3, '2502.69', '185.80']);
+  is('a whole read has no problems to report', oneTaxOnly.problems, []);
+  const noNames = parseConfirmation([
+    'Booking Confirmation - Agent Copy', 'General Information',
+    'TEST TRAVEL LLC Reservation ID: 1234569 (Group ID Not Applicable) Booking Date: 12 OCT 2026',
+    'Attn:PAT AGENT Ship: EXPLORER OF THE SEAS Booking Status Offer', 'Departure Date: 16 DEC 2026', 'Itinerary: 5 NIGHT WESTERN CARIBBEAN CRUISE',
+    'Sailing Date: 16 DEC 2026', 'Guest Information Guest #1 Guest #2', 'Booking Charges Comm/', 'Guest #1 Guest #2 Total',
+    'Cruise Fare 1129.00 1129.00 2258.00 10%', 'Taxes, fees, and port expenses 118.23 118.23 236.46 0%',
+    'Gross Charges 1247.23 1247.23 2494.46 0%', 'Comm/Admin 92.90 92.90 185.80', 'Total Comm/Admin 185.80', 'Amount Paid 0.00', 'Net Balance Due 2308.66',
+  ].join('\n'));
+  is('a read with no guest names says so out loud', noNames.problems.some((x) => /No guest names/.test(x)), true);
   is('and the figures land on the guests who pay a fare, and the taxes-only guest owes only their taxes',
     (oneTaxOnly.pricing && oneTaxOnly.pricing.guests || []).map((x) => [x.name, x.fare, x.taxes]),
     [['Anna Sample', '1074.00', '118.23'], ['Ben Sample', '1074.00', '118.23'], ['Cara Sample', '0.00', '118.23']]);
