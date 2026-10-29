@@ -64,6 +64,10 @@ export async function runJob(env, name, fn) {
   return { name, ok: !error, ms };
 }
 
+// Jobs that no longer run. Their last row stays in the table, and would read as a job that stopped: the call list and the group deadlines
+// went into the one morning message, and the CRM sync went with the CRM.
+const RETIRED_JOBS = ['call lists', 'group deadlines', 'crm sync'];
+
 /**
  * Every job, worst first.
  *
@@ -78,11 +82,12 @@ export async function jobHealth(env) {
          FROM cron_jobs
         ORDER BY last_error IS NULL, name`
     ).all();
+    const live = (results || []).filter((r) => !RETIRED_JOBS.includes(r.name));
     // The times come back as text on some databases ("1792428629.0"), which a page reads as no time at
     // all. They are seconds, so they are said as numbers.
     const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
     return {
-      jobs: (results || []).map((r) => ({
+      jobs: live.map((r) => ({
         ...r,
         last_run_at: num(r.last_run_at),
         last_ok_at: num(r.last_ok_at),

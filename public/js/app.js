@@ -1698,15 +1698,15 @@ export function advisorParam() {
   return a ? `advisor=${encodeURIComponent(a)}` : '';
 }
 
-/** Renders an error into a container, with a friendlier GHL setup case. */
+/** Renders an error into a container, with a friendlier case for something not yet set up. */
 export function showError(container, err) {
   if (!container) return;
   if (err && err.code === 'not_configured') {
+    // Something this portal needs has not been switched on yet, and the error says what. It used to name a CRM token that no longer exists.
     container.innerHTML = `<div class="notice-setup">
       <p style="font-size:.72rem;font-weight:650;letter-spacing:.16em;text-transform:uppercase;color:var(--coral-500);margin:0 0 .6rem;">Setup needed</p>
-      <h3>CTT Tools is not connected yet</h3>
-      <p style="margin-top:.6rem;">Set the <code>GHL_API_TOKEN</code> secret on the Worker so the portal can
-      read contacts, opportunities and calendars from your account. Reservations and reports work without it.</p>
+      <h3>${esc((err && err.message) || 'This is not set up yet')}</h3>
+      <p style="margin-top:.6rem;">The portal's owner needs to finish setting this up. Everything else keeps working.</p>
     </div>`;
     return;
   }
