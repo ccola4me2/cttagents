@@ -650,7 +650,7 @@ function isRoyalFamily(text) {
   // This family's own grids: the two headings and the row of guest names. A copy with the title cut off, an offer, or one with the
   // commission left off still has these, and an advisor whose copy lacks one phrase should not get a reader that finds nothing.
   const grids = /general information/i.test(text) && /guest information/i.test(text)
-    && /reservation id/i.test(text) && /^\s*guest name\b/im.test(text);
+    && /(?:reservation|booking) id/i.test(text) && /^\s*guest name\b/im.test(text);
   return grids || (title && /total comm\/admin/i.test(text));
 }
 
@@ -1229,6 +1229,20 @@ export function parseConfirmation(text) {
     }
   }
 
+  // The guest copy has no "Gross Charges" label: its total is the last row of figures above "Amount Paid", a figure for each guest and then
+  // the total.
+  if (royal && !fields.gross && royalPeople.length) {
+    const paidAt = lines.findIndex((l) => /^amount paid\b/i.test(l.trim()));
+    for (let k = paidAt - 1; paidAt > 0 && k >= Math.max(0, paidAt - 4); k -= 1) {
+      const text = lines[k].trim();
+      const figs = text.match(RC_MONEY) || [];
+      if (figs.length === royalPeople.length + 1 && !text.replace(RC_MONEY, '').trim()) {
+        fields.gross = fixed(cleanMoney(figs[figs.length - 1])); from.gross = text.slice(0, 160);
+        break;
+      }
+    }
+  }
+
   // Said once it is plain, so it does not depend on a reservation form's default.
   if (fields.productName || fields.cabin || /\b(?:cruise|stateroom|sailing|embark)/i.test(text)) {
     fields.productType = 'cruise';
@@ -1241,11 +1255,18 @@ export function parseConfirmation(text) {
   const lead = pricing && Array.isArray(pricing.guests) ? pricing.guests[0] : null;
   if (lead && lead.dob) client.birthday = lead.dob;
 
+  // The cruise line's guest copy is a different document from the agent copy: it is what the client is sent, and it prints no commission
+  // and no fare breakdown. Said, so the blanks are not taken for a reader that failed.
+  const notice = royal && /booking confirmation\s*[-\u2013\u2014]?\s*guest copy/i.test(String(text || '')) && !/agent copy/i.test(String(text || ''))
+    ? 'This is the cruise line\u2019s Guest Copy. It has no commission and no fare breakdown, so those are blank. Upload the Agent Copy for the same booking as well, or instead (you can drop both files together), or type the commission in.'
+    : '';
+
   return {
     fields,
     from,
     pricing,
     client,
+    notice,
     guests: people.map((g) => g.name),
     // What cancelling costs, window by window, as the confirmation prints it.
     penalties: readCancellationSchedule(text),

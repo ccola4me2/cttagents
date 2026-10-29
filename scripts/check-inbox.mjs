@@ -195,6 +195,23 @@ const qp = (s) => unescape(encodeURIComponent(s)).replace(/=/g, '=3D').replace(/
   const bare = parseConfirmation(grid.filter((l) => !/^Total Comm|^Booking Confirmation|^Issue Date/.test(l)).join('\n'));
   is('a copy with no title and no commission total is still read', [bare.fields.supplier, bare.fields.clientName, bare.fields.gross], ['Royal Caribbean', 'Anna Sample', '3400.00']);
   is('and its commission comes off the charges row', bare.fields.commission, '300.00');
+
+  // The guest copy is a separate document: no commission, no fare breakdown, and "Booking ID" there is followed by a paragraph. It is read as far as
+  // it goes, and the advisor is told why the commission is blank.
+  const guestCopy = parseConfirmation([
+    'Booking Confirmation - Guest Copy', 'General Information',
+    'TEST TRAVEL LLC Reservation ID: 1234567 (Group ID Not Applicable) Booking Date: 12 OCT 2026',
+    'Attn:PAT AGENT Ship: EXPLORER OF THE SEAS Booking Status Offer', 'Departure Date: 16 DEC 2026', 'Itinerary: 5 NIGHT WESTERN CARIBBEAN',
+    'Sailing Date: 16 DEC 2026', 'Guest Information Guest #1 Guest #2 Guest #3', 'Guest Name ANNA BEN CARA', 'SAMPLE SAMPLE SAMPLE',
+    'Stateroom Dining With Booking ID: 7654321',
+    'When you make your booking with us, please ensure that you provide your first name and last name as it appears on your passport.',
+    'Booking Charges - Currency: USD', 'Total Charge 1000.00 1000.00 500.00 2500.00', '1100.00 1100.00 600.00 2800.00',
+    'Amount Paid 0.00', 'Balance Due 2800.00',
+  ].join('\n'));
+  is('a guest copy gives the client, the guests, the number and the trip total',
+    [guestCopy.fields.clientName, guestCopy.guests.length, guestCopy.fields.confirmationNumber, guestCopy.fields.gross], ['Anna Sample', 3, '1234567', '2800.00']);
+  is('and it says there is no commission, instead of leaving the blank unexplained', [guestCopy.fields.commission, /Guest Copy/.test(guestCopy.notice)], [undefined, true]);
+  is('while an agent copy says nothing of the kind', g.notice, '');
 }
 
 // ------------------------------------------------- picture attachments ---
