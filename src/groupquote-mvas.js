@@ -200,7 +200,7 @@ function parse(t) {
 
   // The booking deposit: "Booking Deposit $100 p/Full Fare Guest ($300 for Suites)". The first amount per guest is the standard
   // deposit and the amount in brackets is the suite deposit. The line after the last is the final payment.
-  const bookingRow = payments.find((p) => /(?:^|\s)(?:booking|full) deposit(?:\s|$)/i.test(p.what));
+  const bookingRow = payments.find((p) => ['booking deposit', 'full deposit'].some((w) => p.what.toLowerCase().includes(w)));
   const finalRow = payments.find((p) => /^final\b/i.test(p.what));
   const dollarsOf = (x) => (x ? Number(String(x).replace(/,/g, '')).toFixed(2) : '');
   const standardDeposit = bookingRow ? dollarsOf((/\$\s*([\d,]+(?:\.\d{2})?)\s*p\/(?:full fare )?(?:guest|person)/i.exec(bookingRow.what) || [])[1]) : '';
