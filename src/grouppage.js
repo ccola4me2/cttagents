@@ -351,12 +351,16 @@ ${head}
   /* Rate bands. */
   .rates{display:grid;gap:.9rem}
   .rate{border:1px solid var(--line);border-radius:11px;padding:1rem}
-  .rate.gone{opacity:.62}
+  .rate.gone{background:#f8fafc}
   .rate-top{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap}
   .rate b{font-size:1.02rem;color:var(--navy)}
   .rate .price{font-size:1.15rem;font-weight:700;color:var(--navy);
                font-variant-numeric:tabular-nums;white-space:nowrap}
   .rate .per{display:block;margin-top:.1rem;font-size:.76rem;font-weight:400;color:var(--soft);text-align:right}
+  .rate-name{display:flex;flex-direction:column;gap:.2rem;min-width:0}
+  .rate .occ{font-size:.86rem;font-weight:400;color:var(--soft)}
+  .rate .price.call{font-size:1rem;font-weight:600;color:var(--soft)}
+  .rate .price .unit{margin-left:.35rem;font-size:.78rem;font-weight:400;color:var(--soft)}
   .rate .meta{margin:.45rem 0 0;font-size:.86rem;color:var(--soft)}
   .occ-note{margin:0 0 1rem;padding:.65rem .9rem;border-left:3px solid var(--navy);background:#f3f7fb;border-radius:0 8px 8px 0;font-size:.88rem;color:var(--ink)}
   .occ-note b{color:var(--navy)}
@@ -641,8 +645,8 @@ function heroBlock(g, brand, contact, state, base, env, next, rates = []) {
 }
 
 /** The lowest all in price per guest, or 0 when no grade has one yet. */
-function fromPrice(rates) {
-  const all = (rates || []).filter((r) => Number(r.per_guest_cents) > 0)
+export function fromPrice(rates) {
+  const all = (rates || []).filter((r) => Number(r.per_guest_cents) > 0 && !(r.metered && r.left === 0))
     .map((r) => Number(r.per_guest_cents) + (Number(r.taxes_cents) || 0));
   return all.length ? Math.min(...all) : 0;
 }
@@ -664,14 +668,12 @@ function detailsBlock(g) {
     rows.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl></div>`;
 }
 
-function glance(g, rates) {
-  const left = rates.filter((r) => r.metered).reduce((n, r) => n + r.left, 0);
-  const held = rates.filter((r) => r.metered).reduce((n, r) => n + (Number(r.cabins) || 0), 0);
+export function glance(g, rates) {
   const nights = nightsOf(g);
+  // How many cabins are left is for the desk, not for a client.
   const tiles = [
     g.depart_date ? ['Sails', sayDate(g.depart_date), ''] : null,
     nights ? ['Nights', String(nights), ''] : null,
-    held ? ['Cabins available', String(left), left <= 3 ? 'low' : ''] : null,
     g.departure_port ? ['Sailing from', portName(g.departure_port), ''] : null,
   ].filter(Boolean).slice(0, 4);
   if (!tiles.length) return '';
@@ -706,11 +708,36 @@ export function extraGuestsOf(r) {
   }));
 }
 
+/**
+ * Occupancy as a person would say it: "Quad (3 Adults, 1 Child)" is "Quad occupancy: 3 adults and 1 child". For a client who is not used to
+ * a cruise line's shorthand.
+ */
+export function occupancyWords(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return '';
+  const m = /^(single|double|triple|quad)\s*(?:\(([^)]*)\))?$/i.exec(raw);
+  if (!m) return `${raw} occupancy`;
+  const kind = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+  if (!m[2]) return `${kind} occupancy`;
+  const parts = m[2].split(',').map((x) => x.trim().toLowerCase()).filter(Boolean).map((x) => {
+    const n = /^(\d+)\s*(adult|child)s?$/.exec(x);
+    if (!n) return x;
+    const num = Number(n[1]);
+    const noun = n[2] === 'adult' ? (num === 1 ? 'adult' : 'adults') : (num === 1 ? 'child' : 'children');
+    return `${num} ${noun}`;
+  });
+  return `${kind} occupancy: ${parts.join(' and ')}`;
+}
+
 const ordinalOf = (n) => `${n}${({ 1: 'st', 2: 'nd', 3: 'rd' })[n] || 'th'}`;
 
-function rateCards(rates, base, state) {
+export function rateCards(rates, base, state, contact = {}) {
   if (!rates.length) return '';
-  return `<div class="card"><h2>What is still available</h2>
+  // A client is never told how many cabins are left. A cabin that has none stays on the page with no price, and the way to ask is a call.
+  const phone = String((contact && contact.phone) || '').trim();
+  const dial = phone.replace(/[^\d+]/g, '');
+  const open = state === 'open' || state === 'full';
+  return `<div class="card"><h2>Cabins and rates</h2>
     <p class="muted" style="margin:-.4rem 0 .7rem;">Prices are per guest and include taxes and
       fees. Gratuities are not included, and neither is anything bought separately. The trip is
       paid to the travel supplier through us, and never on this page.</p>${
@@ -719,33 +746,26 @@ function rateCards(rates, base, state) {
       of double occupancy. Solo (single occupancy) rates are not available for this group.</p>`}<div class="rates">${
   rates.map((r) => {
     const out = r.metered && r.left === 0;
-    const tag = !r.metered
-      ? ''
-      : out
-        ? '<span class="left gone">None left</span>'
-        : `<span class="left${r.left > 3 ? ' plenty' : ''}">${r.left} cabin${r.left === 1 ? '' : 's'} available</span>`;
-    const meta = [
-      r.occupancy ? `${esc(r.occupancy)} occupancy` : '',
-      r.per_guest_cents ? 'taxes and fees included' : '',
-    ].filter(Boolean).join(' · ');
+    const occupancy = occupancyWords(r.occupancy);
     // Prices on this page include taxes and fees, so the third and fourth guest's fare does too.
-    const more = extraGuestsOf(r);
+    const more = out ? [] : extraGuestsOf(r);
     const extras = more.length
       ? `<div class="extra-guests">${more.map((e) => `<div><span>${ordinalOf(e.nth)} guest${e.kind ? ` (${e.kind})` : ''}</span><b>${
         esc(money(e.cents + (Number(r.taxes_cents) || 0)))}</b></div>`).join('')}</div>`
       : '';
-    const action = state === 'open' || state === 'full'
-      ? `<a class="pick-btn${out ? ' wait' : ''}" href="${base}/register?rate=${encodeURIComponent(r.id)}">${
-        out ? 'Join the waitlist' : 'Book this cabin'}</a>`
-      : '';
+    const price = !out && r.per_guest_cents
+      ? `<span class="price">${money(r.per_guest_cents + (Number(r.taxes_cents) || 0))}<span class="unit">per guest</span><span class="per">guests 1 and 2</span></span>`
+      : '<span class="price call">Call for pricing</span>';
+    const action = !open ? '' : out
+      ? (dial
+        ? `<a class="pick-btn wait" href="tel:${esc(dial)}">Call ${esc(phone)}</a>`
+        : '<a class="pick-btn wait" href="#ask">Ask us about this cabin</a>')
+      : `<a class="pick-btn" href="${base}/register?rate=${encodeURIComponent(r.id)}">Book this cabin</a>`;
     return `<div class="rate${out ? ' gone' : ''}">
-      <div class="rate-top"><b>${esc(r.room_type)}</b>
-        ${r.per_guest_cents
-    ? `<span class="price">${money(r.per_guest_cents + (Number(r.taxes_cents) || 0))}<span class="per">per guest &middot; guests 1 and 2</span></span>`
-    : '<span class="price"><span class="per">Price to come</span></span>'}</div>
-      ${meta ? `<p class="meta">${meta}</p>` : ''}
+      <div class="rate-top"><div class="rate-name"><b>${esc(r.room_type)}</b>${occupancy ? `<span class="occ">${esc(occupancy)}</span>` : ''}</div>
+        ${price}</div>
       ${extras}
-      <div class="rate-foot">${tag}${action}</div>
+      ${action ? `<div class="rate-foot">${action}</div>` : ''}
     </div>`;
   }).join('')
 }</div></div>`;
@@ -908,13 +928,13 @@ export async function renderGroupTripPage(request, env, rawRef) {
     : state === 'closed'
       ? 'Booking on this group has closed. Get in touch and we will tell you what is open.'
       : state === 'full'
-        ? 'Every cabin in this group is taken. Join the waitlist and we will tell you if one opens up.'
+        ? 'Call us for pricing and availability, or join the waitlist and we will tell you if a cabin opens up.'
         : '';
 
   const live = state !== 'departed';
   const section = (id, html) => (html ? html.replace('<div class="card', `<div id="${id}" class="card`) : '');
   const parts = {
-    cabins: live ? section('cabins', rateCards(rates, base, state)) : '',
+    cabins: live ? section('cabins', rateCards(rates, base, state, contact)) : '',
     group: live ? section('group', amenitiesBlock(g)) : '',
     pay: live ? paymentsBlock(g) : '',
     plan: itineraryBlock(g) ? section('itinerary', itineraryBlock(g)) : '',
@@ -939,7 +959,7 @@ export async function renderGroupTripPage(request, env, rawRef) {
     </div></nav>`;
   const lowest = fromPrice(rates);
   const mbar = reserve ? `<div class="mbar"><span>${lowest
-    ? `From <b>${esc(money(lowest))}</b> per guest` : 'Cabins available'}</span>
+    ? `From <b>${esc(money(lowest))}</b> per guest` : 'Call for pricing'}</span>
     <a href="${base}/register">${state === 'full' ? 'Waitlist' : 'Reserve'}</a></div>` : '';
 
   const body = [
@@ -1084,26 +1104,26 @@ function travellerBlock(i, withPassport) {
   </fieldset>`;
 }
 
-function ratePicker(rates, wanted = '') {
+export function ratePicker(rates, wanted = '') {
   if (!rates.length) {
     return '<p class="muted">No cabin grades have been loaded for this trip yet. Register '
       + 'anyway and we will come back to you with what is available.</p>';
   }
   return rates.map((r) => {
+    // Not how many are left. A cabin with none is shown without its price, and cannot be picked.
     const out = r.metered && r.left === 0;
     // What a guest pays for the cabin, taxes and fees included, as the page says everywhere.
-    const all = r.per_guest_cents ? r.per_guest_cents + (Number(r.taxes_cents) || 0) : 0;
-    const perGuest = all ? `${money(all)} per guest` : 'Price to come';
-    const taxes = all ? ', taxes and fees included' : '';
+    const all = !out && r.per_guest_cents ? r.per_guest_cents + (Number(r.taxes_cents) || 0) : 0;
+    const priceLine = all ? `${money(all)} per guest, taxes and fees included` : 'Call for pricing';
+    const occupancy = occupancyWords(r.occupancy);
     return `<label class="pick${out ? ' gone' : ''}">
       <input type="radio" name="rate" value="${esc(r.id)}"${out ? ' disabled' : ''}${
   !out && wanted && wanted === r.id ? ' checked' : ''}
         data-guest="${all}" data-tax="0">
       <span class="pick-body"><b>${esc(r.room_type)}</b>
-        <span class="muted" style="display:block;">${perGuest}${taxes}${
-  r.occupancy ? ` · ${esc(r.occupancy)} occupancy` : ''}</span>
-        <span class="muted" style="display:block;">${
-  out ? 'None left' : r.metered ? `${r.left} cabin${r.left === 1 ? '' : 's'} available` : 'Ask us about availability'}</span>
+        <span class="muted" style="display:block;">${priceLine}</span>${
+  occupancy ? `
+        <span class="muted" style="display:block;">${esc(occupancy)}</span>` : ''}
       </span></label>`;
   }).join('');
 }

@@ -482,7 +482,7 @@ function drawRates(rates) {
     const base = cash(get(r, 'per_guest_cents', 'perGuestCents'));
     const more = extraGuestsOf(r);
     // Every cabin says whose price this is, under the price, doubles included.
-    const lead = `<span class="pg-main">${base}</span><span class="pg-note">per guest &middot; guests 1 &amp; 2</span>`;
+    const lead = `<span class="pg-main">${base}<span class="pg-unit">per guest</span></span><span class="pg-note">guests 1 &amp; 2</span>`;
     if (!more.length) return lead;
     return `${lead}${more.map((e) =>
       `<span class="pg-extra"><span>${ordinalOf(e.nth)} guest${e.kind ? ` (${e.kind})` : ''}</span><b>${cash(e.cents)}</b></span>`).join('')}`;

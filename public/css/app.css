@@ -1773,6 +1773,7 @@ code { overflow-wrap: anywhere; }
 
 /* A cabin that is not a double: the price for the first two guests, then each further guest on a highlighted line of their own. */
 .rates-grid .pg-main { display: block; }
+.rates-grid .pg-unit { margin-left: .35rem; font-size: .72rem; font-weight: 400; color: var(--ink-400); }
 .rates-grid .pg-note { display: block; margin-top: .1rem; font-size: .72rem; color: var(--ink-400); }
 .rates-grid .pg-extra { display: flex; justify-content: space-between; align-items: baseline; gap: .8rem; margin-top: .35rem; padding: .3rem .55rem;
   background: var(--teal-50); border-left: 3px solid var(--teal-500); border-radius: 6px; font-size: .78rem; text-align: left; white-space: nowrap; }

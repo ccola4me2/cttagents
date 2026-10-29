@@ -26,7 +26,7 @@
  */
 import { parseGroupQuote, tidy, FORMATS } from '../src/groupquote.js';
 import { cabinRows } from '../src/groupquote-mvas.js';
-import { extraGuestsOf } from '../src/grouppage.js';
+import { extraGuestsOf, rateCards, ratePicker, glance, fromPrice, occupancyWords } from '../src/grouppage.js';
 import { parseDate, titleCase, lastFirst } from '../src/groupquote-util.js';
 import { md5, rc4, openEncryption } from '../src/pdfcrypt.js';
 import { decodeContent, isPlainText, parseCMap } from '../src/pdftext.js';
@@ -435,6 +435,32 @@ is('and a Margaritaville proposal is never handed to the fallback',
   is('and several doubles together still list nobody', extraGuestsOf({ occupancy: 'Double', cabins: 20, guests: 40, extra_adult_cents: 0, extra_child_cents: 0 }), []);
   const unlabelled = extraGuestsOf({ occupancy: 'Triple', cabins: 1, guests: 3, extra_adult_cents: 9000, extra_child_cents: 0 });
   is('a triple that does not say who still lists a third guest, with the price', unlabelled, [{ nth: 3, kind: '', cents: 9000 }]);
+}
+
+
+{
+  // What a client is shown. How many cabins are left is for the desk; a cabin with none stays on the page, with no price and a way to call.
+  const inStock = { id: 'r1', room_type: 'Breezy Balcony Stateroom', occupancy: 'Double', cabins: 20, guests: 40, per_guest_cents: 51775, taxes_cents: 13400, left: 6, metered: true };
+  const soldOut = { id: 'r2', room_type: 'Grand Terrace Suite', occupancy: 'Double', cabins: 1, guests: 2, per_guest_cents: 120175, taxes_cents: 13400, left: 0, metered: true };
+  const soldOutQuad = { id: 'r3', room_type: 'Breezy Balcony Quad', occupancy: 'Quad (3 Adults, 1 Child)', cabins: 1, guests: 4, per_guest_cents: 54625, taxes_cents: 13400,
+    extra_adult_cents: 27312, extra_child_cents: 27312, left: 0, metered: true };
+  const html = rateCards([inStock, soldOut, soldOutQuad], '/g/x', 'open', { phone: '(813) 555-0100' });
+  const cardOf = (name) => (html.split(/<div class="rate(?: gone)?">/).find((c) => c.includes(name)) || '');
+  is('the client page never says how many cabins are left', /cabins? available|none left|\d+ cabins? left/i.test(html), false);
+  is('a cabin that is in stock shows its price and a way to book', [/\$651\.75/.test(cardOf('Breezy Balcony Stateroom')), /Book this cabin/.test(cardOf('Breezy Balcony Stateroom'))], [true, true]);
+  is('a sold out cabin stays on the page, with no price', [cardOf('Grand Terrace Suite') !== '', /\$\d/.test(cardOf('Grand Terrace Suite'))], [true, false]);
+  is('and says to call for pricing, with the number to ring', [/Call for pricing/.test(cardOf('Grand Terrace Suite')), /tel:8135550100/.test(cardOf('Grand Terrace Suite'))], [true, true]);
+  is('a sold out quad shows no third or fourth guest fare either', [/extra-guests/.test(cardOf('Breezy Balcony Quad')), /\$\d/.test(cardOf('Breezy Balcony Quad'))], [false, false]);
+  is('with no phone number on file it offers to be asked instead', /Ask us about this cabin/.test(rateCards([soldOut], '/g/x', 'open', {})), true);
+  is('the "from" price ignores a cabin with none left', fromPrice([soldOut, inStock]), 51775 + 13400);
+  is('and is nothing when every cabin is gone', fromPrice([soldOut, soldOutQuad]), 0);
+  const tiles = glance({ depart_date: '2028-06-02', return_date: '2028-06-06', departure_port: 'TPA' }, [inStock, soldOut]);
+  is('the at a glance tiles do not count cabins', /available|cabins/i.test(tiles), false);
+  const picker = ratePicker([inStock, soldOut]);
+  is('the sign up page lists a sold out cabin without its price or a count, and cannot pick it',
+    [/none left|cabins? available/i.test(picker), /Call for pricing/.test(picker), /disabled/.test(picker), /\$1,?201/.test(picker)], [false, true, true, false]);
+  is('occupancy is put in plain words', [occupancyWords('Double'), occupancyWords('Quad (3 Adults, 1 Child)'), occupancyWords('Triple (2 Adult, 1 Child)'), occupancyWords('Quad (2 Adults, 2 Child)')],
+    ['Double occupancy', 'Quad occupancy: 3 adults and 1 child', 'Triple occupancy: 2 adults and 1 child', 'Quad occupancy: 2 adults and 2 children']);
 }
 
 console.log(`\n${checks - failures} of ${checks} checks passed`);
