@@ -26,7 +26,8 @@
  */
 import { parseGroupQuote, tidy, FORMATS } from '../src/groupquote.js';
 import { cabinRows } from '../src/groupquote-mvas.js';
-import { extraGuestsOf, rateCards, ratePicker, glance, fromPrice, occupancyWords, bookingBlock } from '../src/grouppage.js';
+import { depositPerGuestFor, isSuite } from '../src/groupdeposit.js';
+import { extraGuestsOf, rateCards, ratePicker, glance, fromPrice, occupancyWords, bookingBlock, depositWords } from '../src/grouppage.js';
 import { parseDate, titleCase, lastFirst } from '../src/groupquote-util.js';
 import { md5, rc4, openEncryption } from '../src/pdfcrypt.js';
 import { decodeContent, isPlainText, parseCMap } from '../src/pdftext.js';
@@ -398,6 +399,13 @@ is('and a Margaritaville proposal is never handed to the fallback',
     ['2027-10-30', '2027-11-06', 'Islander', '2026-11-14', '4788']);
   is('and the number of cabins and guests', [p.fields.cabinsHeld, p.fields.passengers], [12, 24]);
   is('and the port as the city, not the airport code', p.fields.departurePort, 'Tampa');
+  is('and the standard deposit, the suite deposit and the two dates, from the payment ladder',
+    [p.fields.depositPerGuest, p.fields.suiteDepositPerGuest, p.fields.depositDue, p.fields.finalPaymentDue],
+    ['150.00', '400.00', '2027-07-17', '2027-08-01']);
+  const full = parseGroupQuote(MVAS_4589);
+  is('a ladder that calls it a Full Deposit is read the same way',
+    [full.fields.depositPerGuest, full.fields.suiteDepositPerGuest, full.fields.depositDue, full.fields.finalPaymentDue],
+    ['200.00', '400.00', '2027-07-09', '2027-07-24']);
   is('and all four cabin rates, each agreeing with the total on the page',
     [p.rates.length, p.rates.every((r) => r.reconciles), p.rates[2].roomType, p.rates[2].perGuestCents, p.rates[2].taxesCents],
     [4, true, 'Breezy Balcony Stateroom', 58615, 21200]);
@@ -407,6 +415,8 @@ is('and a Margaritaville proposal is never handed to the fallback',
 {
   const b = parseGroupQuote(MVAS_BROWSER_4793);
   is('a proposal read by the browser is recognised and read exactly', [b.read, b.format && b.format.id], [true, 'mvas']);
+  is('and the deposits and dates from a browser read', [b.fields.depositPerGuest, b.fields.suiteDepositPerGuest, b.fields.depositDue, b.fields.finalPaymentDue],
+    ['100.00', '300.00', '2028-03-04', '2028-03-19']);
   is('with the ship, the dates, the cabins and the guests',
     [b.fields.productName, b.fields.departDate, b.fields.returnDate, b.fields.optionDate, b.fields.cabinsHeld, b.fields.passengers],
     ['Islander', '2028-06-02', '2028-06-06', '2026-11-14', 33, 71]);
@@ -465,9 +475,18 @@ is('and a Margaritaville proposal is never handed to the fallback',
     is('how to book is one list in the order a client does it',
       [open.indexOf('Choose your cabin') < open.indexOf('Pay your deposit'), open.indexOf('Pay your deposit') < open.indexOf('Passports'),
         open.indexOf('Passports') < open.indexOf('Final payment')], [true, true, true]);
-    is('each step carries its amount and its date', [open.includes('$250.00 per guest'), open.includes('Due 03/04/2099'), open.includes('In by')], [true, true, true]);
+    is('the deposit step carries its amount and no date, and there is no countdown', [open.includes('$250.00 per guest'), !open.includes('03/04/2099') && !/next date is/i.test(open) && open.includes('Due 06/01/2099'), open.includes('In by')], [true, true, true]);
     is('a closed group shows only the dates, with no cabin to choose', [bookingBlock(g, '/g/x', 'closed').includes('Choose your cabin'), bookingBlock(g, '/g/x', 'closed').includes('Payment dates')], [false, true]);
     is('a group with no dates at all and booking closed shows nothing', bookingBlock({}, '/g/x', 'closed'), '');
+  }
+  {
+    const two = { deposit_per_guest_cents: 25000, suite_deposit_per_guest_cents: 50000 };
+    is('a suite is a cabin whose name says so', [isSuite('Grand Terrace Suite'), isSuite('Serene Junior Suite'), isSuite('Breezy Balcony Stateroom'), isSuite('Suitelife')], [true, true, false, false]);
+    is('a suite pays the suite deposit and every other cabin the standard one', [depositPerGuestFor(two, 'Grand Terrace Suite'), depositPerGuestFor(two, 'Cozy Interiors')], [50000, 25000]);
+    is('with no suite deposit set a suite pays the standard', depositPerGuestFor({ deposit_per_guest_cents: 25000 }, 'Grand Terrace Suite'), 25000);
+    is('both deposits are said in words', depositWords(two), 'Staterooms $250.00 per guest. Suites $500.00 per guest. This holds your cabin.');
+    is('one deposit, or two the same, is one sentence', [depositWords({ deposit_per_guest_cents: 25000 }), depositWords({ deposit_per_guest_cents: 25000, suite_deposit_per_guest_cents: 25000 })],
+      ['$250.00 per guest holds your cabin.', '$250.00 per guest holds your cabin.']);
   }
   is('occupancy is put in plain words', [occupancyWords('Double'), occupancyWords('Quad (3 Adults, 1 Child)'), occupancyWords('Triple (2 Adult, 1 Child)'), occupancyWords('Quad (2 Adults, 2 Child)')],
     ['Double occupancy', 'Quad occupancy: 3 adults and 1 child', 'Triple occupancy: 2 adults and 1 child', 'Quad occupancy: 2 adults and 2 children']);

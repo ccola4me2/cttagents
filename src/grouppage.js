@@ -82,7 +82,7 @@ const PAGE_COLUMNS = [
   'id', 'user_id', 'name', 'vendor', 'product_name', 'destination', 'departure_port',
   'depart_date', 'return_date', 'registration_open', 'registration_blurb', 'status',
   'deposit_due', 'final_payment_due', 'passport_due', 'faq_json', 'terms',
-  'agency_fee_cents', 'fee_terms', 'trip_terms', 'group_type', 'deposit_per_guest_cents',
+  'agency_fee_cents', 'fee_terms', 'trip_terms', 'group_type', 'deposit_per_guest_cents', 'suite_deposit_per_guest_cents',
   'page_slug', 'headline', 'hero_image_url', 'perks_json', 'itinerary_json',
   'amenities_json', 'drinks_json', 'enhancements_json', 'excursions_url',
 ].join(', ');
@@ -271,7 +271,7 @@ ${head}
   body{margin:0;background:var(--shell);color:var(--ink);
        font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
        -webkit-font-smoothing:antialiased;padding:0 0 3rem}
-  .wrap{max-width:${wide ? '48rem' : '34rem'};margin:0 auto;padding:1.6rem 1rem 0}
+  .wrap{max-width:${wide ? '62rem' : '34rem'};margin:0 auto;padding:1.6rem 1rem 0}
   .brand{display:flex;align-items:center;gap:.6rem;margin-bottom:1.8rem}
   .brand img{width:36px;height:36px}
   .brand b{font-size:1rem;letter-spacing:.24em;text-transform:uppercase;color:var(--navy);font-weight:700}
@@ -287,7 +287,7 @@ ${head}
   /* The top of the page. */
   .hero{background:var(--navy);color:#fff}
   .hero.photo{background:linear-gradient(rgba(10,25,40,.55),rgba(10,25,40,.72)),var(--hero) center/cover no-repeat,var(--navy)}
-  .hero-in{max-width:48rem;margin:0 auto;padding:1.1rem 1rem 2.2rem}
+  .hero-in{max-width:62rem;margin:0 auto;padding:1.1rem 1rem 2.2rem}
   .hero-brand{display:flex;align-items:center;gap:.6rem;font-size:.85rem;font-weight:700;margin-bottom:1.8rem}
   .hero-brand img{width:30px;height:30px;border-radius:7px;background:#fff;padding:2px;object-fit:contain}
   .hero-by{margin-left:auto;font-weight:400;color:rgba(255,255,255,.82)}
@@ -306,7 +306,7 @@ ${head}
   .subnav{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.95);
           -webkit-backdrop-filter:saturate(1.4) blur(10px);backdrop-filter:saturate(1.4) blur(10px);
           border-bottom:1px solid var(--line)}
-  .subnav-in{max-width:48rem;margin:0 auto;padding:.35rem 1rem;display:flex;align-items:center;gap:.8rem}
+  .subnav-in{max-width:62rem;margin:0 auto;padding:.35rem 1rem;display:flex;align-items:center;gap:.8rem}
   .subnav .links{display:flex;gap:.2rem;overflow-x:auto;flex:1;scrollbar-width:none}
   .subnav .links::-webkit-scrollbar{display:none}
   .subnav .links a{white-space:nowrap;text-decoration:none;color:var(--ink);font-size:.86rem;font-weight:600;
@@ -315,6 +315,11 @@ ${head}
   .nav-cta{flex:none;background:var(--coral);color:#fff;text-decoration:none;border-radius:999px;
            padding:.5rem 1.05rem;font-size:.86rem;font-weight:700;white-space:nowrap}
   .nav-cta:hover{background:#c94430}
+  /* Where the links and the button no longer fit side by side, the links get the whole bar and slide, with a soft edge to say there is more. */
+  @media (max-width:52rem){
+    .nav-cta{display:none}
+    .subnav .links{-webkit-mask-image:linear-gradient(90deg,#000 90%,transparent);mask-image:linear-gradient(90deg,#000 90%,transparent)}
+  }
   .hero-where{margin:-.9rem 0 1.1rem;color:rgba(255,255,255,.75);font-size:.9rem}
   .hero-price{margin:0 0 1.2rem;color:rgba(255,255,255,.9);font-size:.95rem}
   .hero-price b{font-size:1.6rem;color:#fff;font-variant-numeric:tabular-nums;margin:0 .15rem}
@@ -760,6 +765,21 @@ export function rateCards(rates, base, state, contact = {}) {
 }
 
 /**
+ * What the deposit is, in words a client can read at a glance. Two amounts when a suite asks more than a stateroom: "Staterooms $250.00 per
+ * guest. Suites $500.00 per guest." One sentence when there is one amount, or when the suites ask the same as everything else.
+ */
+export function depositWords(g) {
+  const standard = Number(g.deposit_per_guest_cents) || 0;
+  const suite = Number(g.suite_deposit_per_guest_cents) || 0;
+  if (standard && suite && suite !== standard) {
+    return `Staterooms ${money(standard)} per guest. Suites ${money(suite)} per guest. This holds your cabin.`;
+  }
+  if (!standard && suite) return `Suites ${money(suite)} per guest holds your cabin. We will tell you about the rest.`;
+  if (standard) return `${money(standard)} per guest holds your cabin.`;
+  return 'A small deposit holds your cabin. We will tell you how much.';
+}
+
+/**
  * How to book, with the dates in it. One list a client can follow from the top: choose, deposit, passports, final payment, each with what
  * it is in plain words and the day it is due. Once booking has closed it is only the dates, with no step to choose a cabin.
  */
@@ -775,10 +795,7 @@ export function bookingBlock(g, base, state) {
   }
   steps.push({
     title: 'Pay your deposit',
-    text: g.deposit_per_guest_cents
-      ? `${money(g.deposit_per_guest_cents)} per guest holds your cabin.`
-      : 'A small deposit holds your cabin. We will tell you how much.',
-    when: g.deposit_due ? `Due ${sayDate(g.deposit_due)}` : '',
+    text: depositWords(g),
   });
   if (g.passport_due) {
     steps.push({ title: 'Passports', text: 'Send us each traveller\'s passport details.', when: `In by ${sayDate(g.passport_due)}` });
@@ -788,17 +805,12 @@ export function bookingBlock(g, base, state) {
     text: 'Pay the rest of the trip cost.',
     when: g.final_payment_due ? `Due ${sayDate(g.final_payment_due)}` : 'We will confirm the date with you',
   });
-  if (!open && !g.deposit_due && !g.deposit_per_guest_cents && !g.final_payment_due && !g.passport_due) return '';
-  const next = [g.deposit_due, g.final_payment_due, g.passport_due]
-    .filter((d) => d && daysUntil(d) >= 0).sort()[0];
-  const count = next
-    ? `${daysUntil(next) === 0 ? 'The next date is today. ' : `The next date is in ${daysUntil(next)} day${
-      daysUntil(next) === 1 ? '' : 's'}. `}` : '';
+  if (!open && !g.deposit_per_guest_cents && !g.suite_deposit_per_guest_cents && !g.final_payment_due && !g.passport_due) return '';
   return `<div id="book" class="card"><h2>${open ? 'How to book' : 'Payment dates'}</h2><ol class="steps">${
     steps.map((st, i) => `<li><span class="n">${i + 1}</span>
       <span class="s-body"><span class="s-title">${esc(st.title)}</span><span class="s-text">${esc(st.text)}</span></span>${
       st.when ? `<span class="s-when">${esc(st.when)}</span>` : ''}${st.action ? `<span class="s-act">${st.action}</span>` : ''}</li>`).join('')
-  }</ol><p class="muted" style="margin:.9rem 0 0;">${count}You pay the travel supplier through us, never on this page.</p></div>`;
+  }</ol><p class="muted" style="margin:.9rem 0 0;">You pay the travel supplier through us, never on this page.</p></div>`;
 }
 
 function extrasList(json) {

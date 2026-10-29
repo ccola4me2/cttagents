@@ -15,7 +15,7 @@ import { now, uid } from './util.js';
 const FIELDS = [
   'name', 'vendor', 'product_name', 'destination', 'depart_date', 'return_date', 'option_date', 'cabins_held',
   'status', 'group_type', 'registration_blurb', 'vendor_contact', 'departure_port', 'passengers', 'proposal_id',
-  'sailing_id', 'proposal_expires', 'deposit_due', 'deposit_per_guest_cents', 'final_payment_due', 'passport_due',
+  'sailing_id', 'proposal_expires', 'deposit_due', 'deposit_per_guest_cents', 'suite_deposit_per_guest_cents', 'final_payment_due', 'passport_due',
   'faq_json', 'terms', 'agency_fee_cents', 'fee_terms', 'trip_terms', 'headline', 'hero_image_url', 'perks_json',
   'itinerary_json', 'amenities_json', 'drinks_json', 'enhancements_json', 'excursions_url',
 ];

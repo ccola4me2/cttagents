@@ -217,12 +217,17 @@
                     <input id="depositDue" name="depositDue" type="date">
                     <p class="field-hint">The supplier's date for this block, which is not the
                       deposit date on any one reservation out of it.</p></div>
-                  <div class="field"><label for="depositPerGuest">Deposit, per guest</label>
+                  <div class="field"><label for="depositPerGuest">Standard deposit, per guest</label>
                     <input id="depositPerGuest" name="depositPerGuest" class="money"
                       inputmode="decimal" placeholder="0.00">
-                    <p class="field-hint">What the supplier wants down per person. Without an
+                    <p class="field-hint">What the supplier wants down per person to hold a stateroom. Without an
                       amount a booking made from this group has nothing to chase before the
                       balance falls due.</p></div>
+                  <div class="field"><label for="suiteDepositPerGuest">Suite deposit, per guest</label>
+                    <input id="suiteDepositPerGuest" name="suiteDepositPerGuest" class="money"
+                      inputmode="decimal" placeholder="0.00">
+                    <p class="field-hint">What the supplier wants down per person to hold a suite, when it is more than the standard
+                      deposit. Leave it empty and a suite pays the standard deposit.</p></div>
                   <div class="field"><label for="finalPaymentDue">Final payment due</label>
                     <input id="finalPaymentDue" name="finalPaymentDue" type="date"></div>
                   <div class="field"><label for="passportDue">Passport details due</label>
@@ -431,6 +436,8 @@ if (!groupId) {
  */
 /** The rate rows a proposal was just read from, until the group is saved. */
 let pendingRates = null;
+let pendingDeposits = null;
+const showDay = (iso) => { const p = String(iso || '').split('-'); return p.length === 3 ? `${p[1]}/${p[2]}/${p[0]}` : String(iso || ''); };
 
 /**
  * The grid, read only.
@@ -667,9 +674,19 @@ if (quoteFile) quoteFile.addEventListener('change', async () => {
         return;
       }
       pendingRates = d.rates;
+      const f = d.fields || {};
+      pendingDeposits = (f.depositPerGuest || f.suiteDepositPerGuest || f.depositDue || f.finalPaymentDue)
+        ? { depositPerGuest: f.depositPerGuest || '', suiteDepositPerGuest: f.suiteDepositPerGuest || '',
+          depositDue: f.depositDue || '', finalPaymentDue: f.finalPaymentDue || '' } : null;
       drawRates(pendingRates);
       document.getElementById('rates-save-row').hidden = false;
-      ok.textContent = `${d.rates.length} cabin type${d.rates.length === 1 ? '' : 's'} read. Look them over below, then press Save these rates. Nothing on this group has changed yet.`;
+      document.getElementById('rates-save').textContent = pendingDeposits ? 'Save these rates and deposits' : 'Save these rates';
+      const depLine = pendingDeposits
+        ? ` Also read: ${[f.depositPerGuest ? `standard deposit $${f.depositPerGuest} per guest` : '',
+          f.suiteDepositPerGuest ? `suite deposit $${f.suiteDepositPerGuest} per guest` : '',
+          f.depositDue ? `deposit due ${showDay(f.depositDue)}` : '',
+          f.finalPaymentDue ? `final payment due ${showDay(f.finalPaymentDue)}` : ''].filter(Boolean).join(', ')}.` : '';
+      ok.textContent = `${d.rates.length} cabin type${d.rates.length === 1 ? '' : 's'} read.${depLine} Look them over below, then press the save button. Nothing on this group has changed yet.`;
       return;
     }
     forgetLastRead();
@@ -703,12 +720,13 @@ document.getElementById('rates-save').addEventListener('click', async () => {
   if ((lastRates || []).length && !confirm('Replace the rates on this group with these? The ones it has now are removed.')) return;
   bad.hidden = true;
   try {
-    await api(`/api/groups/${encodeURIComponent(groupId)}/rates`, { method: 'PUT', body: { rates: pendingRates } });
+    await api(`/api/groups/${encodeURIComponent(groupId)}/rates`, { method: 'PUT', body: { rates: pendingRates, deposits: pendingDeposits || undefined } });
     pendingRates = null;
+    pendingDeposits = null;
     document.getElementById('rates-save-row').hidden = true;
     document.getElementById('quote-file').value = '';
     ok.hidden = false;
-    ok.textContent = 'The rates are saved. The quote and the group page show them now.';
+    ok.textContent = 'The rates and deposits are saved. The quote and the group page show them now.';
     await load();
   } catch (e) {
     ok.hidden = true;
@@ -779,8 +797,10 @@ function drawOnPage() {
   const perks = parseList(g.perks_json).filter(Boolean);
   const days = parseList(g.itinerary_json).filter((d) => d && (d.port || d.note));
   const faq = parseList(g.faq_json).filter((q) => q && q.q);
-  const dep = g.deposit_per_guest_cents
-    ? `${money(g.deposit_per_guest_cents)} per guest` : '';
+  const dep = g.deposit_per_guest_cents && g.suite_deposit_per_guest_cents && g.suite_deposit_per_guest_cents !== g.deposit_per_guest_cents
+    ? `standard ${money(g.deposit_per_guest_cents)}, suites ${money(g.suite_deposit_per_guest_cents)} per guest`
+    : g.deposit_per_guest_cents ? `${money(g.deposit_per_guest_cents)} per guest`
+      : g.suite_deposit_per_guest_cents ? `suites ${money(g.suite_deposit_per_guest_cents)} per guest` : '';
   const dates = [
     g.deposit_due || dep ? `Deposit ${dep}${dep && g.deposit_due ? ', due ' : (g.deposit_due ? 'due ' : '')}${dateOf(g.deposit_due)}`.trim() : '',
     g.final_payment_due ? `Final payment due ${dateOf(g.final_payment_due)}` : '',
@@ -924,6 +944,8 @@ function fill(g) {
   set('groupNumber', g.group_number); set('depositDue', g.deposit_due);
   set('depositPerGuest', g.deposit_per_guest_cents
     ? (g.deposit_per_guest_cents / 100).toFixed(2) : '');
+  set('suiteDepositPerGuest', g.suite_deposit_per_guest_cents
+    ? (g.suite_deposit_per_guest_cents / 100).toFixed(2) : '');
   set('finalPaymentDue', g.final_payment_due); set('passportDue', g.passport_due);
   // Cents in the record, dollars in the box. Empty rather than 0.00 when
   // nothing has been set, so a fee of nothing and a fee nobody has decided on
@@ -1727,6 +1749,7 @@ function allValues(values) {
     groupNumber: form.elements.groupNumber.value,
     depositDue: form.elements.depositDue.value,
     depositPerGuest: form.elements.depositPerGuest.value,
+    suiteDepositPerGuest: form.elements.suiteDepositPerGuest.value,
     finalPaymentDue: form.elements.finalPaymentDue.value,
     passportDue: form.elements.passportDue.value,
     agencyFee: form.elements.agencyFee.value,

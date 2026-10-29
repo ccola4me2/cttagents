@@ -198,6 +198,14 @@ function parse(t) {
     }
   }
 
+  // The booking deposit: "Booking Deposit $100 p/Full Fare Guest ($300 for Suites)". The first amount per guest is the standard
+  // deposit and the amount in brackets is the suite deposit. The line after the last is the final payment.
+  const bookingRow = payments.find((p) => /\b(?:booking|full) deposit\b/i.test(p.what));
+  const finalRow = payments.find((p) => /^final\b/i.test(p.what));
+  const dollarsOf = (x) => (x ? Number(String(x).replace(/,/g, '')).toFixed(2) : '');
+  const standardDeposit = bookingRow ? dollarsOf((/\$\s*([\d,]+(?:\.\d{2})?)\s*p\/(?:full fare )?(?:guest|person)/i.exec(bookingRow.what) || [])[1]) : '';
+  const suiteDeposit = bookingRow ? dollarsOf((/\(\s*\$\s*([\d,]+(?:\.\d{2})?)\s*for suites?\s*\)/i.exec(bookingRow.what) || [])[1]) : '';
+
   const rates = grades.map((c, i) => ({
     roomType: c.roomType,
     occupancy: c.occupancy,
@@ -228,6 +236,10 @@ function parse(t) {
       departurePort: portName(port),
       passengers: guests ? Number(guests) : 0,
       proposalExpires: expires,
+      depositPerGuest: standardDeposit,
+      suiteDepositPerGuest: suiteDeposit,
+      depositDue: bookingRow ? bookingRow.due : '',
+      finalPaymentDue: finalRow ? finalRow.due : '',
       groupCode: '',
     },
     rates,

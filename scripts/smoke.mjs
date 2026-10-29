@@ -2842,12 +2842,15 @@ async function main() {
     const filled = await call(advisor, 'PUT', `/api/groups/${groupId}/rates`, { rates: [
       { roomType: 'Cozy Interiors', occupancy: 'Double', cabins: 2, guests: 4, perGuestCents: 27265, taxesCents: 21200, totalCents: 193860 },
       { roomType: 'Grand Terrace Suite', occupancy: 'Double', cabins: 1, guests: 2, perGuestCents: 125115, taxesCents: 21200, totalCents: 292630 },
-    ] });
+    ], deposits: { depositPerGuest: '100.00', suiteDepositPerGuest: '300.00', depositDue: isoDay(40), finalPaymentDue: isoDay(100) } });
     check(filled.status === 200 && (filled.data?.rates || []).length === 2, 'the rates of an existing group can be filled in from a proposal',
       JSON.stringify(filled.data).slice(0, 160));
     const after = await call(advisor, 'GET', `/api/groups/${groupId}`);
     check(after.data?.group?.name === `Islander New Year ${stamp}` && after.data?.group?.cabins_held === 20 && (after.data?.rates || []).length === 2,
       'and nothing else on the group moved', JSON.stringify([after.data?.group?.name, after.data?.group?.cabins_held]));
+    check(after.data?.group?.deposit_per_guest_cents === 10000 && after.data?.group?.suite_deposit_per_guest_cents === 30000
+      && after.data?.group?.deposit_due === isoDay(40) && after.data?.group?.final_payment_due === isoDay(100),
+    'the deposits and dates read from the same proposal are kept with the rates', JSON.stringify([after.data?.group?.deposit_per_guest_cents, after.data?.group?.suite_deposit_per_guest_cents, after.data?.group?.deposit_due, after.data?.group?.final_payment_due]));
   }
 
   const inGroup = await call(advisor, 'POST', '/api/bookings', {
@@ -7437,7 +7440,7 @@ async function main() {
       headline: 'Four nights, one great crowd', heroImageUrl: 'https://example.com/ship-photo.jpg',
       perks: ['$100 onboard credit', 'Group cocktail party'],
       itinerary: [{ day: 'Day 1', port: 'Tampa', note: 'Depart 4:00 PM' }, { day: '', port: '', note: '' }],
-      depositDue: isoDay(30), finalPaymentDue: isoDay(90), depositPerGuest: '250', departurePort: 'TPA', excursionsUrl: 'https://example.com/shore?ship=1',
+      depositDue: isoDay(30), finalPaymentDue: isoDay(90), depositPerGuest: '250', suiteDepositPerGuest: '500', departurePort: 'TPA', excursionsUrl: 'https://example.com/shore?ship=1',
       amenities: [{ name: 'Onboard credit', price: '$100 per cabin', note: 'Spend it anywhere onboard' }, { name: '' }],
       drinks: [{ name: 'Premium drink package', price: '$59.99 per person per day', note: 'Cocktails, wine and beer' }],
       enhancements: [{ name: 'Wi-Fi', price: '$19.99 per day', note: 'One device' }],
@@ -7492,6 +7495,9 @@ async function main() {
     check(page.raw.includes('Pay your deposit') && page.raw.includes('$250.00')
       && page.raw.includes('Final payment'),
     'the deposit is shown as an amount per guest with its date, in the steps beside the final payment');
+    check(page.raw.includes('Staterooms $250.00 per guest') && page.raw.includes('Suites $500.00 per guest')
+      && (made.data?.group?.suite_deposit_per_guest_cents === 50000),
+    'a standard deposit and a higher suite deposit are both said, and kept');
     check(page.raw.includes('Browse shore excursions') && page.raw.includes('href="https://example.com/shore?ship=1"')
       && page.raw.includes('noopener'),
     'the itinerary offers a button to look at shore excursions, when the advisor gave a link');
