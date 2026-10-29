@@ -120,13 +120,16 @@ for (const file of walk(publicDir)) assets.add(`/${relative(publicDir, file).spl
 for (const entry of readdirSync(publicDir, { withFileTypes: true })) {
   if (!entry.isDirectory()) assets.add(`/${entry.name}`);
 }
-// Images and the rest, which walk() skips because it only wants source.
-for (const dir of [publicDir, join(publicDir, 'css'), join(publicDir, 'js')]) {
-  if (!existsSync(dir)) continue;
+// Images and the rest, which walk() skips because it only wants source. Every file under public, in any folder: the Cruise Group Page
+// logo and icons sit in public/cgp, and a link to one of them is as good as a link to a page.
+function everyFile(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isFile()) assets.add(`/${relative(publicDir, join(dir, entry.name)).split(sep).join('/')}`);
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) everyFile(full);
+    else assets.add(`/${relative(publicDir, full).split(sep).join('/')}`);
   }
 }
+everyFile(publicDir);
 
 const dead = new Map();
 for (const file of walk(publicDir)) {
