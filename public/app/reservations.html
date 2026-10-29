@@ -242,7 +242,12 @@ function render(bookings, stats, scope, d = {}) {
       // the deadline still speaks for a reservation with no schedule on it.
       const owing = Number(b.owing_cents || 0);
       const scheduled = Number(b.hard_rows || 0) > 0;
-      const settled = scheduled && owing <= 0;
+      // Nothing owing on the rows that exist is not the same as nothing owed: a deposit posted and no balance
+      // ever scheduled has no unpaid row either. It read "paid in full" on a trip with most of its cost on no
+      // row at all, so the trip cost has to be covered by what is posted and scheduled before it can say so.
+      const unposted = Math.max(0, Number(b.gross_cents || 0) - Number(b.paid_cents || 0) - owing);
+      const settled = scheduled && owing <= 0 && unposted <= 0;
+      const balanceOpen = scheduled && owing <= 0 && unposted > 0;
       const left = daysUntil(b.final_payment_due);
       const tone = settled ? 'badge-green'
         : left === null ? '' : left < 0 ? 'badge-red' : left <= 14 ? 'badge-red' : left <= 30 ? 'badge-amber' : 'badge-navy';
@@ -263,9 +268,10 @@ function render(bookings, stats, scope, d = {}) {
           <div class="muted">${esc(b.destination || '')}</div></td>
         <td>${b.depart_date ? esc(dateFmt(b.depart_date)) : '<span class="muted">-</span>'}
           <div class="muted">${b.return_date ? 'back ' + esc(dateFmt(b.return_date)) : ''}</div></td>
-        <td>${b.final_payment_due || settled
-            ? `${b.final_payment_due ? esc(dateFmt(b.final_payment_due)) : ''}<div><span class="badge ${tone}">${
+        <td>${b.final_payment_due || settled || balanceOpen
+            ? `${b.final_payment_due ? esc(dateFmt(b.final_payment_due)) : ''}<div><span class="badge ${balanceOpen ? 'badge-amber' : tone}">${
                 settled ? 'paid in full'
+                  : balanceOpen ? 'balance not scheduled'
                   : left < 0 ? 'past due, may be cancelled'
                   : left === 0 ? 'cancels today' : `cancels in ${left}d`}</span></div>`
             : '<span class="muted">-</span>'}</td>

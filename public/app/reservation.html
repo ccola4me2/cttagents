@@ -2338,7 +2338,9 @@ function render() {
   const hard = (d.payments || []).filter((p) => p.payment_class === 'hard');
   const owing = hard.filter((p) => !p.paid_date);
   const unscheduled = hard.length === 0;
-  const settled = !unscheduled && !owing.length;
+  // The deposit posted and no balance ever scheduled leaves no unpaid row, which is not the same as nothing owed.
+  const balanceOpen = !unscheduled && !owing.length && Number(d.money.unscheduledCents || 0) > 0;
+  const settled = !unscheduled && !owing.length && !balanceOpen;
 
   document.getElementById('money').innerHTML = `
     <div class="stat"><p class="label">Trip cost</p><p class="value">${money(b.gross_cents)}</p>
@@ -2359,6 +2361,8 @@ function render() {
           : 'nothing owing')
         : unscheduled
           ? 'nothing posted and nothing scheduled, so nothing is being chased'
+          : balanceOpen
+            ? `${money(d.money.unscheduledCents)} of the trip cost is not on the schedule yet`
           : b.final_payment_due
             ? (left < 0 ? 'passed, confirm with the vendor' : `vendor cancels in ${left} days`)
             : 'nothing can warn you without a date'}</p></div>`;
