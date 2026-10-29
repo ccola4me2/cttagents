@@ -397,6 +397,8 @@ const regForm = document.getElementById('reg-form');
 const deleteBtn = document.getElementById('delete');
 let group = null;
 let canEdit = true;
+// Whether the group is the signed-in person's own. On the desk anybody may edit any group, but only its owner may delete it.
+let isMine = true;
 
 // The year stays: see the note in groups.html. Both dates on this page are
 // the two that sit furthest out, the sailing and the day the cabins go.
@@ -1440,7 +1442,10 @@ async function load() {
   try {
     const d = await api(`/api/groups/${encodeURIComponent(groupId)}`);
     group = d.group;
-    canEdit = group.user_id === ME;
+    isMine = group.user_id === ME;
+    // On the desk every member works every group: its details, rates and sign-up page as well as its cabin sheet. Elsewhere an owner
+    // reads an advisor's group and does not change it.
+    canEdit = isMine || Boolean(me.desk);
     fill(group);
     // Whatever the proposal quoted, if a proposal was ever read. Cleared on
     // load so a group saved without one does not inherit the last group's
@@ -1458,13 +1463,18 @@ async function load() {
     // details form above should be editable before that finishes.
     loadRoster();
     renderBookings(d.bookings);
-    deleteBtn.hidden = !canEdit;
+    deleteBtn.hidden = !isMine;
     document.getElementById('repeat-btn').hidden = !canEdit;
     // The sheet behind the group: who booked which cabin, and the tour conductor credits earned.
     const sheetLink = document.getElementById('sheet-link');
     sheetLink.href = `/app/group-sheet?id=${encodeURIComponent(group.id)}`;
     // On the desk every member works every group's cabin sheet, so the button is there on somebody else's group too.
     sheetLink.hidden = !(canEdit || me.desk);
+    // Somebody else's group on the desk is editable, so the label that said otherwise is now only a reminder of whose it is.
+    if (me.desk && !isMine) {
+      document.getElementById('actions').insertAdjacentHTML('beforeend',
+        `<span class="badge badge-navy">${esc(group.advisor_name || 'Another member')}'s group</span>`);
+    }
     document.getElementById('repeat-note').hidden = !(canEdit
       && new URL(location.href).searchParams.get('repeated') === '1');
 
