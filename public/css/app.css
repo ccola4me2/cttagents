@@ -107,6 +107,12 @@ a:hover { color: var(--coral-500); }
 }
 .wordmark.on-dark:hover img { box-shadow: 0 0 0 2px var(--coral-400), 0 6px 16px rgba(0,0,0,.35); }
 
+/* The Group Desk wears the Cruise Group Page logo. It is a wide picture, not a square mark, and its lettering is navy, so on the
+   navy sidebar it sits on a light plate with the desk's name under it. */
+.wordmark.desk { flex-direction: column; align-items: flex-start; gap: .4rem; }
+.wordmark.on-dark img.cgp-logo { width: 168px; height: auto; padding: 6px 10px; border-radius: 12px; }
+.wordmark.desk small { margin: 0; }
+
 /* ------------------------------------------------------------- controls -- */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: .45rem;
@@ -494,6 +500,9 @@ dialog form { margin: 0; }
 }
 .auth-brand { display: flex; align-items: center; gap: .9rem; text-decoration: none; }
 .auth-brand img { width: 52px; height: 52px; }
+/* Sign-in for the Group Desk: the logo is wide, so the name goes under it and the pair is centred. */
+.auth-brand.cgp { flex-direction: column; gap: .5rem; text-align: center; }
+.auth-brand.cgp img { width: 230px; height: auto; }
 /* Title case here too. Uppercase at .24em put "CRUISES TOURS & TRAVEL" over
    500px, which overflowed the 440px auth card on the way to overflowing the
    phone. See the note by .wordmark b. */

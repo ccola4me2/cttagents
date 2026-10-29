@@ -1430,6 +1430,12 @@ export async function mountShell({ admin = false } = {}) {
   const { user, actingAs } = await api('/api/auth/me');
   // The Group Desk has its own front door, and its own place to land when signed out.
   const isDesk = Boolean(user && user.desk);
+  // The tab's icon is the Cruise Group Page's too, on the desk.
+  if (isDesk) {
+    for (const link of document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]')) link.remove();
+    document.head.insertAdjacentHTML('beforeend',
+      '<link rel="icon" href="/cgp/favicon.ico"><link rel="apple-touch-icon" href="/cgp/icon-180.png">');
+  }
   if (!user) { window.location.href = '/login'; throw new Error('Signed out'); }
   // An owner not sitting in somebody else's seat. Everybody else has no choice of scope to remember.
   scopeOwner = user.role === 'admin' && !actingAs ? user.id : null;
@@ -1457,8 +1463,8 @@ export async function mountShell({ admin = false } = {}) {
   }
 
   sidebar.innerHTML = `
-    <a class="wordmark on-dark" href="${isDesk ? '/app/desk' : (admin ? '/admin/' : '/app/')}">
-      <img src="/logo-mark.png" alt="">
+    <a class="wordmark on-dark${isDesk ? ' desk' : ''}" href="${isDesk ? '/app/desk' : (admin ? '/admin/' : '/app/')}">
+      ${isDesk ? '<img class="cgp-logo" src="/cgp/logo.png" alt="Cruise Group Page">' : '<img src="/logo-mark.png" alt="">'}
       <span><b>${isDesk ? 'Group Desk' : 'Cruises Tours &amp; Travel'}</b><small>${
         isDesk ? 'Margaritaville at Sea groups' : (admin ? 'Admin' : 'Travel Advisor Portal')}</small></span>
     </a>
