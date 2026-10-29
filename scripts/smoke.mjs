@@ -6978,8 +6978,8 @@ async function main() {
     check(landing.raw.includes('$1,413.00') && landing.raw.includes('taxes and fees included')
       && landing.raw.includes('Gratuities are not included') && !landing.raw.includes('$1,199.00'),
       'with the price carrying its cents, always');
-    check(landing.raw.includes('4 cabins available') && landing.raw.includes('1 cabin available'),
-      'and how many cabins of each are available');
+    check(!/cabins? (available|left)/i.test(landing.raw.replace(/<script[\s\S]*?<\/script>/g, '')),
+      'and never how many cabins of each are left, which stays in the desk');
     check(!/\d+ guests?\b/.test(landing.raw.replace(/<script[\s\S]*?<\/script>/g, '')),
       'without a count of guests, which is not what somebody choosing a cabin asks');
     check(landing.raw.includes('Is airfare included?'), 'the FAQ is on it');
@@ -7098,7 +7098,8 @@ async function main() {
       'and the next party is told which grade has gone', JSON.stringify(tooLate.data));
 
     const soldOut = await call(null, 'GET', `/gs/${signupSlug}`);
-    check(soldOut.raw.includes('None left'), 'the page says so as well');
+    check(soldOut.raw.includes('Call for pricing') && !/None left/i.test(soldOut.raw),
+      'a grade that has gone stays on the page and says call for pricing, with no count');
 
     // ---------------------------------------------- what the agency sees --
     const roster = await call(advisor, 'GET', `/api/groups/${signupGroupId}/roster`);
@@ -7486,7 +7487,7 @@ async function main() {
     check(page.raw.includes('$100 onboard credit') && page.raw.includes('Depart 4:00 PM'),
       'and what the group gets and the day by day');
     check(page.raw.includes('Onboard credit') && page.raw.includes('$100 per cabin')
-      && page.raw.indexOf('Onboard credit') < page.raw.indexOf('What is still available'),
+      && page.raw.indexOf('Onboard credit') < page.raw.indexOf('Cabins and rates'),
     'amenities such as onboard credit are shown, above the cabins');
     check(page.raw.includes('Deposit to hold your cabin') && page.raw.includes('$250.00')
       && page.raw.includes('Final payment'),
@@ -7573,8 +7574,8 @@ async function main() {
       'it is kept out of search and carries what a pasted link shows');
     check(page.raw.includes('Book this cabin') && page.raw.includes('/register?rate='),
       'each cabin has a button that carries that cabin to the form');
-    check(page.raw.includes('3 cabins available') && page.raw.includes('$861.40') && !page.raw.includes('$689.00'),
-      'with how many are left and the price, cents and all');
+    check(!/cabins? available/i.test(page.raw.replace(/<script[\s\S]*?<\/script>/g, '')) && page.raw.includes('$861.40') && !page.raw.includes('$689.00'),
+      'with the price, cents and all, and no count of cabins left');
     check(page.raw.includes('<script>\n') && !page.raw.includes('<scr\nipt>'),
       'and its scripts are scripts, not text');
     check(!/type="?(card|cc-number)/i.test(page.raw), 'there is still no card field on it');
@@ -7743,8 +7744,8 @@ async function main() {
       name: copy?.name, departDate: isoDay(70), returnDate: isoDay(74), registrationOpen: true,
     });
     const copyPage = await call(null, 'GET', `/gs/${copy?.page_slug}`);
-    check(copyPage.status === 200 && copyPage.raw.includes('Price to come') && !copyPage.raw.includes('$0.00'),
-      'a price not filled in yet reads as price to come, never zero', `status ${copyPage.status}`);
+    check(copyPage.status === 200 && copyPage.raw.includes('Call for pricing') && !copyPage.raw.includes('$0.00'),
+      'a price not filled in yet reads as call for pricing, never zero', `status ${copyPage.status}`);
     const oldPage = await call(null, 'GET', `/gs/${origSlug}`);
     check(oldPage.raw.includes('This sailing has departed') && oldPage.raw.includes('See the next sailing')
       && oldPage.raw.includes(`/${copy?.page_slug}"`),
