@@ -191,6 +191,10 @@ const qp = (s) => unescape(encodeURIComponent(s)).replace(/=/g, '=3D').replace(/
   const noComm = parseConfirmation(grid.filter((l) => !/^Total Comm/.test(l)).join('\n'));
   is('an offer that prints no commission total is still read as this family', [noComm.fields.supplier, noComm.fields.clientName], ['Royal Caribbean', 'Anna Sample']);
   is('and the number is the reservation id, not the dining booking id', g.fields.confirmationNumber, '1234567');
+  // An advisor's copy can arrive without the title or the commission total. It is still this family, and the commission is read off the charges row.
+  const bare = parseConfirmation(grid.filter((l) => !/^Total Comm|^Booking Confirmation|^Issue Date/.test(l)).join('\n'));
+  is('a copy with no title and no commission total is still read', [bare.fields.supplier, bare.fields.clientName, bare.fields.gross], ['Royal Caribbean', 'Anna Sample', '3400.00']);
+  is('and its commission comes off the charges row', bare.fields.commission, '300.00');
 }
 
 // ------------------------------------------------- picture attachments ---

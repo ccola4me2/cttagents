@@ -646,9 +646,12 @@ const addDays = (iso, n) => new Date(Date.parse(`${iso}T00:00:00Z`) + n * 864000
 
 /** Whether a document is one of this family's agent copies. */
 function isRoyalFamily(text) {
-  if (!/booking confirmation\s*-\s*agent copy/i.test(text)) return false;
-  // An offer or a copy with the commission left off may not print the commission total, but it still has this family's two grids.
-  return /total comm\/admin/i.test(text) || (/general information/i.test(text) && /guest information/i.test(text));
+  const title = /booking confirmation\s*[-\u2013\u2014]?\s*agent copy/i.test(text);
+  // This family's own grids: the two headings and the row of guest names. A copy with the title cut off, an offer, or one with the
+  // commission left off still has these, and an advisor whose copy lacks one phrase should not get a reader that finds nothing.
+  const grids = /general information/i.test(text) && /guest information/i.test(text)
+    && /reservation id/i.test(text) && /^\s*guest name\b/im.test(text);
+  return grids || (title && /total comm\/admin/i.test(text));
 }
 
 /**
@@ -1214,7 +1217,15 @@ export function parseConfirmation(text) {
     const g = lines.findIndex((l) => /gross charges/i.test(l));
     for (let k = g; g >= 0 && k < Math.min(lines.length, g + 3); k += 1) {
       const figs = (lines[k].match(RC_MONEY) || []).map(cleanMoney);
-      if (figs.length > royalPeople.length) { fields.gross = fixed(figs[royalPeople.length]); from.gross = lines[k].trim().slice(0, 160); break; }
+      if (figs.length > royalPeople.length) {
+        const n = royalPeople.length;
+        fields.gross = fixed(figs[n]); from.gross = lines[k].trim().slice(0, 160);
+        // The same row carries the commission after the charges, a figure for each guest and a total, when it is not printed on its own.
+        if (!fields.commission && figs.length === 2 * n + 2 && figs[2 * n + 1] > 0) {
+          fields.commission = fixed(figs[2 * n + 1]); from.commission = lines[k].trim().slice(0, 160);
+        }
+        break;
+      }
     }
   }
 
