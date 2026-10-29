@@ -902,8 +902,11 @@ function reportData() {
     cols: [['name', label, 'text'], ['n', 'Reservations', 'int'], ['expected', 'Expected', 'money'], ['received', 'Received', 'money'],
       ['share', 'Advisor share of received', 'money'], ['paid', 'Paid out', 'money'], ['due', 'Still due to advisor', 'money'], ['agency', 'Agency keeps', 'money']],
     rows: group(keyOf).map(([name, l]) => ({ name: rowName ? rowName(name) : name, n: l.length, expected: sum(l, 'commission_cents'), received: sum(l, 'received_cents'),
-      share: sum(l, 'payout_cents'), paid: sum(l, 'paid_out_cents'), due: due(l), agency: sum(l, 'agency_received_cents') })),
+      share: sum(l, 'payout_cents'), paid: sum(l, 'paid_out_cents'), due: due(l), agency: sum(l, 'agency_received_cents'),
+      // The reservations behind the row, with only their commission: what was expected, what has come, and the difference.
+      kids: l.slice().sort((a, b) => String(a.depart_date || '').localeCompare(String(b.depart_date || '')) || String(a.client_name || '').localeCompare(String(b.client_name || ''))) })),
     total: true,
+    drill: label,
   });
 
   if (rep.kind === 'advisor') return eight('Advisor', (r) => r.advisor_name);
@@ -1008,6 +1011,23 @@ function reportCell(v, type) {
   return esc(v);
 }
 
+// Which rows of a report are opened to show their reservations, so the table can be drawn again without closing them.
+const drillOpen = new Set();
+
+/** The reservations behind one row of a report, with just their commission. */
+function drillRows(row, label) {
+  const others = label === 'Vendor' ? ['Advisor', (k) => k.advisor_name] : ['Vendor', (k) => k.supplier];
+  const head = `<tr><th>Reservation</th><th>${others[0]}</th><th>Sails</th><th>Status</th><th class="r">Expected</th><th class="r">Received</th><th class="r">Difference</th></tr>`;
+  const body = row.kids.map((k) => `<tr>
+    <td><a href="/app/reservation?id=${encodeURIComponent(k.id)}">${esc(k.client_name || '')}</a>${k.confirmation_number ? ` <span class="muted">${esc(k.confirmation_number)}</span>` : ''}</td>
+    <td>${esc(others[1](k) || '')}</td>
+    <td>${k.depart_date ? esc(dateFmt(k.depart_date)) : '<span class="muted">no date</span>'}</td>
+    <td>${esc(STATE_LABEL[k.settlement] || '')}</td>
+    <td class="r cd-money">${money(k.commission_cents || 0)}</td><td class="r cd-money">${money(k.received_cents || 0)}</td>
+    <td class="r cd-money">${k.variance_cents ? money(k.variance_cents) : '<span class="muted">-</span>'}</td></tr>`).join('');
+  return `<table class="cd-table" style="margin:.2rem 0 0;background:#fff;"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+}
+
 function reportTable() {
   const r = reportData();
   const note = r.note ? `<p class="muted" style="margin:0 0 .6rem;">${esc(r.note)}</p>` : '';
@@ -1023,8 +1043,14 @@ function reportTable() {
     }).join('')}</tr>`;
   }
   return `${note}<div class="card cd-scroll"><table class="cd-table"><thead><tr>${r.cols.map(([, label, type]) =>
-    `<th class="${type === 'text' ? '' : 'r'}">${esc(label)}</th>`).join('')}</tr></thead><tbody>${r.rows.map((row) => `<tr>${r.cols.map(([k, , type]) =>
-    `<td class="${type === 'text' ? '' : 'r cd-money'}">${reportCell(row[k], type)}</td>`).join('')}</tr>`).join('')}
+    `<th class="${type === 'text' ? '' : 'r'}">${esc(label)}</th>`).join('')}</tr></thead><tbody>${r.rows.map((row) => {
+    const key = `${rep.kind}:${row.name}`;
+    const open = Boolean(row.kids) && drillOpen.has(key);
+    const cells = r.cols.map(([k, , type], i) => `<td class="${type === 'text' ? '' : 'r cd-money'}">${
+      i === 0 && row.kids ? `<span aria-hidden="true">${open ? '&#9662;' : '&#9656;'}</span> ` : ''}${reportCell(row[k], type)}</td>`).join('');
+    return `<tr${row.kids ? ` data-drill="${esc(key)}" class="${open ? 'open' : ''}" style="cursor:pointer;" tabindex="0" role="button" aria-expanded="${open}"` : ''}>${cells}</tr>${
+      open ? `<tr class="sub"><td colspan="${r.cols.length}">${drillRows(row, r.drill)}</td></tr>` : ''}`;
+  }).join('')}
     ${totalRow}</tbody></table></div>`;
 }
 
@@ -1061,7 +1087,21 @@ panel.addEventListener('click', (e) => {
   if (view !== 'reports' || !all) return;
   const k = e.target.closest('[data-report]');
   if (k) { rep.kind = k.dataset.report; draw(); return; }
-  if (e.target.closest('#rp-csv')) downloadReport();
+  if (e.target.closest('#rp-csv')) { downloadReport(); return; }
+  if (e.target.closest('a')) return;
+  const row = e.target.closest('[data-drill]');
+  if (row) {
+    const key = row.dataset.drill;
+    if (drillOpen.has(key)) drillOpen.delete(key); else drillOpen.add(key);
+    document.getElementById('rp-body').innerHTML = reportTable();
+  }
+});
+panel.addEventListener('keydown', (e) => {
+  if (view !== 'reports' || !all || (e.key !== 'Enter' && e.key !== ' ')) return;
+  const row = e.target.closest && e.target.closest('[data-drill]');
+  if (!row) return;
+  e.preventDefault();
+  row.click();
 });
 panel.addEventListener('input', (e) => {
   const k = e.target.dataset && e.target.dataset.rp;
