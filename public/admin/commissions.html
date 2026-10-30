@@ -152,8 +152,10 @@
         <div class="field"><label for="fee">Fee taken out</label>
           <input id="fee" inputmode="decimal" placeholder="0.00" autocomplete="off">
           <p class="field-hint">The agency's expense. It never comes out of an advisor's share.</p></div>
-        <div class="field"><label for="feeNote">What the fee was</label>
-          <input id="feeNote" maxlength="200" placeholder="Check processing fee"></div>
+        <div class="field"><label for="feeKind">What the fee was</label>
+          <select id="feeKind"><option value="Check processing fee">Check processing fee</option><option value="Recall">Recall</option>
+            <option value="other">Something else</option></select>
+          <input id="feeNote" maxlength="200" placeholder="What was it?" hidden style="margin-top:.4rem;"></div>
       </div>
       <p class="cd-sum" id="net"></p>
 
@@ -1552,12 +1554,33 @@ function drawLines() {
   drawNet();
 }
 
+// What a fee was is one of two things nearly every time, so it is chosen, and typed only when it is something else.
+const FEE_KINDS = ['Check processing fee', 'Recall'];
+function setFeeKind(note) {
+  const n = String(note || '').trim();
+  const known = FEE_KINDS.find((k) => k.toLowerCase() === n.toLowerCase());
+  if (!n || known) {
+    $('feeKind').value = known || FEE_KINDS[0];
+    $('feeNote').value = known || FEE_KINDS[0];
+    $('feeNote').hidden = true;
+  } else {
+    $('feeKind').value = 'other';
+    $('feeNote').value = n;
+    $('feeNote').hidden = false;
+  }
+}
+$('feeKind').addEventListener('change', () => {
+  if ($('feeKind').value === 'other') { $('feeNote').value = ''; $('feeNote').hidden = false; $('feeNote').focus(); }
+  else { $('feeNote').value = $('feeKind').value; $('feeNote').hidden = true; }
+});
+
 function resetForm() {
   filename = '';
   lines = [];
   $('chk-err').hidden = true;
   ['vendorName', 'reference', 'statement', 'fee', 'feeNote', 'notes', 'traceNumber'].forEach((k) => { $(k).value = ''; });
   $('payMethod').value = 'check';
+  setFeeKind('');
   $('receivedOn').value = d.today;
   $('chk-hint').textContent = '';
 }
@@ -1570,7 +1593,7 @@ function openEditCheck(c) {
   $('drop').hidden = true;
   $('chk-save').textContent = 'Save the changes';
   $('chk-title').textContent = `Edit the ${c.vendor_name} check`;
-  ['vendorName', 'reference', 'statement', 'fee', 'feeNote', 'notes', 'receivedOn', 'payMethod', 'traceNumber'].forEach((k) => { $(k).disabled = false; });
+  ['vendorName', 'reference', 'statement', 'fee', 'feeNote', 'feeKind', 'notes', 'receivedOn', 'payMethod', 'traceNumber'].forEach((k) => { $(k).disabled = false; });
   $('payMethod').value = c.payment_method || 'check';
   $('traceNumber').value = c.trace_number || '';
   $('vendorName').value = c.vendor_name || '';
@@ -1578,7 +1601,7 @@ function openEditCheck(c) {
   $('receivedOn').value = c.received_on || '';
   $('statement').value = plain(c.statement_cents);
   $('fee').value = c.fee_cents ? plain(c.fee_cents) : '';
-  $('feeNote').value = c.fee_note || '';
+  setFeeKind(c.fee_note);
   $('notes').value = c.notes || '';
   lines = (c.lineItems || []).map((li) => ({
     ...blankLine(), id: li.id, bookingId: li.booking_id, label: li.client_name || '',
@@ -1600,7 +1623,7 @@ function openCheckDialog(existing) {
   $('chk-save').textContent = existing ? 'Add the line' : 'Save the check';
   $('chk-title').textContent = existing ? `Add a line to the ${existing.vendor_name} check` : 'Record a check';
   if (existing) {
-    ['vendorName', 'reference', 'statement', 'fee', 'feeNote', 'notes', 'payMethod', 'traceNumber'].forEach((k) => { $(k).disabled = true; });
+    ['vendorName', 'reference', 'statement', 'fee', 'feeNote', 'feeKind', 'notes', 'payMethod', 'traceNumber'].forEach((k) => { $(k).disabled = true; });
     $('receivedOn').disabled = true;
     $('payMethod').value = existing.payment_method || 'check';
     $('traceNumber').value = existing.trace_number || '';
@@ -1609,13 +1632,13 @@ function openCheckDialog(existing) {
     $('receivedOn').value = existing.received_on || '';
     $('statement').value = plain(existing.statement_cents);
     $('fee').value = existing.fee_cents ? plain(existing.fee_cents) : '';
-    $('feeNote').value = existing.fee_note || '';
+    setFeeKind(existing.fee_note);
     $('chk-hint').textContent = `${money(existing.unmatched_cents)} of this check is not matched yet.`;
     const l = blankLine();
     l.amount = existing.unmatched_cents > 0 ? plain(existing.unmatched_cents) : '';
     lines = [l];
   } else {
-    ['vendorName', 'reference', 'statement', 'fee', 'feeNote', 'notes', 'receivedOn'].forEach((k) => { $(k).disabled = false; });
+    ['vendorName', 'reference', 'statement', 'fee', 'feeNote', 'feeKind', 'notes', 'receivedOn'].forEach((k) => { $(k).disabled = false; });
     lines = [blankLine()];
   }
   drawLines();
@@ -1956,7 +1979,7 @@ $('chk-form').addEventListener('submit', async (e) => {
     if (editingCheck) {
       const checkBody = {
         vendorName: $('vendorName').value, reference: $('reference').value, receivedOn: $('receivedOn').value,
-        statement: $('statement').value, fee: $('fee').value, feeNote: $('feeNote').value,
+        statement: $('statement').value, fee: $('fee').value, feeNote: cents($('fee').value) ? $('feeNote').value : '',
         paymentMethod: $('payMethod').value, traceNumber: $('traceNumber').value,
         notes: $('notes').value, lines: payload,
       };
@@ -1981,7 +2004,7 @@ $('chk-form').addEventListener('submit', async (e) => {
     } else {
       const out = await api('/api/commission-checks', { method: 'POST', body: {
         vendorName: $('vendorName').value, reference: $('reference').value, receivedOn: $('receivedOn').value,
-        statement: $('statement').value, fee: $('fee').value, feeNote: $('feeNote').value,
+        statement: $('statement').value, fee: $('fee').value, feeNote: cents($('fee').value) ? $('feeNote').value : '',
         paymentMethod: $('payMethod').value, traceNumber: $('traceNumber').value,
         notes: $('notes').value, filename, lines: payload,
       } });
