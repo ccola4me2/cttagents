@@ -270,7 +270,8 @@ function drawTiles() {
     <button class="cd-tile" type="button" data-view="${key}" aria-pressed="${view === key}">
       <p class="label">${label}</p><p class="value">${value}</p><p class="meta">${meta}</p></button>`;
   $('tiles').innerHTML = [
-    tile('received', `Received in ${esc(year)}`, money(t.receivedCents),
+    // The checks before fees, then the fees, then what reached the bank, so the three numbers read as a sum.
+    tile('received', `Received in ${esc(year)}`, money(t.feesCents && t.statementCents !== undefined ? t.statementCents : t.receivedCents),
       t.feesCents ? `less ${money(t.feesCents)} fees = ${money(t.netCents)} at the bank` : `${t.receivedLines} line${t.receivedLines === 1 ? '' : 's'} from vendors`),
     tile('paid', `Paid out in ${esc(year)}`, money(t.paidOutCents),
       `${t.payouts} payout${t.payouts === 1 ? '' : 's'} to advisors`),

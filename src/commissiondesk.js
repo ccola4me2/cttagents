@@ -1170,6 +1170,9 @@ export async function handleCommissionDesk(request, env) {
     year, years: yearList, today, nextPayDate: next, payDatesList: payDatesFrom(today, 10), payoutLines,
     tiles: {
       receivedCents: received,
+      // The checks as they arrived, before any fee, which is the figure the line under it takes the fees from.
+      statementCents: (checkRows.results || []).reduce((n, c) => n + (c.statement_cents || 0), 0)
+        + loose.reduce((n, r) => n + (Number(r.amount_cents) || 0), 0),
       receivedLines: receivedRow?.lines || 0,
       feesCents: fees,
       // What reached the bank: every check's total less its own fee, and money on no check as it was recorded. Not received less fees,
