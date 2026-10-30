@@ -32,6 +32,12 @@ import * as db from './db.js';
 const MAX_UPLOAD = 6 * 1024 * 1024;
 const MAX_LINES = 60;
 
+/**
+ * A check number as it is compared: capitals, and no zeros in front. The same MSC check was typed as 1793622 and again as 001793622,
+ * and two different spellings of one number slipped past a comparison that wanted them identical, which recorded the check twice.
+ */
+const sameNumber = (n) => String(n || '').trim().toUpperCase().replace(/^0+/, '');
+
 // How the money arrived. Empty is a check recorded before this was asked.
 const PAYMENT_METHODS = ['check', 'ach', 'wire', 'other'];
 
@@ -212,8 +218,8 @@ export async function handleReadRemittance(request, env) {
   if (remittance.checkNumber) {
     duplicate = await env.DB.prepare(
       `SELECT id, received_on, statement_cents FROM commission_checks
-        WHERE agency_id = ? AND reference = ? LIMIT 1`
-    ).bind(user.agency_id, remittance.checkNumber).first();
+        WHERE agency_id = ? AND LTRIM(UPPER(reference), '0') = ? LIMIT 1`
+    ).bind(user.agency_id, sameNumber(remittance.checkNumber)).first();
   }
 
   return json({
@@ -366,8 +372,8 @@ export async function handleCreateCheck(request, env) {
 
   if (reference && !body.allowDuplicate) {
     const dupe = await env.DB.prepare(
-      'SELECT id FROM commission_checks WHERE agency_id = ? AND reference = ? LIMIT 1'
-    ).bind(admin.agency_id, reference).first();
+      'SELECT id FROM commission_checks WHERE agency_id = ? AND LTRIM(UPPER(reference), '0') = ? LIMIT 1'
+    ).bind(admin.agency_id, sameNumber(reference)).first();
     if (dupe) {
       return json({ error: 'A check with that number is already recorded.', code: 'duplicate', id: dupe.id }, 409);
     }
@@ -453,8 +459,8 @@ export async function handleCheckFromLines(request, env) {
 
   if (reference && !body.allowDuplicate) {
     const dupe = await env.DB.prepare(
-      'SELECT id FROM commission_checks WHERE agency_id = ? AND reference = ? LIMIT 1'
-    ).bind(admin.agency_id, reference).first();
+      'SELECT id FROM commission_checks WHERE agency_id = ? AND LTRIM(UPPER(reference), '0') = ? LIMIT 1'
+    ).bind(admin.agency_id, sameNumber(reference)).first();
     if (dupe) return json({ error: 'A check with that number is already recorded.', code: 'duplicate', id: dupe.id }, 409);
   }
 

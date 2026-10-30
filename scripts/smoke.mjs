@@ -12862,6 +12862,17 @@ async function main() {
     check(gone.status === 200, 'and the line can be taken off', JSON.stringify(gone.data));
   }
 
+  // The same check typed twice, once with zeros in front and in other capitals, is the same check and is not recorded again.
+  {
+    const first = await call(admin, 'POST', '/api/commission-checks', { vendorName: 'Dup Vendor', reference: `DUP${stamp}`, receivedOn: isoDay(0), statement: '5.00', lines: [] });
+    check(first.status === 201 && first.data?.id, 'a check is recorded', JSON.stringify([first.status, first.data]));
+    if (first.data?.id) {
+      const again = await call(admin, 'POST', '/api/commission-checks', { vendorName: 'Dup Vendor', reference: `00dup${stamp}`, receivedOn: isoDay(0), statement: '5.00', lines: [] });
+      check(again.status === 409 && again.data?.code === 'duplicate', 'and the same number with zeros in front and other capitals is turned away as a repeat', JSON.stringify([again.status, again.data]));
+      await call(admin, 'DELETE', `/api/commission-checks/${first.data.id}`);
+    }
+  }
+
   // How a check was paid: an ACH carries its trace number, kept and read back, and changed when the check is edited.
   {
     const achRef = `ACH-${stamp}`;
