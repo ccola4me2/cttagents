@@ -1166,8 +1166,10 @@ export async function handleCommissionDesk(request, env) {
       receivedCents: received,
       receivedLines: receivedRow?.lines || 0,
       feesCents: fees,
-      // What reached the bank, which is what was received less what was taken out.
-      netCents: received - fees,
+      // What reached the bank: every check's total less its own fee, and money on no check as it was recorded. Not received less fees,
+      // because a line entered after the fee was taken is already short by it and the fee would be taken off twice.
+      netCents: (checkRows.results || []).reduce((n, c) => n + (c.statement_cents || 0) - (c.fee_cents || 0), 0)
+        + loose.reduce((n, r) => n + (Number(r.amount_cents) || 0), 0),
       paidOutCents: paidRow?.cents || 0,
       payouts: paidRow?.payouts || 0,
       scheduledCents,
