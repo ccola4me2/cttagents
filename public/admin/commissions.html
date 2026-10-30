@@ -252,6 +252,8 @@ let methods = [{ key: 'check', label: 'Check' }, { key: 'ach', label: 'Bank tran
 
 const short = (iso) => (iso ? dateFmt(iso).replace(/,? \d{4}$/, '') : '');
 // A minus sign or brackets make it money taken back: -4.00 and (4.00) are both minus four dollars.
+// An advisor's share of a figure, in cents, never rounded up: the fraction of a cent stays with the agency, as it does on the server.
+const cutCents = (x) => Math.trunc(x + (x >= 0 ? 1e-7 : -1e-7));
 const cents = (v) => {
   const t = String(v ?? '').trim();
   const n = Math.round(Math.abs(Number(t.replace(/[^0-9.]/g, ''))) * 100) || 0;
@@ -307,7 +309,7 @@ function drawAgency() {
     const a = get(l.advisor_name || 'Not recorded');
     const pct = Number.isFinite(Number(l.split_pct)) ? Number(l.split_pct) : 100;
     a.received += l.amount_cents || 0;
-    a.share += Math.round((l.amount_cents || 0) * pct / 100);
+    a.share += cutCents((l.amount_cents || 0) * pct / 100);
   }
   for (const p of d.paid || []) get(p.advisor_name || 'Not recorded').paid += p.amount_cents || 0;
   for (const day of d.payDates || []) for (const a of day.advisors || []) get(a.name).sched += a.cents || 0;
@@ -974,7 +976,7 @@ function reportData() {
     }
     for (const l of d.loose || []) out.push({ on: l.received_on || '', id: l.booking_id, amount: l.amount_cents || 0, pct: l.split_pct });
     return out.map((l) => {
-      const share = Math.round(l.amount * (Number.isFinite(Number(l.pct)) ? Number(l.pct) : 100) / 100);
+      const share = cutCents(l.amount * (Number.isFinite(Number(l.pct)) ? Number(l.pct) : 100) / 100);
       return { ...l, share, agency: l.amount - share };
     });
   };
@@ -1526,7 +1528,7 @@ function drawNet() {
 
 /** What a line pays the advisor and what the agency keeps, at the split on the reservation. */
 function shareLine(name, pct, amt) {
-  const mine = Math.round(amt * pct / 100);
+  const mine = cutCents(amt * pct / 100);
   return `${name || 'The advisor'} keeps ${pct}%: ${money(mine)}. The agency keeps ${money(amt - mine)}.`;
 }
 
@@ -1575,7 +1577,7 @@ function shares() {
   const withTrip = lines.filter((l) => l.bookingId && cents(l.amount));
   if (!withTrip.length) return '';
   const total = withTrip.reduce((n, l) => n + cents(l.amount), 0);
-  const adv = withTrip.reduce((n, l) => n + Math.round(cents(l.amount) * l.pct / 100), 0);
+  const adv = withTrip.reduce((n, l) => n + cutCents(cents(l.amount) * l.pct / 100), 0);
   return `<span>To advisors <b>${money(adv)}</b>, agency keeps <b>${money(total - adv)}</b></span>`;
 }
 

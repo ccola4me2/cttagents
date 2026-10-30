@@ -100,7 +100,10 @@ export function shareOf(commissionCents, pct, unsplitCents = 0) {
   // lines. Editing the total down by hand could otherwise leave the advisor
   // owed more than the vendor paid.
   const whole = Math.max(0, Math.min(unsplitCents || 0, cents));
-  const advisorCents = Math.round((cents - whole) * kept / 100) + whole;
+  // Never rounded up. The advisor's share loses any fraction of a cent and the agency keeps it, so 97% of $227.70 is $220.86 and not
+  // $220.87. The nudge is for a share that is exactly a whole cent but arrives as 22086.999999999996, which must not lose the cent.
+  const exact = ((cents - whole) * kept) / 100;
+  const advisorCents = Math.trunc(exact + (exact >= 0 ? 1e-7 : -1e-7)) + whole;
   return { advisorCents, agencyCents: cents - advisorCents, unsplitCents: whole };
 }
 
@@ -161,5 +164,6 @@ export const UNSPLIT_SQL = (bookingIdExpr) =>
 // the same clamp shareOf applies, and for the same reason.
 export const ADVISOR_SHARE_SQL = (commission, pctExpr, unsplitExpr = '0') =>
   `(MIN(${unsplitExpr}, ${commission})`
-  + ` + CAST(ROUND(((${commission}) - MIN(${unsplitExpr}, ${commission}))`
-  + ` * (${pctExpr}) / 100.0) AS INTEGER))`;
+  // The same as shareOf: the fraction of a cent is cut off, never rounded up, with the same nudge for a share that is exactly a cent.
+  + ` + CAST((((${commission}) - MIN(${unsplitExpr}, ${commission})) * (${pctExpr}) / 100.0)`
+  + ` + (CASE WHEN (((${commission}) - MIN(${unsplitExpr}, ${commission})) * (${pctExpr})) < 0 THEN -0.0000001 ELSE 0.0000001 END) AS INTEGER))`;

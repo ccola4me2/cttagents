@@ -20,6 +20,7 @@ import {
 } from '../src/paydates.js';
 import { readRemittance, readPaymode, centsFrom, nameFit, nameWords } from '../src/remittance.js';
 import { owedByDate } from '../src/commissionschedule.js';
+import { shareOf } from '../src/split.js';
 
 let failures = 0;
 let checks = 0;
@@ -31,6 +32,14 @@ const bad = (label, detail) => {
 };
 const is = (label, got, want) =>
   (JSON.stringify(got) === JSON.stringify(want) ? ok(label) : bad(label, `got ${JSON.stringify(got)}, wanted ${JSON.stringify(want)}`));
+
+// ------------------------------------------------------- an advisor's share ---
+// Never rounded up: the advisor loses any fraction of a cent and the agency keeps it.
+is('97% of $227.70 is $220.86, not $220.87', shareOf(22770, 97).advisorCents, 22086);
+is('and the agency keeps the rest, so the two add up to the check', [shareOf(22770, 97).agencyCents, shareOf(22770, 97).advisorCents + shareOf(22770, 97).agencyCents], [684, 22770]);
+is('a share that is exactly a whole cent is not cut short by arithmetic', [shareOf(10000, 97.5).advisorCents, shareOf(1000, 33.3).advisorCents, shareOf(20000, 97).advisorCents], [9750, 333, 19400]);
+is('a clawback is cut the same way, toward nought', shareOf(-1550, 97).advisorCents, -1503);
+is('a part that is not split is passed through whole', shareOf(10000, 90, 2000).advisorCents, 2000 + 7200);
 
 // ------------------------------------------------------------ the calendar ---
 is('the agency pays on the 1st and the 15th', PAY_DAYS, [1, 15]);
@@ -264,10 +273,10 @@ for (const [label, text] of [['stacked', PAYMODE_STACKED], ['one line', PAYMODE_
   is('and part of a date if it was only part paid',
     owedByDate([line(10000, '2026-10-15')], 50, 2000, NOW), [{ date: '2026-10-15', cents: 3000 }]);
   {
-    // Three odd amounts at a split that rounds: the dates add up to the share of the whole.
+    // Three odd amounts at a split that leaves a fraction: the dates add up to the share of the whole, cut down to the cent.
     const rows = owedByDate([line(333, '2026-10-15'), line(333, '2026-11-01'), line(333, '2026-11-15')], 33, 0, NOW);
     is('the cents add up to the share of the whole, not of each line',
-      rows.reduce((n, r) => n + r.cents, 0), Math.round(999 * 33 / 100));
+      rows.reduce((n, r) => n + r.cents, 0), Math.floor(999 * 33 / 100));
   }
   is('a bonus is the advisor\'s in full whatever the split',
     owedByDate([line(10000, '2026-11-01', 'bonus')], 50, 0, NOW), [{ date: '2026-11-01', cents: 10000 }]);
