@@ -207,6 +207,9 @@ export function readPaymode(input) {
   const credit = /CREDIT DATE\s+(\d{1,2})-([A-Za-z]{3})[a-z]*-(\d{4})/i.exec(text);
   out.receivedOn = credit ? dashDate(credit[1], credit[2], credit[3]) : null;
   out.remittedOn = out.receivedOn;
+  const how = (/PAYMENT METHOD\s+(ACH|CHECK|WIRE|CARD)\b/i.exec(text) || [])[1];
+  out.paymentMethod = how ? how.toLowerCase().replace('card', 'other') : null;
+  out.traceNumber = (/TRACE\s*(?:NUMBER|NO\.?|#|ID)\s+([A-Z0-9]{6,30})/i.exec(text) || [])[1] || null;
   const fee = /NETWORK FEE\s+\$?\s*([\d,]+\.\d{2})/i.exec(text);
   out.feeCents = fee ? centsFrom(fee[1]) : 0;
 

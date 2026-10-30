@@ -17,7 +17,7 @@
 //  - Only owners write any of this. An advisor who could record a check could
 //    release their own pay.
 
-import { json, badRequest, notFound, clean, cleanDate, toCents, oneOf, uid, now, readJson } from './util.js';
+import { json, badRequest, notFound, clean, cleanDate, toCents, oneOf, oneOfOrNull, uid, now, readJson } from './util.js';
 import { requireAdmin } from './auth.js';
 import { COMMISSION_KIND_KEYS } from './pricing.js';
 import { splitPct, SPLIT_PCT_SQL, shareOf, UNSPLIT_COMMISSION_KINDS } from './split.js';
@@ -31,6 +31,9 @@ import * as db from './db.js';
 
 const MAX_UPLOAD = 6 * 1024 * 1024;
 const MAX_LINES = 60;
+
+// How the money arrived. Empty is a check recorded before this was asked.
+const PAYMENT_METHODS = ['check', 'ach', 'wire', 'other'];
 
 // Commission the vendor has been asked about and has not answered. Its own group on the owed list, after the ageing ones.
 const DISPUTED_BUCKET = { key: 'disputed', label: 'Disputed', hint: 'You have asked the vendor and are waiting on an answer' };
@@ -375,12 +378,13 @@ export async function handleCreateCheck(request, env) {
   const writes = [env.DB.prepare(
     `INSERT INTO commission_checks
        (id, agency_id, added_by, vendor_id, vendor_name, reference, received_on, remitted_on,
-        statement_cents, fee_cents, fee_note, notes, filename, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        statement_cents, fee_cents, fee_note, notes, filename, payment_method, trace_number, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(id, admin.agency_id, admin.id, clean(body.vendorId, 64) || null, vendorName, reference,
          receivedOn, cleanDate(body.remittedOn), statementCents, feeCents,
          clean(body.feeNote, 200) || null, clean(body.notes, 1000) || null,
-         clean(body.filename, 160) || null, ts, ts)];
+         clean(body.filename, 160) || null, oneOfOrNull(body.paymentMethod, PAYMENT_METHODS),
+         clean(body.traceNumber, 80) || null, ts, ts)];
 
   for (const l of lines) {
     writes.push(env.DB.prepare(
@@ -562,11 +566,12 @@ export async function handleUpdateCheck(request, env, id) {
   const res = await env.DB.prepare(
     `UPDATE commission_checks
         SET vendor_name = ?, reference = ?, received_on = ?, remitted_on = ?, statement_cents = ?,
-            fee_cents = ?, fee_note = ?, notes = ?, updated_at = ?
+            fee_cents = ?, fee_note = ?, notes = ?, payment_method = ?, trace_number = ?, updated_at = ?
       WHERE id = ? AND agency_id = ?`
   ).bind(vendorName, clean(body.reference, 80) || null, cleanDate(body.receivedOn),
          cleanDate(body.remittedOn), statementCents, feeCents, clean(body.feeNote, 200) || null,
-         clean(body.notes, 1000) || null, now(), id, admin.agency_id).run();
+         clean(body.notes, 1000) || null, oneOfOrNull(body.paymentMethod, PAYMENT_METHODS),
+         clean(body.traceNumber, 80) || null, now(), id, admin.agency_id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('That check was not found.');
   return json({ ok: true });
 }
@@ -640,10 +645,11 @@ async function updateCheckWithLines(env, admin, id, body, { vendorName, statemen
   const writes = [env.DB.prepare(
     `UPDATE commission_checks
         SET vendor_name = ?, reference = ?, received_on = ?, remitted_on = ?, statement_cents = ?,
-            fee_cents = ?, fee_note = ?, notes = ?, updated_at = ?
+            fee_cents = ?, fee_note = ?, notes = ?, payment_method = ?, trace_number = ?, updated_at = ?
       WHERE id = ? AND agency_id = ?`
   ).bind(vendorName, reference, receivedOn, cleanDate(body.remittedOn), statementCents, feeCents,
-         clean(body.feeNote, 200) || null, clean(body.notes, 1000) || null, ts, id, admin.agency_id)];
+         clean(body.feeNote, 200) || null, clean(body.notes, 1000) || null, oneOfOrNull(body.paymentMethod, PAYMENT_METHODS),
+         clean(body.traceNumber, 80) || null, ts, id, admin.agency_id)];
   for (const k of keep) {
     writes.push(env.DB.prepare(
       `UPDATE commission_receipts
@@ -962,7 +968,7 @@ export async function handleCommissionDesk(request, env) {
 
     env.DB.prepare(
       `SELECT c.id, c.vendor_name, c.reference, c.received_on, c.remitted_on, c.statement_cents,
-              c.fee_cents, c.fee_note, c.notes, c.filename, c.created_at, c.deposited_on,
+              c.fee_cents, c.fee_note, c.notes, c.filename, c.created_at, c.deposited_on, c.payment_method, c.trace_number,
               COALESCE((SELECT SUM(r.amount_cents) FROM commission_receipts r
                          WHERE r.check_id = c.id AND ${scopeR.sql}), 0) AS matched_cents,
               (SELECT COUNT(*) FROM commission_receipts r

@@ -130,8 +130,16 @@
       <div class="field-row" style="margin-top:1rem;">
         <div class="field"><label for="vendorName">Vendor</label>
           <input id="vendorName" maxlength="120" list="vendor-names" autocomplete="off"></div>
-        <div class="field"><label for="reference">Check number</label>
+        <div class="field"><label for="reference">Check or payment number</label>
           <input id="reference" maxlength="80" autocomplete="off"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label for="payMethod">How it was paid</label>
+          <select id="payMethod"><option value="check">Check</option><option value="ach">ACH</option>
+            <option value="wire">Wire</option><option value="other">Other</option></select></div>
+        <div class="field"><label for="traceNumber">Trace number</label>
+          <input id="traceNumber" maxlength="80" autocomplete="off" placeholder="For an ACH or a wire, from the bank">
+          <p class="field-hint">It is what finds the deposit at the bank.</p></div>
       </div>
       <div class="field-row">
         <div class="field"><label for="receivedOn">Received on</label>
@@ -321,12 +329,14 @@ function drawScheduled() {
     </section>`).join('');
 }
 
+const METHOD_WORDS = { check: 'Check', ach: 'ACH', wire: 'Wire', other: 'Other' };
+
 function checkRow(c) {
   const open = openCheck === c.id;
   const gap = c.unmatched_cents;
   return `<tr class="${open ? 'open' : ''}" data-row="${esc(c.id)}" style="cursor:pointer;">
       <td>${esc(c.received_on ? dateFmt(c.received_on) : '')}</td>
-      <td><strong>${esc(c.vendor_name)}</strong>${c.reference ? `<div class="muted">${esc(c.reference)}</div>` : ''}</td>
+      <td><strong>${esc(c.vendor_name)}</strong>${c.reference || c.payment_method ? `<div class="muted">${esc([c.reference, METHOD_WORDS[c.payment_method]].filter(Boolean).join(' · '))}</div>` : ''}</td>
       <td class="r cd-money">${money(c.statement_cents)}</td>
       <td class="r cd-money">${c.fee_cents ? `${money(c.fee_cents)}` : '<span class="muted">none</span>'}</td>
       <td class="r cd-money">${money(c.net_cents)}</td>
@@ -349,6 +359,7 @@ function payDateSelect(line) {
 function checkDetail(c) {
   const lines = c.lineItems || [];
   return `<div style="margin-top:.4rem;">
+    ${c.payment_method || c.trace_number ? `<p class="muted" style="margin:.2rem 0 .6rem;">Paid by ${esc(METHOD_WORDS[c.payment_method] || 'check')}${c.trace_number ? `, trace number ${esc(c.trace_number)}` : ''}</p>` : ''}
     ${c.fee_note ? `<p class="muted" style="margin:.2rem 0 .6rem;">Fee: ${esc(c.fee_note)}${c.notes ? `. ${esc(c.notes)}` : ''}</p>`
     : (c.notes ? `<p class="muted" style="margin:.2rem 0 .6rem;">${esc(c.notes)}</p>` : '')}
     ${lines.length ? `<table class="cd-lines"><thead><tr><th>Reservation</th><th>Advisor</th><th class="r">Amount</th><th>Pay out date</th></tr></thead><tbody>
@@ -965,16 +976,16 @@ function reportData() {
       received: r.received_cents, variance: r.variance_cents })), total: true };
   }
   if (rep.kind === 'checks') {
-    const list = d.checks.map((c) => ({ name: c.received_on || '', vendor: c.vendor_name, number: c.reference || '', statement: c.statement_cents,
+    const list = d.checks.map((c) => ({ name: c.received_on || '', vendor: c.vendor_name, number: c.reference || '', how: METHOD_WORDS[c.payment_method] || '', trace: c.trace_number || '', statement: c.statement_cents,
       fee: c.fee_cents || 0, why: c.fee_note || '', lines: c.lines, linesTotal: c.matched_cents || 0 }));
     // Money recorded one reservation at a time is received money too, so it is listed here and nothing recorded goes missing.
     for (const g of looseChecks()) {
-      list.push({ name: g.on, vendor: g.vendor, number: g.ref, statement: g.cents, fee: 0, why: 'Not on a check yet', lines: g.ids.length, linesTotal: g.cents });
+      list.push({ name: g.on, vendor: g.vendor, number: g.ref, how: '', trace: '', statement: g.cents, fee: 0, why: 'Not on a check yet', lines: g.ids.length, linesTotal: g.cents });
     }
     list.sort((a, b) => String(a.name).localeCompare(String(b.name)));
     return { note: looseChecks().length ? 'Includes payments recorded one reservation at a time, marked Not on a check yet. Make them into checks under Money in.' : '',
-      cols: [['name', 'Received on', 'text'], ['vendor', 'Vendor', 'text'], ['number', 'Check number', 'text'], ['statement', 'Check total', 'money'],
-      ['fee', 'Fee', 'money'], ['why', 'What the fee was', 'text'], ['lines', 'Lines', 'n'], ['linesTotal', 'Lines total', 'money']], rows: list, total: true };
+      cols: [['name', 'Received on', 'text'], ['vendor', 'Vendor', 'text'], ['number', 'Check or payment number', 'text'], ['how', 'Paid by', 'text'], ['trace', 'Trace number', 'text'],
+      ['statement', 'Check total', 'money'], ['fee', 'Fee', 'money'], ['why', 'What the fee was', 'text'], ['lines', 'Lines', 'n'], ['linesTotal', 'Lines total', 'money']], rows: list, total: true };
   }
   if (rep.kind === 'scorecard') {
     // How long each vendor takes to pay after the sailing, from the reservations they have finished paying.
@@ -1544,7 +1555,8 @@ function resetForm() {
   filename = '';
   lines = [];
   $('chk-err').hidden = true;
-  ['vendorName', 'reference', 'statement', 'fee', 'feeNote', 'notes'].forEach((k) => { $(k).value = ''; });
+  ['vendorName', 'reference', 'statement', 'fee', 'feeNote', 'notes', 'traceNumber'].forEach((k) => { $(k).value = ''; });
+  $('payMethod').value = 'check';
   $('receivedOn').value = d.today;
   $('chk-hint').textContent = '';
 }
@@ -1557,7 +1569,9 @@ function openEditCheck(c) {
   $('drop').hidden = true;
   $('chk-save').textContent = 'Save the changes';
   $('chk-title').textContent = `Edit the ${c.vendor_name} check`;
-  ['vendorName', 'reference', 'statement', 'fee', 'feeNote', 'notes', 'receivedOn'].forEach((k) => { $(k).disabled = false; });
+  ['vendorName', 'reference', 'statement', 'fee', 'feeNote', 'notes', 'receivedOn', 'payMethod', 'traceNumber'].forEach((k) => { $(k).disabled = false; });
+  $('payMethod').value = c.payment_method || 'check';
+  $('traceNumber').value = c.trace_number || '';
   $('vendorName').value = c.vendor_name || '';
   $('reference').value = c.reference || '';
   $('receivedOn').value = c.received_on || '';
@@ -1585,8 +1599,10 @@ function openCheckDialog(existing) {
   $('chk-save').textContent = existing ? 'Add the line' : 'Save the check';
   $('chk-title').textContent = existing ? `Add a line to the ${existing.vendor_name} check` : 'Record a check';
   if (existing) {
-    ['vendorName', 'reference', 'statement', 'fee', 'feeNote', 'notes'].forEach((k) => { $(k).disabled = true; });
+    ['vendorName', 'reference', 'statement', 'fee', 'feeNote', 'notes', 'payMethod', 'traceNumber'].forEach((k) => { $(k).disabled = true; });
     $('receivedOn').disabled = true;
+    $('payMethod').value = existing.payment_method || 'check';
+    $('traceNumber').value = existing.trace_number || '';
     $('vendorName').value = existing.vendor_name;
     $('reference').value = existing.reference || '';
     $('receivedOn').value = existing.received_on || '';
@@ -1873,6 +1889,8 @@ async function readRemittance(file, pasted) {
     $('statement').value = r.totalCents !== null ? plain(r.totalCents) : '';
     // A Paymode payment says the day it was credited and any fee the network took, so neither is typed.
     if (r.receivedOn) $('receivedOn').value = r.receivedOn;
+    if (r.paymentMethod) $('payMethod').value = r.paymentMethod;
+    if (r.traceNumber) $('traceNumber').value = r.traceNumber;
     if (r.feeCents) $('fee').value = plain(r.feeCents);
     lines = r.lines.map((l) => {
       const x = blankLine();
@@ -1938,6 +1956,7 @@ $('chk-form').addEventListener('submit', async (e) => {
       const checkBody = {
         vendorName: $('vendorName').value, reference: $('reference').value, receivedOn: $('receivedOn').value,
         statement: $('statement').value, fee: $('fee').value, feeNote: $('feeNote').value,
+        paymentMethod: $('payMethod').value, traceNumber: $('traceNumber').value,
         notes: $('notes').value, lines: payload,
       };
       const checkUrl = `/api/commission-checks/${encodeURIComponent(editingCheck.id)}`;
@@ -1962,6 +1981,7 @@ $('chk-form').addEventListener('submit', async (e) => {
       const out = await api('/api/commission-checks', { method: 'POST', body: {
         vendorName: $('vendorName').value, reference: $('reference').value, receivedOn: $('receivedOn').value,
         statement: $('statement').value, fee: $('fee').value, feeNote: $('feeNote').value,
+        paymentMethod: $('payMethod').value, traceNumber: $('traceNumber').value,
         notes: $('notes').value, filename, lines: payload,
       } });
       dlg.close();

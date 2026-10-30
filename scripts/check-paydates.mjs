@@ -213,6 +213,7 @@ for (const [label, text] of [['stacked', PAYMODE_STACKED], ['one line', PAYMODE_
   is(`Paymode (${label}): it is read, with the payer, the payment number and the day it was credited`,
     [r.read, r.payer, r.checkNumber, r.receivedOn], [true, 'Example Cruises, Ltd.', 'EX100100USD1', '2026-10-30']);
   is(`Paymode (${label}): the total and no network fee`, [r.totalCents, r.feeCents], [50000, 0]);
+  is(`Paymode (${label}): it was an ACH`, r.paymentMethod, 'ach');
   is(`Paymode (${label}): one line for each reservation, with its amount`, r.lines.map((l) => l.amountCents), [10000, 25050, 14950]);
   is(`Paymode (${label}): the reservation number is how it is found, and the surname how it is checked`,
     r.lines.map((l) => [l.locator, l.traveller && l.traveller.last]), [['1111111', 'SAMPLE'], ['2222222', 'DOE'], ['3333333', 'ROE']]);
@@ -224,6 +225,7 @@ for (const [label, text] of [['stacked', PAYMODE_STACKED], ['one line', PAYMODE_
   is('a page cut short says so, though it is still read', readPaymode(PAYMODE_FLAT.replace(/REMIT NUMBER 3.*?(?=PAYER SERVICE)/, '').replace('PAYMENT AMOUNT $500.00', 'PAYMENT AMOUNT $350.50')).lines.length, 2);
   is('a Travel Leaders Network remittance is not mistaken for one', readPaymode(REMIT).read, false);
   is('an empty page is not one', readPaymode('').read, false);
+  is('a trace number on the page is read', readPaymode(PAYMODE_STACKED.replace('NETWORK FEE --', 'TRACE NUMBER 091000019876543 NETWORK FEE --')).traceNumber, '091000019876543');
   is('a fee the network took is read', readPaymode(PAYMODE_STACKED.replace('NETWORK FEE --', 'NETWORK FEE $3.00')).feeCents, 300);
 }
 

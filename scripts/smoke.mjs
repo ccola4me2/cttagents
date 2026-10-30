@@ -12862,6 +12862,28 @@ async function main() {
     check(gone.status === 200, 'and the line can be taken off', JSON.stringify(gone.data));
   }
 
+  // How a check was paid: an ACH carries its trace number, kept and read back, and changed when the check is edited.
+  {
+    const achRef = `ACH-${stamp}`;
+    const ach = await call(admin, 'POST', '/api/commission-checks', { vendorName: 'Ach Vendor', reference: achRef, receivedOn: isoDay(0), statement: '10.00',
+      paymentMethod: 'ach', traceNumber: `TR${stamp}`, lines: [] });
+    check(ach.status === 201 && ach.data?.id, 'a check recorded as an ACH is accepted', JSON.stringify([ach.status, ach.data]));
+    if (ach.data?.id) {
+      const deskAch = await call(admin, 'GET', '/api/commission-desk');
+      const got = (deskAch.data?.checks || []).find((c) => c.id === ach.data.id);
+      check(got?.payment_method === 'ach' && got?.trace_number === `TR${stamp}`, 'and its method and trace number are read back', JSON.stringify([got?.payment_method, got?.trace_number]));
+      const fixAch = await call(admin, 'PUT', `/api/commission-checks/${ach.data.id}`, { vendorName: 'Ach Vendor', reference: achRef, receivedOn: isoDay(0), statement: '10.00',
+        paymentMethod: 'wire', traceNumber: `TW${stamp}`, lines: [] });
+      const deskFix = await call(admin, 'GET', '/api/commission-desk');
+      const got2 = (deskFix.data?.checks || []).find((c) => c.id === ach.data.id);
+      check(fixAch.status === 200 && got2?.payment_method === 'wire' && got2?.trace_number === `TW${stamp}`, 'and both can be corrected', JSON.stringify([fixAch.status, got2?.payment_method, got2?.trace_number]));
+      const odd = await call(admin, 'PUT', `/api/commission-checks/${ach.data.id}`, { vendorName: 'Ach Vendor', reference: achRef, receivedOn: isoDay(0), statement: '10.00', paymentMethod: 'carrier pigeon', lines: [] });
+      const deskOdd = await call(admin, 'GET', '/api/commission-desk');
+      check(((deskOdd.data?.checks || []).find((c) => c.id === ach.data.id) || {}).payment_method === null, 'a method that is not one of the four is not kept', `status ${odd.status}`);
+      await call(admin, 'DELETE', `/api/commission-checks/${ach.data.id}`);
+    }
+  }
+
   // Payments recorded one reservation at a time can be made into a check, so they show among the checks.
   const lineA = await call(admin, 'POST', '/api/commissions/receipts', { bookingId: tripId, amount: '3.00', receivedOn: isoDay(0), reference: `LOOSE-${stamp}`, payoutOn: laterPay });
   const lineB = await call(admin, 'POST', '/api/commissions/receipts', { bookingId: tripId, amount: '4.00', receivedOn: isoDay(0), payoutOn: laterPay });
