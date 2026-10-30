@@ -172,7 +172,6 @@
 import { api, mountShell, esc, showError, onSubmit,
          mountScopePicker, advisorParam } from '/js/app.js';
 const me = await mountShell();
-const ME = me.id;
 const IS_ADMIN = me.role === 'admin';
 
 const err = document.getElementById('err');
@@ -244,11 +243,9 @@ function drawRail() {
 }
 
 function starButton(v) {
-  // Only on your own vendors. An owner reading the agency sees every advisor's
-  // suppliers, and starring one of those fails: favourites live on the vendor
-  // row and the row belongs to somebody else. A star that cannot work is worse
-  // than no star.
-  if (v.user_id !== ME) return '';
+  // On every row, including a colleague's. The star lives on the shared vendor
+  // record and the server lets anyone in the agency set it, so hiding it on
+  // rows somebody else owns only left an owner unable to star Royal Caribbean.
   return `<button class="star" data-star="${esc(v.id)}" aria-pressed="${v.favourite ? 'true' : 'false'}"
     aria-label="${v.favourite ? 'Remove' : 'Add'} ${esc(v.name)} ${v.favourite ? 'from' : 'to'} favourites"
     >${v.favourite ? '★' : '☆'}</button>`;
