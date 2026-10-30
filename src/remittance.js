@@ -172,6 +172,78 @@ function readLine(body, docDate, amountCents) {
   };
 }
 
+const MONTH_ABBR = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+
+/** "30-Oct-2026" as 2026-10-30. */
+function dashDate(day, mon, year) {
+  const m = MONTH_ABBR[String(mon || '').slice(0, 3).toLowerCase()];
+  return m ? `${year}-${pad(m)}-${pad(day)}` : null;
+}
+
+/**
+ * A Paymode-X payment detail, the page a cruise line's electronic payment comes with.
+ *
+ * It is one payment (a number, a day it was credited, a total) and then one "remit" for each reservation paid, each with its passenger's
+ * surname, its reservation number, its sailing and its commission. It is read by its labels with the whitespace folded away, never by
+ * where anything sits, because the same page comes out of a PDF reader with its labels and values on separate lines in one reader and
+ * the same line in another. The payment number is the check number: it is what the agency's own bank record shows.
+ *
+ * A remit with no commission on it is skipped, and the page's own count of them is checked against what was read, so a page that was cut
+ * short says so and does not pass as whole.
+ */
+export function readPaymode(input) {
+  const text = collapse(input);
+  const out = {
+    read: false, method: 'paymode', payer: null, checkNumber: null, vendorNo: null, remittedOn: null, receivedOn: null,
+    totalCents: null, feeCents: 0, lines: [], warnings: [],
+  };
+  if (!/payment detail/i.test(text) || !/payment number/i.test(text) || !/remit number/i.test(text)) return out;
+
+  const payer = /PAYER NAME PAYER ID CREDIT AMOUNT STATUS DETAIL\s+(.+?)\s+[A-Za-z0-9]+\.[A-Za-z]+\s+\$/i.exec(text);
+  out.payer = payer ? collapse(payer[1]) : null;
+  out.checkNumber = (/PAYMENT NUMBER\s+([A-Za-z0-9-]+)/i.exec(text) || [])[1] || null;
+  const total = /PAYMENT AMOUNT\s+\$\s*([\d,]+\.\d{2})/i.exec(text);
+  out.totalCents = total ? centsFrom(total[1]) : null;
+  const credit = /CREDIT DATE\s+(\d{1,2})-([A-Za-z]{3})[a-z]*-(\d{4})/i.exec(text);
+  out.receivedOn = credit ? dashDate(credit[1], credit[2], credit[3]) : null;
+  out.remittedOn = out.receivedOn;
+  const fee = /NETWORK FEE\s+\$?\s*([\d,]+\.\d{2})/i.exec(text);
+  out.feeCents = fee ? centsFrom(fee[1]) : 0;
+
+  const heads = [...text.matchAll(/REMIT NUMBER\s+(\d+)/gi)];
+  heads.forEach((h, i) => {
+    const part = text.slice(h.index, i + 1 < heads.length ? heads[i + 1].index : text.length);
+    const pay = /COMMISSION\s+AMOUNT\s+(-?\$?\s*[\d,]+\.\d{2})/i.exec(part);
+    if (!pay) return;
+    const res = (/(?:RESERVATION|BOOKING|CONFIRMATION)\s+(?:NUMBER|NO\.?|#)\s+([A-Z0-9-]+)/i.exec(part) || [])[1] || null;
+    const pass = /PASSENGER NAME\s+([A-Z][A-Za-z' .,\/-]*?)(?=\s+(?:AGENT|CURRENCY|REFERENCE|DURATION|RESERVATION|BOOKING|CONFIRMATION|VESSEL|SHIP|SAIL|COMMISSION|PASSENGER)\b|$)/.exec(part);
+    const sail = /SAIL DATE\s+(\d{1,2})-([A-Za-z]{3})[a-z]*-(\d{4})/i.exec(part);
+    const vessel = (/VESSEL NAME\s+(.+?)\s+(?:S\s+)?SAIL DATE/i.exec(part) || [])[1] || '';
+    const agent = (/AGENT NUMBER\s+([A-Z0-9]+)/i.exec(part) || [])[1] || null;
+    const name = pass ? nameFrom(pass[1]) : null;
+    out.lines.push({
+      docNumber: res || '', description: collapse(`${vessel}${sail ? `, sails ${sail[1]}-${sail[2]}-${sail[3]}` : ''}`),
+      docDate: out.receivedOn, amountCents: centsFrom(pay[1]),
+      traveller: name && name.last ? { last: name.last, first: name.first || '' } : null,
+      locator: res, locators: res ? [res] : [], ticket: null,
+      travelDate: sail ? dashDate(sail[1], sail[2], sail[3]) : null, agent, product: 'cruise',
+    });
+  });
+
+  const sum = out.lines.reduce((n, l) => n + l.amountCents, 0);
+  if (out.totalCents !== null && out.lines.length && sum !== out.totalCents) {
+    out.warnings.push('The lines do not add up to the payment on the page, so check each one.');
+  }
+  const said = Number((/(\d+)\s+Remittances?\b/i.exec(text) || [])[1]);
+  if (said && said !== out.lines.length && (out.totalCents === null || sum !== out.totalCents)) {
+    out.warnings.push(`The page says ${said} remittances and ${out.lines.length} could be read, so it may be cut short.`);
+  }
+  if (out.totalCents === null && out.lines.length) out.totalCents = sum;
+
+  out.read = Boolean(out.checkNumber && (out.lines.length || out.totalCents !== null));
+  return out;
+}
+
 /**
  * The remittance as the things a person would copy off it.
  *

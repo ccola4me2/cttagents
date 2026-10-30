@@ -13065,6 +13065,15 @@ async function main() {
     check(rawRes.status === 200 && rawData.remittance?.lines?.length === 1 && got?.amountCents === 1250,
       'rows pasted from any vendor\'s statement are read, with the amount from the commission column', `status ${rawRes.status}`);
     if (confNo) check(got?.pick === tripId, 'and each is matched to its reservation by confirmation number', JSON.stringify([got?.pick, tripId]));
+    // A Paymode payment, read by the browser and sent as its text: the payment number is the check number, and each remit is a line.
+    const pay = await fetch(`${BASE}/api/commission-checks/read`, {
+      method: 'POST', headers: { 'content-type': 'text/plain', cookie: admin.header() },
+      body: `Payment detail Generated on 30-Oct-2026 at 8:21 AM EDT PAYER NAME PAYER ID CREDIT AMOUNT STATUS DETAIL Example Cruises, Ltd. EXCLUSD.DirectDebit $${'12.50'} USD Processed successfully Payment detail PAYMENT AMOUNT $12.50 USD PAYMENT NUMBER PM${stamp} CREDIT DATE 30-Oct-2026 NETWORK FEE -- 1 Remittances REMIT NUMBER 1 AGENT NUMBER 001100EX COMMISSION AMOUNT $12.50 USD PASSENGER NAME SAMPLE AGENT NUMBER 001100EX RESERVATION NUMBER ${confNo || 'ZZ99991'} VESSEL NAME EXAMPLE OF THE SEAS SAIL DATE 06-Dec-2026 COMMISSION AMOUNT $12.50 USD Page 1 of 1`,
+    });
+    const payData = await pay.json().catch(() => ({}));
+    check(pay.status === 200 && payData.remittance?.method === 'paymode' && payData.remittance?.checkNumber === `PM${stamp}`
+      && payData.remittance?.totalCents === 1250 && payData.remittance?.lines?.length === 1 && payData.remittance?.lines?.[0]?.amountCents === 1250,
+    'a Paymode payment is read: its payment number, its total and a line for each reservation', JSON.stringify([pay.status, payData.remittance?.method, payData.remittance?.checkNumber, payData.remittance?.totalCents]));
     const noRows = await fetch(`${BASE}/api/commission-checks/read`, {
       method: 'POST', headers: { 'content-type': 'text/plain', cookie: admin.header() }, body: 'hello there' });
     check(noRows.status === 400, 'and text with no amounts on it is turned away', `status ${noRows.status}`);

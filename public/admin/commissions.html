@@ -1871,6 +1871,9 @@ async function readRemittance(file, pasted) {
     $('vendorName').value = r.payer || '';
     $('reference').value = r.checkNumber || '';
     $('statement').value = r.totalCents !== null ? plain(r.totalCents) : '';
+    // A Paymode payment says the day it was credited and any fee the network took, so neither is typed.
+    if (r.receivedOn) $('receivedOn').value = r.receivedOn;
+    if (r.feeCents) $('fee').value = plain(r.feeCents);
     lines = r.lines.map((l) => {
       const x = blankLine();
       x.amount = plain(l.amountCents);

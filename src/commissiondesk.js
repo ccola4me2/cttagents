@@ -24,7 +24,7 @@ import { splitPct, SPLIT_PCT_SQL, shareOf, UNSPLIT_COMMISSION_KINDS } from './sp
 import { syncCommissionStatus } from './reconcile.js';
 import { bucketFor, BUCKETS } from './commissions.js';
 import { pdfRead } from './pdftext.js';
-import { readRemittance, readStatementText, nameFit, nameWords } from './remittance.js';
+import { readRemittance, readPaymode, readStatementText, nameFit, nameWords } from './remittance.js';
 import { owedByDate } from './commissionschedule.js';
 import { nextPayDate, payDatesFrom, suggestPayDate, todayIso } from './paydates.js';
 import * as db from './db.js';
@@ -158,7 +158,12 @@ export async function handleReadRemittance(request, env) {
   // Network remittance as before.
   let remittance;
   if (/^text\//i.test(request.headers.get('content-type') || '')) {
-    remittance = readStatementText(new TextDecoder().decode(buf));
+    // The page's own text, read in the browser when the portal could not: a Paymode payment, or a Travel Leaders Network remittance, before it
+    // is taken for rows.
+    const typed = new TextDecoder().decode(buf);
+    remittance = readPaymode(typed);
+    if (!remittance.read) remittance = readRemittance(typed);
+    if (!remittance.read) remittance = readStatementText(typed);
     if (!remittance.read) {
       return badRequest('I could not find any rows with an amount on them. Paste one reservation on each row, with its confirmation number and what was paid.');
     }
@@ -172,8 +177,9 @@ export async function handleReadRemittance(request, env) {
         ? 'That PDF is a picture of a page, not text I can read. Type the check in.'
         : 'There is no text in that file. Type the check in.');
     }
-    remittance = readRemittance(file.text);
-    // Not a Travel Leaders Network remittance: try it as rows, the way a pasted statement from any vendor is read, so a
+    remittance = readPaymode(file.text);
+    if (!remittance.read) remittance = readRemittance(file.text);
+    // Not a Paymode payment or a Travel Leaders Network remittance: try it as rows, the way a pasted statement from any vendor is read, so a
     // commission statement from a cruise line or a host can be dropped in as it is.
     if (!remittance.read) remittance = readStatementText(file.text);
     if (!remittance.read) {

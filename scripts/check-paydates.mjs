@@ -18,7 +18,7 @@ import {
   PAY_DAYS, nextPayDate, payDatesFrom, suggestPayDate, dayAfter, hideAfterFor,
   receiptShown, statusShown,
 } from '../src/paydates.js';
-import { readRemittance, centsFrom, nameFit, nameWords } from '../src/remittance.js';
+import { readRemittance, readPaymode, centsFrom, nameFit, nameWords } from '../src/remittance.js';
 import { owedByDate } from '../src/commissionschedule.js';
 
 let failures = 0;
@@ -148,6 +148,85 @@ Total  163.60
   is('who the vendor says it was for', a.agent, 'Jordan Lee');
   is('what was sold, where the page says', [a.product, b.product], ['air', 'hotel']);
 }
+// A Paymode-X payment detail, invented. Two layouts of the same page: the labels and their values on separate lines, and everything on
+// one line, which is how different PDF readers give it up. The third remit is cut short at the foot of the page, as the real one was.
+const PAYMODE_STACKED = `Payment detail Generated on 30-Oct-2026 at 8:21 AM EDT
+Brought to you by
+PAYER NAME PAYER ID CREDIT AMOUNT STATUS DETAIL
+Example Cruises, Ltd. EXCLUSD.DirectDebit $500.00 USD Processed successfully
+Payment detail
+PAYMENT AMOUNT $500.00 USD
+PAYMENT NUMBER EX100100USD1
+PAYMENT METHOD ACH
+BANK NAME EXAMPLE BANK
+CREDIT DATE 30-Oct-2026
+RECEIVER ID EXAMPLE.1
+NETWORK FEE --
+3 Remittances
+REMIT NUMBER
+1
+AGENT NUMBER
+001100EX100100
+COMMISSION AMOUNT
+$100.00 USD
+PASSENGER NAME
+SAMPLE
+AGENT NUMBER 001100EX100100
+RESERVATION NUMBER 1111111
+VESSEL NAME EXAMPLE OF THE SEAS
+SAIL DATE 06-Dec-2026
+COMMISSION AMOUNT $100.00 USD
+Page 1 of 2
+REMIT NUMBER
+2
+AGENT NUMBER
+001100EX100100
+COMMISSION AMOUNT
+$250.50 USD
+PASSENGER NAME
+DOE
+AGENT NUMBER 001100EX100100
+RESERVATION NUMBER 2222222
+VESSEL NAME ANOTHER OF THE SEAS
+SAIL DATE 17-Jan-2027
+COMMISSION AMOUNT $250.50 USD
+REMIT NUMBER
+3
+AGENT NUMBER
+001100EX100100
+COMMISSION AMOUNT
+$149.50 USD
+PASSENGER NAME
+ROE
+AGENT NUMBER 001100EX100100
+RESERVATION NUMBER 3333333
+VESSEL NAME THIRD OF THE SEA
+S
+SAIL DATE 13-Mar-2027
+COMMISSION
+AMOUNT $149.50 USD
+PAYER SERVICE CONTACT INFORMATION For Example Cruises, Ltd. Customer Service, please call 1-800-555-0100.
+Page 2 of 2`;
+const PAYMODE_FLAT = PAYMODE_STACKED.replace(/\n/g, ' ');
+for (const [label, text] of [['stacked', PAYMODE_STACKED], ['one line', PAYMODE_FLAT]]) {
+  const r = readPaymode(text);
+  is(`Paymode (${label}): it is read, with the payer, the payment number and the day it was credited`,
+    [r.read, r.payer, r.checkNumber, r.receivedOn], [true, 'Example Cruises, Ltd.', 'EX100100USD1', '2026-10-30']);
+  is(`Paymode (${label}): the total and no network fee`, [r.totalCents, r.feeCents], [50000, 0]);
+  is(`Paymode (${label}): one line for each reservation, with its amount`, r.lines.map((l) => l.amountCents), [10000, 25050, 14950]);
+  is(`Paymode (${label}): the reservation number is how it is found, and the surname how it is checked`,
+    r.lines.map((l) => [l.locator, l.traveller && l.traveller.last]), [['1111111', 'SAMPLE'], ['2222222', 'DOE'], ['3333333', 'ROE']]);
+  is(`Paymode (${label}): the sailing`, r.lines.map((l) => l.travelDate), ['2026-12-06', '2027-01-17', '2027-03-13']);
+  is(`Paymode (${label}): the lines add up, so nothing is flagged`, r.warnings, []);
+}
+{
+  is('a Paymode page whose lines do not match its payment is flagged', readPaymode(PAYMODE_STACKED.replace('PAYMENT AMOUNT $500.00', 'PAYMENT AMOUNT $600.00')).warnings.length > 0, true);
+  is('a page cut short says so, though it is still read', readPaymode(PAYMODE_FLAT.replace(/REMIT NUMBER 3.*?(?=PAYER SERVICE)/, '').replace('PAYMENT AMOUNT $500.00', 'PAYMENT AMOUNT $350.50')).lines.length, 2);
+  is('a Travel Leaders Network remittance is not mistaken for one', readPaymode(REMIT).read, false);
+  is('an empty page is not one', readPaymode('').read, false);
+  is('a fee the network took is read', readPaymode(PAYMODE_STACKED.replace('NETWORK FEE --', 'NETWORK FEE $3.00')).feeCents, 300);
+}
+
 {
   const bumped = readRemittance(REMIT.replace('Total  163.60', 'Total  200.00'));
   is('a total that does not match its lines is flagged, not trusted', bumped.warnings.length, 1);
