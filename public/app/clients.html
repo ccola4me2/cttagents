@@ -18,6 +18,7 @@
       <span style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;">
         <span id="scope"></span>
         <a class="btn btn-sm" href="/app/import-clients">Import a list</a>
+        <button class="btn btn-sm" type="button" id="dl-clients" title="Every client you can see, as a spreadsheet file">Download all</button>
         <button class="btn btn-primary btn-sm" id="add-client">Add a client</button>
       </span>
     </header>
@@ -194,6 +195,11 @@
 
 <script type="module">
 import { api, mountShell, esc, money, dateFmt, showError, mountScopePicker, advisorParam } from '/js/app.js';
+
+// Every client as a spreadsheet, for the advisor shown at the top.
+document.getElementById('dl-clients').addEventListener('click', () => {
+  location.href = `/api/export/clients${advisorParam() ? `?${advisorParam()}` : ''}`;
+});
 const ME = (await mountShell()).id;
 
 const panel = document.getElementById('panel');

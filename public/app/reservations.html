@@ -18,6 +18,7 @@
         <span id="scope"></span>
         <button class="btn btn-ghost btn-sm" type="button" id="docs-bulk">Attach documents</button>
         <a class="btn btn-ghost btn-sm" href="/app/new">Type one in</a>
+        <button class="btn btn-ghost btn-sm" type="button" id="dl-all" title="Every reservation you can see, as a spreadsheet file">Download all</button>
         <a class="btn btn-primary btn-sm" href="/app/import">Paste a confirmation</a>
       </div>
     </header>
@@ -178,6 +179,11 @@
 import { api, mountShell, esc, money, dateFmt, daysUntil, showError, onSubmit,
          mountScopePicker, advisorParam } from '/js/app.js';
 const ME = (await mountShell()).id;
+
+// The whole book as a spreadsheet, for the advisor shown at the top. The list on screen stops at a few hundred; this does not.
+document.getElementById('dl-all').addEventListener('click', () => {
+  location.href = `/api/export/reservations${advisorParam() ? `?${advisorParam()}` : ''}`;
+});
 
 const panel = document.getElementById('panel');
 const statsEl = document.getElementById('stats');

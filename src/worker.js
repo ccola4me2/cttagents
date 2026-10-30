@@ -400,6 +400,7 @@ import {
   handleDeleteClient,
   handleCreateClient,
 } from './clients.js';
+import { handleExportReservations, handleExportClients } from './export.js';
 import {
   handlePreviewImport,
   handleRunImport,
@@ -1009,6 +1010,8 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/opportunities' && method === 'GET') return handleListOpportunities(request, env);
 
   // ---- bookings ---------------------------------------------------------
+  if (path === '/api/export/reservations' && method === 'GET') return handleExportReservations(request, env);
+  if (path === '/api/export/clients' && method === 'GET') return handleExportClients(request, env);
   if (path === '/api/bookings' && method === 'GET') return handleListBookings(request, env);
   if (path === '/api/bookings' && method === 'POST') return handleCreateBooking(request, env);
   if (path === '/api/bookings/bulk' && method === 'POST') return handleBulkUpdate(request, env);

@@ -12898,6 +12898,27 @@ async function main() {
     if (madeFrom.data?.id) await call(admin, 'DELETE', `/api/commission-checks/${madeFrom.data.id}`);
   }
 
+  // The whole book downloads as a spreadsheet: every reservation, every client, only to somebody signed in.
+  {
+    const getCsv = (who, path) => fetch(`${BASE}${path}`, { headers: who ? { cookie: who.header() } : {}, redirect: 'manual' });
+    const resv = await getCsv(admin, '/api/export/reservations');
+    const resvText = await resv.text();
+    check(resv.status === 200 && /text\/csv/.test(resv.headers.get('content-type') || '') && /attachment/.test(resv.headers.get('content-disposition') || '')
+      && resvText.includes('Client,Advisor,Status,Vendor') && resvText.includes(`Check ${stamp}`),
+    'every reservation downloads as a spreadsheet file, headed and complete', JSON.stringify([resv.status, resvText.slice(0, 80)]));
+    const advResv = await getCsv(advisor, '/api/export/reservations');
+    check(advResv.status === 200 && !(await advResv.text()).includes('Loose Vendor'), 'an advisor can download their own', `status ${advResv.status}`);
+    const anonResv = await getCsv(null, '/api/export/reservations');
+    check(anonResv.status === 401 || anonResv.status === 302 || anonResv.status === 403, 'and nobody signed out can', `status ${anonResv.status}`);
+    const cli = await getCsv(admin, '/api/export/clients');
+    const cliText = await cli.text();
+    check(cli.status === 200 && /text\/csv/.test(cli.headers.get('content-type') || '') && cliText.includes('Name,Nickname,Advisor,Email,Phone'),
+      'every client downloads as a spreadsheet file', JSON.stringify([cli.status, cliText.slice(0, 80)]));
+    check(!/passport/i.test(cliText.split('\r\n')[0] || '') && !/passport/i.test(resvText.split('\r\n')[0] || ''), 'with no passport details in either', 'a header names a passport');
+    const anonCli = await getCsv(null, '/api/export/clients');
+    check(anonCli.status === 401 || anonCli.status === 302 || anonCli.status === 403, 'and nobody signed out can get the clients either', `status ${anonCli.status}`);
+  }
+
   // Finding a reservation says what the advisor keeps of it, so a line can show the share.
   const found = await call(admin, 'GET', `/api/commission-checks/search?q=${encodeURIComponent(`Check ${stamp}`)}`);
   const foundTrip = (found.data?.reservations || []).find((r) => r.id === tripId);
