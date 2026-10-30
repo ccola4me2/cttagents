@@ -53,6 +53,7 @@ const ALLOWED = new Map([
   ['suppression.js:handleAddSuppression', ['cttagents', 'the other half of the opt-out list screen']],
   ['agencyevents.js:handleAnnounceAgencyEvent', ['cttagents', 'emailing the invited advisors about an agency event, and the day before reminder. Built for cttagents on request; trip-vara has the calendar and the dashboard panel but no emails']],
   ['commissiondesk.js:handleUpdateReceipt', ['cttagents', 'correcting a commission line recorded one reservation at a time, from the CTT commission desk. Not yet taken to trip-vara']],
+  ['commissiondesk.js:handleCheckFromLines', ['cttagents', 'making a check out of payments recorded one reservation at a time, from the CTT commission desk. Not yet taken to trip-vara']],
   ['commissiondesk.js:handleRemoveReceipt', ['cttagents', 'the other half of correcting a commission line, from the CTT commission desk']],
   ['admin.js:handleCreateAdvisor', ['cttagents', 'an owner creates advisors here; trip-vara advisors apply through a join link']],
   ['admin.js:handleReissueInvite', ['cttagents', 'same: there are no invites where people sign themselves up']],

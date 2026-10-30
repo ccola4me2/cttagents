@@ -328,6 +328,7 @@ import {
   handleReadRemittance, handleSetCommissionChase,
   handleSearchForCheck,
   handleCreateCheck,
+  handleCheckFromLines,
   handleUpdateCheck,
   handleDepositCheck,
   handleDeleteCheck,
@@ -1516,6 +1517,7 @@ async function routeApi(request, env, path, method) {
   if (path === '/api/commission-recall' && method === 'GET') return handleCommissionRecall(request, env);
   if (path === '/api/commission-checks/read' && method === 'POST') return handleReadRemittance(request, env);
   if (path === '/api/commission-checks/search' && method === 'GET') return handleSearchForCheck(request, env);
+  if (path === '/api/commission-checks/from-lines' && method === 'POST') return handleCheckFromLines(request, env);
   if (path === '/api/commission-checks' && method === 'POST') return handleCreateCheck(request, env);
   if (checkLineMatch && method === 'POST') return handleAddCheckLine(request, env, checkLineMatch[1]);
   if (checkDepositMatch && method === 'POST') return handleDepositCheck(request, env, checkDepositMatch[1]);

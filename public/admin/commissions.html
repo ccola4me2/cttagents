@@ -367,6 +367,32 @@ function checkDetail(c) {
     </div></div>`;
 }
 
+// The payments recorded one at a time, gathered by the vendor and the day, which is how a check arrives.
+let looseGroups = [];
+function looseChecks() {
+  const m = new Map();
+  for (const r of d.loose || []) {
+    const k = `${r.supplier || ''}|${r.received_on || ''}`;
+    if (!m.has(k)) m.set(k, { vendor: r.supplier || '', on: r.received_on || '', ids: [], cents: 0, ref: '' });
+    const g = m.get(k);
+    g.ids.push(r.id);
+    g.cents += Number(r.amount_cents) || 0;
+    if (!g.ref && r.reference) g.ref = String(r.reference).replace(/^check\s*#?\s*/i, '');
+  }
+  return [...m.values()].sort((a, b) => String(a.on).localeCompare(String(b.on)));
+}
+
+async function makeCheckFrom(i) {
+  const g = looseGroups[i];
+  if (!g) return;
+  if (!confirm(`Make one ${g.vendor || ''} check for ${money(g.cents)} from ${g.ids.length} payment${g.ids.length === 1 ? '' : 's'}${g.ref ? `, number ${g.ref}` : ''}?\n\nNothing about the money changes.`)) return;
+  try {
+    await api('/api/commission-checks/from-lines', { method: 'POST', body: { receiptIds: g.ids, vendorName: g.vendor || undefined } });
+    errEl.innerHTML = '<div class="notice notice-ok">It is a check now. Open it to add a processing fee if one was taken.</div>';
+    await load();
+  } catch (e) { showError(errEl, e); }
+}
+
 function drawReceived() {
   const checks = d.checks.length
     ? `<div class="card cd-scroll"><table class="cd-table"><thead><tr>
@@ -375,9 +401,17 @@ function drawReceived() {
     : `<div class="card"><div class="empty"><h3>No checks recorded in ${esc(year)}</h3>
       <p>Press Record a check when one arrives.</p></div></div>`;
   // Money entered on a reservation's own page, before checks were recorded here.
+  looseGroups = looseChecks();
   const loose = (d.loose || []).length
     ? `<div class="cd-head"><h2>Recorded one reservation at a time</h2>
-      <span class="m">Entered on the reservation itself, so there is no check to show a fee or a pay date for.</span></div>
+      <span class="m">Received, but not on any check, so it is missing from Every check and has no place for a fee.</span></div>
+      <div class="card" style="padding:.9rem 1rem;margin-bottom:.8rem;">
+        <p style="margin:0 0 .6rem;"><b>Make these into checks.</b> Each group below becomes one check for its total. No amount, date or pay out date changes.</p>
+        ${looseGroups.map((g, i) => `<div style="display:flex;gap:.8rem;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:.45rem 0;border-top:1px solid var(--navy-100);">
+          <span>${esc(g.vendor || 'No vendor')}${g.on ? ` &middot; ${esc(dateFmt(g.on))}` : ''}${g.ref ? ` &middot; ${esc(g.ref)}` : ''}
+            <span class="muted"> ${g.ids.length} payment${g.ids.length === 1 ? '' : 's'}, ${money(g.cents)}</span></span>
+          <button class="btn btn-primary btn-sm" type="button" data-makecheck="${i}">Make this a check</button></div>`).join('')}
+      </div>
       <div class="card cd-scroll"><table class="cd-table"><thead><tr>
       <th>Received</th><th>Reservation</th><th>Advisor</th><th class="r">Amount</th><th>Pay out date</th><th></th></tr></thead><tbody>
       ${d.loose.map((r) => `<tr><td>${esc(r.received_on ? dateFmt(r.received_on) : '')}</td>
@@ -854,8 +888,7 @@ const rep = { kind: 'advisor', from: '', to: '' };
 // The same ten reports, in the same order, as the agency's other commission page.
 const REPORTS = [
   ['advisor', 'By advisor'], ['vendor', 'By vendor'], ['sailed', 'By month sailed'], ['received', 'By month received'],
-  ['variance', 'Short and over'], ['checks', 'Every check'], ['scorecard', 'Vendor pay speed'], ['yearend', 'Paid to advisors (1099)'],
-  ['fees', 'Fees & expenses'], ['summary', 'Year-end summary'],
+  ['checks', 'Every check'], ['scorecard', 'Vendor pay speed'], ['yearend', 'Paid to advisors (1099)'], ['summary', 'Year-end summary'],
 ];
 
 /**
@@ -934,7 +967,13 @@ function reportData() {
   if (rep.kind === 'checks') {
     const list = d.checks.map((c) => ({ name: c.received_on || '', vendor: c.vendor_name, number: c.reference || '', statement: c.statement_cents,
       fee: c.fee_cents || 0, why: c.fee_note || '', lines: c.lines, linesTotal: c.matched_cents || 0 }));
-    return { cols: [['name', 'Received on', 'text'], ['vendor', 'Vendor', 'text'], ['number', 'Check number', 'text'], ['statement', 'Check total', 'money'],
+    // Money recorded one reservation at a time is received money too, so it is listed here and nothing recorded goes missing.
+    for (const g of looseChecks()) {
+      list.push({ name: g.on, vendor: g.vendor, number: g.ref, statement: g.cents, fee: 0, why: 'Not on a check yet', lines: g.ids.length, linesTotal: g.cents });
+    }
+    list.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    return { note: looseChecks().length ? 'Includes payments recorded one reservation at a time, marked Not on a check yet. Make them into checks under Money in.' : '',
+      cols: [['name', 'Received on', 'text'], ['vendor', 'Vendor', 'text'], ['number', 'Check number', 'text'], ['statement', 'Check total', 'money'],
       ['fee', 'Fee', 'money'], ['why', 'What the fee was', 'text'], ['lines', 'Lines', 'n'], ['linesTotal', 'Lines total', 'money']], rows: list, total: true };
   }
   if (rep.kind === 'scorecard') {
@@ -1222,6 +1261,7 @@ panel.addEventListener('click', async (e) => {
   if (t.dataset.pay) { openPay(t.dataset); return; }
   if (t.dataset.editcheck) { openEditCheck(d.checks.find((c) => c.id === t.dataset.editcheck)); return; }
   if (t.dataset.addline) { openCheckDialog(d.checks.find((c) => c.id === t.dataset.addline)); return; }
+  if (t.dataset.makecheck !== undefined) { await makeCheckFrom(Number(t.dataset.makecheck)); return; }
   if (t.dataset.delcheck) { await removeCheck(t.dataset.delcheck); return; }
   if (t.dataset.delpay) { await undoPayout(t.dataset.delpay); return; }
   if (t.dataset.editpay) { openEditPayout(d.paid.find((x) => x.id === t.dataset.editpay)); return; }

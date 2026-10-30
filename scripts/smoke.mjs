@@ -12862,6 +12862,20 @@ async function main() {
     check(gone.status === 200, 'and the line can be taken off', JSON.stringify(gone.data));
   }
 
+  // Payments recorded one reservation at a time can be made into a check, so they show among the checks.
+  const lineA = await call(admin, 'POST', '/api/commissions/receipts', { bookingId: tripId, amount: '3.00', receivedOn: isoDay(0), reference: `LOOSE-${stamp}`, payoutOn: laterPay });
+  const lineB = await call(admin, 'POST', '/api/commissions/receipts', { bookingId: tripId, amount: '4.00', receivedOn: isoDay(0), payoutOn: laterPay });
+  if (lineA.data?.id && lineB.data?.id) {
+    const advMake = await call(advisor, 'POST', '/api/commission-checks/from-lines', { receiptIds: [lineA.data.id, lineB.data.id] });
+    check(advMake.status === 403 || advMake.status === 401, 'an advisor cannot make a check from payments', `status ${advMake.status}`);
+    const madeFrom = await call(admin, 'POST', '/api/commission-checks/from-lines', { receiptIds: [lineA.data.id, lineB.data.id], vendorName: 'Loose Vendor' });
+    check(madeFrom.status === 201 && madeFrom.data?.statementCents === 700 && madeFrom.data?.lines === 2,
+      'two payments recorded one at a time become one check for their total', JSON.stringify(madeFrom.data));
+    const twice = await call(admin, 'POST', '/api/commission-checks/from-lines', { receiptIds: [lineA.data.id], vendorName: 'Loose Vendor' });
+    check(twice.status === 400, 'a payment already on a check cannot go on another', `status ${twice.status}`);
+    if (madeFrom.data?.id) await call(admin, 'DELETE', `/api/commission-checks/${madeFrom.data.id}`);
+  }
+
   // Finding a reservation says what the advisor keeps of it, so a line can show the share.
   const found = await call(admin, 'GET', `/api/commission-checks/search?q=${encodeURIComponent(`Check ${stamp}`)}`);
   const foundTrip = (found.data?.reservations || []).find((r) => r.id === tripId);

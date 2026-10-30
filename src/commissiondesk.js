@@ -400,6 +400,77 @@ export async function handleCreateCheck(request, env) {
   }, 201);
 }
 
+/**
+ * Make a check out of payments that were recorded one reservation at a time.
+ *
+ * Money typed on a reservation, or recorded from Mark paid or Still owed, is received money but it is not on any check, so it never shows
+ * among the checks and has nowhere for a fee to go. This gathers those payments onto a real check: its total is theirs, its vendor is
+ * theirs, its day is the earliest of theirs and its number is whichever of them carries one. Nothing about the money moves: every line keeps
+ * its amount, its day and its pay out date. A payment already on a check cannot be put on another.
+ */
+export async function handleCheckFromLines(request, env) {
+  const { user: admin, response } = await requireAdmin(request, env);
+  if (response) return response;
+  if (!admin.agency_id) return noAgency();
+
+  const body = await readJson(request);
+  const ids = [...new Set((Array.isArray(body.receiptIds) ? body.receiptIds : []).map((x) => clean(x, 64)).filter(Boolean))];
+  if (!ids.length) return badRequest('Pick the payments to put on the check.');
+  if (ids.length > MAX_LINES) return badRequest(`That is more lines than one check takes (${MAX_LINES}).`);
+
+  const found = [];
+  for (const rid of ids) {
+    const r = await env.DB.prepare(
+      `SELECT r.id, r.user_id, r.booking_id, r.amount_cents, r.received_on, r.reference, r.check_id, b.supplier
+         FROM commission_receipts r JOIN bookings b ON b.id = r.booking_id
+        WHERE r.id = ? AND r.user_id IN (SELECT u.id FROM users u WHERE u.agency_id = ?)`
+    ).bind(rid, admin.agency_id).first();
+    if (!r) return notFound('One of those payments was not found.');
+    if (r.check_id) return badRequest('One of those is already on a check.');
+    found.push(r);
+  }
+
+  const vendors = [...new Set(found.map((r) => String(r.supplier || '').trim()).filter(Boolean))];
+  const vendorName = clean(body.vendorName, 120) || (vendors.length === 1 ? vendors[0] : '');
+  if (!vendorName) return badRequest(vendors.length ? 'Those are from more than one vendor. Make a check for each.' : 'Which vendor sent it?');
+
+  const statementCents = found.reduce((n, r) => n + (Number(r.amount_cents) || 0), 0);
+  if (!statementCents) return badRequest('Those payments add up to nothing, so there is no check to make.');
+  const days = found.map((r) => r.received_on).filter(Boolean).sort();
+  const receivedOn = cleanDate(body.receivedOn) || days[0] || todayIso();
+  const named = clean(body.reference, 80) || found.map((r) => String(r.reference || '').trim()).find(Boolean) || '';
+  const reference = named.replace(/^check\s*#?\s*/i, '').trim() || null;
+
+  if (reference && !body.allowDuplicate) {
+    const dupe = await env.DB.prepare(
+      'SELECT id FROM commission_checks WHERE agency_id = ? AND reference = ? LIMIT 1'
+    ).bind(admin.agency_id, reference).first();
+    if (dupe) return json({ error: 'A check with that number is already recorded.', code: 'duplicate', id: dupe.id }, 409);
+  }
+
+  const id = uid();
+  const ts = now();
+  const writes = [env.DB.prepare(
+    `INSERT INTO commission_checks
+       (id, agency_id, added_by, vendor_id, vendor_name, reference, received_on, remitted_on,
+        statement_cents, fee_cents, fee_note, notes, filename, created_at, updated_at)
+     VALUES (?, ?, ?, NULL, ?, ?, ?, NULL, ?, 0, NULL, ?, NULL, ?, ?)`
+  ).bind(id, admin.agency_id, admin.id, vendorName, reference, receivedOn, statementCents,
+         'Made from payments recorded one reservation at a time', ts, ts)];
+  for (const r of found) {
+    writes.push(env.DB.prepare(
+      'UPDATE commission_receipts SET check_id = ?, updated_at = ? WHERE id = ? AND check_id IS NULL AND user_id = ?'
+    ).bind(id, ts, r.id, r.user_id));
+  }
+  await env.DB.batch(writes);
+
+  await db.logActivity(env, admin.id, 'commission.check',
+    `Made a ${vendorName} check${reference ? ` (${reference})` : ''} for ${(statementCents / 100).toFixed(2)} from ${found.length} payment${found.length === 1 ? '' : 's'} recorded one at a time`,
+    { checkId: id, statementCents });
+
+  return json({ ok: true, id, lines: found.length, statementCents }, 201);
+}
+
 /** Add a line to a check that has not been fully matched. */
 export async function handleAddCheckLine(request, env, checkId) {
   const { user: admin, response } = await requireAdmin(request, env);
