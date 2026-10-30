@@ -18,6 +18,7 @@ import {
 } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
+import { companionsOf } from './companions.js';
 
 const COLUMNS = `h.id, h.user_id, h.name, h.address, h.phone, h.notes,
                  h.created_at, h.updated_at`;
@@ -405,7 +406,7 @@ export async function handleHouseholdTravellers(request, env) {
   const url = new URL(request.url);
   const clientId = clean(url.searchParams.get('client'), 64);
   const name = clean(url.searchParams.get('name'), 120);
-  if (!clientId && !name) return json({ household: null, travellers: [] });
+  if (!clientId && !name) return json({ household: null, travellers: [], companions: [] });
 
   const scope = db.selfScope(user);
   const client = clientId
@@ -416,32 +417,39 @@ export async function handleHouseholdTravellers(request, env) {
       'SELECT id, name, household_id FROM clients WHERE name = ? AND user_id = ?'
     ).bind(name, user.id).first();
 
-  if (!client || !client.household_id) return json({ household: null, travellers: [] });
+  if (!client) return json({ household: null, travellers: [], companions: [] });
 
-  const house = await householdFor(env, client, scope);
-  if (!house) return json({ household: null, travellers: [] });
+  // Everything the traveller rows on a reservation ask for, so booking a
+  // household is a matter of ticking people rather than fetching four
+  // passports off a shelf.
+  const asTraveller = (m) => ({
+    clientId: m.id,
+    name: m.name,
+    email: m.email,
+    phone: m.phone,
+    dob: m.birthday,
+    legalName: [m.legal_first, m.legal_middle, m.legal_last]
+      .filter(Boolean).join(' ') || null,
+    gender: m.gender || null,
+    citizenship: m.citizenship || null,
+    passportNumber: m.passport_number || null,
+    passportCountry: m.passport_country || null,
+    passportExpiry: m.passport_expiry || null,
+  });
+
+  const house = client.household_id ? await householdFor(env, client, scope) : null;
+  const inHouse = new Set(house ? house.members.map((m) => m.id) : []);
+
+  // The people they travel with who live somewhere else. Anybody already in
+  // the house is left out here, because the house has offered them.
+  const companions = (await companionsOf(env, client.id, scope).catch(() => []))
+    .filter((m) => !inHouse.has(m.id))
+    .map((m) => ({ ...asTraveller(m), relation: m.relation }));
 
   return json({
-    household: { id: house.id, name: house.name, address: house.address },
+    household: house ? { id: house.id, name: house.name, address: house.address } : null,
     // Everybody except the person already on the booking.
-    travellers: house.members
-      .filter((m) => m.id !== client.id)
-      // Everything the traveller rows on a reservation ask for, so booking a
-      // household is a matter of ticking people rather than fetching four
-      // passports off a shelf.
-      .map((m) => ({
-        clientId: m.id,
-        name: m.name,
-        email: m.email,
-        phone: m.phone,
-        dob: m.birthday,
-        legalName: [m.legal_first, m.legal_middle, m.legal_last]
-          .filter(Boolean).join(' ') || null,
-        gender: m.gender || null,
-        citizenship: m.citizenship || null,
-        passportNumber: m.passport_number || null,
-        passportCountry: m.passport_country || null,
-        passportExpiry: m.passport_expiry || null,
-      })),
+    travellers: house ? house.members.filter((m) => m.id !== client.id).map(asTraveller) : [],
+    companions,
   });
 }

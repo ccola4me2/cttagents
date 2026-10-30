@@ -469,15 +469,20 @@ async function offerHousehold() {
   } catch { houseOffer.innerHTML = ''; return; }
 
   const left = (d.travellers || []).filter((t) => !offered.has(t.name));
-  if (!d.household || !left.length) { houseOffer.innerHTML = ''; return; }
+  // The people they travel with who live somewhere else, offered the same way.
+  const also = (d.companions || []).filter((t) => !offered.has(t.name));
+  if (!(d.household && left.length) && !also.length) { houseOffer.innerHTML = ''; return; }
 
-  houseOffer.innerHTML = `<div class="notice notice-info" style="margin:0 0 .7rem;">
-    <div style="margin-bottom:.5rem;">Also at <strong>${esc(d.household.name)}</strong>${
-    d.household.address ? '' : ''}. Add them to the trip?</div>
-    <div style="display:flex;gap:.4rem;flex-wrap:wrap;">
-      ${left.map((t) => `<button type="button" class="btn btn-secondary btn-sm"
+  const buttons = (list) => `<div style="display:flex;gap:.4rem;flex-wrap:wrap;">
+      ${list.map((t) => `<button type="button" class="btn btn-secondary btn-sm"
         data-house="${esc(t.name)}">${esc(t.name)}</button>`).join('')}
-    </div></div>`;
+    </div>`;
+  houseOffer.innerHTML = `<div class="notice notice-info" style="margin:0 0 .7rem;">
+    ${d.household && left.length ? `<div style="margin-bottom:.5rem;">Also at
+      <strong>${esc(d.household.name)}</strong>. Add them to the trip?</div>${buttons(left)}` : ''}
+    ${also.length ? `<div style="margin:${d.household && left.length ? '.8rem' : '0'} 0 .5rem;">
+      Their travel companions. Add them to the trip?</div>${buttons(also)}` : ''}
+    </div>`;
 
   houseOffer.querySelectorAll('[data-house]').forEach((b) => {
     b.addEventListener('click', () => {

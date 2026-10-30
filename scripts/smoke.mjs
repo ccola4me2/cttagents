@@ -4634,6 +4634,79 @@ async function main() {
       'and the one left keeps their own trips', JSON.stringify(after.data?.client?.trips));
   }
 
+  // ------------------------------ people they travel with, not live with -----
+  // A household is the people at one address. The sister two states away or the
+  // friend they cruise with is the second name on a booking and is not in the
+  // house, so linking them is its own thing, and it is offered the same way.
+  step('Clients who travel together without living together');
+  {
+    const make = async (name, gross, day) => call(advisor, 'POST', '/api/bookings', {
+      clientName: name, supplier: 'Princess', departDate: isoDay(day), gross, status: 'booked',
+    });
+    const one = await make(`Cass Link${stamp}`, '3000', 150);
+    const two = await make(`Dov Link${stamp}`, '2000', 151);
+    const cId = one.data?.booking?.client_id;
+    const dId = two.data?.booking?.client_id;
+    if (one.data?.booking?.id) cleanup('the companion reservation A',
+      () => dropBooking(one.data.booking.id));
+    if (two.data?.booking?.id) cleanup('the companion reservation B',
+      () => dropBooking(two.data.booking.id));
+    if (cId && dId) cleanup('the companion link',
+      () => call(advisor, 'DELETE', `/api/clients/${cId}/companions/${dId}`));
+
+    const self = await call(advisor, 'POST', `/api/clients/${cId}/companions`,
+      { companionId: cId });
+    check(self.status === 400, 'nobody is their own travelling companion', `status ${self.status}`);
+
+    const nobody = await call(advisor, 'POST', `/api/clients/${cId}/companions`,
+      { companionId: 'no-such-client' });
+    check(nobody.status === 404, 'and a client that is not on your books cannot be linked',
+      `status ${nobody.status}`);
+
+    const linked = await call(advisor, 'POST', `/api/clients/${cId}/companions`,
+      { companionId: dId, relation: 'friend' });
+    check(linked.status === 200, 'two clients can be linked', `status ${linked.status}`);
+
+    const recC = await call(advisor, 'GET', `/api/client?id=${cId}`);
+    const recD = await call(advisor, 'GET', `/api/client?id=${dId}`);
+    check(recC.data?.companions?.length === 1 && recC.data.companions[0].id === dId
+      && recC.data.companions[0].relation === 'friend',
+      'the client record lists who they travel with, with the label chosen',
+      JSON.stringify(recC.data?.companions));
+    check(recD.data?.companions?.length === 1 && recD.data.companions[0].id === cId,
+      'and it reads the same from the other side', JSON.stringify(recD.data?.companions));
+
+    await call(advisor, 'POST', `/api/clients/${cId}/companions`,
+      { companionId: dId, relation: 'family' });
+    const again = await call(advisor, 'GET', `/api/client?id=${cId}`);
+    check(again.data?.companions?.length === 1 && again.data.companions[0].relation === 'family',
+      'linking the same pair again changes the label and does not add a second link',
+      JSON.stringify(again.data?.companions));
+
+    const bad = await call(advisor, 'POST', `/api/clients/${cId}/companions`,
+      { companionId: dId, relation: 'enemy' });
+    const afterBad = await call(advisor, 'GET', `/api/client?id=${cId}`);
+    check(bad.status === 200 && afterBad.data?.companions?.[0]?.relation === 'companion',
+      'a label that is not one of the five falls back to travel companion',
+      afterBad.data?.companions?.[0]?.relation);
+
+    // The payoff: writing a reservation for one offers the other.
+    const offer = await call(advisor, 'GET',
+      `/api/households/travellers?name=${encodeURIComponent(`Cass Link${stamp}`)}`);
+    check(offer.status === 200 && offer.data?.household === null
+      && offer.data?.companions?.length === 1
+      && offer.data.companions[0].name === `Dov Link${stamp}`,
+      'booking one of them offers the other as a traveller, with no household needed',
+      JSON.stringify(offer.data));
+
+    const gone = await call(advisor, 'DELETE', `/api/clients/${cId}/companions/${dId}`);
+    const empty = await call(advisor, 'GET', `/api/client?id=${dId}`);
+    check(gone.status === 200 && (empty.data?.companions || []).length === 0,
+      'taking the link away removes it from both sides', JSON.stringify(empty.data?.companions));
+    const twice = await call(advisor, 'DELETE', `/api/clients/${cId}/companions/${dId}`);
+    check(twice.status === 404, 'and doing it twice says so', `status ${twice.status}`);
+  }
+
   // --------------------------------------- the agency's way of working -----
   // Templates used to be one advisor's, so somebody joining booked their first
   // cruise and nothing happened. They work from memory and work differently,

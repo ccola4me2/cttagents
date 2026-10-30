@@ -44,6 +44,13 @@
         <div class="card-head"><h2>Household</h2><span id="house-actions"></span></div>
         <div class="card-pad" id="house"></div>
       </section>
+      <!-- The people they travel with who do not live with them: the sister
+           two states away, the friend they cruise with. A new reservation offers
+           them as travellers, the way it offers a household. -->
+      <section class="card" id="comp-card" style="margin-top:1.5rem;" hidden>
+        <div class="card-head"><h2>Travels with</h2><span id="comp-actions"></span></div>
+        <div class="card-pad" id="comp"></div>
+      </section>
       <section id="stats" class="stat-grid" style="margin-top:1.5rem;"></section>
       <div class="split" style="margin-top:1.5rem;">
         <div>
@@ -111,6 +118,37 @@
     <div class="card-foot">
       <button class="btn btn-danger btn-sm" type="button" id="house-break">Break it up</button>
       <button class="btn btn-primary" type="submit">Save household</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="comp-dlg">
+  <form id="comp-form" method="dialog">
+    <div class="card-head"><h2>Who do they travel with?</h2>
+      <button class="btn btn-ghost btn-sm" type="button" id="comp-close">Close</button></div>
+    <div class="card-pad">
+      <div class="notice notice-error" hidden></div>
+      <div class="field">
+        <label for="comp-search">Another client</label>
+        <div class="picker">
+          <input id="comp-search" autocomplete="off" placeholder="Search your clients by name">
+          <div class="picker-results" id="comp-results" hidden></div>
+        </div>
+        <p class="field-hint">Somebody who is already on your client list. People who live in
+          the same house belong in a household instead.</p>
+      </div>
+      <div id="comp-picked"></div>
+      <div class="field"><label for="comp-relation">How they are connected</label>
+        <select id="comp-relation">
+          <option value="companion">Travel companion</option>
+          <option value="friend">Friend</option>
+          <option value="family">Family</option>
+          <option value="colleague">Colleague</option>
+          <option value="other">Other</option>
+        </select></div>
+    </div>
+    <div class="card-foot">
+      <button class="btn btn-primary" type="submit">Link them</button>
     </div>
   </form>
 </dialog>
@@ -450,6 +488,7 @@ function render(d) {
   drawContact(d);
   drawHub(d);
   drawHousehold(d);
+  drawCompanions(d);
 
   document.getElementById('stats').innerHTML = `
     <div class="stat"><p class="label">Lifetime value</p><p class="value">${money(c.lifetimeCents)}</p>
@@ -1057,6 +1096,126 @@ joinForm.addEventListener('submit', async (e) => {
     await load();
   } catch (e2) {
     box.textContent = e2.message || 'Could not create that household.';
+    box.hidden = false;
+  } finally { btn.disabled = false; }
+});
+
+const RELATION_WORDS = { companion: 'Travel companion', friend: 'Friend', family: 'Family',
+  colleague: 'Colleague', other: 'Other' };
+
+/**
+ * The people they travel with who do not live with them.
+ *
+ * The card stays when there is nobody, for the reason the household card does:
+ * it is exactly when you want to add one.
+ */
+function drawCompanions(d) {
+  const card = document.getElementById('comp-card');
+  const list = d.companions || [];
+  card.hidden = !d.editable && !list.length;
+  document.getElementById('comp-actions').innerHTML = d.editable
+    ? '<button class="btn btn-ghost btn-sm" id="comp-add">Add</button>' : '';
+  document.getElementById('comp').innerHTML = list.length
+    ? `<ul class="rows" style="margin:0;">${list.map((m) => `<li style="padding-left:0;padding-right:0;">
+        <div class="row-between">
+          <div><a class="name" href="/app/client?id=${esc(m.id)}">${esc(m.name)}</a>
+            <div class="muted" style="font-size:.78rem;">${
+    [RELATION_WORDS[m.relation] || 'Travel companion', m.phone, m.email]
+      .filter(Boolean).map(esc).join(' &middot; ')}</div></div>
+          <div style="text-align:right;">
+            <div style="font-size:.85rem;">${m.trips} trip${m.trips === 1 ? '' : 's'}</div>
+            ${d.editable ? `<button class="btn btn-ghost btn-sm" data-comp-drop="${esc(m.id)}"
+              style="margin-top:.2rem;">Remove</button>` : ''}
+          </div>
+        </div></li>`).join('')}</ul>`
+    : `<p class="muted" style="margin:0;">Nobody linked yet. Add the friend or relative they
+        usually travel with and a new reservation offers them as a traveller.</p>`;
+
+  const add = document.getElementById('comp-add');
+  if (add) add.addEventListener('click', openCompDialog);
+  document.querySelectorAll('[data-comp-drop]').forEach((b) => {
+    b.addEventListener('click', async () => {
+      if (!confirm('Take the link away? Neither of them is deleted and their trips stay as they are.')) return;
+      try {
+        await api(`/api/clients/${encodeURIComponent(current.id)}/companions/${encodeURIComponent(b.dataset.compDrop)}`,
+          { method: 'DELETE' });
+        await load();
+      } catch (e) { showError(err, e); }
+    });
+  });
+}
+
+const compDlg = document.getElementById('comp-dlg');
+const compForm = document.getElementById('comp-form');
+const compSearch = document.getElementById('comp-search');
+const compResults = document.getElementById('comp-results');
+const compPickedBox = document.getElementById('comp-picked');
+let compPicked = null;
+let compTimer = null;
+
+function drawCompPicked() {
+  compPickedBox.innerHTML = compPicked
+    ? `<p style="margin:0 0 1rem;"><strong>${esc(compPicked.name)}</strong>
+        <button class="btn btn-ghost btn-sm" type="button" id="comp-clear">Change</button></p>` : '';
+  const clear = document.getElementById('comp-clear');
+  if (clear) clear.addEventListener('click', () => { compPicked = null; drawCompPicked(); });
+}
+
+function openCompDialog() {
+  compForm.reset();
+  compForm.querySelector('.notice-error').hidden = true;
+  compPicked = null;
+  compResults.hidden = true;
+  drawCompPicked();
+  compDlg.showModal();
+}
+
+document.getElementById('comp-close').addEventListener('click', () => compDlg.close());
+
+compSearch.addEventListener('input', () => {
+  clearTimeout(compTimer);
+  const q = compSearch.value.trim();
+  if (q.length < 2) { compResults.hidden = true; return; }
+  compTimer = setTimeout(async () => {
+    try {
+      const { clients = [] } = await api(`/api/clients?q=${encodeURIComponent(q)}&limit=8`);
+      // Never the person whose page this is.
+      const hits = clients.filter((c) => c.id && c.id !== current.id);
+      compResults.innerHTML = hits.length
+        ? hits.map((c) => `<button type="button" data-pick="${esc(c.id)}" data-name="${esc(c.name)}">
+            ${esc(c.name)}${c.email ? ` <span class="muted">${esc(c.email)}</span>` : ''}</button>`).join('')
+        : '<button type="button" disabled>Nobody else by that name.</button>';
+      compResults.hidden = false;
+      compResults.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => {
+        compPicked = { id: b.dataset.pick, name: b.dataset.name };
+        compSearch.value = '';
+        compResults.hidden = true;
+        drawCompPicked();
+      }));
+    } catch { compResults.hidden = true; }
+  }, 250);
+});
+
+compForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const box = compForm.querySelector('.notice-error');
+  box.hidden = true;
+  if (!compPicked) {
+    box.textContent = 'Search for the person they travel with and pick them.';
+    box.hidden = false;
+    return;
+  }
+  const btn = compForm.querySelector('button[type=submit]');
+  btn.disabled = true;
+  try {
+    await api(`/api/clients/${encodeURIComponent(current.id)}/companions`, {
+      method: 'POST',
+      body: { companionId: compPicked.id, relation: document.getElementById('comp-relation').value },
+    });
+    compDlg.close();
+    await load();
+  } catch (e2) {
+    box.textContent = e2.message || 'Could not link them.';
     box.hidden = false;
   } finally { btn.disabled = false; }
 });

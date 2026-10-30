@@ -19,6 +19,7 @@
 import { json, badRequest, notFound, clean, now, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
+import { moveCompanions } from './companions.js';
 
 // What the keeper takes from the loser wherever the keeper has nothing. Not
 // name, which is the thing being chosen between, and not household_id, which
@@ -256,6 +257,9 @@ export async function handleMergeClients(request, env) {
     `UPDATE clients SET referred_by_client_id = NULL
       WHERE id = ? AND referred_by_client_id = ? AND user_id = ?`
   ).bind(keepId, keepId, owner).run().catch(() => {});
+
+  // The people they travelled with go with them to the record being kept.
+  await moveCompanions(env, owner, keepId, dropId).catch(() => {});
 
   await env.DB.prepare('DELETE FROM clients WHERE id = ? AND user_id = ?')
     .bind(dropId, owner).run();

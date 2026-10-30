@@ -18,6 +18,7 @@ import { statusShown } from './paydates.js';
 import * as db from './db.js';
 import { suppressionFor } from './suppression.js';
 import { householdFor } from './households.js';
+import { companionsOf, dropCompanions } from './companions.js';
 import { SOURCE_KINDS, SOURCE_KIND_IDS } from './attribution.js';
 
 export async function handleListClients(request, env) {
@@ -188,7 +189,7 @@ export async function handleClientRecord(request, env) {
   const tScope = db.scopeWhere(scope, 't.user_id');
   const today = new Date().toISOString().slice(0, 10);
 
-  const [bookings, credits, tasks, household, unsubscribed, mail] = await Promise.all([
+  const [bookings, credits, tasks, household, companions, unsubscribed, mail] = await Promise.all([
     env.DB.prepare(
       `SELECT b.id, b.client_name, b.supplier, b.product_name, b.product_type, b.destination,
               b.confirmation_number, b.depart_date, b.return_date, b.status,
@@ -219,6 +220,10 @@ export async function handleClientRecord(request, env) {
     // Who else lives there. Best effort: a client record that cannot load its
     // household is still a client record worth reading.
     householdFor(env, client, scope).catch(() => null),
+
+    // Who they travel with who does not live with them. Best effort for the
+    // same reason: this table is newer than the page.
+    companionsOf(env, client.id, scope).catch(() => []),
 
     // Whether they have asked not to be emailed. On the record rather than
     // only inside the sender, because an advisor who cannot see it will write
@@ -316,6 +321,13 @@ export async function handleClientRecord(request, env) {
     // Who else lives there, what the house is worth together, and the address
     // they share. Null when they live alone as far as the portal knows.
     household,
+    // Flat and always present, like the rest. Each carries the label the
+    // advisor chose for the link.
+    companions: companions.map((m) => ({
+      id: m.id, name: m.name, email: m.email, phone: m.phone, relation: m.relation,
+      trips: m.trips || 0, inHousehold: Boolean(m.household_id)
+        && m.household_id === client.household_id,
+    })),
     today,
     scope: db.scopeLabel(scope, user),
   });
@@ -620,6 +632,8 @@ export async function handleDeleteClient(request, env, id) {
   await env.DB.prepare(
     'UPDATE form_submissions SET contact_id = NULL WHERE contact_id = ? AND agency_id = ?'
   ).bind(id, tenantFor(env, user)).run().catch(() => {});
+
+  await dropCompanions(env, owner.id, id).catch(() => {});
 
   await env.DB.prepare('DELETE FROM clients WHERE id = ? AND user_id = ?')
     .bind(id, owner.id).run();
