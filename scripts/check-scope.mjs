@@ -60,7 +60,7 @@ const OWNED = new Set([
   // is trip_messages again: the share code decides the trip, and every
   // statement names the advisor it belongs to anyway.
   'reviews',
-  'hotlist_actions', 'specials', 'special_leads', 'households', 'form_templates',
+  'hotlist_actions', 'specials', 'special_leads', 'households', 'client_companions', 'form_templates',
   // A form sent to one person. It belongs to the advisor who sent it and is
   // read on screens scoped by user_id; the three statements that reach it by
   // its token instead are listed in ALLOWED, with why.
