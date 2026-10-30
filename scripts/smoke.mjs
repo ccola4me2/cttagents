@@ -4634,6 +4634,87 @@ async function main() {
       'and the one left keeps their own trips', JSON.stringify(after.data?.client?.trips));
   }
 
+  // -------------------------------------------- narrowing the reservation list -----
+  // The list is capped, so narrowing has to happen on the server: filtering the
+  // part that arrived looks exactly like the rest not existing. The download is
+  // the list on screen, so it reads the same filters.
+  step('Reservations narrowed by vendor, date and payment');
+  {
+    const make = (name, supplier, day, gross) => call(advisor, 'POST', '/api/bookings', {
+      clientName: name, supplier, departDate: isoDay(day), gross, status: 'booked',
+    });
+    const a = await make(`Filt A ${stamp}`, `Filtervendor ${stamp}`, 200, '1000');
+    const b = await make(`Filt B ${stamp}`, `FILTERVENDOR ${stamp}`, 260, '500');
+    const c = await make(`Filt C ${stamp}`, `Othervendor ${stamp}`, 230, '800');
+    for (const r of [a, b, c]) {
+      if (r.data?.booking?.id) cleanup('a filtered reservation', () => dropBooking(r.data.booking.id));
+    }
+    const names = (res) => (res.data?.bookings || []).map((x) => x.client_name);
+    const get = (qs) => call(advisor, 'GET', `/api/bookings${qs ? `?${qs}` : ''}`);
+    const enc = encodeURIComponent;
+
+    const bySupplier = await get(`supplier=${enc(`filtervendor ${stamp}`)}`);
+    check(names(bySupplier).includes(`Filt A ${stamp}`) && names(bySupplier).includes(`Filt B ${stamp}`)
+      && !names(bySupplier).includes(`Filt C ${stamp}`),
+    'a vendor filter finds both spellings of the vendor and nothing else', JSON.stringify(names(bySupplier)));
+
+    const options = (bySupplier.data?.suppliers || []).filter((n) => n.toLowerCase() === `filtervendor ${stamp}`);
+    check(options.length === 1, 'and the vendor list names it once however it was capitalised',
+      JSON.stringify(options));
+
+    const byDate = await get(`from=${isoDay(190)}&to=${isoDay(240)}&q=${enc(stamp)}`);
+    check(names(byDate).includes(`Filt A ${stamp}`) && names(byDate).includes(`Filt C ${stamp}`)
+      && !names(byDate).includes(`Filt B ${stamp}`),
+    'a departure range keeps what leaves inside it, ends included', JSON.stringify(names(byDate)));
+
+    const both = await get(`supplier=${enc(`Othervendor ${stamp}`)}&from=${isoDay(190)}&to=${isoDay(240)}`);
+    check(JSON.stringify(names(both)) === JSON.stringify([`Filt C ${stamp}`]),
+      'filters combine, each narrowing the last', JSON.stringify(names(both)));
+
+    const echoed = byDate.data?.filters;
+    check(echoed?.from === isoDay(190) && echoed?.to === isoDay(240),
+      'the list says what it was narrowed to', JSON.stringify(echoed));
+
+    const junk = await get(`pay=bogus&from=not-a-date&q=${enc(stamp)}`);
+    check(junk.status === 200 && names(junk).length >= 3 && !junk.data?.filters?.pay && !junk.data?.filters?.from,
+      'a value that is not one of the known ones is left out rather than guessed at',
+      JSON.stringify(junk.data?.filters));
+
+    // The payment filters answer with the same arithmetic the row's badge uses,
+    // so whatever the filter returns has to agree with the row it returns.
+    const all = (await get(`q=${enc(stamp)}`)).data?.bookings || [];
+    const unsched = await get(`pay=unscheduled&q=${enc(stamp)}`);
+    const wantUnsched = all.filter((x) => x.status === 'booked' && Number(x.hard_rows) === 0).map((x) => x.id).sort();
+    check(JSON.stringify((unsched.data?.bookings || []).map((x) => x.id).sort()) === JSON.stringify(wantUnsched)
+      && wantUnsched.length > 0,
+    'no payments scheduled returns exactly the booked reservations with none', `${wantUnsched.length}`);
+
+    const owing = await get(`pay=owing&q=${enc(stamp)}`);
+    check(owing.status === 200 && (owing.data?.bookings || []).every((x) => Number(x.owing_cents) > 0),
+      'balance owing returns only reservations with something still to pay');
+    const paid = await get(`pay=paid&q=${enc(stamp)}`);
+    check(paid.status === 200 && (paid.data?.bookings || []).every((x) => Number(x.owing_cents) <= 0
+      && Number(x.hard_rows) > 0),
+    'paid in full returns only reservations whose scheduled payments are all in');
+    for (const pay of ['due30', 'past']) {
+      const r = await get(`pay=${pay}&today=${isoDay(0)}&q=${enc(stamp)}`);
+      const dues = (r.data?.bookings || []).map((x) => x.final_payment_due);
+      const ok = pay === 'past'
+        ? dues.every((d) => d && d < isoDay(0)) : dues.every((d) => d && d >= isoDay(0) && d <= isoDay(30));
+      check(r.status === 200 && ok, `final payment ${pay === 'past' ? 'past due' : 'due in 30 days'} only returns dates in that window`,
+        JSON.stringify(dues));
+    }
+
+    // The file is the list.
+    const getCsv = (path) => fetch(`${BASE}${path}`, { headers: { cookie: advisor.header() }, redirect: 'manual' });
+    const narrow = await (await getCsv(`/api/export/reservations?supplier=${enc(`Othervendor ${stamp}`)}`)).text();
+    check(narrow.includes(`Filt C ${stamp}`) && !narrow.includes(`Filt A ${stamp}`),
+      'the download carries the same narrowing as the list', narrow.slice(0, 120));
+    const wide = await (await getCsv('/api/export/reservations')).text();
+    check(wide.includes(`Filt C ${stamp}`) && wide.includes(`Filt A ${stamp}`),
+      'and with nothing chosen it is everything');
+  }
+
   // ------------------------------ people they travel with, not live with -----
   // A household is the people at one address. The sister two states away or the
   // friend they cruise with is the second name on a booking and is not in the

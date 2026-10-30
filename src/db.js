@@ -677,16 +677,105 @@ export function capped(rows, limit, cap = LIST_CAP) {
   return { rows: all.slice(0, size), truncated: all.length > size };
 }
 
-export async function listBookings(env, scope, { status, search, limit } = {}) {
-  const scoped = scopeWhere(scope, 'b.user_id');
-  const where = [scoped.sql];
-  const binds = [...scoped.binds];
-  if (status) { where.push('b.status = ?'); binds.push(status); }
-  if (search) {
+// What is still unpaid, what has been paid, and how many payments are scheduled,
+// as expressions on a reservation aliased b. The same three the list shows, so a
+// filter and the badge in the row cannot disagree about what "paid in full" means.
+const OWING_EXPR = `COALESCE((SELECT SUM(p.amount_cents) FROM booking_payments p
+             WHERE p.booking_id = b.id AND p.payment_class = 'hard'
+               AND p.paid_date IS NULL), 0)`;
+const PAID_EXPR = `COALESCE((SELECT SUM(p.amount_cents) FROM booking_payments p
+             WHERE p.booking_id = b.id AND p.payment_class = 'hard'
+               AND p.paid_date IS NOT NULL), 0)`;
+const HARD_ROWS_EXPR = `(SELECT COUNT(*) FROM booking_payments p
+     WHERE p.booking_id = b.id AND p.payment_class = 'hard')`;
+// Paid in full the way the reservations list means it: payments are scheduled,
+// none is open, and what has been paid covers the trip cost.
+const SETTLED_EXPR = `(${HARD_ROWS_EXPR} > 0 AND ${OWING_EXPR} <= 0
+  AND COALESCE(b.gross_cents, 0) - ${PAID_EXPR} <= 0)`;
+
+/** The payment filters the reservations list offers, in the order it shows them. */
+export const PAY_FILTERS = ['owing', 'due30', 'past', 'unscheduled', 'paid'];
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * What the reservations list was asked to narrow to, cleaned.
+ *
+ * One reader for the list and for the download, so the file a person gets is
+ * the list they were looking at. Anything that is not one of the known values
+ * is left out rather than guessed at.
+ */
+export function parseBookingFilters(params, statuses) {
+  const get = (k) => String(params.get(k) || '').trim();
+  const status = get('status');
+  const day = (k) => (ISO_DAY.test(get(k)) ? get(k) : undefined);
+  const pay = get('pay');
+  return {
+    status: statuses.includes(status) ? status : undefined,
+    search: get('q').slice(0, 80) || undefined,
+    supplier: get('supplier').slice(0, 120) || undefined,
+    from: day('from'),
+    to: day('to'),
+    pay: PAY_FILTERS.includes(pay) ? pay : undefined,
+    // The reader's own date, so "due in 30 days" means 30 days from their today
+    // and not from the server's, which is already tomorrow in the evening.
+    today: day('today'),
+  };
+}
+
+/**
+ * The WHERE conditions for those filters, and what to bind to them.
+ *
+ * Every value is bound, never written into the statement. The payment filters
+ * are fixed fragments chosen from a list, which is why a request cannot name
+ * its own SQL.
+ */
+export function bookingFilterSql(f = {}) {
+  const today = f.today || new Date().toISOString().slice(0, 10);
+  const where = [];
+  const binds = [];
+  if (f.status) { where.push('b.status = ?'); binds.push(f.status); }
+  if (f.search) {
     where.push('(b.client_name LIKE ? OR b.supplier LIKE ? OR b.product_name LIKE ? OR b.confirmation_number LIKE ?)');
-    const like = `%${search}%`;
+    const like = `%${f.search}%`;
     binds.push(like, like, like, like);
   }
+  if (f.supplier) { where.push('LOWER(b.supplier) = LOWER(?)'); binds.push(f.supplier); }
+  if (f.from) { where.push('b.depart_date >= ?'); binds.push(f.from); }
+  if (f.to) { where.push('b.depart_date <= ?'); binds.push(f.to); }
+  if (f.pay === 'owing') {
+    where.push(`b.status IN ('booked','travelled') AND ${OWING_EXPR} > 0`);
+  } else if (f.pay === 'paid') {
+    where.push(`b.status IN ('booked','travelled') AND ${SETTLED_EXPR}`);
+  } else if (f.pay === 'unscheduled') {
+    where.push(`b.status = 'booked' AND ${HARD_ROWS_EXPR} = 0`);
+  } else if (f.pay === 'past') {
+    where.push(`b.status = 'booked' AND b.final_payment_due < ? AND NOT ${SETTLED_EXPR}`);
+    binds.push(today);
+  } else if (f.pay === 'due30') {
+    const end = new Date(Date.parse(`${today}T00:00:00Z`) + 30 * 86400000).toISOString().slice(0, 10);
+    where.push(`b.status = 'booked' AND b.final_payment_due >= ? AND b.final_payment_due <= ? AND NOT ${SETTLED_EXPR}`);
+    binds.push(today, end);
+  }
+  return { where, binds };
+}
+
+/** The vendors on this book, once each however they were capitalised, for the filter list. */
+export async function supplierOptions(env, scope) {
+  const scoped = scopeWhere(scope, 'b.user_id');
+  const { results } = await env.DB.prepare(
+    `SELECT MIN(b.supplier) AS name FROM bookings b
+      WHERE ${scoped.sql} AND b.supplier IS NOT NULL AND TRIM(b.supplier) <> ''
+      GROUP BY LOWER(b.supplier) ORDER BY LOWER(b.supplier) LIMIT 300`
+  ).bind(...scoped.binds).all();
+  return (results || []).map((r) => r.name);
+}
+
+export async function listBookings(env, scope, { limit, ...filters } = {}) {
+  const scoped = scopeWhere(scope, 'b.user_id');
+  const more = bookingFilterSql(filters);
+  const where = [scoped.sql, ...more.where];
+  const binds = [...scoped.binds, ...more.binds];
   binds.push(takeWithProbe(limit));
   const { results } = await env.DB.prepare(
     `SELECT ${BOOKING_COLUMNS_B}, ${ADVISOR_NAME}, ${OWING_SQL}

@@ -329,11 +329,10 @@ export async function handleListBookings(request, env) {
   if (response) return response;
 
   const url = new URL(request.url);
-  const statusParam = url.searchParams.get('status');
   const scope = db.scopeFor(env, user, request);
+  const filters = db.parseBookingFilters(url.searchParams, STATUSES);
   const found = await db.listBookings(env, scope, {
-    status: STATUSES.includes(statusParam) ? statusParam : undefined,
-    search: clean(url.searchParams.get('q'), 80) || undefined,
+    ...filters,
     limit: url.searchParams.get('limit'),
   });
   // One row past the cap came back if there is more behind it, so the page can
@@ -347,6 +346,10 @@ export async function handleListBookings(request, env) {
     truncated,
     cap: db.LIST_CAP,
     stats: await db.bookingStats(env, scope),
+    // What the list was narrowed to, echoed so the page shows what it is looking at
+    // rather than what it asked for, and the vendors there are to choose from.
+    filters,
+    suppliers: await db.supplierOptions(env, scope),
     // The same lists the record page gets, so the new reservation form and the
     // validator cannot disagree about what a status may be.
     fieldOptions: FIELD_OPTIONS,

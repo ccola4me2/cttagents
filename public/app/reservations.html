@@ -33,7 +33,24 @@
           <option value="travelled">Travelled</option>
           <option value="cancelled">Cancelled</option>
         </select>
+        <select id="pay-filter" aria-label="Payment">
+          <option value="">Any payment</option>
+          <option value="owing">Balance owing</option>
+          <option value="due30">Final payment due in 30 days</option>
+          <option value="past">Final payment past due</option>
+          <option value="unscheduled">No payments scheduled</option>
+          <option value="paid">Paid in full</option>
+        </select>
+        <select id="supplier-filter" aria-label="Vendor">
+          <option value="">All vendors</option>
+        </select>
+        <label class="muted" style="display:inline-flex;align-items:center;gap:.35rem;">Departing
+          <input id="from-filter" type="date" aria-label="Departing from"></label>
+        <label class="muted" style="display:inline-flex;align-items:center;gap:.35rem;">to
+          <input id="to-filter" type="date" aria-label="Departing up to"></label>
+        <button class="btn btn-ghost btn-sm" type="button" id="clear-filters" hidden>Clear filters</button>
       </div>
+      <p class="muted" id="filter-note" style="margin:.3rem 0 .8rem;" hidden></p>
       <div id="trips-strip"></div>
       <div id="pick-bar" hidden>
         <div class="notice notice-ok" style="display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;">
@@ -181,14 +198,23 @@ import { api, mountShell, esc, money, dateFmt, daysUntil, showError, onSubmit,
 const ME = (await mountShell()).id;
 
 // The whole book as a spreadsheet, for the advisor shown at the top. The list on screen stops at a few hundred; this does not.
+// The file is the list on screen: whatever the filters have narrowed it to.
 document.getElementById('dl-all').addEventListener('click', () => {
-  location.href = `/api/export/reservations${advisorParam() ? `?${advisorParam()}` : ''}`;
+  const q = filterParams();
+  if (advisorParam()) q.set('advisor', new URLSearchParams(advisorParam()).get('advisor'));
+  location.href = `/api/export/reservations${q.toString() ? `?${q}` : ''}`;
 });
 
 const panel = document.getElementById('panel');
 const statsEl = document.getElementById('stats');
 const search = document.getElementById('search');
 const statusFilter = document.getElementById('status-filter');
+const payFilter = document.getElementById('pay-filter');
+const supplierFilter = document.getElementById('supplier-filter');
+const fromFilter = document.getElementById('from-filter');
+const toFilter = document.getElementById('to-filter');
+const clearFilters = document.getElementById('clear-filters');
+const filterNote = document.getElementById('filter-note');
 let cache = [];
 // Reservations ticked to become one trip, and the trips that already exist.
 const picked = new Set();
@@ -222,8 +248,12 @@ function render(bookings, stats, scope, d = {}) {
     <div class="stat"><p class="label">Commission</p><p class="value">${money(stats.commissionCents)}</p>
       <p class="meta">${money(stats.commissionPaidCents)} received</p></div>`;
 
+  drawFilters(bookings.length, stats, d);
+
   if (!bookings.length) {
-    panel.innerHTML = '<div class="empty"><h3>No reservations yet</h3><p>Add one to start tracking payment dates and commission.</p></div>';
+    panel.innerHTML = filtersOn()
+      ? '<div class="empty"><h3>No reservation matches that</h3><p>Loosen a filter, or clear them to see everything.</p></div>'
+      : '<div class="empty"><h3>No reservations yet</h3><p>Add one to start tracking payment dates and commission.</p></div>';
     return;
   }
 
@@ -299,12 +329,57 @@ function render(bookings, stats, scope, d = {}) {
 
 }
 
+/**
+ * The filters as the list asks for them.
+ *
+ * Narrowing is done by the server, not by hiding rows here: the list is capped,
+ * and filtering the part that arrived looks exactly like the rest not existing.
+ * The reader's own date goes with it so "due in 30 days" counts from their today.
+ */
+function filterParams() {
+  const params = new URLSearchParams();
+  if (search.value.trim()) params.set('q', search.value.trim());
+  if (statusFilter.value) params.set('status', statusFilter.value);
+  if (payFilter.value) params.set('pay', payFilter.value);
+  if (supplierFilter.value) params.set('supplier', supplierFilter.value);
+  if (fromFilter.value) params.set('from', fromFilter.value);
+  if (toFilter.value) params.set('to', toFilter.value);
+  if (params.has('pay')) {
+    const t = new Date();
+    params.set('today', `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`);
+  }
+  return params;
+}
+
+const filtersOn = () => Boolean(search.value.trim() || statusFilter.value || payFilter.value
+  || supplierFilter.value || fromFilter.value || toFilter.value);
+
+/** The vendor list, the clear button, and a line saying what is being shown. */
+function drawFilters(shown, stats, d) {
+  // Only rebuilt when the vendors change, so choosing one does not reset the box.
+  const names = d.suppliers || [];
+  const chosen = supplierFilter.value;
+  const have = [...supplierFilter.options].slice(1).map((o) => o.value);
+  const want = chosen && !names.includes(chosen) ? [...names, chosen] : names;
+  if (have.join('|') !== want.join('|')) {
+    supplierFilter.innerHTML = '<option value="">All vendors</option>'
+      + want.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+    supplierFilter.value = chosen;
+  }
+  const on = filtersOn();
+  clearFilters.hidden = !on;
+  filterNote.hidden = !on;
+  if (on) {
+    filterNote.textContent = d.truncated
+      ? `Showing the first ${shown} that match.`
+      : `${shown} of ${stats.total} reservations match.`;
+  }
+}
+
 async function load() {
   panel.innerHTML = '<p class="spinner">Loading reservations...</p>';
   try {
-    const params = new URLSearchParams();
-    if (search.value.trim()) params.set('q', search.value.trim());
-    if (statusFilter.value) params.set('status', statusFilter.value);
+    const params = filterParams();
     if (advisorParam()) params.set('advisor', new URLSearchParams(advisorParam()).get('advisor'));
     const data = await api(`/api/bookings${params.toString() ? '?' + params : ''}`);
     // Trips are a convenience on this page. If they cannot be read the list is
@@ -910,6 +985,12 @@ document.getElementById('pick-go').addEventListener('click', async (e) => {
 let timer;
 search.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(load, 350); });
 statusFilter.addEventListener('change', load);
+for (const el of [payFilter, supplierFilter, fromFilter, toFilter]) el.addEventListener('change', load);
+clearFilters.addEventListener('click', () => {
+  search.value = '';
+  for (const el of [statusFilter, payFilter, supplierFilter, fromFilter, toFilter]) el.value = '';
+  load();
+});
 
 
 const params = new URLSearchParams(location.search);
@@ -925,6 +1006,17 @@ const params = new URLSearchParams(location.search);
 // shows everything, and there is no second list of statuses to keep in step.
 const askedStatus = params.get('status');
 if (askedStatus) statusFilter.value = askedStatus;
+// The rest can be asked for the same way, so a link from the dashboard or a
+// message can open the list already narrowed: ?pay=due30, ?supplier=Princess,
+// ?from=2027-01-01&to=2027-03-31. The dropdowns are the validator here too.
+if (params.get('pay')) payFilter.value = params.get('pay');
+if (params.get('from')) fromFilter.value = params.get('from');
+if (params.get('to')) toFilter.value = params.get('to');
+// A vendor is not an option until the list has said which exist, so it is set up as one.
+if (params.get('supplier')) {
+  supplierFilter.innerHTML += `<option value="${esc(params.get('supplier'))}">${esc(params.get('supplier'))}</option>`;
+  supplierFilter.value = params.get('supplier');
+}
 
 await load();
 

@@ -10,6 +10,8 @@ import { requireUser } from './auth.js';
 import { usDate } from './util.js';
 import * as db from './db.js';
 
+const STATUSES = ['quoted', 'booked', 'travelled', 'cancelled'];
+
 const BOM = '﻿';
 // Far more than any agency has, so the download is never cut. A cut that was not said would be worse than a slow file.
 const EXPORT_CAP = 20000;
@@ -62,16 +64,19 @@ export async function handleExportReservations(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
   const scoped = db.scopeWhere(db.scopeFor(env, user, request), 'b.user_id');
+  // The same narrowing the list was showing, so the file is that list.
+  const more = db.bookingFilterSql(
+    db.parseBookingFilters(new URL(request.url).searchParams, STATUSES));
   const { results } = await env.DB.prepare(
     `SELECT b.id, b.user_id, b.client_name, b.status, b.supplier, b.product_name, b.destination, b.cabin, b.cabin_category,
             b.confirmation_number, b.depart_date, b.return_date, b.deposit_due, b.final_payment_due, b.travellers,
             b.gross_cents, b.deposit_cents, b.commission_cents, b.commission_status, b.group_label, b.created_at,
             COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''), u.email) AS advisor_name
        FROM bookings b LEFT JOIN users u ON u.id = b.user_id
-      WHERE ${scoped.sql}
+      WHERE ${[scoped.sql, ...more.where].join(' AND ')}
       ORDER BY COALESCE(b.depart_date, '9999-12-31') ASC, b.created_at DESC
       LIMIT ?`
-  ).bind(...scoped.binds, EXPORT_CAP).all();
+  ).bind(...scoped.binds, ...more.binds, EXPORT_CAP).all();
   // An advisor is not told commission has arrived until its pay date is near, in a download any more than on a screen.
   const rows = await db.maskCommissionStatus(env, user, results || []);
   return csvResponse(csvOf(RESERVATION_COLUMNS, rows), 'reservations');
