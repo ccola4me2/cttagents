@@ -14,6 +14,7 @@
   #tiles .cd-tile:nth-child(n+5) .value { font-size: 1.2rem; }
   @media (max-width: 1100px) { #tiles.cd-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 520px) { #tiles.cd-tiles { grid-template-columns: minmax(0, 1fr); } }
+  #tiles .cd-tile.wide { grid-column: 1 / -1; }
   .cd-tile {
     font: inherit; text-align: left; cursor: pointer; background: #fff; border: 1.5px solid var(--navy-100);
     border-radius: var(--radius); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);
@@ -268,8 +269,8 @@ const dayLabel = (x) => (x === NOT_SCHEDULED ? 'Not scheduled yet' : dateFmt(x))
 function drawTiles() {
   const t = d.tiles;
   const next = d.payDates.find((p) => p.isNext);
-  const tile = (key, label, value, meta) => `
-    <button class="cd-tile" type="button" data-view="${key}" aria-pressed="${view === key}">
+  const tile = (key, label, value, meta, wide) => `
+    <button class="cd-tile${wide ? ' wide' : ''}" type="button" data-view="${key}" aria-pressed="${view === key}">
       <p class="label">${label}</p><p class="value">${value}</p><p class="meta">${meta}</p></button>`;
   $('tiles').innerHTML = [
     // The checks before fees, then the fees, then what reached the bank, so the three numbers read as a sum.
@@ -288,12 +289,46 @@ function drawTiles() {
     tile('reports', 'Reports', 'By advisor, vendor, month', 'the books in tables you can download'),
     tile('recall', 'Recall watch', rc ? (needAttention() ? `${needAttention()} to review` : 'All clear') : 'Safe to pay?',
       rc ? `${money(rc.totals.holdCents)} held until safe, ${money(rc.totals.cancelledReceivedCents)} on cancelled trips` : 'what could still be taken back'),
+    // What is left of what was received once every advisor is paid or scheduled: the agency's own money.
+    tile('agency', 'The agency keeps', money(t.receivedCents - t.paidOutCents - t.scheduledCents),
+      `${money(t.receivedCents)} received, less ${money(t.paidOutCents)} paid out and ${money(t.scheduledCents)} scheduled to advisors. Press to see it advisor by advisor.`, true),
   ].join('');
 }
 
 // ---------------------------------------------------------------------------
 // The lists
 // ---------------------------------------------------------------------------
+
+/** Received, paid out and scheduled for each advisor, so what is left over can be seen where it comes from. */
+function drawAgency() {
+  const by = new Map();
+  const get = (n) => { if (!by.has(n)) by.set(n, { name: n, received: 0, share: 0, paid: 0, sched: 0 }); return by.get(n); };
+  for (const l of [...Object.values(d.checkLines || {}).flat(), ...(d.loose || [])]) {
+    const a = get(l.advisor_name || 'Not recorded');
+    const pct = Number.isFinite(Number(l.split_pct)) ? Number(l.split_pct) : 100;
+    a.received += l.amount_cents || 0;
+    a.share += Math.round((l.amount_cents || 0) * pct / 100);
+  }
+  for (const p of d.paid || []) get(p.advisor_name || 'Not recorded').paid += p.amount_cents || 0;
+  for (const day of d.payDates || []) for (const a of day.advisors || []) get(a.name).sched += a.cents || 0;
+  const list = [...by.values()].map((a) => ({ ...a, keeps: a.received - a.paid - a.sched, over: Math.max(0, a.paid + a.sched - a.share) }))
+    .sort((x, y) => x.name.localeCompare(y.name));
+  if (!list.length) return '<div class="card"><div class="empty"><h3>Nothing received yet</h3><p>Record a check and it will show here.</p></div></div>';
+  const total = (k) => list.reduce((n, a) => n + a[k], 0);
+  const over = list.filter((a) => a.over > 0);
+  return `<div class="card cd-scroll"><table class="cd-table"><thead><tr>
+    <th>Advisor</th><th class="r">Received on their reservations</th><th class="r">Paid out</th><th class="r">Scheduled to pay out</th><th class="r">The agency keeps</th>
+    </tr></thead><tbody>${list.map((a) => `<tr><td><strong>${esc(a.name)}</strong></td>
+      <td class="r cd-money">${money(a.received)}</td><td class="r cd-money">${money(a.paid)}</td><td class="r cd-money">${money(a.sched)}</td>
+      <td class="r cd-money"><strong>${money(a.keeps)}</strong></td></tr>`).join('')}
+    <tr class="tot"><td>Total</td><td class="r cd-money">${money(total('received'))}</td><td class="r cd-money">${money(total('paid'))}</td>
+      <td class="r cd-money">${money(total('sched'))}</td><td class="r cd-money">${money(total('keeps'))}</td></tr></tbody></table></div>
+    <p class="muted" style="margin:.8rem 0 0;">The agency keeps what was received, less what has been paid out and what is scheduled to pay out. The check total less its fees is
+      what reached the bank, and the advisors' lines add up to it.</p>
+    ${over.length ? `<div class="notice notice-warn" style="margin-top:.8rem;">${over.map((a) => `${esc(a.name)} has been paid or scheduled ${money(a.over)} more than their share of what was received`).join('. ')}.
+      That makes the agency's number ${money(over.reduce((n, a) => n + a.over, 0))} lower than it should be. Once it is corrected the agency keeps
+      ${money(total('keeps') + over.reduce((n, a) => n + a.over, 0))}.</div>` : ''}`;
+}
 
 function drawScheduled() {
   if (!d.payDates.length) {
@@ -1212,6 +1247,7 @@ const TITLES = {
   all: ['All commissions', 'Every reservation that earns commission, for every advisor. Search, filter, sort, open a row for its lines, and download what you see.'],
   reports: ['Reports', 'Commission by advisor, by vendor and by month, what is short or over, every check, and what each advisor was paid in the year for their 1099. Each one downloads as a spreadsheet file.'],
   recall: ['Recall watch', 'A cruise line can take commission back if a client cancels, until 30 days before sailing. This shows what is being held until then, what was paid out early, and cancelled trips with money to recover.'],
+  agency: ['The agency keeps', 'What is left of the money received once every advisor has been paid or is scheduled to be paid. This is the agency\u2019s own money.'],
   statements: ['Advisor statements', 'What one advisor earned, has been paid and is still owed. Print it or save it as a PDF to send. It never shows what the agency keeps.'],
 };
 
@@ -1220,7 +1256,7 @@ function draw() {
   const [base, sub] = TITLES[view];
   const title = view === 'received' || view === 'paid' ? `${base} in ${year}` : base;
   const body = view === 'scheduled' ? drawScheduled() : view === 'received' ? drawReceived()
-    : view === 'paid' ? drawPaid() : view === 'all' ? drawAll() : view === 'statements' ? drawStatements() : view === 'recall' ? drawRecall() : view === 'reports' ? drawReports() : drawOwed();
+    : view === 'paid' ? drawPaid() : view === 'all' ? drawAll() : view === 'statements' ? drawStatements() : view === 'recall' ? drawRecall() : view === 'reports' ? drawReports() : view === 'agency' ? drawAgency() : drawOwed();
   panel.innerHTML = `<div class="cd-head"><h2>${esc(title)}</h2><span class="m">${esc(sub)}</span></div>${body}`;
 }
 
