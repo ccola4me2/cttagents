@@ -12051,7 +12051,7 @@ async function main() {
   check(sp.advisorCents + sp.agencyCents === 33333,
     'and the two halves add back up to the commission exactly',
     `${sp.advisorCents} + ${sp.agencyCents}`);
-  check(sp.advisorCents === 16667, 'rounding the odd cent to the advisor', sp.advisorCents);
+  check(sp.advisorCents === 16666 && sp.agencyCents === 16667, 'the odd cent stays with the agency, never rounded up to the advisor', `${sp.advisorCents} + ${sp.agencyCents}`);
 
   // The same figure, computed by SQLite rather than JavaScript.
   const comm = await call(advisor, 'GET', '/api/commissions');
