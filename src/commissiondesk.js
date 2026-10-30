@@ -372,7 +372,7 @@ export async function handleCreateCheck(request, env) {
 
   if (reference && !body.allowDuplicate) {
     const dupe = await env.DB.prepare(
-      'SELECT id FROM commission_checks WHERE agency_id = ? AND LTRIM(UPPER(reference), '0') = ? LIMIT 1'
+      `SELECT id FROM commission_checks WHERE agency_id = ? AND LTRIM(UPPER(reference), '0') = ? LIMIT 1`
     ).bind(admin.agency_id, sameNumber(reference)).first();
     if (dupe) {
       return json({ error: 'A check with that number is already recorded.', code: 'duplicate', id: dupe.id }, 409);
@@ -459,7 +459,7 @@ export async function handleCheckFromLines(request, env) {
 
   if (reference && !body.allowDuplicate) {
     const dupe = await env.DB.prepare(
-      'SELECT id FROM commission_checks WHERE agency_id = ? AND LTRIM(UPPER(reference), '0') = ? LIMIT 1'
+      `SELECT id FROM commission_checks WHERE agency_id = ? AND LTRIM(UPPER(reference), '0') = ? LIMIT 1`
     ).bind(admin.agency_id, sameNumber(reference)).first();
     if (dupe) return json({ error: 'A check with that number is already recorded.', code: 'duplicate', id: dupe.id }, 409);
   }
