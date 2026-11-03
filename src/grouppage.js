@@ -503,8 +503,7 @@ ${head}
     <span><b>${esc(b.name)}</b><small>${esc(b.tagline || '')}</small></span>`}</div>`}
   ${body}
   ${neutral ? '' : `<p class="foot">&copy; ${new Date().getFullYear()} ${esc(b.name)}
-    &middot; <a href="${esc(home)}/privacy">Privacy policy</a>${POWERED_BY}
-    &middot; <a href="${esc(home)}/login?next=%2Fadmin%2Fgroups" rel="nofollow">Admin login</a></p>`}
+    &middot; <a href="${esc(privacyHref(b, env))}">Privacy policy</a>${POWERED_BY}</p>`}
 ${hero ? '' : '</div>'}</body></html>`;
 }
 
@@ -512,6 +511,18 @@ ${hero ? '' : '</div>'}</body></html>`;
 function neutralAsset(env, file) {
   const host = String(env.GROUP_HOST || '').trim();
   return host ? `https://${host}/cgp/${file}` : `${appUrl(env)}/logo-mark.png`;
+}
+
+/**
+ * Where the privacy link at the foot of a client's page goes.
+ *
+ * A Group Desk member is not one of this portal's agents, and their clients have never heard of the
+ * portal's own agency, so their pages link to the service's privacy page on the shared domain rather
+ * than the portal's. Everybody else's clients are the portal's agency's clients and get its page.
+ */
+function privacyHref(brand, env) {
+  const host = String(env.GROUP_HOST || '').trim();
+  return brand && brand.desk && host ? `https://${host}/privacy` : `${appUrl(env)}/privacy`;
 }
 
 /** Where the service's own logo goes: its front page on the shared domain. */

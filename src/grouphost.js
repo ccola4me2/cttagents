@@ -21,7 +21,7 @@ import { cleanSlug, findSlug, withTimeout } from './groupslug.js';
 import { hostOf } from './hostname.js';
 import { renderGroupPage, handleGroupRegistration } from './publicform.js';
 import { renderRegisterPage, handleRegister, noGroupPage } from './grouppage.js';
-import { renderGroupLanding } from './grouplanding.js';
+import { renderGroupLanding, renderGroupPrivacy } from './grouplanding.js';
 
 // Set on a request that has already been handed across, so the two portals can never
 // bounce one between them.
@@ -77,6 +77,8 @@ export async function serveGroupHost(request, env) {
 
   const rest = inTv ? (path.slice(3) || '/') : path;
   if (rest === '/') return renderGroupLanding(env, { area: inTv ? 'tv' : 'ctt' });
+  // The service's own privacy page, which the foot of a group page links to.
+  if (rest === '/privacy' || rest === '/privacy/') return renderGroupPrivacy(env, { area: inTv ? 'tv' : 'ctt' });
   const m = rest.match(/^\/([^/]+)(?:\/(register))?\/?$/);
   if (!m) return noGroupPage(env);
   return serveSlug(request, env, m[1], m[2] || '', 'host');

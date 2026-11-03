@@ -50,6 +50,9 @@ export const DEFAULT_BRAND = {
   // portal's address: see the footer in email.js for why the portal must not
   // put its own domain under a message to a client.
   website: null,
+  // Whether the owner is a Group Desk member rather than one of the portal's agents: their
+  // clients' pages must not send anybody to the portal's own agency.
+  desk: false,
 };
 
 // Six hex digits after a hash, and nothing else. This value is interpolated
@@ -112,6 +115,7 @@ export function brandOf(agency) {
     logoUrl: agency.logo_url || null,
     color: readableOnWhite(agency.brand_color) ? agency.brand_color : DEFAULT_BRAND.color,
     website: agency.website || null,
+    desk: Boolean(agency.is_desk),
   };
 }
 

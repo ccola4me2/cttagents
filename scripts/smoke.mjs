@@ -7674,8 +7674,9 @@ async function main() {
       && page.raw.includes('Wi-Fi'),
     'and drink packages and enhancements, with their prices');
     // Visits, and the owner's view of every group.
-    check(page.raw.includes('Admin login') && page.raw.includes('/login?next=%2Fadmin%2Fgroups'),
-      'the footer of a group page has the admin login');
+    check(!page.raw.includes('Admin login') && !page.raw.includes('/login?next=%2Fadmin%2Fgroups')
+      && page.raw.includes('/privacy">Privacy policy'),
+    'the footer of a group page has a privacy link and no admin login: a client has no business there');
     await call(null, 'GET', `/gs/${slugA}`);
     await call(null, 'GET', `/gs/${slugA}`, undefined, { 'User-Agent': 'Googlebot/2.1 (+http://www.google.com/bot.html)' });
     const stats = await call(admin, 'GET', '/api/admin/group-stats?range=30');

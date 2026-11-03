@@ -9,7 +9,6 @@
 // answers its own front page and hands /tv to the Trip Vara Worker, which answers its own. See
 // grouphost.js.
 
-import { appUrl } from './share.js';
 
 function esc(s) {
   return String(s == null ? '' : s)
@@ -36,8 +35,6 @@ export function renderGroupLanding(env, { area = 'ctt' } = {}) {
   // What a link to a group here starts with, shown in the box and used by the finder.
   const start = tv ? '/tv' : '';
   const year = new Date().getFullYear();
-  // The same sign in as the portal, and only an owner's account gets past it to the group figures.
-  const adminLogin = `${appUrl(env)}/login?next=%2Fadmin%2Fgroups`;
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -321,7 +318,7 @@ export function renderGroupLanding(env, { area = 'ctt' } = {}) {
   <div class="wrap">
     <img src="/cgp/logo.png" alt="Cruise Group Page" width="150" height="48">
     &copy; ${year} Cruise Group Page. Group pages are published by travel advisors; each page shows the advisor responsible for that group.
-    <div class="admin-link"><a href="${adminLogin}" rel="nofollow">Admin login</a></div>
+    <div class="admin-link"><a href="${start}/privacy">Privacy</a></div>
   </div>
 </footer>
 
@@ -354,5 +351,99 @@ export function renderGroupLanding(env, { area = 'ctt' } = {}) {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'public, max-age=600',
     },
+  });
+}
+
+/**
+ * The privacy page for the shared domain, in the service's own name.
+ *
+ * A group page carries the advisor's brand, and its footer used to send a reader to the
+ * portal's privacy page, which names the portal's own agency. A reader of Lori's page has
+ * never heard of that agency. So the pages on the shared domain link here instead: what a
+ * page collects, who sees it, and that the advisor named on the page is the one responsible.
+ * Worded to hold for both areas, because either Worker may answer it.
+ */
+export function renderGroupPrivacy(env, { area = 'ctt' } = {}) {
+  const host = String(env.GROUP_HOST || 'cruisegrouppage.com').trim() || 'cruisegrouppage.com';
+  const start = area === 'tv' ? '/tv' : '';
+  const year = new Date().getFullYear();
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy | Cruise Group Page</title>
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/png" sizes="32x32" href="/cgp/icon-32.png">
+<link rel="shortcut icon" href="/cgp/favicon.ico">
+<link rel="apple-touch-icon" href="/cgp/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --navy: #0a2a5e; --blue: #0b63b0; --ink: #172036; --soft: #566684; --line: #e3eaf3; --bg: #f4f8fc; --white: #fff; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: var(--bg); line-height: 1.65; -webkit-font-smoothing: antialiased; }
+  a { color: var(--blue); }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 1.5rem; }
+  header { background: var(--white); border-bottom: 1px solid var(--line); }
+  .nav { min-height: 88px; display: flex; align-items: center; }
+  .nav img { display: block; width: 200px; height: auto; }
+  main { padding: 2.5rem 0 3rem; }
+  .card { background: var(--white); border: 1px solid var(--line); border-radius: 18px; padding: 2rem 2rem 1.4rem; }
+  h1 { margin: 0 0 0.3rem; font-size: clamp(1.6rem, 3vw, 2rem); color: var(--navy); letter-spacing: -0.02em; }
+  .lede { margin: 0 0 1.6rem; color: var(--soft); }
+  h2 { margin: 1.6rem 0 0.4rem; font-size: 1.08rem; color: var(--navy); }
+  p, li { margin: 0 0 0.8rem; font-size: 0.98rem; }
+  ul { padding-left: 1.2rem; margin: 0 0 0.8rem; }
+  footer { padding: 1rem 0 3rem; text-align: center; color: var(--soft); font-size: 0.86rem; }
+  @media (max-width: 600px) { .card { padding: 1.4rem 1.2rem 1rem; } .nav img { width: 170px; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap nav">
+    <a href="${esc(start)}/" aria-label="Cruise Group Page home"><img src="/cgp/logo.png" alt="Cruise Group Page" width="252" height="80"></a>
+  </div>
+</header>
+<main>
+  <div class="wrap">
+    <div class="card">
+      <h1>Privacy</h1>
+      <p class="lede">What a group page on ${esc(host)} collects, who sees it, and who to ask.</p>
+
+      <h2>Who is responsible for a page</h2>
+      <p>Every group page here is published by a travel advisor. The advisor named at the foot of the page, and the agency they work with, decide what the page says and are responsible for anything you share through it. Cruise Group Page is the service that hosts the page for them.</p>
+
+      <h2>What a page collects</h2>
+      <ul>
+        <li><strong>When you ask a question:</strong> your name, email, mobile if you give it, how many are travelling, and what you write.</li>
+        <li><strong>When you register for a group:</strong> the names of the people travelling, their dates of birth where the cruise line needs them, your contact details, and any travel document details the form asks for. Travel document details are stored encrypted.</li>
+        <li><strong>When you simply read a page:</strong> a count of visits. Your address and browser type are turned into a code that changes every day and cannot be turned back into you. No advertising trackers run on these pages and no cookie is set for reading.</li>
+      </ul>
+
+      <h2>Who sees it</h2>
+      <p>The advisor hosting the group and the agency they work with, so they can answer you, hold your cabin and look after the booking. When you book, the details the cruise line or travel supplier needs are passed to them to make the reservation. Nothing is sold and nothing is used for advertising.</p>
+
+      <h2>Messages</h2>
+      <p>If you ask a question or register, the advisor may email or call you about this group. Ask them at any time to stop.</p>
+
+      <h2>How long it is kept</h2>
+      <p>For as long as the group is open and afterward as a record of the booking. To see, correct or remove what a page holds about you, contact the advisor named on it.</p>
+
+      <h2>Payments</h2>
+      <p>No page here takes a card. Payment for a trip is made to the cruise line or travel supplier, and the advisor will tell you how.</p>
+    </div>
+  </div>
+</main>
+<footer>
+  <div class="wrap">&copy; ${year} Cruise Group Page</div>
+</footer>
+</body>
+</html>`;
+  return new Response(html, {
+    status: 200,
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=600' },
   });
 }
