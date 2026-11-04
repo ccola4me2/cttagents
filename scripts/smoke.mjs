@@ -6940,6 +6940,16 @@ async function main() {
   check(pc.data?.fields?.finalPaymentDue === '2028-05-12',
     'a "Final Payment Due Date" is read, not missed for the label being longer', pc.data?.fields?.finalPaymentDue);
   const amountOf = (k) => (pp?.lines || []).find((l) => l.kind === k)?.amount;
+  // The row of first names can lose its "First Name" label in the text; the names are still the words above the surnames.
+  const lostLabel = await call(advisor, 'POST', '/api/import/confirmation', { text: [
+    'Jeff Covington', 'BOOKING ID: 99887755', 'Departure Date: Aug 11, 2028 Return Date: Aug 18, 2028',
+    'Ship: Example Ship Total Guests: 2', 'Guest 1 Guest 2', 'JEFF LAURA', 'Last Name Covington Covington',
+    'Date of Birth, Age Apr 18, 1968, 58 Nov 25, 1969, 56', 'Cabin Fare $1,765.00 $1,765.00',
+    'Govt. Taxes & Fees $100.00 $100.00', 'Gross Amount of Reservation: $ 3,730.00', 'Total Booking Amount: $ 3,730.00',
+  ].join('\n') });
+  const lostGuests = (lostLabel.data?.pricing?.guests || []).map((g) => `${g.name}|${g.dob}`).join(', ');
+  check(lostGuests === 'Jeff Covington|1968-04-18, Laura Covington|1969-11-25',
+    'guest names come from the read even when the first name label is missing, with their birthdays', lostGuests);
   check(amountOf('fare') === '1000.00',
     'the fare comes across after the discount, since that is what commission is paid on', amountOf('fare'));
   check(amountOf('taxes') === '360.00',

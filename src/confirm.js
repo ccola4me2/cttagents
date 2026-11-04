@@ -291,6 +291,19 @@ function shareBy(total, weights) {
   return parts;
 }
 
+/** The words on the line above the surnames, when that line is only names: the first names whose label was lost. */
+function orphanFirstNames(lines) {
+  const at = lines.findIndex((l) => /^(?:last names?|surname)\b/i.test(l.trim()));
+  for (let i = at - 1; i >= 0 && at > 0; i -= 1) {
+    const raw = lines[i].trim();
+    if (!raw) continue;
+    const text = raw.replace(/^(?:guest\s*\d+\s*)+/i, '').replace(/^(?:first names?|given names?)\s*/i, '').replace(/\s*(?:first names?)$/i, '').trim();
+    const words = text.split(/\s+/).filter(Boolean);
+    return words.length && words.length <= 12 && words.every((w) => /^[A-Za-z][A-Za-z.'-]*$/.test(w)) ? words : [];
+  }
+  return [];
+}
+
 /**
  * The people the price columns belong to.
  *
@@ -301,14 +314,24 @@ function shareBy(total, weights) {
  * guessed at and filed against the wrong traveller.
  */
 function guestsFromColumns(lines, n, listed) {
-  const first = afterLabel(lines, ['first name', 'first names', 'given name']).split(/\s+/).filter(Boolean);
+  let first = afterLabel(lines, ['first name', 'first names', 'given name']).split(/\s+/).filter(Boolean);
   const last = afterLabel(lines, ['last name', 'last names', 'surname']).split(/\s+/).filter(Boolean);
+  // The label can be lost in the text, leaving the row of first names on its own line just above the surnames.
+  if (!first.length) first = orphanFirstNames(lines);
+  // A single letter is a middle initial and belongs to the name before it.
+  first = first.reduce((out, t) => {
+    if (out.length && /^[A-Za-z]\.?$/.test(t)) out[out.length - 1] += ` ${t.replace('.', '')}`;
+    else out.push(t);
+    return out;
+  }, []);
   const born = [...afterLabel(lines, ['date of birth, age', 'date of birth', 'dob'])
     .matchAll(/([A-Za-z]{3,9}\.? \d{1,2},? \d{4})/g)].map((m) => anyDate(m[1]) || null);
 
   let names = null;
   if (first.length === n && last.length === n) {
     names = first.map((f, i) => `${fixCaps(f)} ${fixCaps(last[i])}`.trim());
+  } else if (first.length === n && last.length === 1) {
+    names = first.map((f) => `${fixCaps(f)} ${fixCaps(last[0])}`.trim());
   } else if (listed.length === n) {
     names = listed.map((g) => g.name);
   }
