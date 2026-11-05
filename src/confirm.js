@@ -609,34 +609,58 @@ function readNclPricing(lines, fields, listed) {
   const savings = saveRow ? nclColumns(saveRow, n) : null;
   if (!fare) return null;
 
-  const services = lines.map((l) => nclRow([l], /^(?:[A-Za-z' &.-]+?)\s+(?:service|srv)\s+charge\s+/i))
-    .filter(Boolean).map((r) => nclColumns(r, n)).filter(Boolean);
-
+  // Every other row between the fare and the gross total is something that was bought. The service charge rows are the
+  // gratuities, the drinks packages are their own line, and anything else printed there (dining, Wi-Fi, a package) is a
+  // package or amenity. A row that is not read leaves the price short of the gross total, which is shown as not adding up.
+  const from = lines.findIndex((l) => l.trim() === fareRow.line);
+  const to = lines.findIndex((l) => l.trim() === gross.line);
+  const bought = { gratuities: [], beverage: [], extra: [], ncf: [] };
+  const boughtLines = { gratuities: [], beverage: [], extra: [], ncf: [] };
+  for (const raw of lines.slice(from + 1, to > from ? to : from + 1)) {
+    const label = /^([A-Za-z][^\d$]*?)\s+(?=-?\$?\s*\d[\d,]*\.\d{2}\b)/.exec(raw.trim());
+    if (!label) continue;
+    const what = label[1].trim();
+    if (/^(?:taxes|savings|discounts?)\b/i.test(what)) continue;
+    const col = nclColumns(nclRow([raw], new RegExp(`^${what.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+`, 'i')), n);
+    if (!col) continue;
+    const kind = /\bncf\b|non[- ]?commissionable/i.test(what) ? 'ncf'
+      : /service\s+charge|srv\s+charge|gratuit/i.test(what) ? 'gratuities'
+        : /beverage|\bbev\b|drink|\bbar\b/i.test(what) ? 'beverage' : 'extra';
+    bought[kind].push(col);
+    boughtLines[kind].push(raw.trim());
+  }
   const zero = new Array(n).fill(0);
+  const across = (cols) => cols.reduce((acc, col) => acc.map((x, i) => x + col[i]), zero);
+  const kindCols = { gratuities: across(bought.gratuities), beverage: across(bought.beverage), extra: across(bought.extra), ncf: across(bought.ncf) };
   const off = savings ? savings.map((x) => Math.abs(x)) : zero;
   const netFare = fare.map((f, i) => f - off[i]);
   const tax = taxes || zero;
-  const tips = services.reduce((acc, col) => acc.map((x, i) => x + col[i]), zero);
+  const tips = kindCols.gratuities;
 
   const people = listed.length === n ? listed.map((g) => ({ name: g.name, dob: null }))
     : Array.from({ length: n }, () => ({ name: '', dob: null }));
   const perGuest = n > 1 ? people.map((who, i) => ({
     name: who.name, dob: who.dob,
-    fare: fixed(netFare[i]), taxes: fixed(tax[i]), insurance: '0.00', gratuities: fixed(tips[i]),
+    fare: fixed(netFare[i]), ncf: fixed(kindCols.ncf[i]), beverage: fixed(kindCols.beverage[i]), extra: fixed(kindCols.extra[i]),
+    taxes: fixed(tax[i]), insurance: '0.00', gratuities: fixed(tips[i]),
     commission: '0.00', commissionPackage: '0.00',
   })) : null;
 
   const sum = (col) => col.reduce((a, b) => a + b, 0);
   const out = [];
   if (sum(netFare) > 0) out.push({ kind: 'fare', label: 'Fare', amount: fixed(sum(netFare)), from: fareRow.line });
+  if (sum(kindCols.ncf) > 0) out.push({ kind: 'ncf', label: 'Non-commissionable fare', amount: fixed(sum(kindCols.ncf)), from: boughtLines.ncf.join(' | ') });
+  for (const [kind, label] of [['beverage', 'Drinks package'], ['extra', 'Package or amenity']]) {
+    if (sum(kindCols[kind]) > 0) out.push({ kind, label, amount: fixed(sum(kindCols[kind])), from: boughtLines[kind].join(' | ') });
+  }
   if (sum(tax) > 0) out.push({ kind: 'taxes', label: 'Taxes and port fees', amount: fixed(sum(tax)), from: taxRow.line });
-  if (sum(tips) > 0) out.push({ kind: 'gratuities', label: 'Gratuities', amount: fixed(sum(tips)), from: 'the service charges' });
+  if (sum(tips) > 0) out.push({ kind: 'gratuities', label: 'Gratuities', amount: fixed(sum(tips)), from: boughtLines.gratuities.join(' | ') });
 
-  const total = sum(netFare) + sum(tax) + sum(tips);
+  const total = sum(netFare) + sum(kindCols.ncf) + sum(kindCols.beverage) + sum(kindCols.extra) + sum(tax) + sum(tips);
   const stated = gross.values[0];
   const notes = [];
   if (off.some(Boolean)) notes.push(`Fare is the guest fare ${said(sum(fare))} less savings ${said(sum(off))}.`);
-  if (tips.some(Boolean)) notes.push('Dining and drinks service charges are shown as gratuities.');
+  if (tips.some(Boolean)) notes.push('Service charges are shown as gratuities.');
   if (lines.some((l) => /^shore excursion/i.test(l.trim()))) {
     notes.push('Shore excursions are printed separately and are not part of this price.');
   }
@@ -773,6 +797,8 @@ function readRoyalPricing(lines, fields, listed) {
   const nonComm = rcRow(lines, /^non comm cruise fare\s+/i);
   const taxes = rcRow(lines, /^taxes, fees,? and port expenses\s+/i);
   const comm = rcRow(lines, /^comm\/admin\s+/i);
+  // Gratuities paid ahead are part of the gross, so they come out of the fare below and are their own line.
+  const tipsRow = rcRow(lines, /^(?:prepaid\s+)?(?:gratuit(?:y|ies)|service charges?)\s+/i);
   const whole = (row) => (row && row.values.length === n + 1 ? row.values.slice(0, n) : null);
   const tx = whole(taxes) || new Array(n).fill(0);
   const gr = gross.values.slice(0, n);
@@ -786,13 +812,13 @@ function readRoyalPricing(lines, fields, listed) {
     if (row && row.values.length - 1 === paying.length) paying.forEach((guest, k) => { out[guest] = row.values[k]; });
     return out;
   };
-  const f = col(fare); const nc = col(nonComm); const cm = col(comm);
+  const f = col(fare); const nc = col(nonComm); const cm = col(comm); const tp = col(tipsRow);
 
   // The fare is what is left of the gross once the taxes and the non commissionable fare come out, so promotions land on it.
   // A promotion that took more than the commissionable fare is one the layout does not say how to split, so it stays whole.
   let ncf = nc;
-  let netFare = gr.map((x, i) => x - tx[i] - ncf[i]);
-  if (netFare.some((x) => x < 0)) { ncf = new Array(n).fill(0); netFare = gr.map((x, i) => x - tx[i]); }
+  let netFare = gr.map((x, i) => x - tx[i] - ncf[i] - tp[i]);
+  if (netFare.some((x) => x < 0)) { ncf = new Array(n).fill(0); netFare = gr.map((x, i) => x - tx[i] - tp[i]); }
   const sum = (a) => a.reduce((s, x) => s + x, 0);
 
   // The promotions, for the note: any line between the fare and the taxes that is a name and negative figures.
@@ -811,7 +837,7 @@ function readRoyalPricing(lines, fields, listed) {
     : Array.from({ length: n }, () => ({ name: '', dob: null }));
   const perGuest = n > 1 ? people.map((who, i) => ({
     name: who.name, dob: who.dob,
-    fare: fixed(netFare[i]), ncf: fixed(ncf[i]), taxes: fixed(tx[i]), insurance: '0.00', gratuities: '0.00',
+    fare: fixed(netFare[i]), ncf: fixed(ncf[i]), taxes: fixed(tx[i]), insurance: '0.00', gratuities: fixed(tp[i]),
     commission: fixed(cm[i]), commissionPackage: '0.00',
   })) : null;
 
@@ -819,8 +845,9 @@ function readRoyalPricing(lines, fields, listed) {
   if (sum(netFare) > 0) out.push({ kind: 'fare', label: 'Fare', amount: fixed(sum(netFare)), from: fare.line });
   if (sum(ncf) > 0) out.push({ kind: 'ncf', label: 'Non-commissionable fare', amount: fixed(sum(ncf)), from: nonComm.line });
   if (sum(tx) > 0) out.push({ kind: 'taxes', label: 'Taxes and port fees', amount: fixed(sum(tx)), from: taxes.line });
+  if (sum(tp) > 0) out.push({ kind: 'gratuities', label: 'Gratuities', amount: fixed(sum(tp)), from: tipsRow.line });
 
-  const total = sum(netFare) + sum(ncf) + sum(tx);
+  const total = sum(netFare) + sum(ncf) + sum(tx) + sum(tp);
   const stated = gross.values[n];
   const notes = [];
   if (promos.length) notes.push(`Fare is the cruise fare less promotions (${promos.join(', ')}). The non commissionable fare is its own line.`);

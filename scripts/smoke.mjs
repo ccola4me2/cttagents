@@ -10833,6 +10833,24 @@ async function main() {
       'and the price, guest by guest, adds up to the total it states', JSON.stringify(np && np.guests));
   }
 
+  // Norwegian's agent copy lists the packages and the prepaid service charges between the fare and the gross.
+  {
+    const ncl2 = ['CONFIRMATION', 'INVOICE DATE:', '6-Oct-2026', 'BOOKING DATE:', '5-Jun-2026', 'RESERVATION:',
+      '65387884', 'SHIP: NORWEGIAN PRIMA', 'SAILING: 25-Oct-2026 to 1-Nov-2026',
+      'CATEGORY / STATEROOM: BF / 9806', 'ITINERARY: 7-DAY CARIBBEAN ROUND-TRIP ORLANDO',
+      'GUESTS', '1 MITCHENER LORA CHRISTINE NO', '2 SCHULZ SARAH JONES NO',
+      'BOOKING COMPONENTS PER GUEST IN USD', 'Total Guest 1 Guest 2',
+      'Guest Fare 3,701.10 1,850.55 1,850.55', 'NCF 0.00 0.00 0.00', 'Taxes/Fees/Port Exp 400.00 200.00 200.00',
+      'Savings -1,898.00 -949.00 -949.00', 'More at Sea Beverage Pkg 420.00 210.00 210.00',
+      'More at Sea Specialty Dining 120.00 60.00 60.00', 'Prepaid Service Charges 280.00 140.00 140.00',
+      'Gross Total 3,023.10 1,511.55 1,511.55'].join('\n');
+    const n2 = await call(advisor, 'POST', '/api/import/confirmation', { text: ncl2 });
+    const p2 = n2.data?.pricing;
+    check(p2 && p2.balanced === true && p2.guests?.[0]?.gratuities === '140.00' && p2.guests?.[0]?.beverage === '210.00'
+        && (p2.lines || []).some((l) => l.kind === 'gratuities' && l.amount === '280.00'),
+      'a Norwegian copy with packages and prepaid service charges reads them, and the price adds up', JSON.stringify(p2 && p2.lines));
+  }
+
   // Royal Caribbean and Celebrity print one agent copy: a column a guest, every promotion on a
   // line of its own, the commission as a figure for each guest, and the deposit terms in a sentence.
   {
@@ -10893,6 +10911,15 @@ async function main() {
         && rf.gross === '4871.40' && rf.commission === '337.50',
       'and the price guest by guest, promotions taken off the right guest, adding up to the gross charges',
       JSON.stringify(rp && rp.guests));
+
+    // Gratuities paid ahead are part of the gross, so they are their own line and the fare is not inflated by them.
+    const royalTips = await call(advisor, 'POST', '/api/import/confirmation', { text: royalText
+      .replace('Gross Charges 1856.10 949.10 1033.10 1033.10 4871.40 0%',
+        'Prepaid Gratuities 100.00 100.00 100.00 100.00 400.00 0%\nGross Charges 1956.10 1049.10 1133.10 1133.10 5271.40 0%') });
+    const rtp = royalTips.data?.pricing;
+    check(rtp && rtp.balanced === true && rtp.guests?.[0]?.gratuities === '100.00' && rtp.guests?.[0]?.fare === '1482.00'
+        && (rtp.lines || []).some((l) => l.kind === 'gratuities' && l.amount === '400.00'),
+      'a Royal Caribbean copy with prepaid gratuities shows them as gratuities, and the fare stays the fare', JSON.stringify(rtp && rtp.lines));
 
     const celebText = [
       'Booking Confirmation - Agent Copy',
