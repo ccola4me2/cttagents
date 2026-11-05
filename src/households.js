@@ -320,6 +320,32 @@ export async function handleAddMember(request, env, id) {
   if (!house) return notFound('Household not found.');
 
   const body = await readJson(request);
+
+  // Somebody who is not a client yet, added from the edit screen so a new
+  // member of the family does not mean leaving it to make them first.
+  // A name already on the book is refused rather than quietly matched: the
+  // person on the screen was typed in as new, and moving somebody else's
+  // record into this house under that name is how two people get mixed up.
+  if (body.newClient && typeof body.newClient === 'object') {
+    const name = clean(body.newClient.name, 120);
+    if (!name) return badRequest('Type their name.');
+    const same = await env.DB.prepare(
+      'SELECT id FROM clients WHERE user_id = ? AND LOWER(TRIM(name)) = LOWER(?) LIMIT 1'
+    ).bind(owner.id, name).first();
+    if (same) {
+      return badRequest(`${name} is already on the client list. Search for them to bring them in.`);
+    }
+    const clientId = await db.resolveClient(env, owner.id, name);
+    if (!clientId) return badRequest('Type their name.');
+    await env.DB.prepare(
+      `UPDATE clients SET household_id = ?, email = ?, phone = ?, birthday = ?, updated_at = ?
+        WHERE id = ? AND user_id = ?`
+    ).bind(id, clean(body.newClient.email, 160) || null, clean(body.newClient.phone, 40) || null,
+           cleanDate(body.newClient.birthday) || null, now(), clientId, owner.id).run();
+    await db.logActivity(env, owner.id, 'client.create', `Added ${name}`, { id: clientId, household: id });
+    return json({ ok: true, created: true, clientId, name }, 201);
+  }
+
   const found = await ownClients(env, owner.id, [body.clientId]);
   if (!found.length) return notFound('Client not found.');
 

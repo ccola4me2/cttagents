@@ -116,10 +116,11 @@
         <textarea id="h-notes" name="notes" maxlength="2000"></textarea></div>
     </div>
     <div class="card-foot">
-      <button class="btn btn-danger btn-sm" type="button" id="house-break">Break it up</button>
+      <button class="btn btn-danger btn-sm" type="button" id="house-break">Delete household</button>
       <button class="btn btn-primary" type="submit">Save household</button>
     </div>
   </form>
+  <div class="card-pad" id="house-people" style="border-top:1px solid var(--navy-100);"></div>
 </dialog>
 
 <dialog id="comp-dlg">
@@ -207,6 +208,7 @@
 <script type="module">
 import { api, mountShell, esc, money, dateFmt, daysUntil, showError, onSubmit, timeAgo } from '/js/app.js';
 import { mountClientSuggest } from '/js/client-suggest.js';
+import { mountHouseholdPeople } from '/js/household-people.js';
 import { mountThread } from '/js/chat-thread.js';
 
 /** A channel's name, from the list the server sent with the record. */
@@ -325,13 +327,19 @@ function openHouse(h) {
   houseForm.elements.phone.value = h.phone || '';
   houseForm.elements.notes.value = h.notes || '';
   houseDlg.showModal();
+  mountHouseholdPeople(document.getElementById('house-people'), h.id, {
+    onChange: async (out) => {
+      if (out && out.dissolved) houseDlg.close();
+      await load();
+    },
+  });
 }
 
 document.getElementById('house-close').addEventListener('click', () => houseDlg.close());
 
 document.getElementById('house-break').addEventListener('click', async () => {
   if (!houseId) return;
-  if (!confirm('Break up this household? Everybody in it keeps their own trips and credits.')) return;
+  if (!confirm('Delete this household? Everybody in it stays on your client list with their own trips and credits.')) return;
   try {
     await api(`/api/households/${encodeURIComponent(houseId)}`, { method: 'DELETE' });
     houseDlg.close();

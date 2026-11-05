@@ -4624,6 +4624,30 @@ async function main() {
       && (lonely.data?.travellers || []).length === 0,
       'somebody in no household offers nobody, rather than failing');
 
+    // A new person typed in on the edit screen lands on the client list and in the house at once.
+    const fresh = await call(advisor, 'POST', `/api/households/${houseId}/members`, {
+      newClient: { name: `Cy Fair${stamp}`, email: `cy${stamp}@example.test`, phone: '5550100456', birthday: '1990-04-02' },
+    });
+    const freshId = fresh.data?.clientId;
+    if (freshId) cleanup('the client added to the household',
+      () => call(advisor, 'DELETE', `/api/clients/${freshId}`));
+    check(fresh.status === 201 && Boolean(freshId), 'a brand new client can be added straight into a household',
+      JSON.stringify(fresh.data));
+    const freshRec = await call(advisor, 'GET', `/api/client?id=${freshId}`);
+    check(freshRec.data?.household?.id === houseId && freshRec.data?.household?.members?.length === 3
+      && freshRec.data?.client?.email === `cy${stamp}@example.test`
+      && freshRec.data?.client?.birthday === '1990-04-02',
+    'and they keep the email and birthday typed with them', JSON.stringify(freshRec.data?.client));
+    const dupNew = await call(advisor, 'POST', `/api/households/${houseId}/members`,
+      { newClient: { name: `Cy Fair${stamp}` } });
+    check(dupNew.status === 400, 'a name already on the client list is not made a second time',
+      `status ${dupNew.status}`);
+    const noName = await call(advisor, 'POST', `/api/households/${houseId}/members`, { newClient: { name: '  ' } });
+    check(noName.status === 400, 'and a new client needs a name', `status ${noName.status}`);
+    const dropFresh = await call(advisor, 'DELETE', `/api/households/${houseId}/members/${freshId}`);
+    check(dropFresh.status === 200 && dropFresh.data?.dissolved === false,
+      'moving the new one out leaves the pair together', JSON.stringify(dropFresh.data));
+
     // Moving out leaves them with everything they had, and one person left
     // behind is not a household.
     const out = await call(advisor, 'DELETE', `/api/households/${houseId}/members/${bId}`);
