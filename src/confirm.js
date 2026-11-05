@@ -299,7 +299,7 @@ function orphanFirstNames(lines) {
     if (!raw) continue;
     const text = raw.replace(/^(?:guest\s*\d+\s*)+/i, '').replace(/^(?:first names?|given names?)\s*/i, '').replace(/\s*(?:first names?)$/i, '').trim();
     const words = text.split(/\s+/).filter(Boolean);
-    return words.length && words.length <= 12 && words.every((w) => /^[A-Za-z][A-Za-z.'-]*$/.test(w)) ? words : [];
+    return words.length && words.length <= 12 && words.every((w) => /^[A-Za-z][A-Za-z.\u0027-]*$/.test(w)) ? words : [];
   }
   return [];
 }
