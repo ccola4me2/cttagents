@@ -82,29 +82,53 @@ export async function handleSearch(request, env) {
      .all().catch(() => ({ results: [] })),
   ]);
 
-  // Clients as this portal knows them, from reservations. The CRM group above
-  // needs a synced mirror; this one works on the day a trip is entered.
-  const localClients = await env.DB.prepare(
-    `SELECT b.client_name, COUNT(*) AS trips, MAX(b.supplier) AS vendor,
-            MAX(COALESCE(b.return_date, b.depart_date)) AS last_date
-       FROM bookings b
-      WHERE ${bookingScope.sql} AND b.client_name LIKE ? ESCAPE '\\'
-      GROUP BY b.client_name ORDER BY last_date DESC LIMIT ?`
-  ).bind(...bookingScope.binds, term, PER_GROUP).all().catch(() => ({ results: [] }));
+  // Clients as this portal knows them. Two sources, because a client is not
+  // always on a reservation: somebody added to a household, imported from a
+  // confirmation or kept as a prospect is a client with no trip yet, and a
+  // search that only read reservations answered "Nothing matches" for a
+  // person who was right there on the client list.
+  const clientScope = db.scopeWhere(scope, 'c.user_id');
+  const [listedClients, localClients] = await Promise.all([
+    env.DB.prepare(
+      `SELECT c.id, c.name, c.email, c.phone,
+              (SELECT COUNT(*) FROM bookings b WHERE b.client_id = c.id) AS trips
+         FROM clients c
+        WHERE ${clientScope.sql}
+          AND (c.name LIKE ? ESCAPE '\\' OR c.email LIKE ? ESCAPE '\\' OR c.phone LIKE ? ESCAPE '\\')
+        ORDER BY LENGTH(c.name) ASC LIMIT ?`
+    ).bind(...clientScope.binds, term, term, term, PER_GROUP).all().catch(() => ({ results: [] })),
+
+    env.DB.prepare(
+      `SELECT b.client_name, COUNT(*) AS trips, MAX(b.supplier) AS vendor,
+              MAX(COALESCE(b.return_date, b.depart_date)) AS last_date
+         FROM bookings b
+        WHERE ${bookingScope.sql} AND b.client_name LIKE ? ESCAPE '\\'
+        GROUP BY b.client_name ORDER BY last_date DESC LIMIT ?`
+    ).bind(...bookingScope.binds, term, PER_GROUP).all().catch(() => ({ results: [] })),
+  ]);
 
   const groups = [];
 
-  const clientRows2 = localClients.results || [];
-  if (clientRows2.length) {
-    groups.push({
-      type: 'people', label: 'Clients',
-      items: clientRows2.map((c) => ({
-        id: c.client_name,
-        title: c.client_name,
-        subtitle: [c.vendor, `${c.trips} trip${c.trips === 1 ? '' : 's'}`].filter(Boolean).join('  ·  '),
-        href: `/app/client?name=${encodeURIComponent(c.client_name)}`,
-      })),
+  // The client list first, then any name that only appears on a reservation.
+  const people = (listedClients.results || []).map((c) => ({
+    id: c.id,
+    title: c.name,
+    subtitle: [c.email || c.phone, `${c.trips} trip${c.trips === 1 ? '' : 's'}`]
+      .filter(Boolean).join('  ·  '),
+    href: `/app/client?id=${encodeURIComponent(c.id)}`,
+  }));
+  const seen = new Set(people.map((p) => p.title.trim().toLowerCase()));
+  for (const c of localClients.results || []) {
+    if (seen.has(String(c.client_name).trim().toLowerCase())) continue;
+    people.push({
+      id: c.client_name,
+      title: c.client_name,
+      subtitle: [c.vendor, `${c.trips} trip${c.trips === 1 ? '' : 's'}`].filter(Boolean).join('  ·  '),
+      href: `/app/client?name=${encodeURIComponent(c.client_name)}`,
     });
+  }
+  if (people.length) {
+    groups.push({ type: 'people', label: 'Clients', items: people.slice(0, PER_GROUP) });
   }
 
   const clientRows = clients.results || [];

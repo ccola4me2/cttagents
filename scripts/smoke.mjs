@@ -4638,6 +4638,11 @@ async function main() {
       && freshRec.data?.client?.email === `cy${stamp}@example.test`
       && freshRec.data?.client?.birthday === '1990-04-02',
     'and they keep the email and birthday typed with them', JSON.stringify(freshRec.data?.client));
+    // On the client list with no reservation yet, and the sidebar search still finds them.
+    const findFresh = await call(advisor, 'GET', `/api/search?q=${encodeURIComponent(`Cy Fair${stamp}`)}`);
+    const peopleHit = (findFresh.data?.groups || []).find((g) => g.type === 'people');
+    check(Boolean(peopleHit?.items?.some((i) => i.href.includes(freshId))),
+      'a client with no reservation yet is found by the search', JSON.stringify(findFresh.data?.groups));
     const dupNew = await call(advisor, 'POST', `/api/households/${houseId}/members`,
       { newClient: { name: `Cy Fair${stamp}` } });
     check(dupNew.status === 400, 'a name already on the client list is not made a second time',
