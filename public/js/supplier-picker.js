@@ -33,6 +33,17 @@ const VENDOR_TYPE = {
   Insurance: 'insurance',
 };
 
+// Offered whether or not they are on the agency's vendor list yet, so the first car rental
+// booked does not start with an empty list. Picking one that is not a vendor yet types the name
+// in, and saving the booking makes it one, the same as typing any new supplier.
+const SUGGESTED = {
+  car: { label: 'Car rental', names: ['Enterprise', 'Budget', 'Expedia'] },
+};
+
+// The last choice in every list. It leaves the vendor name blank, to be typed in the box.
+const OTHER = 'other:';
+const OTHER_OPTION = '<option value="other:">Other (type the name in)</option>';
+
 const CATALOG_CATEGORY = 'Cruise Lines';
 const UNSHELVED = 'Not categorised yet';
 
@@ -149,9 +160,12 @@ export async function mountSupplierPicker(host, { typeOf, set, onSailing }) {
     .filter((x) => !isCruiseLine(x.v.name))
     .filter((x) => x.shelves.length || !shelvesOf(x.v).length);
 
-  const typesOf = (v) => [...new Set(
-    shelvesOf(v).map((shelf) => VENDOR_TYPE[shelf]).filter(Boolean)
-  )];
+  const typesOf = (v) => {
+    const types = [...new Set(shelvesOf(v).map((shelf) => VENDOR_TYPE[shelf]).filter(Boolean))];
+    // One shelf for cars and transfers, and two kinds of trip that want it.
+    if (types.includes('transfer') && !types.includes('car')) types.push('car');
+    return types;
+  };
 
   // ------------------------------------------------------- the sailing pair
   let dateRows = [];
@@ -244,7 +258,8 @@ export async function mountSupplierPicker(host, { typeOf, set, onSailing }) {
       // ships rather than leaving two pickers that know different things.
       const lines = (catalogRows || []).map((l) => l.name);
       sel.innerHTML = '<option value="">Type the name, or pick a cruise line</option>'
-        + lines.map((n) => `<option value="line:${esc(n)}">${esc(n)}</option>`).join('');
+        + lines.map((n) => `<option value="line:${esc(n)}">${esc(n)}</option>`).join('')
+        + OTHER_OPTION;
       hint.textContent = lines.length
         ? `${lines.length} cruise line${lines.length === 1 ? '' : 's'} from the catalog. `
           + 'Picking one loads its ships and sailing dates.'
@@ -258,12 +273,15 @@ export async function mountSupplierPicker(host, { typeOf, set, onSailing }) {
     // scrolling past sixty tour operators is the list being unhelpful in a way
     // that is worse than no list. A vendor with no category cannot be ruled
     // out, so it stays offered whatever the type.
+    const suggested = SUGGESTED[want] || null;
+    const suggestedKeys = new Set(suggested ? suggested.names.map(norm) : []);
     const matching = offered.filter(({ v }) => {
+      if (suggestedKeys.has(norm(v.name))) return false;
       const types = typesOf(v);
       return !want || !types.length || types.includes(want);
     });
 
-    if (!matching.length && !offered.length) { field.hidden = true; return; }
+    if (!matching.length && !offered.length && !suggested) { field.hidden = true; return; }
 
     const byShelf = new Map();
     for (const { v, shelves } of matching) {
@@ -276,12 +294,24 @@ export async function mountSupplierPicker(host, { typeOf, set, onSailing }) {
     const order = [...byShelf.keys()].sort((a, b) => (
       last(a) - last(b) || a.localeCompare(b)));
 
+    // The suggested names first. One already on the vendor list is offered by its own record,
+    // so choosing it joins the booking to that vendor rather than to a second one.
+    const suggestedGroup = suggested
+      ? `<optgroup label="${esc(suggested.label)}">${suggested.names.map((name) => {
+        const own = vendors.find((v) => norm(v.name) === norm(name));
+        return own
+          ? `<option value="${esc(own.id)}">${esc(own.name)}</option>`
+          : `<option value="name:${esc(name)}">${esc(name)}</option>`;
+      }).join('')}</optgroup>` : '';
+
     sel.innerHTML = '<option value="">Type the name, or pick one</option>'
+      + suggestedGroup
       + order.map((shelf) => `<optgroup label="${esc(shelf)}">${
         byShelf.get(shelf)
           .sort((a, b) => a.name.localeCompare(b.name))
           .map((v) => `<option value="${esc(v.id)}">${esc(v.name)}</option>`).join('')
-      }</optgroup>`).join('');
+      }</optgroup>`).join('')
+      + OTHER_OPTION;
 
     const n = matching.length;
     hint.textContent = n
@@ -294,6 +324,20 @@ export async function mountSupplierPicker(host, { typeOf, set, onSailing }) {
   }
 
   sel.addEventListener('change', () => {
+    // Other: the name is blank, and the cursor goes to the box it is typed in.
+    if (sel.value === OTHER) {
+      set('supplier', '');
+      loadShips('');
+      const box = host.closest('form') && host.closest('form').elements.supplier;
+      if (box) box.focus();
+      return;
+    }
+    // A suggested name that is not on the vendor list yet.
+    if (sel.value.startsWith('name:')) {
+      set('supplier', sel.value.slice(5));
+      loadShips('');
+      return;
+    }
     if (sel.value.startsWith('line:')) {
       const line = sel.value.slice(5);
       set('supplier', line);
