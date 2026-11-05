@@ -68,9 +68,7 @@ Guest 1: COLE/DEBORAH"></textarea>
             <div class="notice notice-warn" id="conf-problems" role="alert" hidden style="margin:0 0 .8rem;"></div>
             <p class="label" id="conf-ready" style="margin:0 0 .4rem;">Ready to make this reservation</p>
             <p id="conf-summary" style="margin:0 0 .5rem;font-size:1.05rem;"></p>
-            <p class="field-hint" id="conf-will" style="margin:0 0 1rem;"></p>
-            <button class="btn btn-primary" type="button" id="conf-create" style="font-size:1.05rem;padding:.8rem 1.8rem;">Create the reservation</button>
-            <div class="notice notice-error" id="conf-create-error" role="alert" hidden style="margin-top:.8rem;"></div>
+            <p class="field-hint" id="conf-will" style="margin:0;"></p>
           </div>
           <details id="conf-details" style="border-top:1px solid var(--navy-100);">
             <summary class="card-pad" style="cursor:pointer;font-weight:600;">Check the details</summary>
@@ -101,6 +99,10 @@ Guest 1: COLE/DEBORAH"></textarea>
                 <span id="conf-keep-text">Keep this PDF on the reservation, as the agency's copy. It is not shown to the client and is not attached to emails unless you share it.</span></label>
             </div>
           </details>
+          <div class="card-pad" style="border-top:1px solid var(--navy-100);">
+            <button class="btn btn-primary" type="button" id="conf-create" style="font-size:1.05rem;padding:.8rem 1.8rem;">Create the reservation</button>
+            <div class="notice notice-error" id="conf-create-error" role="alert" hidden style="margin-top:.8rem;"></div>
+          </div>
         </div>
       </section>
 
@@ -657,7 +659,8 @@ function drawSummary(read) {
   const priced = read.pricing && read.pricing.guests && read.pricing.guests.length > 1 ? priceColumns(read) : [];
   if (priced.some((g) => !String(g.name || '').trim())) missing.push('the names of the other guests');
   const details = document.getElementById('conf-details');
-  details.open = missing.length > 0;
+  // Always open: the figures are checked first and the button to create is the last thing under them.
+  details.open = true;
   document.getElementById('conf-ready').textContent = missing.length
     ? `Almost ready: still needed is ${missing.join(' and ')}`
     : 'Ready to make this reservation';
