@@ -6942,19 +6942,19 @@ async function main() {
   const amountOf = (k) => (pp?.lines || []).find((l) => l.kind === k)?.amount;
   // The row of first names can lose its "First Name" label in the text; the names are still the words above the surnames.
   const lostLabel = await call(advisor, 'POST', '/api/import/confirmation', { text: [
-    'Jeff Covington', 'BOOKING ID: 99887755', 'Departure Date: Aug 11, 2028 Return Date: Aug 18, 2028',
-    'Ship: Example Ship Total Guests: 2', 'Guest 1 Guest 2', 'JEFF LAURA', 'Last Name Covington Covington',
-    'Date of Birth, Age Apr 18, 1968, 58 Nov 25, 1969, 56', 'Cabin Fare $1,765.00 $1,765.00',
+    'Pat Sample', 'BOOKING ID: 99887755', 'Departure Date: Aug 11, 2028 Return Date: Aug 18, 2028',
+    'Ship: Example Ship Total Guests: 2', 'Guest 1 Guest 2', 'PAT LEE', 'Last Name Sample Sample',
+    'Date of Birth, Age Jan 02, 1980, 46 Mar 05, 1982, 44', 'Cabin Fare $1,765.00 $1,765.00',
     'Govt. Taxes & Fees $100.00 $100.00', 'Gross Amount of Reservation: $ 3,730.00', 'Total Booking Amount: $ 3,730.00',
   ].join('\n') });
   const lostGuests = (lostLabel.data?.pricing?.guests || []).map((g) => `${g.name}|${g.dob}`).join(', ');
-  check(lostGuests === 'Jeff Covington|1968-04-18, Laura Covington|1969-11-25',
+  check(lostGuests === 'Pat Sample|1980-01-02, Lee Sample|1982-03-05',
     'guest names come from the read even when the first name label is missing, with their birthdays', lostGuests);
   // A non-commissionable fare row is its own line, and is not left to fall into the taxes.
   const withNcf = await call(advisor, 'POST', '/api/import/confirmation', { text: [
-    'Jeff Covington', 'BOOKING ID: 99887744', 'Departure Date: Aug 11, 2028 Return Date: Aug 18, 2028',
-    'Ship: Example Ship Total Guests: 2', 'Guest 1 Guest 2', 'First Name JEFF LAURA', 'Last Name Covington Covington',
-    'Date of Birth, Age Apr 18, 1968, 58 Nov 25, 1969, 56', 'Cabin Fare $1,765.00 $1,765.00',
+    'Pat Sample', 'BOOKING ID: 99887744', 'Departure Date: Aug 11, 2028 Return Date: Aug 18, 2028',
+    'Ship: Example Ship Total Guests: 2', 'Guest 1 Guest 2', 'First Name PAT LEE', 'Last Name Sample Sample',
+    'Date of Birth, Age Jan 02, 1980, 46 Mar 05, 1982, 44', 'Cabin Fare $1,765.00 $1,765.00',
     'Non-Commissionable Fare $245.00 $245.00', 'Govt. Taxes & Fees $100.00 $100.00',
     'Gross Amount of Reservation: $ 4,220.00', 'Total Booking Amount: $ 4,220.00',
   ].join('\n') });
@@ -6964,9 +6964,9 @@ async function main() {
     'the non-commissionable fare is read as its own line, for each guest, and the price still adds up', ncfLines);
   // The Cruise Enhancements table is its own lines. It used to be left out and the gap landed in taxes and port fees.
   const withEnh = await call(advisor, 'POST', '/api/import/confirmation', { text: [
-    'Jeff Covington', 'BOOKING ID: 54553780', 'Departure Date: Sep 13, 2027 Return Date: Sep 18, 2027',
-    'Ship: Margaritaville at Sea Beachcomber Total Guests: 2', 'Guest 1 Guest 2', 'First Name', 'JEFF LAURA', 'Last Name Covington Covington',
-    'Date of Birth, Age Apr 18, 1968, 58 Nov 25, 1969, 56', 'Cabin Fare $1,765.00 $1,765.00', 'Discount(s) $1,059.00 $1,059.00',
+    'Pat Sample', 'BOOKING ID: 99887733', 'Departure Date: Sep 13, 2027 Return Date: Sep 18, 2027',
+    'Ship: Margaritaville at Sea Beachcomber Total Guests: 2', 'Guest 1 Guest 2', 'First Name', 'PAT LEE', 'Last Name Sample Sample',
+    'Date of Birth, Age Jan 02, 1980, 46 Mar 05, 1982, 44', 'Cabin Fare $1,765.00 $1,765.00', 'Discount(s) $1,059.00 $1,059.00',
     'Govt. Taxes & Fees $97.79 $97.79', 'Required Cruise Fees & $55.21 $55.21', 'Expenses', 'Passenger Total $859.00 $859.00',
     'Cruise Enhancements Price Qnty Total', 'DRINKS + WIFI BUNDLE $499.00 1 $499.00', 'DRINKS + WIFI BUNDLE $499.00 1 $499.00',
     'EXPRESS PASS $79.00 1 $79.00', 'TOTAL STATEROOM AMOUNT: $2,795.00', 'Gross Amount of Reservation: $ 4,913.00',
@@ -6978,7 +6978,8 @@ async function main() {
     'the cruise enhancements are their own lines, and the taxes are only the taxes and fees the document prints', enhLines);
   // The sailing line "Itinerary: ..." is the reservation's itinerary, and the port table is read day by day.
   const withDays = await call(advisor, 'POST', '/api/import/confirmation', { text: [
-    'Jeff Covington', 'BOOKING ID: 54553781', 'Departure Date: Sep 13, 2027 Return Date: Sep 18, 2027',
+    'Pat Sample', 'pat.sample@example.test Booking Date: Nov 04, 2026', '5550100123 Status: Pending',
+    'BOOKING ID: 99887722', 'Departure Date: Sep 13, 2027 Return Date: Sep 18, 2027',
     'Itinerary: 5-Night Key West & Western Caribbean Stateroom Category: Breezy Balcony',
     'Ship: Margaritaville at Sea Beachcomber Total Guests: 1', 'Total Booking Amount: $ 2,795.00',
     'CRUISE ITINERARY : 5-Night Key West & Western Caribbean', 'Date Day Port Name Port Code Arrive Depart',
@@ -6989,6 +6990,9 @@ async function main() {
   check(withDays.data?.fields?.itinerary === '5-Night Key West & Western Caribbean' && withDays.data?.itinerary?.length === 6
       && withDays.data?.itinerary?.[1]?.title === 'Key West, FL' && withDays.data?.itinerary?.[2]?.title === 'At sea',
     'the itinerary line fills the Itinerary field and the port table is read as six days', JSON.stringify(withDays.data?.itinerary?.slice(0, 2)));
+  // The guest's address and number, printed under their name with no label, are the client's contact details.
+  check(withDays.data?.client?.email === 'pat.sample@example.test' && withDays.data?.client?.phone === '5550100123',
+    'an unlabelled email and phone at the head of the page are read as the client\'s', JSON.stringify(withDays.data?.client));
   check(amountOf('fare') === '1000.00',
     'the fare comes across after the discount, since that is what commission is paid on', amountOf('fare'));
   check(amountOf('taxes') === '360.00',

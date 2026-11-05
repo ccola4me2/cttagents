@@ -158,7 +158,7 @@ Guest 1: COLE/DEBORAH"></textarea>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script type="module">
 import { api, mountShell, esc, pictureForReading, money, dateFmt, showError } from '/js/app.js';
-import { confirmNewClient, reviewGuests } from '/js/new-client.js';
+import { reviewGuests } from '/js/new-client.js';
 await mountShell();
 
 /**
@@ -873,16 +873,23 @@ document.getElementById('conf-create').addEventListener('click', async () => {
     { document.getElementById('conf-details').open = true; createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
     return;
   }
-  // A name that is not on the books is asked about before the reservation is made.
-  if (!(await confirmNewClient(body.clientName))) return;
-  // Everyone on the confirmation, the client first. Each becomes a client record and a traveller,
-  // and the party a household. Somebody already on the books is asked about before anything on
-  // their record is changed.
+  // Everyone on the confirmation, the client first. Each who is not on the books is added as a client with everything the
+  // confirmation holds about them, and each becomes a traveller, and the party a household. Somebody already on the books is
+  // asked about before anything on their record is changed.
   const filing = guestsToFile(body.clientName, people);
   const review = filing.length ? await reviewGuests(filing) : { accept: [], household: false };
   if (!review) return;
   btn.disabled = true;
+  const afterwards = [];
   try {
+    // The clients first, so the reservation is filed under a record that already holds their details. Made the other way round
+    // the reservation creates a bare record by name, and the lead's email, phone and birthday were never written to it.
+    if (filing.length) {
+      try {
+        await api('/api/import/guests', { method: 'POST',
+          body: { guests: filing, preview: false, accept: review.accept, household: review.household } });
+      } catch (e4) { afterwards.push(`the guests were not filed as clients (${esc(e4.message)})`); }
+    }
     const res = await api('/api/bookings', { method: 'POST', body });
     let travellersMade = false;
     if (hasLines) {
@@ -916,20 +923,8 @@ document.getElementById('conf-create').addEventListener('click', async () => {
         } catch { /* the reservation stands; they can be added on its Travellers tab */ }
       }
     }
-    if (filing.length) {
-      try {
-        await api('/api/import/guests', { method: 'POST',
-          body: { guests: filing, preview: false, accept: review.accept, household: review.household } });
-      } catch (e4) {
-        createErr.innerHTML = `The reservation was created, but the guests were not filed as clients (${esc(e4.message)}).
-          <a href="/app/reservation?id=${encodeURIComponent(res.booking.id)}">Open the reservation</a>.`;
-        createErr.hidden = false;
-        return;
-      }
-    }
     // What is already paid, and the PDF itself, when asked for. The reservation exists by now, so a failure is said
     // with a way to it and not hidden.
-    const afterwards = [];
     if (cents(body.paid) > 0) {
       try { await postPaid(res.booking.id, body); } catch (e5) { afterwards.push(`the payments already made were not recorded (${esc(e5.message)})`); }
     }

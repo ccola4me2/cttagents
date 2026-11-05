@@ -1051,6 +1051,20 @@ export function readClientContact(lines) {
     m = !out.phone && tel.exec(line);
     if (m) out.phone = m[1].trim();
   }
+  // Some layouts print the guest's address and number under their name with no label, one under the other at the head of the
+  // page. The number is taken only when it directly follows the address, so an agency block further down is never read as theirs.
+  if (!out.email) {
+    const head = lines.slice(0, 8).map((l) => l.trim());
+    const at = head.findIndex((l) => !NOT_THE_GUEST.test(l) && /^[^\s@<>]+@[^\s@<>]+\.[A-Za-z]{2,}(?:\s|$)/.test(l));
+    if (at >= 0) {
+      out.email = /^([^\s@<>]+@[^\s@<>]+\.[A-Za-z]{2,})/.exec(head[at])[1].toLowerCase();
+      // A couple of lines at most, since the booking date can be split onto a line of its own between the two.
+      for (const l of lines.slice(at + 1, at + 4)) {
+        const next = /^(\+?1?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4})(?:\s|$)/.exec(l.trim());
+        if (!out.phone && next) out.phone = next[1].trim();
+      }
+    }
+  }
   return out;
 }
 
