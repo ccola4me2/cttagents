@@ -6976,6 +6976,19 @@ async function main() {
   check(enhLines === 'fare:1412.00, beverage:998.00, extra:79.00, taxes:306.00' && withEnh.data?.pricing?.guests?.[0]?.taxes === '153.00'
       && withEnh.data?.pricing?.guests?.[0]?.beverage === '499.00' && withEnh.data?.pricing?.balanced === true,
     'the cruise enhancements are their own lines, and the taxes are only the taxes and fees the document prints', enhLines);
+  // The sailing line "Itinerary: ..." is the reservation's itinerary, and the port table is read day by day.
+  const withDays = await call(advisor, 'POST', '/api/import/confirmation', { text: [
+    'Jeff Covington', 'BOOKING ID: 54553781', 'Departure Date: Sep 13, 2027 Return Date: Sep 18, 2027',
+    'Itinerary: 5-Night Key West & Western Caribbean Stateroom Category: Breezy Balcony',
+    'Ship: Margaritaville at Sea Beachcomber Total Guests: 1', 'Total Booking Amount: $ 2,795.00',
+    'CRUISE ITINERARY : 5-Night Key West & Western Caribbean', 'Date Day Port Name Port Code Arrive Depart',
+    'Sep 13, 2027 MONDAY PortMiami MIA 4:00 PM', 'Sep 14, 2027 TUESDAY Key West, FL EYW 8:00 AM 4:00 PM',
+    'Sep 15, 2027 WEDNESDAY At Sea SD', 'Sep 16, 2027 THURSDAY George Town, Grand Cayman GEC 8:00 AM 4:00 PM',
+    'Sep 17, 2027 FRIDAY At Sea SD', 'Sep 18, 2027 SATURDAY PortMiami MIA 7:00 AM',
+  ].join('\n') });
+  check(withDays.data?.fields?.itinerary === '5-Night Key West & Western Caribbean' && withDays.data?.itinerary?.length === 6
+      && withDays.data?.itinerary?.[1]?.title === 'Key West, FL' && withDays.data?.itinerary?.[2]?.title === 'At sea',
+    'the itinerary line fills the Itinerary field and the port table is read as six days', JSON.stringify(withDays.data?.itinerary?.slice(0, 2)));
   check(amountOf('fare') === '1000.00',
     'the fare comes across after the discount, since that is what commission is paid on', amountOf('fare'));
   check(amountOf('taxes') === '360.00',

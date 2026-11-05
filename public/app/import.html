@@ -90,6 +90,7 @@ Guest 1: COLE/DEBORAH"></textarea>
                 <input type="checkbox" id="conf-pen-tasks" checked style="margin-top:.25rem;">
                 <span>Put the deposit, the final payment and each cancellation date on my task list.</span></label>
             </div>
+            <div class="card-pad" id="conf-itin-days" style="border-top:1px solid var(--navy-100);" hidden></div>
             <div class="card-foot">
               <label id="conf-itin-row" hidden style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:0 0 .8rem;">
                 <input type="checkbox" id="conf-itin" checked style="margin-top:.25rem;">
@@ -236,6 +237,24 @@ function priceColumns(read) {
   const one = { name: '', fare: '', ncf: '', beverage: '', extra: '', taxes: '', insurance: '', gratuities: '', commission: read.fields.commission || '' };
   for (const l of pr.lines) one[l.kind] = l.amount;
   return [one];
+}
+
+/** The day by day itinerary that was read, so it can be looked over before the reservation is made. */
+function drawItineraryDays(days) {
+  const box = document.getElementById('conf-itin-days');
+  box.hidden = !days.length;
+  if (!days.length) { box.innerHTML = ''; return; }
+  const clock = (t) => {
+    const m = /^(\d{2}):(\d{2})$/.exec(t || '');
+    if (!m) return '';
+    const h = Number(m[1]);
+    return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
+  };
+  const times = (d) => (d.startTime && d.endTime ? ` (${clock(d.startTime)} to ${clock(d.endTime)})`
+    : d.startTime ? ` (${clock(d.startTime)})` : '');
+  box.innerHTML = `<p class="label" style="margin:0 0 .4rem;">Day by day itinerary</p>
+    <p class="field-hint" style="margin:0 0 .6rem;">The ports and times printed on the confirmation, one line a day.</p>
+    <ul style="margin:0;padding-left:1.1rem;">${days.map((d) => `<li>Day ${esc(String(d.dayNumber))}: ${esc(d.title)}${esc(times(d))}</li>`).join('')}</ul>`;
 }
 
 function drawPricing(read) {
@@ -620,6 +639,7 @@ document.getElementById('conf-read').addEventListener('click', async () => {
     ? `Keep these ${confFiles.length} PDFs on the reservation, as the agency's copies. They are not shown to the client and are not attached to emails unless you share them.`
     : "Keep this PDF on the reservation, as the agency's copy. It is not shown to the client and is not attached to emails unless you share it.";
   document.getElementById('conf-itin-row').hidden = !(read.itinerary && read.itinerary.length);
+  drawItineraryDays(read.itinerary || []);
   drawSummary(read);
   confResult.hidden = false;
 });

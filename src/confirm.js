@@ -1304,6 +1304,12 @@ export function parseConfirmation(text) {
     from.itinerary = from.destination;
   }
 
+  // Any layout that labels the sailing "Itinerary: 5-Night Key West & Western Caribbean" has said what the reservation's itinerary is.
+  if (fields.destination && !fields.itinerary && /^itinerary\b/i.test(String(from.destination || '').trim())) {
+    fields.itinerary = fields.destination;
+    from.itinerary = from.destination;
+  }
+
   const pricing = (carnival ? readCarnivalPricing(String(text || '').split(/\r?\n/), fields) : null)
     || (royal ? readRoyalPricing(lines, fields, people) : null)
     || (/booking components per guest/i.test(text) ? readNclPricing(lines, fields, people) : null)
