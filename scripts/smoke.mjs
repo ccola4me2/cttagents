@@ -7011,9 +7011,10 @@ async function main() {
     'Sep 15, 2027 WEDNESDAY At Sea SD', 'Sep 16, 2027 THURSDAY George Town, Grand Cayman GEC 8:00 AM 4:00 PM',
     'Sep 17, 2027 FRIDAY At Sea SD', 'Sep 18, 2027 SATURDAY PortMiami MIA 7:00 AM',
   ].join('\n') });
-  check(withDays.data?.fields?.itinerary === '5-Night Key West & Western Caribbean' && withDays.data?.itinerary?.length === 6
+  check(withDays.data?.fields?.itinerary === '5-Night Key West & Western Caribbean: PortMiami / Key West, FL / At sea / George Town, Grand Cayman / At sea / PortMiami'
+      && withDays.data?.itinerary?.length === 6
       && withDays.data?.itinerary?.[1]?.title === 'Key West, FL' && withDays.data?.itinerary?.[2]?.title === 'At sea',
-    'the itinerary line fills the Itinerary field and the port table is read as six days', JSON.stringify(withDays.data?.itinerary?.slice(0, 2)));
+    'the Itinerary field is the cruise name and then its ports, and the port table is read as six days', JSON.stringify(withDays.data?.itinerary?.slice(0, 2)));
   // The guest's address and number, printed under their name with no label, are the client's contact details.
   check(withDays.data?.client?.email === 'pat.sample@example.test' && withDays.data?.client?.phone === '5550100123',
     'an unlabelled email and phone at the head of the page are read as the client\'s', JSON.stringify(withDays.data?.client));

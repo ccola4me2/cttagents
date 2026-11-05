@@ -1152,6 +1152,32 @@ export function readItineraryTable(lines) {
   });
 }
 
+/**
+ * The Itinerary field in one line: the name of the cruise, then the ports in the order the ship calls at them.
+ *
+ * "5-Night Key West & Western Caribbean: PortMiami / Key West, FL / At sea / George Town, Grand Cayman / At sea / PortMiami".
+ * Port names carry commas of their own, so a slash separates them. The field holds 200 characters, so a long sailing
+ * drops its days at sea first and then stops at a whole port, rather than being cut off in the middle of a name.
+ */
+export function itineraryLine(title, days) {
+  const head = clean(title || '', 120);
+  const ports = (days || []).map((d) => (d.location ? d.location : 'At sea'));
+  if (!ports.length) return head;
+  const build = (list) => {
+    let out = head ? `${head}: ` : '';
+    const used = [];
+    for (const port of list) {
+      const next = `${out}${used.length ? ' / ' : ''}${port}`;
+      if (next.length > 200) break;
+      out = next;
+      used.push(port);
+    }
+    return used.length ? out : head;
+  };
+  const whole = build(ports);
+  return whole.split(' / ').length >= ports.length ? whole : build(ports.filter((x) => x !== 'At sea'));
+}
+
 export function parseConfirmation(text) {
   const lines = stackLabels(String(text || '').split(/\r?\n/).slice(0, 400))
     .flatMap(splitNoColon)
@@ -1391,6 +1417,17 @@ export function parseConfirmation(text) {
     if (/agent copy/i.test(String(text || '')) && !fields.commission) problems.push('No commission was found on this agent copy.');
   }
 
+  // The Itinerary field carries the ports as well as the cruise's name, so what the client is told they are
+  // sailing is the same thing the confirmation says, without anybody typing the ports in.
+  const itineraryDays = readItineraryTable(String(text || '').split(/\r?\n/));
+  if (itineraryDays.length) {
+    const line = itineraryLine(fields.itinerary, itineraryDays);
+    if (line && line !== fields.itinerary) {
+      from.itinerary = from.itinerary ? `${from.itinerary} + the port table` : 'the port table';
+      fields.itinerary = line;
+    }
+  }
+
   return {
     fields,
     from,
@@ -1402,7 +1439,7 @@ export function parseConfirmation(text) {
     // What cancelling costs, window by window, as the confirmation prints it.
     penalties: readCancellationSchedule(text),
     // The day by day table of ports, where the confirmation prints one.
-    itinerary: readItineraryTable(String(text || '').split(/\r?\n/)),
+    itinerary: itineraryDays,
     // Fields the document did not print and that were worked out from something it did.
     derived,
     // Named so the page can say what it did not find rather than leaving the
