@@ -28,7 +28,7 @@ import { looksLikeHeading } from './namecheck.js';
 
 const DAILY_LIMIT = 20;
 const cents = (v) => Math.round(Number(String(v == null ? '' : v).replace(/[^0-9.-]/g, '')) * 100) || 0;
-const MONEY_KINDS = ['fare', 'ncf', 'taxes', 'insurance', 'gratuities'];
+const MONEY_KINDS = ['fare', 'ncf', 'beverage', 'extra', 'taxes', 'insurance', 'gratuities'];
 
 // ---------------------------------------------------------------------------
 // Who sent it
@@ -72,7 +72,7 @@ export function priceColumns(read) {
     const lead = read.fields && read.fields.clientName;
     return pr.guests.map((g, i) => (i === 0 && lead && !String(g.name || '').trim() ? { ...g, name: lead } : g));
   }
-  const one = { name: '', fare: '', ncf: '', taxes: '', insurance: '', gratuities: '', commission: (read.fields && read.fields.commission) || '' };
+  const one = { name: '', fare: '', ncf: '', beverage: '', extra: '', taxes: '', insurance: '', gratuities: '', commission: (read.fields && read.fields.commission) || '' };
   for (const l of pr.lines) one[l.kind] = l.amount;
   return [one];
 }

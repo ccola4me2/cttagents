@@ -343,6 +343,30 @@ function guestsFromColumns(lines, n, listed) {
 const said = (c) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /**
+ * The purchases printed under "Cruise Enhancements": a name, a price, a quantity and a line total.
+ *
+ * Several of one thing can sit on separate lines, so they are added up by name. Drinks and wifi go to the drinks
+ * line and anything else to the package line, which is how the Pricing tab keeps them apart.
+ */
+function readEnhancements(lines) {
+  const at = lines.findIndex((l) => /^cruise enhancements\b.*\bprice\b/i.test(l.trim()));
+  if (at < 0) return [];
+  const byName = new Map();
+  for (const raw of lines.slice(at + 1)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const m = /^(.+?)\s+\$\s*([\d,]+\.\d{2})\s+(\d+)\s+\$\s*([\d,]+\.\d{2})$/.exec(line);
+    if (!m) break;
+    const key = m[1].trim().toLowerCase();
+    const item = byName.get(key) || { name: m[1].trim(), units: 0, cents: 0, line };
+    item.units += Number(m[3]);
+    item.cents += toCents(m[4].replace(/,/g, ''));
+    byName.set(key, item);
+  }
+  return [...byName.values()].map((i) => ({ ...i, kind: /drink|beverage|wi-?fi|internet|bar\b/i.test(i.name) ? 'beverage' : 'extra' }));
+}
+
+/**
  * What the client was charged, split into the parts the Pricing grid holds.
  *
  * A confirmation prints a fare, a discount, taxes and fees, sometimes insurance and
@@ -384,6 +408,13 @@ function readPricing(lines, fields, listed) {
   const ncfRow = moneyRow(lines, ['non-commissionable fares', 'non-commissionable fare', 'non-commissionable fees',
     'non commissionable fares', 'non commissionable fare', 'non commissionable fees', 'noncommissionable fare', 'ncf'], { all: true });
 
+  const enhancements = readEnhancements(lines);
+  const enhOf = (kind) => enhancements.filter((e) => e.kind === kind);
+  const enhCents = (kind) => enhOf(kind).reduce((n, e) => n + e.cents, 0);
+  const bevCents = enhCents('beverage');
+  const extraCents = enhCents('extra');
+  const enhTotal = bevCents + extraCents;
+
   const notes = [];
   const off = discount && discount.cents <= fare.cents ? discount.cents : 0;
   const netFare = fare.cents - off;
@@ -394,7 +425,7 @@ function readPricing(lines, fields, listed) {
 
   if (off) notes.push(`Fare is the cabin fare ${said(fare.cents)} less discounts ${said(off)}.`);
   if (gross) {
-    const gap = gross.cents - fare.cents - ncfCents - insured - tips - taxes;
+    const gap = gross.cents - fare.cents - ncfCents - insured - tips - taxes - enhTotal;
     if (gap > 0) {
       taxes += gap;
       notes.push(`${said(gap)} of the gross amount had no label I could read, so it is counted as taxes and fees.`);
@@ -416,23 +447,33 @@ function readPricing(lines, fields, listed) {
     const cover = spread(insured, n);
     const tipCols = gratuities ? columnOf(gratuities, tips) : new Array(n).fill(0);
     const ncfCols = ncfRow ? columnOf(ncfRow, ncfCents) : new Array(n).fill(0);
+    // What was bought is not printed against a guest, so each purchase is shared equally between them.
+    const bevCols = spread(bevCents, n);
+    const extraCols = spread(extraCents, n);
     const people = guestsFromColumns(lines, n, listed);
     const netFares = fares.map((f, i) => f - offs[i]);
     const comm = fields.commission ? shareBy(toCents(fields.commission), netFares) : new Array(n).fill(0);
     const pack = fields.commissionPackage ? shareBy(toCents(fields.commissionPackage), netFares) : new Array(n).fill(0);
     return people.map((who, i) => ({
       name: who.name, dob: who.dob,
-      fare: fixed(netFares[i]), ncf: fixed(ncfCols[i]), taxes: fixed(govts[i] + reqs[i] + gap[i]),
+      fare: fixed(netFares[i]), ncf: fixed(ncfCols[i]), beverage: fixed(bevCols[i]), extra: fixed(extraCols[i]), taxes: fixed(govts[i] + reqs[i] + gap[i]),
       insurance: fixed(cover[i]), gratuities: fixed(tipCols[i]),
       commission: fixed(comm[i]), commissionPackage: fixed(pack[i]),
     }));
   })() : null;
   if (perGuest && insured) notes.push('Insurance is not printed per guest, so it is shared equally between them.');
+  if (perGuest && enhancements.some((e) => e.units !== n)) {
+    notes.push(`${enhancements.filter((e) => e.units !== n).map((e) => e.name).join(' and ')} is not printed against a guest, so it is shared equally between them.`);
+  }
   if (perGuest && perGuest.some((g) => !g.name)) notes.push('The guest names could not be told apart, so type each one in.');
 
   const out = [];
   if (netFare > 0) out.push({ kind: 'fare', label: 'Fare', amount: fixed(netFare), from: fare.line });
   if (ncfCents > 0) out.push({ kind: 'ncf', label: 'Non-commissionable fare', amount: fixed(ncfCents), from: ncfRow.line });
+  for (const [kind, label] of [['beverage', 'Drinks package'], ['extra', 'Package or amenity']]) {
+    const c = enhCents(kind);
+    if (c > 0) out.push({ kind, label, amount: fixed(c), from: enhOf(kind).map((e) => e.line).join(' | ') });
+  }
   if (taxes > 0) {
     out.push({ kind: 'taxes', label: 'Taxes and port fees', amount: fixed(taxes),
       from: [govt && govt.line, required && required.line].filter(Boolean).join(' | ') || 'the rest of the gross amount' });
@@ -440,7 +481,7 @@ function readPricing(lines, fields, listed) {
   if (insured > 0) out.push({ kind: 'insurance', label: 'Travel insurance', amount: fixed(insured), from: insurance.line });
   if (tips > 0) out.push({ kind: 'gratuities', label: 'Gratuities', amount: fixed(tips), from: gratuities.line });
 
-  const sum = netFare + ncfCents + taxes + insured + tips;
+  const sum = netFare + ncfCents + taxes + insured + tips + enhTotal;
   const stated = fields.gross ? toCents(fields.gross) : null;
   const rate = pick(lines, ['fare commission rate', 'commission rate']);
   const pct = rate ? Number(String(rate.value).replace(/[^0-9.]/g, '')) : NaN;

@@ -6962,6 +6962,20 @@ async function main() {
   check(ncfLines === 'fare:3530.00, ncf:490.00, taxes:200.00' && withNcf.data?.pricing?.guests?.[1]?.ncf === '245.00'
       && withNcf.data?.pricing?.balanced === true,
     'the non-commissionable fare is read as its own line, for each guest, and the price still adds up', ncfLines);
+  // The Cruise Enhancements table is its own lines. It used to be left out and the gap landed in taxes and port fees.
+  const withEnh = await call(advisor, 'POST', '/api/import/confirmation', { text: [
+    'Jeff Covington', 'BOOKING ID: 54553780', 'Departure Date: Sep 13, 2027 Return Date: Sep 18, 2027',
+    'Ship: Margaritaville at Sea Beachcomber Total Guests: 2', 'Guest 1 Guest 2', 'First Name', 'JEFF LAURA', 'Last Name Covington Covington',
+    'Date of Birth, Age Apr 18, 1968, 58 Nov 25, 1969, 56', 'Cabin Fare $1,765.00 $1,765.00', 'Discount(s) $1,059.00 $1,059.00',
+    'Govt. Taxes & Fees $97.79 $97.79', 'Required Cruise Fees & $55.21 $55.21', 'Expenses', 'Passenger Total $859.00 $859.00',
+    'Cruise Enhancements Price Qnty Total', 'DRINKS + WIFI BUNDLE $499.00 1 $499.00', 'DRINKS + WIFI BUNDLE $499.00 1 $499.00',
+    'EXPRESS PASS $79.00 1 $79.00', 'TOTAL STATEROOM AMOUNT: $2,795.00', 'Gross Amount of Reservation: $ 4,913.00',
+    'Discounts Applied: $ 2,118.00', 'Total Booking Amount: $ 2,795.00',
+  ].join('\n') });
+  const enhLines = (withEnh.data?.pricing?.lines || []).map((l) => `${l.kind}:${l.amount}`).join(', ');
+  check(enhLines === 'fare:1412.00, beverage:998.00, extra:79.00, taxes:306.00' && withEnh.data?.pricing?.guests?.[0]?.taxes === '153.00'
+      && withEnh.data?.pricing?.guests?.[0]?.beverage === '499.00' && withEnh.data?.pricing?.balanced === true,
+    'the cruise enhancements are their own lines, and the taxes are only the taxes and fees the document prints', enhLines);
   check(amountOf('fare') === '1000.00',
     'the fare comes across after the discount, since that is what commission is paid on', amountOf('fare'));
   check(amountOf('taxes') === '360.00',

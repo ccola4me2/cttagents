@@ -220,7 +220,7 @@ function showDate(value) {
 
 // ---- The price, line by line, a column per guest ---------------------------------
 
-const PRICE_ROWS = [['fare', 'Fare'], ['ncf', 'Non-commissionable fare'], ['taxes', 'Taxes and port fees'], ['insurance', 'Travel insurance'],
+const PRICE_ROWS = [['fare', 'Fare'], ['ncf', 'Non-commissionable fare'], ['taxes', 'Taxes and port fees'], ['beverage', 'Drinks package'], ['extra', 'Package or amenity'], ['insurance', 'Travel insurance'],
   ['gratuities', 'Gratuities']];
 const cents = (v) => Math.round(Number(String(v ?? '').replace(/[^0-9.-]/g, '')) * 100) || 0;
 const say = (c) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -233,7 +233,7 @@ function priceColumns(read) {
     const lead = read.fields.clientName;
     return pr.guests.map((g, i) => (i === 0 && lead && !String(g.name || '').trim() ? { ...g, name: lead } : g));
   }
-  const one = { name: '', fare: '', ncf: '', taxes: '', insurance: '', gratuities: '', commission: read.fields.commission || '' };
+  const one = { name: '', fare: '', ncf: '', beverage: '', extra: '', taxes: '', insurance: '', gratuities: '', commission: read.fields.commission || '' };
   for (const l of pr.lines) one[l.kind] = l.amount;
   return [one];
 }
