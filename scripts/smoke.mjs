@@ -7014,6 +7014,20 @@ async function main() {
   check(enhLines === 'fare:1412.00, beverage:998.00, extra:79.00, taxes:306.00' && withEnh.data?.pricing?.guests?.[0]?.taxes === '153.00'
       && withEnh.data?.pricing?.guests?.[0]?.beverage === '499.00' && withEnh.data?.pricing?.balanced === true,
     'the cruise enhancements are their own lines, and the taxes are only the taxes and fees the document prints', enhLines);
+  // Prepaid gratuities are printed inside the same table, and are their own charge, not an amenity.
+  const withTips = await call(advisor, 'POST', '/api/import/confirmation', { text: [
+    'Pat Sample', 'BOOKING ID: 99887744', 'Departure Date: Feb 19, 2027 Return Date: Feb 27, 2027',
+    'Ship: Margaritaville at Sea Beachcomber Total Guests: 2', 'Guest 1 Guest 2', 'First Name', 'PAT LEE', 'Last Name Sample Sample',
+    'Date of Birth, Age Jan 02, 1980, 46 Mar 05, 1982, 44', 'Cabin Fare $960.45 $960.45', 'Discount(s) $121.60 $121.60',
+    'Govt. Taxes & Fees $107.46 $107.46', 'Required Cruise Fees & $68.54 $68.54', 'Expenses', 'Passenger Total $1,014.85 $1,014.85',
+    'Cruise Enhancements Price Qnty Total', 'PREPAID GRATUITIES 8-NIGHT $176.00 2 $352.00',
+    'TOTAL STATEROOM AMOUNT: $2,381.70', 'Gross Amount of Reservation: $ 2,624.90',
+    'Discounts Applied: $ 243.20', 'Total Booking Amount: $ 2,381.70',
+  ].join('\n') });
+  const tipLines = (withTips.data?.pricing?.lines || []).map((l) => `${l.kind}:${l.amount}`).join(', ');
+  check(tipLines === 'fare:1677.70, taxes:352.00, gratuities:352.00' && withTips.data?.pricing?.guests?.[0]?.gratuities === '176.00'
+      && withTips.data?.pricing?.balanced === true,
+    'prepaid gratuities in the enhancements table are read as gratuities, a share for each guest', tipLines);
   // The sailing line "Itinerary: ..." is the reservation's itinerary, and the port table is read day by day.
   const withDays = await call(advisor, 'POST', '/api/import/confirmation', { text: [
     'Pat Sample', 'pat.sample@example.test Booking Date: Nov 04, 2026', '5550100123 Status: Pending',

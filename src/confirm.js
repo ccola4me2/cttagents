@@ -363,7 +363,10 @@ function readEnhancements(lines) {
     item.cents += toCents(m[4].replace(/,/g, ''));
     byName.set(key, item);
   }
-  return [...byName.values()].map((i) => ({ ...i, kind: /drink|beverage|wi-?fi|internet|bar\b/i.test(i.name) ? 'beverage' : 'extra' }));
+  // Prepaid gratuities are printed here as a purchase, but they are their own charge in the Pricing grid.
+  const kindOf = (name) => (/gratuit|service charge/i.test(name) ? 'gratuities'
+    : /drink|beverage|wi-?fi|internet|bar\b/i.test(name) ? 'beverage' : 'extra');
+  return [...byName.values()].map((i) => ({ ...i, kind: kindOf(i.name) }));
 }
 
 /**
@@ -414,13 +417,16 @@ function readPricing(lines, fields, listed) {
   const bevCents = enhCents('beverage');
   const extraCents = enhCents('extra');
   const enhTotal = bevCents + extraCents;
+  // Gratuities bought in the enhancements table, when the confirmation has no gratuities row of its own.
+  const tipEnh = enhCents('gratuities');
+  const tipRow = tipEnh > 0 ? null : gratuities;
 
   const notes = [];
   const off = discount && discount.cents <= fare.cents ? discount.cents : 0;
   const netFare = fare.cents - off;
   let taxes = (govt ? govt.cents : 0) + (required ? required.cents : 0);
   const insured = insurance ? insurance.cents : 0;
-  const tips = gratuities ? gratuities.cents : 0;
+  const tips = tipRow ? tipRow.cents : tipEnh;
   const ncfCents = ncfRow ? ncfRow.cents : 0;
 
   if (off) notes.push(`Fare is the cabin fare ${said(fare.cents)} less discounts ${said(off)}.`);
@@ -445,7 +451,7 @@ function readPricing(lines, fields, listed) {
     const owed = taxes - (govt ? govt.cents : 0) - (required ? required.cents : 0);
     const gap = spread(Math.max(owed, 0), n);
     const cover = spread(insured, n);
-    const tipCols = gratuities ? columnOf(gratuities, tips) : new Array(n).fill(0);
+    const tipCols = tipRow ? columnOf(tipRow, tips) : spread(tips, n);
     const ncfCols = ncfRow ? columnOf(ncfRow, ncfCents) : new Array(n).fill(0);
     // What was bought is not printed against a guest, so each purchase is shared equally between them.
     const bevCols = spread(bevCents, n);
@@ -479,7 +485,10 @@ function readPricing(lines, fields, listed) {
       from: [govt && govt.line, required && required.line].filter(Boolean).join(' | ') || 'the rest of the gross amount' });
   }
   if (insured > 0) out.push({ kind: 'insurance', label: 'Travel insurance', amount: fixed(insured), from: insurance.line });
-  if (tips > 0) out.push({ kind: 'gratuities', label: 'Gratuities', amount: fixed(tips), from: gratuities.line });
+  if (tips > 0) {
+    out.push({ kind: 'gratuities', label: 'Gratuities', amount: fixed(tips),
+      from: tipRow ? tipRow.line : enhOf('gratuities').map((e) => e.line).join(' | ') });
+  }
 
   const sum = netFare + ncfCents + taxes + insured + tips + enhTotal;
   const stated = fields.gross ? toCents(fields.gross) : null;
