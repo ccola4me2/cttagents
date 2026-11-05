@@ -861,6 +861,8 @@ document.getElementById('conf-create').addEventListener('click', async () => {
   }
   const splitByGuest = document.querySelectorAll('[data-gname]').length > 1;
   const people = splitByGuest ? guestList() : [];
+  // What the confirmation holds about each guest, so their traveller record has it as well as their client record.
+  const contactOf = (name) => filing.find((f) => f.name.trim().toLowerCase() === String(name || '').trim().toLowerCase()) || {};
   if (splitByGuest && [...document.querySelectorAll('[data-price]')].some((el) => cents(el.value) > 0)
     && people.some((g) => !g.name)) {
     createErr.textContent = 'Type each guest\'s name, so the price can be put against the right person.';
@@ -901,7 +903,8 @@ document.getElementById('conf-create').addEventListener('click', async () => {
           ids = [];
           for (let i = 0; i < people.length; i += 1) {
             const made = await api(`/api/bookings/${encodeURIComponent(res.booking.id)}/travellers`,
-              { method: 'POST', body: { name: people[i].name, dob: people[i].dob, isLead: i === 0 } });
+              { method: 'POST', body: { name: people[i].name, dob: people[i].dob, email: contactOf(people[i].name).email,
+                phone: contactOf(people[i].name).phone, isLead: i === 0 } });
             ids.push(made.id);
           }
           travellersMade = true;
