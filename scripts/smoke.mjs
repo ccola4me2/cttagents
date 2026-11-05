@@ -4643,6 +4643,15 @@ async function main() {
     const peopleHit = (findFresh.data?.groups || []).find((g) => g.type === 'people');
     check(Boolean(peopleHit?.items?.some((i) => i.href.includes(freshId))),
       'a client with no reservation yet is found by the search', JSON.stringify(findFresh.data?.groups));
+    // Everything an owner can look up is reachable from the one box, and the agency's own
+    // business is not offered to an advisor.
+    const findHouse = await call(admin, 'GET', '/api/search?q=Fixtures');
+    check((findHouse.data?.groups || []).some((g) => g.type === 'households'),
+      'an owner finds a household from the search box', JSON.stringify(findHouse.data?.groups));
+    const ownerOnly = await call(advisor, 'GET', '/api/search?q=an');
+    check(!(ownerOnly.data?.groups || []).some((g) => ['advisors', 'events', 'checks'].includes(g.type)),
+      'and an advisor is not offered advisors, agency events or commission checks',
+      JSON.stringify((ownerOnly.data?.groups || []).map((g) => g.type)));
     const dupNew = await call(advisor, 'POST', `/api/households/${houseId}/members`,
       { newClient: { name: `Cy Fair${stamp}` } });
     check(dupNew.status === 400, 'a name already on the client list is not made a second time',
