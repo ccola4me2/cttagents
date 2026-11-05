@@ -49,6 +49,7 @@ const THERE = 'trip-vara-website';
 //
 // Keyed "file:name", valued with the portal that should have it and the reason.
 const ALLOWED = new Map([
+  ['email.js:sendSubscribedEmail', ['trip-vara-website', 'telling the portal operator an agency has paid. cttagents is one agency and has no billing']],
   ['suppression.js:handleListSuppressions', ['cttagents', 'the opt-out list screen belongs to Lists and Emails, which trip-vara does not have. Both portals share the unsubscribe link and the restore button on a client record']],
   ['suppression.js:handleAddSuppression', ['cttagents', 'the other half of the opt-out list screen']],
   ['agencyevents.js:handleAnnounceAgencyEvent', ['cttagents', 'emailing the invited advisors about an agency event, and the day before reminder. Built for cttagents on request; trip-vara has the calendar and the dashboard panel but no emails']],
