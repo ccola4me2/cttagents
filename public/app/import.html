@@ -98,7 +98,7 @@ Guest 1: COLE/DEBORAH"></textarea>
                 <span>Build the day by day itinerary from the ports printed on the confirmation. The client sees it on their page.</span></label>
               <label id="conf-keep-row" hidden style="display:flex;gap:.5rem;align-items:flex-start;font-weight:400;margin:0;">
                 <input type="checkbox" id="conf-keep" checked style="margin-top:.25rem;">
-                <span>Keep this PDF on the reservation, as the agency's copy. It is not shown to the client and is not attached to emails unless you share it.</span></label>
+                <span id="conf-keep-text">Keep this PDF on the reservation, as the agency's copy. It is not shown to the client and is not attached to emails unless you share it.</span></label>
             </div>
           </details>
         </div>
@@ -218,7 +218,7 @@ function showDate(value) {
 
 // ---- The price, line by line, a column per guest ---------------------------------
 
-const PRICE_ROWS = [['fare', 'Fare'], ['taxes', 'Taxes and port fees'], ['insurance', 'Travel insurance'],
+const PRICE_ROWS = [['fare', 'Fare'], ['ncf', 'Non-commissionable fare'], ['taxes', 'Taxes and port fees'], ['insurance', 'Travel insurance'],
   ['gratuities', 'Gratuities']];
 const cents = (v) => Math.round(Number(String(v ?? '').replace(/[^0-9.-]/g, '')) * 100) || 0;
 const say = (c) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -231,7 +231,7 @@ function priceColumns(read) {
     const lead = read.fields.clientName;
     return pr.guests.map((g, i) => (i === 0 && lead && !String(g.name || '').trim() ? { ...g, name: lead } : g));
   }
-  const one = { name: '', fare: '', taxes: '', insurance: '', gratuities: '', commission: read.fields.commission || '' };
+  const one = { name: '', fare: '', ncf: '', taxes: '', insurance: '', gratuities: '', commission: read.fields.commission || '' };
   for (const l of pr.lines) one[l.kind] = l.amount;
   return [one];
 }
@@ -378,10 +378,10 @@ async function textFromPdf(file) {
   return out.join('\n');
 }
 
-// The PDF the text came from, kept so it can go onto the reservation. Cleared when the text is typed over, since then
-// the file is no longer what is being read.
-let confFile = null;
-document.getElementById('conf-text').addEventListener('input', () => { confFile = null; });
+// The PDFs the text came from, kept so they can go onto the reservation. Cleared when the text is typed over, since then
+// the files are no longer what is being read.
+let confFiles = [];
+document.getElementById('conf-text').addEventListener('input', () => { confFiles = []; });
 
 /**
  * A PDF's text, by whichever way works. The browser's reader is tried first, since it keeps the file on the machine. It can fail
@@ -465,8 +465,8 @@ async function readFiles(list) {
     } catch (e) { problems.push(e.message); }
   }
   note.textContent = '';
-  // Kept for the reservation only when it is exactly one PDF, since that is the one document the text came from.
-  confFile = pdfs.length === 1 && parts.length === 1 ? pdfs[0] : null;
+  // Every PDF that was read goes onto the reservation, one document each, whether one was dropped or several.
+  confFiles = pdfs;
   if (problems.length) {
     err.innerHTML = problems.map((p) => `<div>${esc(p)}</div>`).join('');
     err.hidden = false;
@@ -613,7 +613,10 @@ document.getElementById('conf-read').addEventListener('click', async () => {
   problemsEl.innerHTML = (read.problems || []).length
     ? `<b>This read is not complete.</b><ul style="margin:.3rem 0 0 1.1rem;">${read.problems.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>` : '';
   problemsEl.hidden = !(read.problems || []).length;
-  document.getElementById('conf-keep-row').hidden = !confFile;
+  document.getElementById('conf-keep-row').hidden = !confFiles.length;
+  document.getElementById('conf-keep-text').textContent = confFiles.length > 1
+    ? `Keep these ${confFiles.length} PDFs on the reservation, as the agency's copies. They are not shown to the client and are not attached to emails unless you share them.`
+    : "Keep this PDF on the reservation, as the agency's copy. It is not shown to the client and is not attached to emails unless you share it.";
   document.getElementById('conf-itin-row').hidden = !(read.itinerary && read.itinerary.length);
   drawSummary(read);
   confResult.hidden = false;
@@ -636,7 +639,7 @@ function drawSummary(read) {
 
   const will = ['file the guests as clients'];
   if (f.paid) will.push('record what has been paid');
-  if (confFile) will.push('keep the PDF');
+  if (confFiles.length) will.push(confFiles.length > 1 ? `keep the ${confFiles.length} PDFs` : 'keep the PDF');
   will.push((read.penalties || []).length ? 'work out the cancellation dates' : 'set up the deposit and final payment');
   if (read.itinerary && read.itinerary.length) will.push('build the day by day itinerary');
   will.push('put the dates on your task list');
@@ -916,14 +919,17 @@ document.getElementById('conf-create').addEventListener('click', async () => {
     }
     const penaltyFailures = await savePenalties(res.booking.id, body);
     if (penaltyFailures.length) afterwards.push(`${penaltyFailures.length} of the cancellation terms or tasks were not saved`);
-    if (confFile && document.getElementById('conf-keep').checked) {
-      try {
-        const form = new FormData();
-        form.append('file', confFile);
-        form.append('category', 'confirmation');
-        const up = await fetch(`/api/bookings/${encodeURIComponent(res.booking.id)}/documents`, { method: 'POST', body: form });
-        if (!up.ok) throw new Error((await up.json().catch(() => ({}))).error || `Upload failed (${up.status})`);
-      } catch (e6) { afterwards.push(`the PDF was not kept (${esc(e6.message)})`); }
+    if (confFiles.length && document.getElementById('conf-keep').checked) {
+      // One at a time, so a file that is refused does not take the others with it.
+      for (const file of confFiles) {
+        try {
+          const form = new FormData();
+          form.append('file', file);
+          form.append('category', 'confirmation');
+          const up = await fetch(`/api/bookings/${encodeURIComponent(res.booking.id)}/documents`, { method: 'POST', body: form });
+          if (!up.ok) throw new Error((await up.json().catch(() => ({}))).error || `Upload failed (${up.status})`);
+        } catch (e6) { afterwards.push(`${esc(file.name || 'a PDF')} was not kept (${esc(e6.message)})`); }
+      }
     }
     if (afterwards.length) {
       createErr.innerHTML = `The reservation was created, but ${afterwards.join(' and ')}.

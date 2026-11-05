@@ -242,7 +242,7 @@ const qp = (s) => unescape(encodeURIComponent(s)).replace(/=/g, '=3D').replace(/
   is('a read with no guest names says so out loud', noNames.problems.some((x) => /No guest names/.test(x)), true);
   is('and the figures land on the guests who pay a fare, and the taxes-only guest owes only their taxes',
     (oneTaxOnly.pricing && oneTaxOnly.pricing.guests || []).map((x) => [x.name, x.fare, x.taxes]),
-    [['Anna Sample', '1074.00', '118.23'], ['Ben Sample', '1074.00', '118.23'], ['Cara Sample', '0.00', '118.23']]);
+    [['Anna Sample', '929.00', '118.23'], ['Ben Sample', '929.00', '118.23'], ['Cara Sample', '0.00', '118.23']]);
   is('a Royal Caribbean copy puts its itinerary line in the reservation\'s itinerary, as printed',
     [guestCopy.fields.itinerary, guestCopy.fields.itinerary === guestCopy.fields.destination], ['5 NIGHT WESTERN CARIBBEAN', true]);
 }

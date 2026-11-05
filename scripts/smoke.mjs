@@ -6950,6 +6950,18 @@ async function main() {
   const lostGuests = (lostLabel.data?.pricing?.guests || []).map((g) => `${g.name}|${g.dob}`).join(', ');
   check(lostGuests === 'Jeff Covington|1968-04-18, Laura Covington|1969-11-25',
     'guest names come from the read even when the first name label is missing, with their birthdays', lostGuests);
+  // A non-commissionable fare row is its own line, and is not left to fall into the taxes.
+  const withNcf = await call(advisor, 'POST', '/api/import/confirmation', { text: [
+    'Jeff Covington', 'BOOKING ID: 99887744', 'Departure Date: Aug 11, 2028 Return Date: Aug 18, 2028',
+    'Ship: Example Ship Total Guests: 2', 'Guest 1 Guest 2', 'First Name JEFF LAURA', 'Last Name Covington Covington',
+    'Date of Birth, Age Apr 18, 1968, 58 Nov 25, 1969, 56', 'Cabin Fare $1,765.00 $1,765.00',
+    'Non-Commissionable Fare $245.00 $245.00', 'Govt. Taxes & Fees $100.00 $100.00',
+    'Gross Amount of Reservation: $ 4,220.00', 'Total Booking Amount: $ 4,220.00',
+  ].join('\n') });
+  const ncfLines = (withNcf.data?.pricing?.lines || []).map((l) => `${l.kind}:${l.amount}`).join(', ');
+  check(ncfLines === 'fare:3530.00, ncf:490.00, taxes:200.00' && withNcf.data?.pricing?.guests?.[1]?.ncf === '245.00'
+      && withNcf.data?.pricing?.balanced === true,
+    'the non-commissionable fare is read as its own line, for each guest, and the price still adds up', ncfLines);
   check(amountOf('fare') === '1000.00',
     'the fare comes across after the discount, since that is what commission is paid on', amountOf('fare'));
   check(amountOf('taxes') === '360.00',
@@ -10793,7 +10805,7 @@ async function main() {
       'the deposit terms it states, an offer read as a quote, and no cabin until one is assigned', JSON.stringify(rf));
     const rp = rr.data?.pricing;
     check(rp && rp.balanced === true && rp.guests?.length === 4 && rp.guests[0].name === 'Alex Sample'
-        && rp.guests[0].fare === '1727.00' && rp.guests[1].fare === '820.00' && rp.guests[0].commission === '148.20'
+        && rp.guests[0].fare === '1482.00' && rp.guests[1].fare === '575.00' && rp.guests[0].ncf === '245.00' && rp.guests[0].commission === '148.20'
         && rf.gross === '4871.40' && rf.commission === '337.50',
       'and the price guest by guest, promotions taken off the right guest, adding up to the gross charges',
       JSON.stringify(rp && rp.guests));
@@ -10841,8 +10853,8 @@ async function main() {
     check(cf.supplier === 'Celebrity Cruises' && cf.cabin === '1017' && cf.cabinCategory === 'C2 Concierge Class'
         && cf.groupNumber === '1210522' && cf.travellers === 2,
       'a Celebrity agent copy gives its cabin and category, and the cruise line group number', JSON.stringify(cf));
-    check(cr.data?.pricing?.balanced === true && cr.data.pricing.guests?.[0].fare === '2092.00'
-        && cr.data.pricing.guests?.[1].fare === '410.00',
+    check(cr.data?.pricing?.balanced === true && cr.data.pricing.guests?.[0].fare === '1992.00'
+        && cr.data.pricing.guests?.[1].fare === '310.00',
       'and its many promotions land on the guests they applied to', JSON.stringify(cr.data?.pricing?.guests));
   }
 
@@ -10911,8 +10923,8 @@ async function main() {
         && vf.gross === '896.00' && vf.commission === '80.00',
       'the guests turned the right way round, the deposit terms, the total and the commission', JSON.stringify(vf));
     const vp = vr.data?.pricing;
-    check(vp && vp.balanced === true && vp.lines?.map((l) => l.amount).join() === '538.00,230.00,128.00',
-      'and the price as fare, taxes and gratuities adding up to the total it states', JSON.stringify(vp && vp.lines));
+    check(vp && vp.balanced === true && vp.lines?.map((l) => l.amount).join() === '500.00,38.00,230.00,128.00',
+      'and the price as fare, non-commissionable fare, taxes and gratuities adding up to the total it states', JSON.stringify(vp && vp.lines));
   }
 
   // Changing several reservations at once, quoted ones included.

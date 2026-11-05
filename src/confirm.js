@@ -380,6 +380,9 @@ function readPricing(lines, fields, listed) {
   const insurance = moneyRow(lines, ['insurance amount', 'travel insurance', 'insurance premium', 'insurance']);
   const gratuities = moneyRow(lines, ['prepaid gratuities', 'gratuities', 'service charges']);
   const gross = moneyRow(lines, ['gross amount of reservation']);
+  // The cruise line's own name for the part of the fare that earns no commission.
+  const ncfRow = moneyRow(lines, ['non-commissionable fares', 'non-commissionable fare', 'non-commissionable fees',
+    'non commissionable fares', 'non commissionable fare', 'non commissionable fees', 'noncommissionable fare', 'ncf'], { all: true });
 
   const notes = [];
   const off = discount && discount.cents <= fare.cents ? discount.cents : 0;
@@ -387,10 +390,11 @@ function readPricing(lines, fields, listed) {
   let taxes = (govt ? govt.cents : 0) + (required ? required.cents : 0);
   const insured = insurance ? insurance.cents : 0;
   const tips = gratuities ? gratuities.cents : 0;
+  const ncfCents = ncfRow ? ncfRow.cents : 0;
 
   if (off) notes.push(`Fare is the cabin fare ${said(fare.cents)} less discounts ${said(off)}.`);
   if (gross) {
-    const gap = gross.cents - fare.cents - insured - tips - taxes;
+    const gap = gross.cents - fare.cents - ncfCents - insured - tips - taxes;
     if (gap > 0) {
       taxes += gap;
       notes.push(`${said(gap)} of the gross amount had no label I could read, so it is counted as taxes and fees.`);
@@ -411,13 +415,14 @@ function readPricing(lines, fields, listed) {
     const gap = spread(Math.max(owed, 0), n);
     const cover = spread(insured, n);
     const tipCols = gratuities ? columnOf(gratuities, tips) : new Array(n).fill(0);
+    const ncfCols = ncfRow ? columnOf(ncfRow, ncfCents) : new Array(n).fill(0);
     const people = guestsFromColumns(lines, n, listed);
     const netFares = fares.map((f, i) => f - offs[i]);
     const comm = fields.commission ? shareBy(toCents(fields.commission), netFares) : new Array(n).fill(0);
     const pack = fields.commissionPackage ? shareBy(toCents(fields.commissionPackage), netFares) : new Array(n).fill(0);
     return people.map((who, i) => ({
       name: who.name, dob: who.dob,
-      fare: fixed(netFares[i]), taxes: fixed(govts[i] + reqs[i] + gap[i]),
+      fare: fixed(netFares[i]), ncf: fixed(ncfCols[i]), taxes: fixed(govts[i] + reqs[i] + gap[i]),
       insurance: fixed(cover[i]), gratuities: fixed(tipCols[i]),
       commission: fixed(comm[i]), commissionPackage: fixed(pack[i]),
     }));
@@ -427,6 +432,7 @@ function readPricing(lines, fields, listed) {
 
   const out = [];
   if (netFare > 0) out.push({ kind: 'fare', label: 'Fare', amount: fixed(netFare), from: fare.line });
+  if (ncfCents > 0) out.push({ kind: 'ncf', label: 'Non-commissionable fare', amount: fixed(ncfCents), from: ncfRow.line });
   if (taxes > 0) {
     out.push({ kind: 'taxes', label: 'Taxes and port fees', amount: fixed(taxes),
       from: [govt && govt.line, required && required.line].filter(Boolean).join(' | ') || 'the rest of the gross amount' });
@@ -434,7 +440,7 @@ function readPricing(lines, fields, listed) {
   if (insured > 0) out.push({ kind: 'insurance', label: 'Travel insurance', amount: fixed(insured), from: insurance.line });
   if (tips > 0) out.push({ kind: 'gratuities', label: 'Gratuities', amount: fixed(tips), from: gratuities.line });
 
-  const sum = netFare + taxes + insured + tips;
+  const sum = netFare + ncfCents + taxes + insured + tips;
   const stated = fields.gross ? toCents(fields.gross) : null;
   const rate = pick(lines, ['fare commission rate', 'commission rate']);
   const pct = rate ? Number(String(rate.value).replace(/[^0-9.]/g, '')) : NaN;
@@ -732,7 +738,11 @@ function readRoyalPricing(lines, fields, listed) {
   };
   const f = col(fare); const nc = col(nonComm); const cm = col(comm);
 
-  const netFare = f.map((x, i) => x + nc[i] + (gr[i] - x - nc[i] - tx[i]));
+  // The fare is what is left of the gross once the taxes and the non commissionable fare come out, so promotions land on it.
+  // A promotion that took more than the commissionable fare is one the layout does not say how to split, so it stays whole.
+  let ncf = nc;
+  let netFare = gr.map((x, i) => x - tx[i] - ncf[i]);
+  if (netFare.some((x) => x < 0)) { ncf = new Array(n).fill(0); netFare = gr.map((x, i) => x - tx[i]); }
   const sum = (a) => a.reduce((s, x) => s + x, 0);
 
   // The promotions, for the note: any line between the fare and the taxes that is a name and negative figures.
@@ -751,18 +761,19 @@ function readRoyalPricing(lines, fields, listed) {
     : Array.from({ length: n }, () => ({ name: '', dob: null }));
   const perGuest = n > 1 ? people.map((who, i) => ({
     name: who.name, dob: who.dob,
-    fare: fixed(netFare[i]), taxes: fixed(tx[i]), insurance: '0.00', gratuities: '0.00',
+    fare: fixed(netFare[i]), ncf: fixed(ncf[i]), taxes: fixed(tx[i]), insurance: '0.00', gratuities: '0.00',
     commission: fixed(cm[i]), commissionPackage: '0.00',
   })) : null;
 
   const out = [];
   if (sum(netFare) > 0) out.push({ kind: 'fare', label: 'Fare', amount: fixed(sum(netFare)), from: fare.line });
+  if (sum(ncf) > 0) out.push({ kind: 'ncf', label: 'Non-commissionable fare', amount: fixed(sum(ncf)), from: nonComm.line });
   if (sum(tx) > 0) out.push({ kind: 'taxes', label: 'Taxes and port fees', amount: fixed(sum(tx)), from: taxes.line });
 
-  const total = sum(netFare) + sum(tx);
+  const total = sum(netFare) + sum(ncf) + sum(tx);
   const stated = gross.values[n];
   const notes = [];
-  if (promos.length) notes.push(`Fare is the cruise fare plus the non commissionable fare, less promotions (${promos.join(', ')}).`);
+  if (promos.length) notes.push(`Fare is the cruise fare less promotions (${promos.join(', ')}). The non commissionable fare is its own line.`);
   const net = rcRow(lines, /^net balance due\s+/i);
   if (net) {
     notes.push(`The cruise line's balance, ${said(net.values[0])}, is after your commission. The trip total here is what the client pays.`);
@@ -887,7 +898,7 @@ function cvGuests(lines) {
 
 /**
  * Carnival prints one set of totals for the booking and none for each guest, so the price is a single
- * column: the cruise rate and the non commissionable amount are the fare, the required fees and the
+ * column: the cruise rate is the fare, the non commissionable amount its own line, the required fees and the
  * government taxes are the taxes, and the prepaid gratuities are their own line.
  */
 function readCarnivalPricing(lines, fields) {
@@ -899,25 +910,26 @@ function readCarnivalPricing(lines, fields) {
   const taxes = cvMoney(lines, /^government taxes(?: & fees)?\s+/i);
   const tips = cvMoney(lines, /^pre-?paid gratuities\s+/i);
 
-  const fare = rate.cents + (nonComm ? nonComm.cents : 0);
+  const fare = rate.cents;
+  const ncf = nonComm ? nonComm.cents : 0;
   const tax = (fees ? fees.cents : 0) + (taxes ? taxes.cents : 0);
   const gratuities = tips ? tips.cents : 0;
   const out = [];
   if (fare > 0) out.push({ kind: 'fare', label: 'Fare', amount: fixed(fare), from: rate.line });
+  if (ncf > 0) out.push({ kind: 'ncf', label: 'Non-commissionable fare', amount: fixed(ncf), from: nonComm.line });
   if (tax > 0) {
     out.push({ kind: 'taxes', label: 'Taxes and port fees', amount: fixed(tax),
       from: [fees && fees.line, taxes && taxes.line].filter(Boolean).join(' | ') });
   }
   if (gratuities > 0) out.push({ kind: 'gratuities', label: 'Gratuities', amount: fixed(gratuities), from: tips.line });
 
-  const sum = fare + tax + gratuities;
+  const sum = fare + ncf + tax + gratuities;
   const notes = [];
   const net = cvMoney(lines, /^net balance due\s+/i);
   const comm = cvMoney(lines, /^total commission\s+/i);
   if (net && comm) {
     notes.push(`Carnival's net balance, ${said(net.cents)}, is after your ${said(comm.cents)} commission. The trip total here is what the client pays.`);
   }
-  if (nonComm) notes.push('The non commissionable amount is counted as part of the fare.');
   notes.push('Carnival prints one price for the booking and none for each guest, so the price stays as one column.');
   return {
     lines: out, guests: null, totalCents: sum, statedCents: total.cents,

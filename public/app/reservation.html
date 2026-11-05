@@ -97,6 +97,7 @@
               <form id="task-form" class="toolbar" style="margin:0 0 .7rem;">
                 <input name="title" maxlength="200" required placeholder="Add a task for this trip"
                        style="min-width:0;flex:1;">
+                <input name="dueDate" type="date" aria-label="Due date" title="Due date, optional">
                 <button class="btn btn-secondary btn-sm" type="submit">Add</button>
               </form>
               <div id="tasks"></div>
@@ -265,10 +266,10 @@
           <input id="a-amount" name="amount" inputmode="decimal" placeholder="100.00"></div>
         <div class="field"><label for="a-source">Paid for by</label>
           <select id="a-source" name="source">
-            <option value="vendor">The vendor</option>
+            <option value="agency">Agency</option>
+            <option value="agent">Agent</option>
             <option value="tln">TLN</option>
-            <option value="agency">The agency</option>
-            <option value="client">The client</option>
+            <option value="vendor">Vendor</option>
           </select></div>
       </div>
       <div class="field"><label for="a-status">Where it stands</label>
@@ -2193,7 +2194,7 @@ function drawAmenities() {
     ? `<ul class="rows">${d.amenities.map((a) => `<li><div class="row-between">
         <span><span class="t">${esc(a.description)}</span>
           <span class="m"><span class="badge ${AMENITY_TONE[a.status] || 'badge-navy'}">${esc(a.status)}</span>
-            ${a.source ? ' · ' + esc(a.source === 'tln' ? 'TLN' : a.source) : ''}</span></span>
+            ${a.source ? ' · ' + esc(a.source === 'tln' ? 'TLN' : a.source.charAt(0).toUpperCase() + a.source.slice(1)) : ''}</span></span>
         <span style="text-align:right;">
           <strong>${a.amount_cents ? money(a.amount_cents) : ''}</strong>
           ${d.editable ? `<div><button class="btn btn-ghost btn-sm" data-amenity="${esc(a.id)}">Edit</button></div>` : ''}
@@ -3442,7 +3443,7 @@ async function loadItinerary() {
 }
 
 onSubmit(document.getElementById('task-form'), async (values) => {
-  await api('/api/tasks', { method: 'POST', body: { title: values.title, bookingId: id } });
+  await api('/api/tasks', { method: 'POST', body: { title: values.title, dueDate: values.dueDate || null, bookingId: id } });
   document.getElementById('task-form').reset();
   await load();
 });
@@ -3855,6 +3856,9 @@ function openAmenity(a) {
   document.getElementById('a-delete').hidden = !a;
   if (a) {
     const set = (n, v) => { const el = amenityForm.elements[n]; if (el) el.value = v ?? ''; };
+    // An amenity saved before the four choices keeps its old source until somebody changes it.
+    const src = amenityForm.elements.source;
+    if (a.source && ![...src.options].some((o) => o.value === a.source)) src.add(new Option(a.source, a.source));
     set('description', a.description); set('source', a.source); set('status', a.status);
     set('notes', a.notes);
     set('amount', a.amount_cents ? (a.amount_cents / 100).toFixed(2) : '');
