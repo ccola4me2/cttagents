@@ -280,10 +280,15 @@ function drawReport(r) {
           <tr class="correct-row" data-correct-for="${esc(s.id)}" hidden><td colspan="6">${
             // Only the answers that are plain text can be corrected here, which is
             // what the server allows. A people block or a list stays as it was filled in.
+            // A long or multi-line answer (the notes a form carries) goes in a larger box, since a
+            // single line would flatten its line breaks on every save.
             Object.entries(s.data || {}).filter(([, v]) => typeof v === 'string' && v).map(([k, v]) =>
               `<label class="muted" style="display:block;margin:.4rem 0 .1rem;">${esc(k.replace(/_/g, ' '))}</label>
-               <input type="text" style="width:100%;max-width:44rem;" maxlength="1000"
-                 data-answer="${esc(k)}" data-was="${esc(v)}" value="${esc(v)}">`).join('')
+               ${v.length > 80 || v.includes('\n')
+                 ? `<textarea rows="4" style="width:100%;max-width:44rem;" maxlength="1000"
+                     data-answer="${esc(k)}" data-was="${esc(v)}">${esc(v)}</textarea>`
+                 : `<input type="text" style="width:100%;max-width:44rem;" maxlength="1000"
+                     data-answer="${esc(k)}" data-was="${esc(v)}" value="${esc(v)}">`}`).join('')
           }
             <p class="muted" style="margin:.6rem 0;">This corrects what is saved. Emails still waiting to go out use the corrected answer; ones already sent stay as they were.</p>
             <button class="btn btn-primary btn-sm" type="button" data-save-correct="${esc(s.id)}">Save the correction</button>
