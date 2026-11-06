@@ -81,6 +81,10 @@ APP_URL = "https://cttagents.com"
 # The shared domain group pages are shared on: cruisegrouppage.com/<short name>. One domain
 # serves the groups of both portals, so it is attached to this Worker only. A name that is not
 # one of this portal's groups is handed on to the other portal through the PEER binding below.
+# Where Trip Vara answers, for the one question the Group Desk asks it: what Margaritaville
+# reservations do these desk members have over there. PEER_SECRET is a Worker secret, not a var,
+# and the same value has to be set on both Workers or the desk simply shows no Trip Vara cabins.
+PEER_APP_URL = "https://tripvaratravel.com"
 GROUP_HOST = "cruisegrouppage.com"
 # What this portal's links on that domain start with. Cruises Tours and Travel's groups are at the
 # root, cruisegrouppage.com/<name>. Trip Vara's are under /tv, because it is many agencies.

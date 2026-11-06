@@ -17,6 +17,7 @@ import { json, badRequest, notFound, clean, cleanText, oneOf, uid, now, readJson
 import { requireUser } from './auth.js';
 import { pdfRead } from './pdftext.js';
 import { parseMasAgentCopy } from './masconfirmation.js';
+import { tripVaraPeople } from './peertv.js';
 import * as db from './db.js';
 import { syncFromCtt } from './deskcopy.js';
 import { listPricing, clientLines } from './pricing.js';
@@ -243,25 +244,45 @@ async function applyReservation(env, group, rowId, d) {
  * is not added again.
  */
 export async function refreshBridge(env, group) {
-  const people = await bridges(env);
-  if (!people.length) return;
   const number = norm(group.group_number) || norm(group.group_code);
   const { results: linked } = await env.DB.prepare(
-    'SELECT id, booking_id FROM group_cabins WHERE group_id = ? AND user_id = ? AND booking_id IS NOT NULL'
+    `SELECT id, booking_id, booking_source FROM group_cabins
+      WHERE group_id = ? AND user_id = ? AND booking_id IS NOT NULL`
   ).bind(group.id, group.user_id).all();
-  const have = new Map((linked || []).map((r) => [r.booking_id, r.id]));
 
-  for (const person of people) {
-    for (const [bookingId, rowId] of have) {
+  // Two portals, two id spaces. A row says which one its reservation lives in,
+  // because looking a Trip Vara id up in this database finds nothing and would
+  // quietly stop keeping that row true.
+  const here = new Map();
+  const there = new Map();
+  for (const r of linked || []) {
+    (r.booking_source === 'tv' ? there : here).set(r.booking_id, r.id);
+  }
+
+  for (const person of await bridges(env)) {
+    for (const [bookingId, rowId] of here) {
       const b = await bookingOf(env, person.cttId, bookingId);
       if (b) await applyReservation(env, group, rowId, await describe(env, person.cttId, b));
     }
     if (!number) continue;
     for (const b of await masBookings(env, person.cttId)) {
-      if (have.has(b.id) || norm(b.group_number) !== number) continue;
+      if (here.has(b.id) || norm(b.group_number) !== number) continue;
       const d = await describe(env, person.cttId, b);
       await insertRow(env, group, { id: group.user_id }, null, { ...d, bookedBy: person.name }, { bookingId: b.id });
-      have.set(b.id, true);
+      here.set(b.id, true);
+    }
+  }
+
+  // The same again for the desk members who work in Trip Vara. Their cabins
+  // arrive described, so there is nothing to read out of a reservation here.
+  for (const person of await tripVaraPeople(env)) {
+    for (const b of person.bookings || []) {
+      const rowId = there.get(b.id);
+      if (rowId) { await applyReservation(env, group, rowId, b); continue; }
+      if (!number || norm(b.groupNumber) !== number) continue;
+      await insertRow(env, group, { id: group.user_id }, null,
+        { ...b, bookedBy: person.name }, { bookingId: b.id, bookingSource: 'tv' });
+      there.set(b.id, true);
     }
   }
 }
@@ -281,6 +302,18 @@ async function suggestionsFor(env, group) {
         id: b.id, person: person.name, client: b.client_name || '', cabin: b.cabin || '',
         category: b.cabin_category || '', confirmation: b.confirmation_number || '',
         guests: Number(b.travellers) || 1, cttId: person.cttId,
+      });
+    }
+  }
+  // And the same from Trip Vara, so a cabin one of them booked without the
+  // group number on it is offered rather than silently absent.
+  for (const person of await tripVaraPeople(env)) {
+    for (const b of person.bookings || []) {
+      if (have.has(b.id) || b.departDate !== group.depart_date || norm(b.groupNumber)) continue;
+      out.push({
+        id: b.id, person: person.name, client: b.guestNames || '', cabin: b.cabinNo || '',
+        category: b.category || '', confirmation: b.bookingNo || '',
+        guests: Number(b.guests) || 1, source: 'tv',
       });
     }
   }
@@ -369,12 +402,13 @@ async function insertRow(env, group, owner, user, values, extra = {}) {
   const get = (key, fallback) => (values[key] === undefined ? fallback : FIELDS[key][1](values[key]));
   await env.DB.prepare(
     `INSERT INTO group_cabins (id, group_id, user_id, cabin_no, category, guests, guest_names, booked_by,
-       booking_no, status, tc, notes, registration_id, booking_id, sort_order, updated_by, created_at, updated_at,
-       total_cents, paid_cents)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       booking_no, status, tc, notes, registration_id, booking_id, booking_source, sort_order, updated_by,
+       created_at, updated_at, total_cents, paid_cents)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(id, group.id, owner.id, get('cabinNo', ''), get('category', ''), get('guests', 0), get('guestNames', ''),
     get('bookedBy', ''), get('bookingNo', ''), get('status', 'held'), get('tc', 0), get('notes', ''),
-    extra.registrationId || null, extra.bookingId || null, extra.order || await nextOrder(env, group.id, owner.id),
+    extra.registrationId || null, extra.bookingId || null, extra.bookingSource === 'tv' ? 'tv' : 'ctt',
+    extra.order || await nextOrder(env, group.id, owner.id),
     user ? user.id : owner.id, ts, ts, get('totalCents', 0), get('paidCents', 0)).run();
   return id;
 }

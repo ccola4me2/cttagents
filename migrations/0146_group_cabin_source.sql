@@ -1,0 +1,15 @@
+-- Which portal a bridged cabin's reservation lives in.
+--
+-- A sheet row linked to a reservation holds its booking_id, and until now
+-- every one of those was a reservation in this database. Trip Vara advisors
+-- are on the desk too, and their reservations live in a different database
+-- behind a service binding.
+--
+-- Two ids from two databases in one column is how a refresh goes wrong: the
+-- loop would look a Trip Vara id up here, find nothing, and quietly stop
+-- keeping that row true. Worse, the unique index on (group_id, booking_id)
+-- would let one portal's id block the other's.
+--
+-- So every linked row says where to go and ask. Everything already here is
+-- from this portal, which is what the default records.
+ALTER TABLE group_cabins ADD COLUMN booking_source TEXT NOT NULL DEFAULT 'ctt';
