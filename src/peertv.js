@@ -77,3 +77,31 @@ export async function tripVaraPeople(env) {
 export function forgetTripVara() {
   cache = { at: 0, people: null };
 }
+
+/**
+ * Put a cabin from a sheet into somebody's own Trip Vara book.
+ *
+ * The address of whoever pressed the button is what goes over, so the only
+ * book the desk can write into is that person's own. Trip Vara decides whose
+ * it is from that address and refuses an address it does not know.
+ *
+ * Returns { id, created } on success and null on every failure, so a caller
+ * can tell "it is already there" (created false) from "it did not happen".
+ */
+export async function takeToTripVara(env, email, cabin) {
+  if (!env.PEER || !env.PEER_SECRET || !email) return null;
+  const base = String(env.PEER_APP_URL || 'https://tripvaratravel.com').replace(/\/+$/, '');
+  try {
+    const res = await withTimeout(env.PEER.fetch(new Request(`${base}/api/peer/mas-reservation`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'X-Peer-Secret': env.PEER_SECRET },
+      body: JSON.stringify({ ...cabin, email }),
+    })), 8000);
+    if (!res || !res.ok) return null;
+    const data = await res.json();
+    return data && data.id ? { id: data.id, created: data.created !== false } : null;
+  } catch (e) {
+    console.error('trip vara reservation', e);
+    return null;
+  }
+}

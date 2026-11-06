@@ -17,7 +17,7 @@ import { json, badRequest, notFound, clean, cleanText, oneOf, uid, now, readJson
 import { requireUser } from './auth.js';
 import { pdfRead } from './pdftext.js';
 import { parseMasAgentCopy } from './masconfirmation.js';
-import { tripVaraPeople } from './peertv.js';
+import { tripVaraPeople, takeToTripVara, forgetTripVara } from './peertv.js';
 import * as db from './db.js';
 import { syncFromCtt } from './deskcopy.js';
 import { listPricing, clientLines } from './pricing.js';
@@ -66,8 +66,11 @@ function shape(r) {
     status: r.status || 'held', tc: Number(r.tc) === 1, notes: r.notes || '',
     totalCents: Number(r.total_cents) || 0, paidCents: Number(r.paid_cents) || 0,
     registrationId: r.registration_id || null, updatedAt: r.updated_at,
-    // One of the owner's own CTT reservations, kept up to date from it and not changed here.
+    // One of somebody's own reservations, kept up to date from it and not changed here.
     linked: Boolean(r.booking_id),
+    // Which portal that reservation is in, so the sheet can say where to go and
+    // change it. Only meaningful when linked.
+    source: r.booking_source === 'tv' ? 'tv' : 'ctt',
   };
 }
 
@@ -102,7 +105,7 @@ async function groupFor(env, user, groupId) {
 async function loadRows(env, groupId, ownerId) {
   const { results } = await env.DB.prepare(
     `SELECT id, cabin_no, category, guests, guest_names, booked_by, booking_no, status, tc, notes,
-            registration_id, booking_id, total_cents, paid_cents, updated_at
+            registration_id, booking_id, booking_source, total_cents, paid_cents, updated_at
        FROM group_cabins WHERE group_id = ? AND user_id = ? AND hidden = 0 ORDER BY sort_order ASC, created_at ASC`
   ).bind(groupId, ownerId).all();
   return results || [];
@@ -314,6 +317,10 @@ async function suggestionsFor(env, group) {
         id: b.id, person: person.name, client: b.guestNames || '', cabin: b.cabinNo || '',
         category: b.category || '', confirmation: b.bookingNo || '',
         guests: Number(b.guests) || 1, source: 'tv',
+        // The described cabin, kept for the attach and stripped before the
+        // page sees it. A Trip Vara id cannot be looked up in this database,
+        // so if the answer is not carried here there is nothing to carry.
+        full: b,
       });
     }
   }
@@ -370,7 +377,7 @@ export async function handleListCabins(request, env, groupId) {
 
   await refreshBridge(env, group);
   const rows = await loadRows(env, group.id, owner.id);
-  const suggestions = (await suggestionsFor(env, group)).map(({ cttId: _c, ...s }) => s);
+  const suggestions = (await suggestionsFor(env, group)).map(({ cttId: _c, full: _f, ...s }) => s);
   return json({
     group: {
       id: group.id, name: group.name, vendor: group.vendor || '', ship: group.product_name || '',
@@ -633,11 +640,83 @@ export async function handleCabinFromCtt(request, env, groupId) {
   const body = await readJson(request);
   const offered = (await suggestionsFor(env, found.group)).find((s) => s.id === clean(body.bookingId, 64));
   if (!offered) return notFound('That reservation is not one this sheet can take.');
+  // A Trip Vara cabin arrives described, because its reservation is in the
+  // other portal's database and nothing here can read it.
+  if (offered.source === 'tv') {
+    const id = await insertRow(env, found.group, found.owner, user,
+      { ...offered.full, bookedBy: offered.person },
+      { bookingId: offered.id, bookingSource: 'tv' });
+    return json({ ok: true, id }, 201);
+  }
   const b = await bookingOf(env, offered.cttId, offered.id);
   if (!b) return notFound('That reservation is not one this sheet can take.');
   const d = await describe(env, offered.cttId, b);
   const id = await insertRow(env, found.group, found.owner, user, { ...d, bookedBy: offered.person }, { bookingId: offered.id });
   return json({ ok: true, id }, 201);
+}
+
+/**
+ * POST /api/groups/:id/cabins/:cabinId/to-trip-vara : this cabin, into my own book over there.
+ *
+ * The other half of the bridge. A cabin typed onto a sheet, or read off an
+ * uploaded agent copy, exists only here: the person who booked it still has to
+ * enter the same reservation in Trip Vara to track, chase and be paid on it.
+ * This does that once, and then links the row to what it made, so from that
+ * moment the ordinary refresh keeps the two in step and the cabin updates
+ * itself as payments land.
+ *
+ * It goes into the book of whoever pressed it, never the group owner's.
+ * Somebody working on a group that is not theirs is adding their own cabin,
+ * and an advisor's book is not a place the desk may put other people's work.
+ */
+export async function handleCabinToTripVara(request, env, groupId, cabinId) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  const found = await groupFor(env, user, groupId);
+  if (!found) return notFound('Group not found.');
+
+  const row = await env.DB.prepare(
+    `SELECT id, cabin_no, category, guests, guest_names, booking_no, total_cents, booking_id, booking_source
+       FROM group_cabins WHERE id = ? AND group_id = ? AND user_id = ?`
+  ).bind(cabinId, groupId, found.owner.id).first();
+  if (!row) return notFound('That cabin is not on this sheet.');
+
+  // Already a reservation somewhere. Taking it across again would either make
+  // a second one or quietly repoint the row at somebody else's.
+  if (row.booking_id) {
+    return badRequest('That cabin is already a reservation.');
+  }
+  if (!clean(row.booking_no, 40)) {
+    return badRequest('Put the cruise line\'s booking number on the cabin first. '
+      + 'It is what stops the same cabin going across twice.');
+  }
+
+  const made = await takeToTripVara(env, user.email, {
+    bookingNo: row.booking_no,
+    clientName: String(row.guest_names || '').split(',')[0],
+    guestNames: row.guest_names,
+    productName: found.group.product_name || found.group.vendor,
+    cabinNo: row.cabin_no,
+    category: row.category,
+    guests: row.guests,
+    groupNumber: found.group.group_number || found.group.group_code,
+    departDate: found.group.depart_date,
+    returnDate: found.group.return_date,
+    totalCents: row.total_cents,
+  });
+  if (!made) {
+    return json({ error: 'Trip Vara did not answer. Nothing was changed, so try again.' }, 502);
+  }
+
+  await env.DB.prepare(
+    `UPDATE group_cabins SET booking_id = ?, booking_source = 'tv', updated_by = ?, updated_at = ?
+      WHERE id = ? AND group_id = ? AND user_id = ?`
+  ).bind(made.id, user.id, now(), cabinId, groupId, found.owner.id).run();
+
+  // The cached answer predates the reservation that was just made, and the
+  // sheet is about to be redrawn from it.
+  forgetTripVara();
+  return json({ ok: true, id: made.id, created: made.created });
 }
 
 /** Dec 28, 2026 as 12/28/2026. */

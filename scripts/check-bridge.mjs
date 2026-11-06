@@ -121,6 +121,29 @@ check(/extra\.bookingSource === 'tv' \? 'tv' : 'ctt'/.test(cabins),
 check(!/const people = await bridges\(env\);\s*\n\s*if \(!people\.length\) return;/.test(cabins),
   'and no early return stops the Trip Vara pass when nobody here is bridged');
 
+console.log('\nAnd the way back');
+const peertv = readFileSync(join(ROOT, 'src', 'peertv.js'), 'utf8');
+check(/export async function takeToTripVara/.test(peertv), 'a cabin can be sent the other way');
+check(/\.\.\.cabin, email \}/.test(peertv),
+  'and the address goes last, so a caller cannot send somebody else\'s');
+check(/return null;[\s\S]*catch/.test(peertv), 'a failure is null rather than a throw');
+
+check(/booking_source = 'tv'/.test(cabins),
+  'the row it made is linked, so the refresh keeps it in step from then on');
+check(/forgetTripVara\(\)/.test(cabins),
+  'and the cached answer is dropped, because it predates the reservation just made');
+check(/already a reservation/.test(cabins), 'a cabin that is already linked is refused');
+check(/booking number on the cabin first/.test(cabins),
+  'and one with no booking number, because nothing could stop it going twice');
+check(/takeToTripVara\(env, user\.email/.test(cabins),
+  'it goes into the book of whoever pressed it, not the group owner\'s');
+
+const sheet = readFileSync(join(ROOT, 'public', 'app', 'group-sheet.html'), 'utf8');
+check(/data-tobook/.test(sheet), 'the sheet has the button');
+check(/r\.linked \? '' :/.test(sheet), 'and shows it only on a cabin that is not one already');
+check(/from \$\{r\.source === 'tv' \? 'Trip Vara' : 'CTT'\}/.test(sheet),
+  'a linked row says which portal to go and change it in');
+
 const migration = readFileSync(join(ROOT, 'migrations', '0146_group_cabin_source.sql'), 'utf8');
 check(/DEFAULT 'ctt'/.test(migration), 'everything already on a sheet counts as this portal');
 
