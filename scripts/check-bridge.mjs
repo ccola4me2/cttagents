@@ -144,6 +144,24 @@ check(/r\.linked \? '' :/.test(sheet), 'and shows it only on a cabin that is not
 check(/from \$\{r\.source === 'tv' \? 'Trip Vara' : 'CTT'\}/.test(sheet),
   'a linked row says which portal to go and change it in');
 
+console.log('\nIt takes over a typed row rather than sitting beside it');
+// Lori had already typed cabin 7261 onto the 50th Class Reunion sheet when the
+// bridge first ran, and the bridge added the same cabin again from her Trip
+// Vara reservation. Two identical rows, which is not only untidy: cabins and
+// guests are counted off these rows and a tour conductor credit is one per
+// twelve guests, so a duplicate can invent a credit the cruise line will not
+// honour.
+check(/async function rowToAdopt/.test(cabins), 'the bridge looks for a row already there');
+check(/booking_no = \? AND cabin_no = \?/.test(cabins),
+  'by booking number and cabin, the way an uploaded confirmation matches');
+check(/booking_id IS NULL AND hidden = 0/.test(cabins),
+  'and only one that is not already a reservation and is still on the sheet');
+check((cabins.match(/const mine = await rowToAdopt/g) || []).length === 2,
+  'both portals adopt, not just the new one',
+  String((cabins.match(/const mine = await rowToAdopt/g) || []).length));
+check(/await adopt\(env, group, mine, b\.id, 'tv'\)/.test(cabins), 'a Trip Vara reservation takes its row over');
+check(/await adopt\(env, group, mine, b\.id, 'ctt'\)/.test(cabins), 'and so does one from this portal');
+
 const migration = readFileSync(join(ROOT, 'migrations', '0146_group_cabin_source.sql'), 'utf8');
 check(/DEFAULT 'ctt'/.test(migration), 'everything already on a sheet counts as this portal');
 

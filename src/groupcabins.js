@@ -246,6 +246,43 @@ async function applyReservation(env, group, rowId, d) {
  * group number is this group's is added if it is not there. A row somebody took off is hidden, not deleted, so it
  * is not added again.
  */
+/**
+ * A row somebody already typed for this booking, which the bridge should take over rather than sit beside.
+ *
+ * Without this the sheet grows a second copy of a cabin that was typed in or read off an uploaded confirmation
+ * before the reservation existed, and the two look identical to a reader. It is not only untidy: cabins and
+ * guests are counted off these rows, and a tour conductor credit is one per twelve guests, so a duplicate can
+ * invent a credit that the cruise line will not honour.
+ *
+ * Matched the way an uploaded confirmation matches: the booking number, and the cabin when it agrees. Only a row
+ * that is not already somebody's reservation, and only one that is still on the sheet.
+ */
+async function rowToAdopt(env, group, bookingNo, cabinNo) {
+  const no = clean(bookingNo, 40);
+  if (!no) return null;
+  const cabin = clean(cabinNo, 20);
+  if (cabin) {
+    const exact = await env.DB.prepare(
+      `SELECT id FROM group_cabins WHERE group_id = ? AND user_id = ? AND booking_no = ? AND cabin_no = ?
+          AND booking_id IS NULL AND hidden = 0`
+    ).bind(group.id, group.user_id, no, cabin).first().catch(() => null);
+    if (exact) return exact.id;
+  }
+  const byNumber = await env.DB.prepare(
+    `SELECT id FROM group_cabins WHERE group_id = ? AND user_id = ? AND booking_no = ?
+        AND booking_id IS NULL AND hidden = 0 ORDER BY sort_order ASC LIMIT 1`
+  ).bind(group.id, group.user_id, no).first().catch(() => null);
+  return byNumber ? byNumber.id : null;
+}
+
+/** Hand a typed row over to the reservation it was standing in for. */
+async function adopt(env, group, rowId, bookingId, source) {
+  await env.DB.prepare(
+    `UPDATE group_cabins SET booking_id = ?, booking_source = ?, updated_at = ?
+      WHERE id = ? AND group_id = ? AND user_id = ?`
+  ).bind(bookingId, source, now(), rowId, group.id, group.user_id).run();
+}
+
 export async function refreshBridge(env, group) {
   const number = norm(group.group_number) || norm(group.group_code);
   const { results: linked } = await env.DB.prepare(
@@ -271,6 +308,13 @@ export async function refreshBridge(env, group) {
     for (const b of await masBookings(env, person.cttId)) {
       if (here.has(b.id) || norm(b.group_number) !== number) continue;
       const d = await describe(env, person.cttId, b);
+      const mine = await rowToAdopt(env, group, d.bookingNo, d.cabinNo);
+      if (mine) {
+        await adopt(env, group, mine, b.id, 'ctt');
+        await applyReservation(env, group, mine, d);
+        here.set(b.id, mine);
+        continue;
+      }
       await insertRow(env, group, { id: group.user_id }, null, { ...d, bookedBy: person.name }, { bookingId: b.id });
       here.set(b.id, true);
     }
@@ -283,6 +327,13 @@ export async function refreshBridge(env, group) {
       const rowId = there.get(b.id);
       if (rowId) { await applyReservation(env, group, rowId, b); continue; }
       if (!number || norm(b.groupNumber) !== number) continue;
+      const mine = await rowToAdopt(env, group, b.bookingNo, b.cabinNo);
+      if (mine) {
+        await adopt(env, group, mine, b.id, 'tv');
+        await applyReservation(env, group, mine, b);
+        there.set(b.id, mine);
+        continue;
+      }
       await insertRow(env, group, { id: group.user_id }, null,
         { ...b, bookedBy: person.name }, { bookingId: b.id, bookingSource: 'tv' });
       there.set(b.id, true);
