@@ -1392,6 +1392,90 @@ export async function handleDeleteSubmission(request, env, id) {
   return json({ ok: true });
 }
 
+/**
+ * PUT /api/myforms/submissions/:id   { answers: { <question key>: "new text" } }
+ *
+ * Corrects what somebody told us, such as a sailing date a form filled in for them. A wrong answer
+ * used to be there for good: the list only let you delete the entry, and the emails an automation
+ * had still to send kept quoting the old answer. This changes the saved answer and, for the same
+ * person's automation runs that are still waiting on the same form, the copy of it they are going
+ * to send from. Mail already sent is not touched.
+ *
+ * Only an answer that is already there, and only plain text: this corrects, it does not add
+ * questions or reach the name, email or phone, which belong to the person on the book. Who may do
+ * it is who may delete the entry.
+ */
+export async function handleEditSubmission(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+
+  const agencyId = tenantFor(env, user);
+  const sub = await env.DB.prepare(
+    'SELECT id, form_id, contact_id, email, data_json FROM form_submissions WHERE id = ? AND agency_id = ?'
+  ).bind(id, agencyId).first();
+  if (!sub) return notFound('That entry is not here.');
+
+  if (sub.contact_id && !isAdmin(user)) {
+    // Whose record this is: see db.writerFor.
+    const mine = await db.writerFor(env, user, 'clients', sub.contact_id);
+    if (!mine) return notFound('That entry belongs to somebody else\'s client.');
+  }
+
+  const body = await readJson(request);
+  const wanted = body.answers && typeof body.answers === 'object' && !Array.isArray(body.answers)
+    ? body.answers : null;
+  if (!wanted || !Object.keys(wanted).length) return badRequest('Say which answer to change.');
+
+  let data = {};
+  try { data = JSON.parse(sub.data_json) || {}; } catch { data = {}; }
+
+  const changes = {};
+  for (const [key, raw] of Object.entries(wanted)) {
+    if (!Object.prototype.hasOwnProperty.call(data, key)) {
+      return badRequest(`There is no answer called "${key}" on that entry.`);
+    }
+    if (typeof data[key] !== 'string') {
+      return badRequest(`"${key}" is not plain text, so it cannot be corrected here.`);
+    }
+    if (typeof raw !== 'string') return badRequest(`Give "${key}" as text.`);
+    const value = cleanText(raw, 1000);
+    if (!value) return badRequest(`"${key}" cannot be left empty.`);
+    if (value !== data[key]) changes[key] = { from: data[key], to: value };
+  }
+  if (!Object.keys(changes).length) return json({ ok: true, changed: 0, runs: 0 });
+
+  for (const [key, c] of Object.entries(changes)) data[key] = c.to;
+  await env.DB.prepare('UPDATE form_submissions SET data_json = ? WHERE id = ? AND agency_id = ?')
+    .bind(JSON.stringify(data), id, agencyId).run();
+
+  // The automation runs that have not finished each hold their own copy of the answers from the
+  // moment the form was sent. Fix the copy where it still says what was wrong, and only there.
+  let runs = 0;
+  if (sub.email) {
+    const { results } = await env.DB.prepare(
+      `SELECT id, context_json FROM automation_runs
+        WHERE agency_id = ? AND contact_email = ? AND status IN ('pending', 'waiting')`
+    ).bind(agencyId, sub.email).all();
+    for (const run of results || []) {
+      let ctx = null;
+      try { ctx = JSON.parse(run.context_json); } catch { ctx = null; }
+      if (!ctx || ctx.formId !== sub.form_id) continue;
+      let touched = false;
+      for (const [key, c] of Object.entries(changes)) {
+        if (ctx[key] === c.from) { ctx[key] = c.to; touched = true; }
+      }
+      if (!touched) continue;
+      await env.DB.prepare('UPDATE automation_runs SET context_json = ?, updated_at = ? WHERE id = ? AND agency_id = ?')
+        .bind(JSON.stringify(ctx), now(), run.id, agencyId).run();
+      runs += 1;
+    }
+  }
+
+  await db.logActivity(env, user.id, 'form.submission.edit', 'Corrected an answer on a form entry',
+    { id, keys: Object.keys(changes), runs });
+  return json({ ok: true, changed: Object.keys(changes).length, runs });
+}
+
 export async function handleDeleteForm(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;

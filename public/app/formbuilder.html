@@ -32,7 +32,7 @@
       <section class="card" id="subs" hidden style="margin-top:1.25rem;"></section>
       <section class="card" id="all-subs" style="margin-top:1.25rem;">
         <div class="card-head"><h2>Leads from your forms</h2>
-          <span class="muted" id="subs-count"></span></div>
+          <span class="muted" id="subs-count" role="status"></span></div>
         <div id="lead-list"><p class="spinner">Loading...</p></div>
       </section>
     </div>
@@ -272,9 +272,23 @@ function drawReport(r) {
               : '<span class="badge badge-amber">not sent</span>'}</td>
             <td class="num" style="white-space:nowrap;"><button class="btn btn-ghost btn-sm"
               data-quote="${esc(s.id)}">Start a reservation</button>
+              <button class="btn btn-ghost btn-sm" type="button" data-edit-lead="${esc(s.id)}"
+                aria-label="Correct the answers on this lead">Correct</button>
               <button class="btn btn-ghost btn-sm" type="button" data-del-lead="${esc(s.id)}"
                 aria-label="Delete this lead">Delete</button></td>
-          </tr>`;
+          </tr>
+          <tr class="correct-row" data-correct-for="${esc(s.id)}" hidden><td colspan="6">${
+            // Only the answers that are plain text can be corrected here, which is
+            // what the server allows. A people block or a list stays as it was filled in.
+            Object.entries(s.data || {}).filter(([, v]) => typeof v === 'string' && v).map(([k, v]) =>
+              `<label class="muted" style="display:block;margin:.4rem 0 .1rem;">${esc(k.replace(/_/g, ' '))}</label>
+               <input type="text" style="width:100%;max-width:44rem;" maxlength="1000"
+                 data-answer="${esc(k)}" data-was="${esc(v)}" value="${esc(v)}">`).join('')
+          }
+            <p class="muted" style="margin:.6rem 0;">This corrects what is saved. Emails still waiting to go out use the corrected answer; ones already sent stay as they were.</p>
+            <button class="btn btn-primary btn-sm" type="button" data-save-correct="${esc(s.id)}">Save the correction</button>
+            <button class="btn btn-ghost btn-sm" type="button" data-cancel-correct="${esc(s.id)}">Cancel</button>
+          </td></tr>`;
         }).join('')}</tbody></table></div>`
     : `<div class="empty"><h3>No leads yet</h3>
         <p>Share a form's link and the people who fill it in appear here.</p></div>`;
@@ -288,6 +302,41 @@ function drawReport(r) {
       try {
         await api(`/api/myforms/submissions/${encodeURIComponent(btn.dataset.delLead)}`, { method: 'DELETE' });
         await load();
+      } catch (e) {
+        showError(document.getElementById('err'), e);
+        btn.disabled = false;
+      }
+    });
+  });
+
+  // Correcting an answer somebody gave, such as a date the form filled in for them.
+  leadList.querySelectorAll('[data-edit-lead]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const row = leadList.querySelector(`[data-correct-for="${CSS.escape(btn.dataset.editLead)}"]`);
+      if (row) row.hidden = !row.hidden;
+    });
+  });
+  leadList.querySelectorAll('[data-cancel-correct]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const row = leadList.querySelector(`[data-correct-for="${CSS.escape(btn.dataset.cancelCorrect)}"]`);
+      if (row) row.hidden = true;
+    });
+  });
+  leadList.querySelectorAll('[data-save-correct]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const row = leadList.querySelector(`[data-correct-for="${CSS.escape(btn.dataset.saveCorrect)}"]`);
+      const answers = {};
+      row.querySelectorAll('[data-answer]').forEach((input) => {
+        if (input.value.trim() && input.value !== input.dataset.was) answers[input.dataset.answer] = input.value;
+      });
+      if (!Object.keys(answers).length) { row.hidden = true; return; }
+      btn.disabled = true;
+      try {
+        const out = await api(`/api/myforms/submissions/${encodeURIComponent(btn.dataset.saveCorrect)}`,
+          { method: 'PUT', body: { answers } });
+        await load();
+        document.getElementById('subs-count').textContent =
+          `Saved. ${out.runs ? out.runs + ' email run' + (out.runs === 1 ? '' : 's') + ' still waiting will use it.' : 'No emails were waiting on it.'}`;
       } catch (e) {
         showError(document.getElementById('err'), e);
         btn.disabled = false;

@@ -158,6 +158,7 @@ import {
   handleSaveForm,
   handleDeleteForm,
   handleDeleteSubmission,
+  handleEditSubmission,
   handleSendForm,
   handleFormInvites,
   handleListMyTemplates,
@@ -1163,6 +1164,7 @@ async function routeApi(request, env, path, method) {
   if (fileSubMatch && method === 'POST') return handleFileSubmission(request, env, fileSubMatch[1]);
   const subDeleteMatch = path.match(/^\/api\/myforms\/submissions\/([^/]+)$/);
   if (subDeleteMatch && method === 'DELETE') return handleDeleteSubmission(request, env, subDeleteMatch[1]);
+  if (subDeleteMatch && method === 'PUT') return handleEditSubmission(request, env, subDeleteMatch[1]);
   if (leadToBookingMatch && method === 'POST') {
     return handleReservationFromLead(request, env, leadToBookingMatch[1]);
   }

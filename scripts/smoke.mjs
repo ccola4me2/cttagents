@@ -1153,6 +1153,24 @@ async function main() {
       // One entry off the form's list, and only the entry.
       const listBefore = await call(advisor, 'GET', `/api/myforms/${pf.id}`);
       const entry = (listBefore.data?.submissions || [])[0];
+
+      // An answer somebody gave can be corrected, which used to be impossible: the entry could only be
+      // deleted, and what it said was quoted back to them for good.
+      const fixedAddress = '1 Fixed Street, Testville, FL 33101';
+      const fixed = await call(advisor, 'PUT', `/api/myforms/submissions/${entry?.id}`, { answers: { where_you_live: fixedAddress } });
+      const listFixed = await call(advisor, 'GET', `/api/myforms/${pf.id}`);
+      const fixedEntry = (listFixed.data?.submissions || []).find((s) => s.id === entry?.id);
+      check(fixed.status === 200 && fixed.data?.changed === 1 && fixedEntry?.data?.where_you_live === fixedAddress,
+        'an answer on an entry can be corrected', `status ${fixed.status} ${JSON.stringify(fixed.data)}`);
+      const noQuestion = await call(advisor, 'PUT', `/api/myforms/submissions/${entry?.id}`, { answers: { not_a_question: 'x' } });
+      check(noQuestion.status === 400, 'only an answer that is already there can be corrected', `status ${noQuestion.status}`);
+      const blank = await call(advisor, 'PUT', `/api/myforms/submissions/${entry?.id}`, { answers: { where_you_live: '   ' } });
+      check(blank.status === 400, 'and not with nothing', `status ${blank.status}`);
+      const same = await call(advisor, 'PUT', `/api/myforms/submissions/${entry?.id}`, { answers: { where_you_live: fixedAddress } });
+      check(same.status === 200 && same.data?.changed === 0, 'saying the same thing again changes nothing', JSON.stringify(same.data));
+      const nobody = await call(advisor, 'PUT', '/api/myforms/submissions/no-such-entry', { answers: { where_you_live: 'x' } });
+      check(nobody.status === 404, 'an entry that is not there cannot be corrected', `status ${nobody.status}`);
+
       const gone = await call(advisor, 'DELETE', `/api/myforms/submissions/${entry?.id}`);
       const listAfter = await call(advisor, 'GET', `/api/myforms/${pf.id}`);
       check(gone.status === 200 && !(listAfter.data?.submissions || []).some((s) => s.id === entry?.id),
