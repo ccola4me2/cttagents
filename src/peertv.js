@@ -14,6 +14,8 @@
 // email already means in both portals, and it means nothing has to be linked
 // by hand.
 
+import { withTimeout } from './groupslug.js';
+
 const CACHE_MS = 30000;
 // The desk overview refreshes every group it lists, four calls on one page
 // load today. The answer is the same for all of them, so it is fetched once.
@@ -46,14 +48,14 @@ export async function tripVaraPeople(env) {
 
   const base = String(env.PEER_APP_URL || 'https://tripvaratravel.com').replace(/\/+$/, '');
   try {
-    const res = await Promise.race([
-      env.PEER.fetch(new Request(`${base}/api/peer/mas-bookings`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'X-Peer-Secret': env.PEER_SECRET },
-        body: JSON.stringify({ emails: members.map((m) => m.email) }),
-      })),
-      new Promise((resolve) => setTimeout(() => resolve(null), 8000)),
-    ]);
+    // The same helper the group pages use to call the other portal, rather
+    // than a second race written out here. A timeout throws and is caught
+    // below with everything else.
+    const res = await withTimeout(env.PEER.fetch(new Request(`${base}/api/peer/mas-bookings`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'X-Peer-Secret': env.PEER_SECRET },
+      body: JSON.stringify({ emails: members.map((m) => m.email) }),
+    })), 8000);
     if (!res || !res.ok) return [];
     const data = await res.json();
     const people = (data && Array.isArray(data.people) ? data.people : []).map((p) => {
