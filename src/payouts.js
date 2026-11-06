@@ -67,6 +67,37 @@ export function dueSql(alias = 'b', through = null) {
 }
 
 /**
+ * Which of these reservations have been paid out to the advisor, from the payouts themselves.
+ *
+ * Worked out each time from what was recorded, never stored on the reservation, so it cannot disagree with the payout it
+ * describes: remove the payout and the mark goes with it. 'paid' is the advisor's whole share of what the vendor has sent,
+ * 'part' is some of it. Takes one reservation or a list and returns the same shape; the rows are already the reader's own,
+ * and the scope is applied again here.
+ */
+export async function attachPayoutState(env, scope, rows) {
+  const list = Array.isArray(rows) ? rows : [rows];
+  const ids = list.filter((r) => r && r.id).map((r) => r.id);
+  if (!ids.length) return rows;
+
+  const scoped = db.scopeWhere(scope, 'b.user_id');
+  const { share, paid } = dueSql('b');
+  const state = new Map();
+  for (let i = 0; i < ids.length; i += 200) {
+    const chunk = ids.slice(i, i + 200);
+    const { results } = await env.DB.prepare(
+      `SELECT b.id, ${share} AS share_cents, ${paid} AS paid_cents
+         FROM bookings b
+        WHERE ${scoped.sql} AND ${paid} > 0 AND b.id IN (${chunk.map(() => '?').join(', ')})`
+    ).bind(...scoped.binds, ...chunk).all().catch(() => ({ results: [] }));
+    for (const r of results || []) state.set(r.id, r.share_cents - r.paid_cents <= 1 ? 'paid' : 'part');
+  }
+  if (!state.size) return rows;
+
+  const out = list.map((r) => (r && state.has(r.id) ? { ...r, commission_paid_out: state.get(r.id) } : r));
+  return Array.isArray(rows) ? out : out[0];
+}
+
+/**
  * Every reservation with something still to pay the advisor who sold it.
  *
  * Scoped like everything else, so an advisor asking sees their own and an

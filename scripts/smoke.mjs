@@ -12986,6 +12986,13 @@ async function main() {
   check((settled.data?.payouts || []).some((p) => p.reference === `CHQ-${stamp}`),
     'and the payment is on the record with its reference');
 
+  // The reservation says so itself, worked out from the payout, for the owner and for the advisor it was paid to.
+  const paidRec = await call(advisor, 'GET', `/api/bookings/${earnerId}/record`);
+  const paidRow = await call(admin, 'GET', `/api/bookings/${earnerId}`);
+  check(paidRec.data?.commission?.paidOutCents === share && paidRow.data?.booking?.commission_paid_out === 'paid',
+    'once the advisor is paid, the reservation shows its commission as paid out',
+    JSON.stringify([paidRec.data?.commission?.paidOutCents, paidRow.data?.booking?.commission_paid_out]));
+
   // A recorded payout can be corrected: the day, how and the reference, and nothing else moves.
   const editForged = await call(advisor, 'PUT', `/api/payouts/${payoutId}`, { reference: 'FORGED' });
   const edited = await call(admin, 'PUT', `/api/payouts/${payoutId}`, { paidOn: isoDay(-2), method: 'ach', reference: `ACH-${stamp}` });
@@ -13045,6 +13052,10 @@ async function main() {
   check(undone.status === 200 && dueFor(restored.data) === paidTotal + 10000,
     'removing a payout puts everything it covered back on the list',
     `status ${undone.status}, due ${dueFor(restored.data)}, expected ${paidTotal + 10000}`);
+
+  const unpaidRow = await call(admin, 'GET', `/api/bookings/${earnerId}`);
+  check(!unpaidRow.data?.booking?.commission_paid_out,
+    'and taking the payout back takes the paid out mark off the reservation', String(unpaidRow.data?.booking?.commission_paid_out));
 
   const gone = await call(admin, 'DELETE', `/api/payouts/${payoutId}`);
   check(gone.status === 404, 'and it cannot be removed twice', `status ${gone.status}`);

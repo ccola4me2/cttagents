@@ -1322,7 +1322,8 @@ function drawCommission() {
         : `The agency's ${esc(String(100 - c.pct))}%`)}
         ${figure('Paid out', c.payoutCents,
     `${esc(String(c.pct))}% of what is in${c.payoutCents === c.fullPayoutCents ? ''
-      : ` &middot; ${money(c.fullPayoutCents)} when it all lands`}`)}
+      : ` &middot; ${money(c.fullPayoutCents)} when it all lands`}${c.paidOutCents
+      ? `<br><strong>${money(c.paidOutCents)} paid to the advisor</strong>${c.paidOutCents >= c.payoutCents && c.payoutCents > 0 ? ', paid out' : ', part paid out'}` : ''}`)}
       </div>
       ${c.varianceCents < 0 && c.receivedCents ? `<p class="field-hint" style="margin:.8rem 0 0;">
         The vendor has paid ${money(Math.abs(c.varianceCents))} less than this trip expected.

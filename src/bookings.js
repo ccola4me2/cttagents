@@ -32,6 +32,7 @@ import {
   listPricing, summarise, reconcileBookingTotals, PRICE_KINDS, COMMISSION_KINDS,
 } from './pricing.js';
 import { settlement } from './reconcile.js';
+import { attachPayoutState } from './payouts.js';
 import { receiptShown, payDatesFrom, suggestPayDate, todayIso } from './paydates.js';
 import { groupGrant, applyGroupTerms } from './groupaccess.js';
 import { waiverForBooking } from './waiver.js';
@@ -340,7 +341,7 @@ export async function handleListBookings(request, env) {
   // missing what somebody is looking for.
   const { rows: capped, truncated } = db.capped(found, url.searchParams.get('limit'));
   // An advisor is not told commission has arrived until its pay date is near.
-  const bookings = await db.maskCommissionStatus(env, user, capped);
+  const bookings = await attachPayoutState(env, scope, await db.maskCommissionStatus(env, user, capped));
   return json({
     bookings,
     truncated,
@@ -365,7 +366,8 @@ export async function handleGetBooking(request, env, id) {
   // from search should see it. Editing it still goes through getBooking.
   const found = await db.getBookingInScope(env, id, db.scopeFor(env, user, request));
   if (!found) return notFound('Booking not found.');
-  return json({ booking: await db.maskCommissionStatus(env, user, found) });
+  const shown = await db.maskCommissionStatus(env, user, found);
+  return json({ booking: await attachPayoutState(env, db.scopeFor(env, user, request), shown) });
 }
 
 /**
@@ -571,6 +573,12 @@ export async function handleBookingRecord(request, env, id) {
       ORDER BY COALESCE(received_on, '0000-00-00') DESC, created_at DESC`
   ).bind(booking.id, booking.user_id).all().catch(() => ({ results: [] }));
 
+  // What the advisor has actually been paid for this trip, from the payouts the owner recorded.
+  const paidRow = await env.DB.prepare(
+    'SELECT COALESCE(SUM(amount_cents), 0) AS paid FROM advisor_payout_lines WHERE booking_id = ? AND user_id = ?'
+  ).bind(booking.id, booking.user_id).first().catch(() => null);
+  const paidOutCents = (paidRow && paidRow.paid) || 0;
+
   const commission = (() => {
     const rows = receipts.results || [];
     // A waived trip pays nobody, which is the rule every other total reads
@@ -611,6 +619,7 @@ export async function handleBookingRecord(request, env, id) {
       // What to pay the advisor for this trip, and what the agency is left
       // with. Of the money that is in, not of the money that is expected.
       payoutCents: payout.advisorCents,
+      paidOutCents,
       agencyCents: payout.agencyCents,
       // What the advisor will have earned once the vendor has paid in full,
       // which is the figure the reservation used to show on its own.

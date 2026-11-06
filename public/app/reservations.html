@@ -322,7 +322,8 @@ function render(bookings, stats, scope, d = {}) {
         <td class="num">${b.commission_status === NO_COMMISSION
           ? '<span class="muted">No commission</span>'
           : `${b.commission_cents ? money(b.commission_cents) : '<span class="muted">-</span>'}
-             <div class="muted">${esc(b.commission_status)}</div>`}</td>
+             <div class="muted">${esc(b.commission_status)}${b.commission_paid_out
+               ? ` &middot; ${b.commission_paid_out === 'paid' ? 'paid out' : 'part paid out'}` : ''}</div>`}</td>
         <td class="num"><a class="btn btn-ghost btn-sm" href="/app/reservation?id=${esc(b.id)}">Open</a></td>
       </tr>`;
     }).join('')}</tbody></table></div>`;
