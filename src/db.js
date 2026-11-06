@@ -771,7 +771,12 @@ export async function supplierOptions(env, scope) {
   return (results || []).map((r) => r.name);
 }
 
-export async function listBookings(env, scope, { limit, ...filters } = {}) {
+/**
+ * The reservations the reader may see. Soonest departure first by default, which is what the calendar-minded screens
+ * want; `newestFirst` puts the last one made at the top, which is what the Reservations list wants, so a reservation made
+ * today is the first row rather than somewhere in the middle of the sailings.
+ */
+export async function listBookings(env, scope, { limit, newestFirst, ...filters } = {}) {
   const scoped = scopeWhere(scope, 'b.user_id');
   const more = bookingFilterSql(filters);
   const where = [scoped.sql, ...more.where];
@@ -781,7 +786,8 @@ export async function listBookings(env, scope, { limit, ...filters } = {}) {
     `SELECT ${BOOKING_COLUMNS_B}, ${ADVISOR_NAME}, ${OWING_SQL}
        FROM bookings b LEFT JOIN users u ON u.id = b.user_id
       WHERE ${where.join(' AND ')}
-      ORDER BY COALESCE(b.depart_date, '9999-12-31') ASC, b.created_at DESC
+      ORDER BY ${newestFirst ? 'b.created_at DESC, b.id DESC'
+        : "COALESCE(b.depart_date, '9999-12-31') ASC, b.created_at DESC"}
       LIMIT ?`
   ).bind(...binds).all();
   return results || [];

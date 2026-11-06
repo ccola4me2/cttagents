@@ -12939,6 +12939,15 @@ async function main() {
   const earnerId = earner.data?.booking?.id;
   if (earnerId) cleanup('the payout reservation', () => dropBooking(earnerId));
 
+  // The Reservations list puts the last one made first, so a reservation made today is the top row.
+  const newest = await call(advisor, 'GET', '/api/bookings?order=newest');
+  const newestRows = newest.data?.bookings || [];
+  const madeAt = newestRows.find((b) => b.id === earnerId)?.created_at;
+  check(newestRows.length > 1 && madeAt && newestRows[0].created_at === madeAt
+      && newestRows.every((b, i) => i === 0 || b.created_at <= newestRows[i - 1].created_at),
+    'the reservations list can put the last one made first',
+    JSON.stringify(newestRows.slice(0, 3).map((b) => [b.client_name, b.created_at])));
+
   // Nothing is owed on a trip the vendor has not paid. An advisor's share of
   // money that has not arrived is a promise, and paying it out pays them from
   // the agency's own pocket.

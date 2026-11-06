@@ -335,6 +335,7 @@ export async function handleListBookings(request, env) {
   const found = await db.listBookings(env, scope, {
     ...filters,
     limit: url.searchParams.get('limit'),
+    newestFirst: url.searchParams.get('order') === 'newest',
   });
   // One row past the cap came back if there is more behind it, so the page can
   // say the list was cut rather than filtering an answer that is already
