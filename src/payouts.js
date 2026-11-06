@@ -86,7 +86,7 @@ export async function attachPayoutState(env, scope, rows) {
     const chunk = ids.slice(i, i + 200);
     const { results } = await env.DB.prepare(
       `SELECT b.id, ${share} AS share_cents, ${paid} AS paid_cents
-         FROM bookings b
+         FROM bookings b JOIN users u ON u.id = b.user_id
         WHERE ${scoped.sql} AND ${paid} > 0 AND b.id IN (${chunk.map(() => '?').join(', ')})`
     ).bind(...scoped.binds, ...chunk).all().catch(() => ({ results: [] }));
     for (const r of results || []) state.set(r.id, r.share_cents - r.paid_cents <= 1 ? 'paid' : 'part');
