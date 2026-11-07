@@ -60,7 +60,6 @@ const ALLOWED = new Map([
   ['admin.js:handleReissueInvite', ['cttagents', 'same: there are no invites where people sign themselves up']],
   ['admin.js:handleStartActing', ['cttagents', 'working as an advisor is a cttagents feature']],
   ['admin.js:handleStopActing', ['cttagents', 'the other half of working as an advisor']],
-  ['auth.js:realUserOf', ['cttagents', 'who you really are while acting as somebody else']],
   ['auth.js:handleSignup', ['trip-vara-website', 'the join link, which cttagents does not offer']],
   ['email.js:sendTrialNoticeEmail', ['trip-vara-website', 'telling somebody their fourteen day demo is running out. cttagents has no demos to run out']],
   ['groups.js:copyGroupTo', ['cttagents', 'copying a group onto the Group Desk, which is cttagents only: trip-vara has its own agencies and no such desk']],
