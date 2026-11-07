@@ -77,6 +77,7 @@ const ALLOWED = new Map([
   ['db.js:saveBilling', ['cttagents', 'advisor billing through Stripe, cttagents only']],
   ['db.js:setSessionActingAs', ['cttagents', 'working as an advisor is a cttagents feature']],
   ['db.js:openTasksBetween', ['cttagents', 'the month calendar reads it; trip-vara has no calendar widget']],
+  ['admin.js:handleListSupport', ['trip-vara-website', "reading what people wrote in through Get in touch, which is the platform operator's inbox and has no meaning on a single agency portal"]],
   ['email.js:sendAdvisorInviteEmail', ['cttagents', 'there are no invites where people sign themselves up']],
   ['email.js:fromAs', ['cttagents', 'sending as the agency for a broadcast, cttagents only']],
   ['itinerary.js:handleReorderItinerary', ['cttagents', 'dragging itinerary items, cttagents only']],

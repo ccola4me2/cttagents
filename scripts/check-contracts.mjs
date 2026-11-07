@@ -36,7 +36,12 @@ const PAGES = [
   ['public/app/hotlists.html', ['/api/hotlists']],
   ['public/app/specials.html', ['/api/specials?state=all', '/api/vendors']],
   ['public/app/goals.html', ['/api/goals']],
-  ['public/app/commissions.html', ['/api/commissions']],
+  // Both, because the page draws the payout list as well as the commission
+  // one. With only the first address here, every field the payout rows carry
+  // looked like a name the response did not have, and the page was reported
+  // broken on every run. A page is only checked against the addresses listed
+  // here, so a missing one is not a smaller check, it is a wrong one.
+  ['public/app/commissions.html', ['/api/commissions', '/api/payouts']],
   ['public/app/form.html', ['/api/myforms', 'detail:/api/myforms/{formId}']],
   ['public/app/cruise-search.html', ['/api/catalog/search']],
   ['public/app/vendor.html', ['/api/vendors', 'detail:/api/vendors/{id}',
