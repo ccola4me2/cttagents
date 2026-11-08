@@ -772,6 +772,26 @@ async function main() {
       check(Boolean(soft && hard), 'a final balance is a deadline and a reminder');
       check(soft?.amount_cents === hard?.amount_cents,
         'both for the same money', `${soft?.amount_cents} vs ${hard?.amount_cents}`);
+      // A new price moves the automatic final balance, and the reminder with it.
+      {
+        const finalOf = async () => {
+          const rs = (await call(advisor, 'GET', `/api/bookings/${twinId}/record`))
+            .data?.payments || [];
+          return [rs.find((x) => x.kind === 'final' && x.payment_class === 'hard'),
+            rs.find((x) => x.kind === 'final' && x.payment_class === 'soft')];
+        };
+        const grid = (amount) => call(advisor, 'PUT', `/api/bookings/${twinId}/pricing`,
+          { cells: [{ kind: 'fare', amount, commissionable: 1 }] });
+        await grid('3500');
+        const [lowH, lowS] = await finalOf();
+        check(lowH?.amount_cents === 250000 && lowS?.amount_cents === 250000,
+          'a lower price in the pricing grid lowers the final balance and its reminder',
+          `${lowH?.amount_cents} and ${lowS?.amount_cents}`);
+        await grid('4000');
+        const [backH] = await finalOf();
+        check(backH?.amount_cents === 300000,
+          'and putting the price back puts the final balance back', `${backH?.amount_cents}`);
+      }
 
       // Half of it, posted against the reminder, which is what somebody
       // clicking the nearest row actually does.

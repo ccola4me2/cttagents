@@ -298,11 +298,14 @@
       <p class="muted" id="post-what" style="margin:0 0 .9rem;"></p>
       <div class="field" id="pp-kind-field" hidden><label for="pp-kind">What it is</label>
         <select id="pp-kind" name="kind"></select></div>
+      <div class="field" id="pp-due-field" hidden><label for="pp-due">Due on</label>
+        <input id="pp-due" name="dueDate" type="date">
+        <p class="field-hint">The date this row is due. Changing it here moves only this row.</p></div>
       <div class="field-row">
-        <div class="field"><label for="pp-amount">How much was received</label>
+        <div class="field"><label for="pp-amount" id="pp-amount-label">How much was received</label>
           <input id="pp-amount" name="amount" inputmode="decimal">
           <p class="field-hint" id="pp-amount-hint"></p></div>
-        <div class="field"><label for="pp-date">Received on</label>
+        <div class="field"><label for="pp-date" id="pp-date-label">Received on</label>
           <input id="pp-date" name="paidDate" type="date" required></div>
         <div class="field"><label for="pp-type">How it was paid</label>
           <select id="pp-type" name="paymentType"></select></div>
@@ -324,7 +327,7 @@
         <input id="pp-ref" name="reference" maxlength="80" placeholder="Confirmation or receipt number"></div>
     </div>
     <div class="card-foot">
-      <button class="btn btn-primary" type="submit">Post it</button>
+      <button class="btn btn-primary" type="submit" id="post-submit">Post it</button>
     </div>
   </form>
 </dialog>
@@ -3619,6 +3622,14 @@ function openEditPayment(paymentId) {
   editing = p;
   posting = null;
   document.getElementById('post-title').textContent = 'Edit this payment';
+  // An edit changes the row, so it asks for the amount and the due date, and posting is optional.
+  // The date was required for posting, which made an unpaid row impossible to save.
+  document.getElementById('pp-due-field').hidden = false;
+  postForm.elements.dueDate.value = p.due_date || '';
+  document.getElementById('pp-amount-label').textContent = 'Amount';
+  document.getElementById('pp-date-label').textContent = p.paid_date ? 'Posted on' : 'Posted on (leave blank until it is)';
+  postForm.elements.paidDate.required = false;
+  document.getElementById('post-submit').textContent = 'Save changes';
   // Every field, including what kind it is: an edit is where a payment filed
   // as the wrong kind gets put right.
   document.getElementById('pp-kind-field').hidden = false;
@@ -3630,7 +3641,7 @@ function openEditPayment(paymentId) {
     ? `Posted ${dateFmt(p.paid_date)}. Change what is wrong, or clear the date to take the `
       + 'posting back and leave it owing.'
     : 'Not posted yet. Change what is wrong, or fill in the date to post it.';
-  document.getElementById('pp-amount-hint').textContent = 'What this row is for.';
+  document.getElementById('pp-amount-hint').textContent = p.paid_date ? 'What this row is for.' : 'Change it to correct what is owed. A row you change by hand stops following the trip total.';
 }
 
 function openPost(paymentId) {
@@ -3641,6 +3652,11 @@ function openPost(paymentId) {
   postForm.reset();
   postForm.querySelector('.notice-error').hidden = true;
   document.getElementById('post-title').textContent = 'Post this payment';
+  document.getElementById('pp-due-field').hidden = true;
+  document.getElementById('pp-amount-label').textContent = 'How much was received';
+  document.getElementById('pp-date-label').textContent = 'Received on';
+  postForm.elements.paidDate.required = true;
+  document.getElementById('post-submit').textContent = 'Post it';
 
   const kindField = document.getElementById('pp-kind-field');
   kindField.hidden = Boolean(p);
@@ -3707,7 +3723,7 @@ onSubmit(postForm, async (values) => {
       ...values,
       bookingId: id,
       paymentClass: editing.payment_class,
-      dueDate: editing.due_date,
+      dueDate: values.dueDate || editing.due_date,
     } });
   } else if (posting) {
     saved = await api(`/api/payments/${encodeURIComponent(posting)}/paid`, { method: 'POST', body: values });

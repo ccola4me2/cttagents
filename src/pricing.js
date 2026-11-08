@@ -11,6 +11,7 @@ import { json, badRequest, notFound, clean, oneOf, toCents, uid, now, readJson }
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 import { UNSPLIT_COMMISSION_KINDS } from './split.js';
+import { resizeAutoFinal } from './payments.js';
 
 // Order is the order they appear on the screen. Whether each earns commission
 // by default is the industry norm, not a rule: any line can be flipped.
@@ -381,6 +382,8 @@ async function syncBookingTotals(env, bookingId, userId) {
     // the reservation, so swallowing it leaves the screen showing one figure
     // and the database holding another, with the save reported as a success.
   ).bind(s.clientTotalCents, s.commissionCents, now(), bookingId, userId).run();
+  // The final payment is whatever the trip cost leaves over, so a new price moves it too.
+  await resizeAutoFinal(env, { id: userId }, bookingId);
 }
 
 /**
@@ -421,6 +424,7 @@ export async function reconcileBookingTotals(env, booking, summary) {
     console.error('reconcile totals', e);
     return null;
   }
+  await resizeAutoFinal(env, { id: booking.user_id }, booking.id);
   return { grossCents: gross, commissionCents: commission };
 }
 
