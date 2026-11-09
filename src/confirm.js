@@ -679,7 +679,8 @@ function readNclPricing(lines, fields, listed) {
   }
   if (commissionCents) {
     const net = nclRow(lines, /^net due\s+/i);
-    notes.push(`Commission is ${said(commissionCents)}, as printed.${net ? ` The cruise line's balance, ${said(net.values[0])}, is after it. The trip total here is what the client pays.` : ''}`);
+    const after = net ? ` The cruise line's balance, ${said(net.values[0])}, is after it. The trip total here is what the client pays.` : '';
+    notes.push(`Commission is ${said(commissionCents)}, as printed.${after}`);
   } else {
     notes.push('The guest copy shows no commission, so none is filled in.');
   }
