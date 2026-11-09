@@ -562,6 +562,30 @@ function nclGuests(lines) {
   return out;
 }
 
+/**
+ * Norwegian's table, with a row's figures put back after its label.
+ *
+ * A PDF read in the browser can hand each row back as two lines, the figures first and then the label, because the
+ * right-aligned figures sit a hair higher than the words. A copy pasted as text has them on one line. Both are read the
+ * same way: a line of nothing but figures, followed by a line of nothing but a label, is that one row.
+ */
+function nclFigureRows(lines) {
+  const figures = /^(?:-?\$?\s*\d[\d,]*\.\d{2}\s*)+$/;
+  const label = /^[A-Za-z][^\d]*$/;
+  const out = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const here = String(lines[i]).trim();
+    const next = i + 1 < lines.length ? String(lines[i + 1]).trim() : '';
+    if (figures.test(here) && label.test(next)) {
+      out.push(`${next} ${here}`);
+      i += 1;
+    } else {
+      out.push(lines[i]);
+    }
+  }
+  return out;
+}
+
 /** A row of money after a label, each figure as cents, a minus sign kept. */
 function nclRow(lines, re) {
   for (const raw of lines) {
@@ -597,7 +621,8 @@ function nclColumns(row, n) {
  * no commission, so none is invented; an agent copy prints the total under the gross total, and
  * that is shared across the guests by what each paid for the fare.
  */
-function readNclPricing(lines, fields, listed) {
+function readNclPricing(rawLines, fields, listed) {
+  const lines = nclFigureRows(rawLines);
   const gross = nclRow(lines, /^gross total\s+/i);
   const fareRow = nclRow(lines, /^guest fare\s+/i);
   if (!gross || !fareRow) return null;

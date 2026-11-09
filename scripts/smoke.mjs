@@ -10889,6 +10889,20 @@ async function main() {
       'a Norwegian copy with packages and prepaid service charges reads them, and the price adds up', JSON.stringify(p2 && p2.lines));
     check(p2 && p2.guests?.[0]?.commission === '144.25' && p2.guests?.[1]?.commission === '144.25',
       'and the commission printed under the gross total is shared across the guests', JSON.stringify(p2 && p2.guests));
+
+    // A PDF read in the browser can put each row's figures on the line above its label.
+    const ncl3 = ['CONFIRMATION', 'INVOICE DATE:', '6-Oct-2026', 'BOOKING DATE:', '5-Jun-2026', 'RESERVATION:',
+      '65387884', 'SHIP: NORWEGIAN PRIMA', 'SAILING: 25-Oct-2026 to 1-Nov-2026',
+      'CATEGORY / STATEROOM: BF / 9806', 'ITINERARY: 7-DAY CARIBBEAN ROUND-TRIP ORLANDO',
+      'GUESTS', '1 MITCHENER LORA CHRISTINE NO', '2 SCHULZ SARAH JONES NO',
+      'BOOKING COMPONENTS PER GUEST IN USD', 'Total Guest 1 Guest 2',
+      '3,701.10 1,850.55 1,850.55', 'Guest Fare', '0.00 0.00 0.00', 'NCF', '400.00 200.00 200.00', 'Taxes/Fees/Port Exp',
+      '-1,898.00 -949.00 -949.00', 'Savings', '280.00 140.00 140.00', 'Prepaid Service Charges',
+      '3,023.10 1,511.55 1,511.55', 'Gross Total', 'Commission 288.50', 'Net Due 2,734.60'].join('\n');
+    const n3 = await call(advisor, 'POST', '/api/import/confirmation', { text: ncl3 });
+    const p3 = n3.data?.pricing;
+    check(p3 && p3.balanced === true && p3.guests?.[0]?.gratuities === '140.00' && p3.guests?.[0]?.commission === '144.25',
+      'a Norwegian copy whose figures arrive on the line above their labels is read the same way', JSON.stringify(p3 && p3.lines));
   }
 
   // Royal Caribbean and Celebrity print one agent copy: a column a guest, every promotion on a
