@@ -10881,12 +10881,14 @@ async function main() {
       'Guest Fare 3,701.10 1,850.55 1,850.55', 'NCF 0.00 0.00 0.00', 'Taxes/Fees/Port Exp 400.00 200.00 200.00',
       'Savings -1,898.00 -949.00 -949.00', 'More at Sea Beverage Pkg 420.00 210.00 210.00',
       'More at Sea Specialty Dining 120.00 60.00 60.00', 'Prepaid Service Charges 280.00 140.00 140.00',
-      'Gross Total 3,023.10 1,511.55 1,511.55'].join('\n');
+      'Gross Total 3,023.10 1,511.55 1,511.55', ' 288.50Commission', 'Net Due  2,734.60'].join('\n');
     const n2 = await call(advisor, 'POST', '/api/import/confirmation', { text: ncl2 });
     const p2 = n2.data?.pricing;
     check(p2 && p2.balanced === true && p2.guests?.[0]?.gratuities === '140.00' && p2.guests?.[0]?.beverage === '210.00'
         && (p2.lines || []).some((l) => l.kind === 'gratuities' && l.amount === '280.00'),
       'a Norwegian copy with packages and prepaid service charges reads them, and the price adds up', JSON.stringify(p2 && p2.lines));
+    check(p2 && p2.guests?.[0]?.commission === '144.25' && p2.guests?.[1]?.commission === '144.25',
+      'and the commission printed under the gross total is shared across the guests', JSON.stringify(p2 && p2.guests));
   }
 
   // Royal Caribbean and Celebrity print one agent copy: a column a guest, every promotion on a

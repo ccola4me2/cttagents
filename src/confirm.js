@@ -593,8 +593,9 @@ function nclColumns(row, n) {
  * Each row carries the trip's figure and then one for each guest: Guest Fare, Taxes/Fees/Port
  * Exp, Savings, and a charge for each package such as drinks or dining. Savings are taken off
  * the fare, which is what the commission is paid on, and the package charges are counted as
- * gratuities because they are the service charge on something prepaid. The guest copy shows
- * no commission, so none is invented.
+ * gratuities because they are the service charge on something prepaid. A guest copy shows
+ * no commission, so none is invented; an agent copy prints the total under the gross total, and
+ * that is shared across the guests by what each paid for the fare.
  */
 function readNclPricing(lines, fields, listed) {
   const gross = nclRow(lines, /^gross total\s+/i);
@@ -637,13 +638,25 @@ function readNclPricing(lines, fields, listed) {
   const tax = taxes || zero;
   const tips = kindCols.gratuities;
 
+  // "109.80Commission" on an agent copy, or the label first. A figure that is not smaller than the
+  // gross total is some other number on the same line and is left alone.
+  let commissionCents = 0;
+  let commissionLine = '';
+  for (const raw of lines) {
+    const m = /^\s*(\d[\d,]*\.\d{2})\s*commission\s*$/i.exec(raw) || /^\s*commission\s*:?\s*\$?\s*(\d[\d,]*\.\d{2})\s*$/i.exec(raw);
+    if (!m) continue;
+    const cents = Math.round(Number(m[1].replace(/,/g, '')) * 100);
+    if (cents > 0 && cents < gross.values[0]) { commissionCents = cents; commissionLine = raw.trim(); break; }
+  }
+  const commissionCols = commissionCents ? shareBy(commissionCents, netFare.map((x) => Math.max(0, x))) : zero;
+
   const people = listed.length === n ? listed.map((g) => ({ name: g.name, dob: null }))
     : Array.from({ length: n }, () => ({ name: '', dob: null }));
   const perGuest = n > 1 ? people.map((who, i) => ({
     name: who.name, dob: who.dob,
     fare: fixed(netFare[i]), ncf: fixed(kindCols.ncf[i]), beverage: fixed(kindCols.beverage[i]), extra: fixed(kindCols.extra[i]),
     taxes: fixed(tax[i]), insurance: '0.00', gratuities: fixed(tips[i]),
-    commission: '0.00', commissionPackage: '0.00',
+    commission: fixed(commissionCols[i]), commissionPackage: '0.00',
   })) : null;
 
   const sum = (col) => col.reduce((a, b) => a + b, 0);
@@ -664,7 +677,12 @@ function readNclPricing(lines, fields, listed) {
   if (lines.some((l) => /^shore excursion/i.test(l.trim()))) {
     notes.push('Shore excursions are printed separately and are not part of this price.');
   }
-  notes.push('The guest copy shows no commission, so none is filled in.');
+  if (commissionCents) {
+    const net = nclRow(lines, /^net due\s+/i);
+    notes.push(`Commission is ${said(commissionCents)}, as printed.${net ? ` The cruise line's balance, ${said(net.values[0])}, is after it. The trip total here is what the client pays.` : ''}`);
+  } else {
+    notes.push('The guest copy shows no commission, so none is filled in.');
+  }
   if (perGuest && perGuest.some((g) => !g.name)) notes.push('The guest names could not be told apart, so type each one in.');
 
   return {
@@ -676,6 +694,7 @@ function readNclPricing(lines, fields, listed) {
     differenceCents: stated - total,
     ratePct: null,
     notes,
+    ...(commissionCents ? { commissionTotalCents: commissionCents } : {}),
   };
 }
 
