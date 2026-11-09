@@ -1485,7 +1485,7 @@ export async function mountShell({ admin = false } = {}) {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
         <span>New</span></button>
       <div class="new-menu" id="new-menu" hidden>
-        <a href="/app/import">Paste a confirmation</a>
+        <a href="/app/import">Import a confirmation</a>
         <a href="/app/new">Type in a reservation</a>
         <a href="/app/clients?new=1">Add a client</a>
         <a href="/app/leads?new=1">Log a lead who called</a>

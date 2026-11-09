@@ -120,7 +120,7 @@ async function setupFor(env, user) {
   ]);
   const steps = [
     { key: 'client', label: 'Add your first client', hint: 'A name is enough to start', href: '/app/clients', done: clients > 0 },
-    { key: 'reservation', label: 'Make your first reservation', hint: 'Paste a confirmation and it fills itself in', href: '/app/import', done: bookings > 0 },
+    { key: 'reservation', label: 'Make your first reservation', hint: 'Import a confirmation and it fills itself in', href: '/app/import', done: bookings > 0 },
     { key: 'forward', label: 'Forward a confirmation to your own address', hint: 'Your address is on the Import page. Forward the email and the reservation is made for you', href: '/app/import', done: forwarded > 0 },
     { key: 'quote', label: 'Send a quote', hint: 'Open a reservation and press Send quote', href: '/app/reservations', done: quotes > 0 },
     { key: 'phone', label: 'Add your phone number', hint: 'Your clients see it on their trip page', href: '/app/settings', done: Boolean(user.phone) },
