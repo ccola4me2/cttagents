@@ -10897,7 +10897,8 @@ async function main() {
       'GUESTS', '1 MITCHENER LORA CHRISTINE NO', '2 SCHULZ SARAH JONES NO',
       'BOOKING COMPONENTS PER GUEST IN USD', 'Total Guest 1 Guest 2',
       '3,701.10 1,850.55 1,850.55', 'Guest Fare', '0.00 0.00 0.00', 'NCF', '400.00 200.00 200.00', 'Taxes/Fees/Port Exp',
-      '-1,898.00 -949.00 -949.00', 'Savings', '280.00 140.00 140.00', 'Prepaid Service Charges',
+      '-1,898.00 -949.00 -949.00', 'Savings', '420.00 210.00 210.00', 'More at Sea Beverage Pkg',
+      '120.00 60.00 60.00', 'More at Sea Specialty Dining', '280.00 140.00 140.00', 'Prepaid Service Charges',
       '3,023.10 1,511.55 1,511.55', 'Gross Total', 'Commission 288.50', 'Net Due 2,734.60'].join('\n');
     const n3 = await call(advisor, 'POST', '/api/import/confirmation', { text: ncl3 });
     const p3 = n3.data?.pricing;
