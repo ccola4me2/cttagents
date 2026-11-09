@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agency info | CTT Agent Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="stylesheet" href="/css/app.css">
+<style>
+  .ai { max-width: 40rem; }
+  .ai-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    padding: .8rem 0; border-bottom: 1px solid #e3ebf3; }
+  .ai-row:last-child { border-bottom: 0; }
+  .ai-label { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: #5c7286; }
+  .ai-name { font-size: .84rem; color: #5c7286; margin-top: .1rem; }
+  .ai-value { font-size: 1.15rem; font-weight: 600; color: #12315e; font-variant-numeric: tabular-nums; }
+  .ai-value a { color: inherit; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar">
+      <div><h1>Agency info</h1><p class="sub">Cruises Tours &amp; Travel's numbers, for when a supplier or a form asks for them.</p></div>
+    </header>
+    <div class="content">
+      <div class="card ai">
+        <div class="card-pad">
+          <div class="ai-row">
+            <div><div class="ai-label">CLIA</div>
+              <div class="ai-value">00834506</div>
+              <div class="ai-name">Use this one when you are asked for an agency number.</div></div>
+            <button class="btn btn-ghost btn-sm" type="button" data-copy="00834506">Copy</button>
+          </div>
+          <div class="ai-row">
+            <div><div class="ai-label">IATA code</div>
+              <div class="ai-value">10519073</div>
+              <div class="ai-name">New. It is still being added to the suppliers, so keep using the CLIA number for now.</div></div>
+            <button class="btn btn-ghost btn-sm" type="button" data-copy="10519073">Copy</button>
+          </div>
+          <div class="ai-row">
+            <div><div class="ai-label">Florida Seller of Travel</div>
+              <div class="ai-value">ST150140</div></div>
+            <button class="btn btn-ghost btn-sm" type="button" data-copy="ST150140">Copy</button>
+          </div>
+          <div class="ai-row">
+            <div><div class="ai-label">Home office phone</div>
+              <div class="ai-value"><a href="tel:+18132786555">813-278-6555</a></div></div>
+            <button class="btn btn-ghost btn-sm" type="button" data-copy="813-278-6555">Copy</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { mountShell } from '/js/app.js';
+await mountShell();
+
+// A number copied rather than retyped: these go into supplier forms, where one wrong digit is a
+// rejected booking. The button says so, and falls back quietly if the browser will not allow it.
+document.querySelectorAll('[data-copy]').forEach((btn) => btn.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(btn.dataset.copy);
+    btn.textContent = 'Copied';
+  } catch {
+    btn.textContent = 'Select it above';
+  }
+  setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+}));
+</script>
+</body></html>

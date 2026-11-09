@@ -356,6 +356,7 @@ const NAV = [
     hub: 'Setup', icon: I.gear, items: [
       { href: '/app/settings', label: 'Settings' },
       { href: '/app/membership', label: 'Membership' },
+      { href: '/app/agency-info', label: 'Agency info' },
     ],
   },
 ];
