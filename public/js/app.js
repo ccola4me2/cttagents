@@ -3,10 +3,16 @@
 
 // ---------------------------------------------------------------- fetch --
 export async function api(path, { method = 'GET', body, signal } = {}) {
+  // A file goes up as multipart, so FormData is handed to fetch untouched and
+  // the browser writes its own Content-Type with the boundary in it. Without
+  // this it was JSON.stringify'd to "{}" and the server answered "choose a
+  // picture to upload" about a picture that had been chosen, which is the kind
+  // of message that sends somebody looking in the wrong place.
+  const isForm = typeof FormData !== 'undefined' && body instanceof FormData;
   const res = await fetch(path, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
+    headers: body && !isForm ? { 'Content-Type': 'application/json' } : undefined,
+    body: body === undefined ? undefined : (isForm ? body : JSON.stringify(body)),
     credentials: 'same-origin',
     signal,
   });
