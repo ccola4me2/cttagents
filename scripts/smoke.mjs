@@ -10867,8 +10867,9 @@ async function main() {
       'the cabin, its category and the guests, turned the right way round', JSON.stringify(nf));
     const np = nr.data?.pricing;
     check(np && np.balanced === true && np.guests?.length === 2 && np.guests[0].fare === '879.00'
-        && np.guests[0].taxes === '200.00' && np.guests[0].gratuities === '259.50',
-      'and the price, guest by guest, adds up to the total it states', JSON.stringify(np && np.guests));
+        && np.guests[0].taxes === '200.00' && np.guests[0].gratuities === '0.00'
+        && np.guests[0].extra === '60.00' && np.guests[0].beverage === '199.50',
+      'and the price, guest by guest, adds up to the total it states, with drinks and dining service charges kept out of gratuities', JSON.stringify(np && np.guests));
   }
 
   // Norwegian's agent copy lists the packages and the prepaid service charges between the fare and the gross.

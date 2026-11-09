@@ -616,8 +616,8 @@ function nclColumns(row, n) {
  *
  * Each row carries the trip's figure and then one for each guest: Guest Fare, Taxes/Fees/Port
  * Exp, Savings, and a charge for each package such as drinks or dining. Savings are taken off
- * the fare, which is what the commission is paid on, and the package charges are counted as
- * gratuities because they are the service charge on something prepaid. A guest copy shows
+ * the fare, which is what the commission is paid on. A drinks or dining charge, including the
+ * service charge printed on it, is its own line; only the prepaid service charges are gratuities. A guest copy shows
  * no commission, so none is invented; an agent copy prints the total under the gross total, and
  * that is shared across the guests by what each paid for the fare.
  */
@@ -642,6 +642,7 @@ function readNclPricing(rawLines, fields, listed) {
   const to = lines.findIndex((l) => l.trim() === gross.line);
   const bought = { gratuities: [], beverage: [], extra: [], ncf: [] };
   const boughtLines = { gratuities: [], beverage: [], extra: [], ncf: [] };
+  let onPackages = false;
   for (const raw of lines.slice(from + 1, to > from ? to : from + 1)) {
     const label = /^([A-Za-z][^\d$]*?)\s+(?=-?\$?\s*\d[\d,]*\.\d{2}\b)/.exec(raw.trim());
     if (!label) continue;
@@ -649,9 +650,13 @@ function readNclPricing(rawLines, fields, listed) {
     if (/^(?:taxes|savings|discounts?)\b/i.test(what)) continue;
     const col = nclColumns(nclRow([raw], new RegExp(`^${what.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+`, 'i')), n);
     if (!col) continue;
+    // The service charge printed on a drinks package or on dining stays with that package: only the prepaid
+    // service charges, and anything else called a gratuity, are gratuities.
     const kind = /\bncf\b|non[- ]?commissionable/i.test(what) ? 'ncf'
-      : /service\s+charge|srv\s+charge|gratuit/i.test(what) ? 'gratuities'
-        : /beverage|\bbev\b|drink|\bbar\b/i.test(what) ? 'beverage' : 'extra';
+      : /beverage|\bbev\b|drink|\bbar\b|soda|wine|beer|cocktail|coffee/i.test(what) ? 'beverage'
+        : /dining|specialty|restaurant|wi-?fi|internet|excursion|\bspa\b/i.test(what) ? 'extra'
+          : /service\s+charge|srv\s+charge|gratuit/i.test(what) ? 'gratuities' : 'extra';
+    if (/service\s+charge|srv\s+charge/i.test(what) && (kind === 'beverage' || kind === 'extra')) onPackages = true;
     bought[kind].push(col);
     boughtLines[kind].push(raw.trim());
   }
@@ -699,6 +704,7 @@ function readNclPricing(rawLines, fields, listed) {
   const notes = [];
   if (off.some(Boolean)) notes.push(`Fare is the guest fare ${said(sum(fare))} less savings ${said(sum(off))}.`);
   if (tips.some(Boolean)) notes.push('Service charges are shown as gratuities.');
+  if (onPackages) notes.push('The service charge printed on drinks and dining is kept with the drinks package or the package, not with gratuities.');
   if (lines.some((l) => /^shore excursion/i.test(l.trim()))) {
     notes.push('Shore excursions are printed separately and are not part of this price.');
   }
