@@ -117,12 +117,10 @@ function rooms() {
   }
 
   const dms = state.conversations.filter((c) => c.kind === 'dm');
-  // A thread on a record that nobody has said anything in is not a conversation,
-  // just a record that was opened. Listed only once it has a message, or while it
-  // is the one on screen, so opening one to start a discussion does not make it
-  // vanish from under the cursor.
-  const records = state.conversations.filter((c) => c.kind === 'record'
-    && (c.lastMessageAt || c.unread || c.id === open));
+  // Notes on a reservation or a client live on that record, not here: a list of them beside real
+  // conversations buried the people. One shows only while it is the one on screen, which is how a
+  // link from the record opens it.
+  const records = state.conversations.filter((c) => c.kind === 'record' && c.id === open);
   const line = (c) => `<button type="button" class="chat-room${c.id === open ? ' on' : ''}"
       data-room="${esc(c.id)}"><span>${esc(c.name || 'Room')}</span>${pill(c.unread)}</button>`;
 
@@ -261,7 +259,7 @@ await refresh();
 // A room named in the address wins, then the first room with something unread,
 // then nothing: landing in a room at random is worse than landing nowhere.
 const asked = wanted();
-const unread = [...state.conversations, ...state.channels].find((c) => c.unread > 0);
+const unread = [...state.conversations, ...state.channels].find((c) => c.unread > 0 && c.kind !== 'record');
 if (asked) show(asked);
 else if (unread) show(unread.id);
 </script>
