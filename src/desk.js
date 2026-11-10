@@ -177,6 +177,8 @@ export async function handleDeskOverview(request, env) {
     `SELECT g.id, g.user_id, g.name, g.vendor, g.product_name, g.group_number, g.group_code, g.depart_date,
             g.option_date, g.final_payment_due, g.cabins_held, g.status, g.page_slug, g.registration_open,
             u.first_name, u.last_name,
+            (SELECT o.registration_open FROM travel_groups o
+              WHERE o.id = g.ctt_group_id AND o.user_id = g.ctt_owner_id) AS ctt_open,
             (SELECT COUNT(*) FROM group_cabins c
                WHERE c.group_id = g.id AND c.user_id = g.user_id AND c.hidden = 0 AND c.status <> 'cancelled') AS cabins,
             (SELECT COALESCE(SUM(c.guests), 0) FROM group_cabins c
@@ -199,7 +201,9 @@ export async function handleDeskOverview(request, env) {
       id: g.id, name: g.name, ship: g.product_name || g.vendor || '', groupNumber: g.group_number || g.group_code || '',
       departDate: g.depart_date || '', optionDate: g.option_date || '', finalPaymentDue: g.final_payment_due || '',
       cabinsHeld: g.cabins_held || 0, status: g.status,
-      available: Math.max(0, (g.cabins_held || 0) - (Number(g.cabins) || 0)), pageSlug: g.page_slug || '', pageOpen: g.registration_open === 1,
+      available: Math.max(0, (g.cabins_held || 0) - (Number(g.cabins) || 0)), pageSlug: g.page_slug || '',
+      // A copy takes no names itself: the page that does is the original's, so that one says whether it is open.
+      pageOpen: g.registration_open === 1 || g.ctt_open === 1,
       owner: `${g.first_name || ''} ${g.last_name || ''}`.trim(), ownerId: g.user_id,
       cabins: Number(g.cabins) || 0, guests, paidGuests: Number(g.paid_guests) || 0, waiting: Number(g.waiting) || 0,
       tcEarned: Math.floor(guests / 12), toNextTc: 12 - (guests % 12),

@@ -9524,8 +9524,11 @@ async function main() {
     if (broughtId) cleanup('the group brought onto the desk', () => call(aliasJar, 'DELETE', `/api/groups/${broughtId}`, undefined, asHost));
     check(brought.status === 201 && broughtId, 'one is brought onto the desk', `status ${brought.status} ${JSON.stringify(brought.data?.error || '')}`);
     const copy = (await call(aliasJar, 'GET', '/api/desk/overview', undefined, asHost)).data?.groups?.find((g) => g.id === broughtId);
-    check(copy && copy.cabinsHeld === 9 && copy.groupNumber === `lv-${stamp}` && copy.pageOpen === false && copy.owner.includes('Same'),
-      'the copy keeps its details, takes the supplier number as its group number, and has its sign-up page off', JSON.stringify(copy));
+    check(copy && copy.cabinsHeld === 9 && copy.groupNumber === `lv-${stamp}` && copy.pageOpen === true && copy.owner.includes('Same'),
+      'the copy keeps its details, takes the supplier number as its group number, and shows the sign-up page of the original as live', JSON.stringify(copy));
+    const copyRow = (await call(aliasJar, 'GET', '/api/groups', undefined, asHost)).data?.groups?.find((g) => g.id === broughtId);
+    check(copyRow && !copyRow.registration_open && copyRow.ctt_open === 1,
+      'the Groups list knows the original is taking sign-ups although the copy takes none itself', JSON.stringify(copyRow && [copyRow.registration_open, copyRow.ctt_open]));
     const original = await call(admin, 'GET', `/api/groups/${live.data?.group?.id}`);
     check(original.data?.group?.registration_open === 1 && original.data?.group?.page_slug, 'and the live one is untouched');
     // The copy shows the page the group already has, with its address, rather than a page of its own.
@@ -9558,6 +9561,12 @@ async function main() {
     await call(admin, 'PUT', `/api/groups/${live.data?.group?.id}`, liveBody(9, `Live MAS ${stamp}`));
     const copyBack = await call(aliasJar, 'GET', `/api/groups/${broughtId}`, undefined, asHost);
     check(copyBack.data?.group?.cabins_held === 9 && copyBack.data?.group?.name === `Live MAS ${stamp}`, 'and changing it back changes the copy back', `${copyBack.data?.group?.cabins_held}`);
+
+    // Deleting the original in CTT takes its empty copy off the desk.
+    const gone = await call(admin, 'DELETE', `/api/groups/${live.data?.group?.id}`);
+    const afterGone = (await call(aliasJar, 'GET', '/api/desk/overview', undefined, asHost)).data?.groups || [];
+    check(gone.status === 200 && !afterGone.some((g) => g.id === broughtId),
+      'a group deleted in CTT leaves the desk too, when nothing is on its cabin sheet', `status ${gone.status}`);
 
     // The cruise line's agent confirmation, uploaded, fills in the cabin and its payments.
     const tinyPdf = (lines) => {

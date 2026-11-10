@@ -10,6 +10,8 @@
 // switch (a copy never takes names, the original's page does) and its own notes.
 
 import { now, uid } from './util.js';
+import { releaseAllFor } from './groupslug.js';
+import { removeGroupFiles } from './groupfiles.js';
 
 // Every column that describes the group itself, as the original has it.
 const FIELDS = [
@@ -85,6 +87,40 @@ export async function syncFromCtt(env, groupId, agencyId) {
   return changed;
 }
 
+/**
+ * Copies whose original has been deleted in CTT.
+ *
+ * Deleting the original is how somebody says the group is not happening, so its copy goes too, rather than sitting on
+ * the desk for ever as a group nobody can sell. Only when nothing is on it: a copy with cabins on its sheet or people
+ * registered holds work done on the desk, so that one is closed instead, which takes it off the open list and keeps
+ * everything on it.
+ */
+async function dropGone(env, agencyId) {
+  const { results } = await env.DB.prepare(
+    `SELECT c.id, c.user_id, c.status FROM travel_groups c
+      WHERE c.ctt_group_id IS NOT NULL AND c.user_id IN (SELECT id FROM users WHERE agency_id = ?)
+        AND NOT EXISTS (SELECT 1 FROM travel_groups o WHERE o.id = c.ctt_group_id AND o.user_id = c.ctt_owner_id)`
+  ).bind(agencyId).all();
+  for (const g of results || []) {
+    const cabins = await env.DB.prepare('SELECT COUNT(*) AS n FROM group_cabins WHERE group_id = ? AND user_id = ?')
+      .bind(g.id, g.user_id).first();
+    const people = await env.DB.prepare('SELECT COUNT(*) AS n FROM group_registrations WHERE group_id = ? AND user_id = ?')
+      .bind(g.id, g.user_id).first();
+    if ((cabins && cabins.n) || (people && people.n)) {
+      if (g.status === 'open') {
+        await env.DB.prepare(`UPDATE travel_groups SET status = 'closed', updated_at = ? WHERE id = ? AND user_id = ?`)
+          .bind(now(), g.id, g.user_id).run();
+      }
+      continue;
+    }
+    await env.DB.prepare('UPDATE bookings SET group_id = NULL WHERE group_id = ? AND user_id = ?').bind(g.id, g.user_id).run();
+    await releaseAllFor(env, g.id, g.user_id);
+    await removeGroupFiles(env, g.id, g.user_id);
+    await env.DB.prepare('DELETE FROM group_rates WHERE group_id = ? AND user_id = ?').bind(g.id, g.user_id).run();
+    await env.DB.prepare('DELETE FROM travel_groups WHERE id = ? AND user_id = ?').bind(g.id, g.user_id).run();
+  }
+}
+
 /** Every copied group in an agency, brought up to date. Best effort: a failure is a copy as it was. */
 export async function syncAllFor(env, agencyId) {
   try {
@@ -93,6 +129,7 @@ export async function syncAllFor(env, agencyId) {
         WHERE ctt_group_id IS NOT NULL AND user_id IN (SELECT id FROM users WHERE agency_id = ?)`
     ).bind(agencyId).all();
     for (const g of results || []) await syncFromCtt(env, g.id, agencyId);
+    await dropGone(env, agencyId);
   } catch (e) {
     console.error('desk copies', e);
   }

@@ -367,7 +367,9 @@ export async function listGroups(env, scope, { status, limit = 200 } = {}) {
   if (status) { where.push('g.status = ?'); binds.push(status); }
 
   const { results } = await env.DB.prepare(
-    `SELECT ${COLUMNS}, ${SOLD}, ${ADVISOR}
+    `SELECT ${COLUMNS}, ${SOLD}, ${ADVISOR},
+            (SELECT o.registration_open FROM travel_groups o
+              WHERE o.id = g.ctt_group_id AND o.user_id = g.ctt_owner_id) AS ctt_open
        FROM travel_groups g LEFT JOIN users u ON u.id = g.user_id
       WHERE ${where.join(' AND ')}
       ORDER BY COALESCE(g.depart_date, '9999-12-31') ASC LIMIT ?`
