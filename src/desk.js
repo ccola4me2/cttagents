@@ -159,7 +159,7 @@ export async function handleDeskOverview(request, env) {
   const showAll = new URL(request.url).searchParams.get('all') === '1';
 
   // Groups brought from CTT first, so what the desk shows is what the original says now.
-  await syncAllFor(env, user.agency_id);
+  await syncAllFor(env, user.agency_id, copyGroupTo);
 
   // The owner's own reservations, brought up to date on every sheet before anything is counted, so the totals on
   // this page are the same as the ones on the sheets. Best effort: a failure here is totals from the last time.

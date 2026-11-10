@@ -384,7 +384,7 @@ export async function handleListGroups(request, env) {
   const url = new URL(request.url);
   const statusParam = url.searchParams.get('status');
   const scope = db.scopeFor(env, user, request);
-  if (user.agency_is_desk) await syncAllFor(env, user.agency_id);
+  if (user.agency_is_desk) await syncAllFor(env, user.agency_id, copyGroupTo);
   const groups = await listGroups(env, scope, {
     status: STATUSES.includes(statusParam) ? statusParam : undefined,
   });

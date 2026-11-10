@@ -121,9 +121,44 @@ async function dropGone(env, agencyId) {
   }
 }
 
+/**
+ * A desk member's new groups, brought across as they start taking sign-ups.
+ *
+ * A member who is also the portal's owner has Margaritaville groups of their own in CTT. The ones taking names are the ones
+ * the rest of the desk needs to see, so they are copied onto the desk the first time anybody looks, the same copy the
+ * Bring button makes. Only the ones taking sign-ups: a group still being set up is not for the desk yet, and can still be
+ * brought by hand. One already on the desk, by the group it came from or by name and sailing, is not copied again.
+ *
+ * The copy is made by the caller's own function, so this file does not have to import the module that makes groups.
+ */
+async function bringNew(env, agencyId, copier) {
+  if (typeof copier !== 'function') return;
+  const { results: members } = await env.DB.prepare(
+    `SELECT d.id AS desk_id, c.id AS ctt_id FROM users d JOIN users c ON c.email = d.desk_email
+      WHERE d.agency_id = ? AND d.desk_email IS NOT NULL AND c.platform_owner = 1 AND c.status = 'active'
+        AND c.agency_id NOT IN (SELECT id FROM agencies WHERE is_desk = 1)`
+  ).bind(agencyId).all();
+  for (const m of members || []) {
+    const { results: fresh } = await env.DB.prepare(
+      `SELECT g.id FROM travel_groups g
+        WHERE g.user_id = ? AND g.status = 'open' AND g.registration_open = 1 AND LOWER(g.vendor) LIKE '%margaritaville%'
+          AND NOT EXISTS (SELECT 1 FROM travel_groups d WHERE d.user_id = ?
+                            AND (d.ctt_group_id = g.id
+                                 OR (d.name = g.name AND COALESCE(d.depart_date, '') = COALESCE(g.depart_date, ''))))`
+    ).bind(m.ctt_id, m.desk_id).all();
+    for (const g of fresh || []) {
+      const made = await copier(env, g.id, m.ctt_id, m.desk_id);
+      if (!made || made.error || !made.id) continue;
+      await env.DB.prepare('UPDATE travel_groups SET ctt_group_id = ?, ctt_owner_id = ? WHERE id = ? AND user_id = ?')
+        .bind(g.id, m.ctt_id, made.id, m.desk_id).run();
+    }
+  }
+}
+
 /** Every copied group in an agency, brought up to date. Best effort: a failure is a copy as it was. */
-export async function syncAllFor(env, agencyId) {
+export async function syncAllFor(env, agencyId, copier) {
   try {
+    await bringNew(env, agencyId, copier);
     const { results } = await env.DB.prepare(
       `SELECT id FROM travel_groups
         WHERE ctt_group_id IS NOT NULL AND user_id IN (SELECT id FROM users WHERE agency_id = ?)`

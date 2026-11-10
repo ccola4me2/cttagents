@@ -9568,6 +9568,25 @@ async function main() {
     check(originalDeleted.status === 200 && !deskAfterDelete.some((g) => g.id === broughtId),
       'a group deleted in CTT leaves the desk too, when nothing is on its cabin sheet', `status ${originalDeleted.status}`);
 
+    // A new group taking sign-ups comes across by itself; one that is not does not.
+    const autoBody = (name, code, open) => ({
+      name, groupCode: code, vendor: 'Margaritaville at Sea', productName: 'Beachcomber',
+      departDate: isoDay(340), returnDate: isoDay(347), cabinsHeld: 6, groupType: 'cruise',
+      registrationOpen: open, registrationBlurb: 'Come along.',
+    });
+    const autoMade = await call(admin, 'POST', '/api/groups', autoBody(`Auto MAS ${stamp}`, `au-${stamp}`, true));
+    const quietMade = await call(admin, 'POST', '/api/groups', autoBody(`Quiet MAS ${stamp}`, `qu-${stamp}`, false));
+    if (autoMade.data?.group?.id) cleanup('the group that comes across by itself', () => call(admin, 'DELETE', `/api/groups/${autoMade.data.group.id}`));
+    if (quietMade.data?.group?.id) cleanup('the group that is not taking sign-ups', () => call(admin, 'DELETE', `/api/groups/${quietMade.data.group.id}`));
+    const deskNow = (await call(aliasJar, 'GET', '/api/desk/overview', undefined, asHost)).data?.groups || [];
+    const autoCopy = deskNow.find((g) => g.name === `Auto MAS ${stamp}`);
+    if (autoCopy) cleanup('the copy that came across by itself', () => call(aliasJar, 'DELETE', `/api/groups/${autoCopy.id}`, undefined, asHost));
+    check(autoCopy && autoCopy.pageOpen === true && autoCopy.cabinsHeld === 6,
+      'a new group taking sign-ups comes onto the desk by itself', JSON.stringify(autoCopy));
+    check(!deskNow.some((g) => g.name === `Quiet MAS ${stamp}`), 'and one that is not taking sign-ups does not');
+    const deskAgain = (await call(aliasJar, 'GET', '/api/desk/overview', undefined, asHost)).data?.groups || [];
+    check(deskAgain.filter((g) => g.name === `Auto MAS ${stamp}`).length === 1, 'and it is not copied a second time');
+
     // The cruise line's agent confirmation, uploaded, fills in the cabin and its payments.
     const tinyPdf = (lines) => {
       const esc = (t) => String(t).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
