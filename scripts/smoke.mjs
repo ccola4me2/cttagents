@@ -9563,10 +9563,10 @@ async function main() {
     check(copyBack.data?.group?.cabins_held === 9 && copyBack.data?.group?.name === `Live MAS ${stamp}`, 'and changing it back changes the copy back', `${copyBack.data?.group?.cabins_held}`);
 
     // Deleting the original in CTT takes its empty copy off the desk.
-    const gone = await call(admin, 'DELETE', `/api/groups/${live.data?.group?.id}`);
-    const afterGone = (await call(aliasJar, 'GET', '/api/desk/overview', undefined, asHost)).data?.groups || [];
-    check(gone.status === 200 && !afterGone.some((g) => g.id === broughtId),
-      'a group deleted in CTT leaves the desk too, when nothing is on its cabin sheet', `status ${gone.status}`);
+    const originalDeleted = await call(admin, 'DELETE', `/api/groups/${live.data?.group?.id}`);
+    const deskAfterDelete = (await call(aliasJar, 'GET', '/api/desk/overview', undefined, asHost)).data?.groups || [];
+    check(originalDeleted.status === 200 && !deskAfterDelete.some((g) => g.id === broughtId),
+      'a group deleted in CTT leaves the desk too, when nothing is on its cabin sheet', `status ${originalDeleted.status}`);
 
     // The cruise line's agent confirmation, uploaded, fills in the cabin and its payments.
     const tinyPdf = (lines) => {
