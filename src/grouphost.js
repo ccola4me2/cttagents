@@ -116,6 +116,26 @@ export async function serveSlug(request, env, rawName, tail, mode) {
     });
   }
 
+  // A Group Desk copy of a CTT group never takes names itself; the original's page does. A reader who
+  // arrives at the copy's short name is sent to the original's, so the link works whichever was shared.
+  if (hit.status === 'current') {
+    const copy = await env.DB.prepare(
+      `SELECT ctt_group_id, ctt_owner_id, registration_open FROM travel_groups WHERE id = ? AND user_id = ?`
+    ).bind(hit.group_id, hit.user_id).first();
+    if (copy && copy.ctt_group_id && copy.registration_open !== 1) {
+      const orig = await env.DB.prepare(
+        `SELECT page_slug FROM travel_groups WHERE id = ? AND user_id = ? AND registration_open = 1`
+      ).bind(copy.ctt_group_id, copy.ctt_owner_id).first();
+      if (orig && orig.page_slug) {
+        const url = new URL(request.url);
+        return new Response(null, {
+          status: 302,
+          headers: { Location: `${start}/${orig.page_slug}${tail ? `/${tail}` : ''}${url.search}` },
+        });
+      }
+    }
+  }
+
   const ref = { groupId: hit.group_id, userId: hit.user_id, slug, base: `${start}/${slug}` };
   if (tail === 'register') {
     return method === 'POST'
