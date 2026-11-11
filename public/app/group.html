@@ -276,6 +276,11 @@
             </form>
           </section>
 
+          <section class="card" id="rates-edit-card" hidden style="margin-top:1.5rem;">
+            <div class="card-head"><h2>Rates by hand</h2></div>
+            <div class="card-pad" id="rates-edit-body"></div>
+          </section>
+
           <section class="card" id="signups-card" hidden style="margin-top:1.5rem;">
             <div class="card-head"><h2>Who is coming</h2>
               <span class="muted" id="signup-count"></span>
@@ -679,6 +684,7 @@ if (quoteFile) quoteFile.addEventListener('change', async () => {
         ? { depositPerGuest: f.depositPerGuest || '', suiteDepositPerGuest: f.suiteDepositPerGuest || '',
           depositDue: f.depositDue || '', finalPaymentDue: f.finalPaymentDue || '' } : null;
       drawRates(pendingRates);
+      drawRatesEditor();
       document.getElementById('rates-save-row').hidden = false;
       document.getElementById('rates-save').textContent = pendingDeposits ? 'Save these rates and deposits' : 'Save these rates';
       const depLine = pendingDeposits
@@ -700,6 +706,7 @@ if (quoteFile) quoteFile.addEventListener('change', async () => {
     for (const [k, v] of Object.entries(d.fields)) set(k, v);
     pendingRates = d.rates || null;
     drawRates(pendingRates);
+    drawRatesEditor();
     if (d.notes) {
       const el = form.elements.notes;
       el.value = el.value ? (el.value + '\n\n' + d.notes) : d.notes;
@@ -777,6 +784,149 @@ document.getElementById('hero-remove').addEventListener('click', async () => {
 // scroll through the sign-up form, to know what has been put out there. Read from the saved group,
 // and drawn again whenever the group, its rates or its downloads change.
 let lastRates = [];
+
+// ------------------------------------------------------------ rates by hand --
+// The rates are normally read from the vendor's proposal. This is for when they have to be typed or corrected: a price that
+// changed, a cabin type added, a total that was misread. It saves through the same call a proposal does, replacing the grid.
+// A group copied onto the desk from CTT is left alone: its rates are put back from the original, so they are changed there.
+let isCopy = false;
+let editingRates = null;
+const rEditCard = document.getElementById('rates-edit-card');
+const rEditBody = document.getElementById('rates-edit-body');
+const toCentsOf = (v) => Math.round((Number(String(v ?? '').replace(/[^0-9.]/g, '')) || 0) * 100);
+const toDollarsOf = (c) => (c ? (c / 100).toFixed(2) : '');
+
+/**
+ * What a row should come to. Everybody pays the tax, the first two in a cabin pay the main price, and anybody beyond that pays
+ * the extra adult or extra child price: the same sum the vendor's proposal is checked against.
+ */
+function rateTotal(r) {
+  const cabins = Math.max(0, Number(r.cabins) || 0);
+  const guests = Math.max(0, Number(r.guests) || 0);
+  const capacity = /single/i.test(r.occupancy || '') ? cabins : 2 * cabins;
+  const base = Math.min(guests, capacity);
+  const beyond = Math.max(0, guests - capacity);
+  const slots = extraGuestsOf({ cabins, guests, occupancy: r.occupancy, extraAdultCents: r.extraAdultCents, extraChildCents: r.extraChildCents });
+  const extras = !beyond ? 0
+    : slots.length ? cabins * slots.reduce((n, s) => n + s.cents, 0)
+      : beyond * (r.extraAdultCents || r.extraChildCents || 0);
+  return guests * (r.taxesCents || 0) + base * (r.perGuestCents || 0) + extras;
+}
+
+function rateRowFrom(r) {
+  const row = {
+    roomType: r.room_type || '', occupancy: r.occupancy || '', cabins: Number(r.cabins) || 0, guests: Number(r.guests) || 0,
+    perGuestCents: r.per_guest_cents || 0, extraAdultCents: r.extra_adult_cents || 0, extraChildCents: r.extra_child_cents || 0,
+    taxesCents: r.taxes_cents || 0, totalCents: r.total_cents || 0,
+  };
+  row.auto = row.totalCents === rateTotal(row);
+  return row;
+}
+
+function rateHint(r) {
+  const should = rateTotal(r);
+  if (!r.totalCents && !should) return '';
+  return should === r.totalCents ? '<span class="muted">adds up</span>'
+    : `<span style="color:#b3382a;">the figures add up to ${money(should)}</span>`;
+}
+
+function drawRatesEditor() {
+  if (!rEditCard) return;
+  if (!canEdit || !groupId || pendingRates) { rEditCard.hidden = true; return; }
+  rEditCard.hidden = false;
+  if (isCopy) {
+    rEditBody.innerHTML = '<p class="muted" style="margin:0;">This group is a copy of one in CTT, and its rates are put back from the original. Change them on the CTT group.</p>';
+    return;
+  }
+  if (!editingRates) {
+    const have = (lastRates || []).length;
+    rEditBody.innerHTML = `<p class="field-hint" style="margin:0 0 .8rem;">${have
+      ? 'Correct a price, add a cabin type or take one away. The total works itself out from the figures unless you type one.'
+      : 'This group has no rates yet. Type them in here, or read them from the vendor\'s proposal above.'}</p>
+      <button class="btn btn-secondary btn-sm" type="button" data-act="start">${have ? 'Edit the rates' : 'Add the rates by hand'}</button>`;
+    return;
+  }
+  const num = 'class="num" style="width:4.5rem;"';
+  const cash = (c) => esc(toDollarsOf(c));
+  rEditBody.innerHTML = `<div class="notice notice-error" id="rates-edit-bad" hidden></div>
+    <div class="rates-wrap"><table class="rates-grid">
+      <thead><tr><th>Room type</th><th>Occupancy</th><th class="num">Cabins</th><th class="num">Guests</th><th class="num">Price per guest</th>
+        <th class="num">Extra adult</th><th class="num">Extra child</th><th class="num">Tax per guest</th><th class="num">Total</th><th></th></tr></thead>
+      <tbody>${editingRates.map((r, i) => `<tr>
+        <td><input data-i="${i}" data-f="roomType" value="${esc(r.roomType)}" style="min-width:10rem;" aria-label="Room type for cabin type ${i + 1}"></td>
+        <td><input data-i="${i}" data-f="occupancy" value="${esc(r.occupancy)}" style="width:8rem;" aria-label="Occupancy for cabin type ${i + 1}"></td>
+        <td><input data-i="${i}" data-f="cabins" value="${esc(String(r.cabins || ''))}" inputmode="numeric" ${num} aria-label="Cabins for cabin type ${i + 1}"></td>
+        <td><input data-i="${i}" data-f="guests" value="${esc(String(r.guests || ''))}" inputmode="numeric" ${num} aria-label="Guests for cabin type ${i + 1}"></td>
+        <td><input data-i="${i}" data-f="perGuestCents" value="${cash(r.perGuestCents)}" inputmode="decimal" ${num} aria-label="Price per guest for cabin type ${i + 1}"></td>
+        <td><input data-i="${i}" data-f="extraAdultCents" value="${cash(r.extraAdultCents)}" inputmode="decimal" ${num} aria-label="Extra adult price for cabin type ${i + 1}"></td>
+        <td><input data-i="${i}" data-f="extraChildCents" value="${cash(r.extraChildCents)}" inputmode="decimal" ${num} aria-label="Extra child price for cabin type ${i + 1}"></td>
+        <td><input data-i="${i}" data-f="taxesCents" value="${cash(r.taxesCents)}" inputmode="decimal" ${num} aria-label="Tax per guest for cabin type ${i + 1}"></td>
+        <td><input data-i="${i}" data-f="totalCents" value="${cash(r.totalCents)}" inputmode="decimal" ${num} aria-label="Total for cabin type ${i + 1}">
+          <div data-hint="${i}" style="font-size:.75rem;">${rateHint(r)}</div></td>
+        <td><button class="btn btn-ghost btn-sm" type="button" data-act="remove" data-i="${i}">Remove</button></td></tr>`).join('')}</tbody>
+    </table></div>
+    <div class="toolbar" style="margin:.8rem 0 0;">
+      <button class="btn btn-ghost btn-sm" type="button" data-act="add">Add a cabin type</button>
+      <span style="flex:1;"></span>
+      <button class="btn btn-ghost btn-sm" type="button" data-act="cancel">Cancel</button>
+      <button class="btn btn-primary btn-sm" type="button" data-act="save">Save the rates</button>
+    </div>`;
+}
+
+rEditBody.addEventListener('input', (e) => {
+  const el = e.target;
+  if (!editingRates || !el.dataset || el.dataset.f === undefined) return;
+  const r = editingRates[Number(el.dataset.i)];
+  const f = el.dataset.f;
+  if (f === 'roomType' || f === 'occupancy') r[f] = el.value;
+  else if (f === 'cabins' || f === 'guests') r[f] = Math.max(0, parseInt(el.value, 10) || 0);
+  else r[f] = toCentsOf(el.value);
+  if (f === 'totalCents') r.auto = false;
+  if (f !== 'totalCents' && r.auto) {
+    r.totalCents = rateTotal(r);
+    const totalBox = rEditBody.querySelector(`input[data-f="totalCents"][data-i="${el.dataset.i}"]`);
+    if (totalBox) totalBox.value = toDollarsOf(r.totalCents);
+  }
+  const hint = rEditBody.querySelector(`[data-hint="${el.dataset.i}"]`);
+  if (hint) hint.innerHTML = rateHint(r);
+});
+
+rEditBody.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-act]');
+  if (!btn) return;
+  const act = btn.dataset.act;
+  if (act === 'start') {
+    editingRates = (lastRates || []).map(rateRowFrom);
+    if (!editingRates.length) editingRates = [{ roomType: '', occupancy: 'Double', cabins: 1, guests: 2, perGuestCents: 0, extraAdultCents: 0, extraChildCents: 0, taxesCents: 0, totalCents: 0, auto: true }];
+    drawRatesEditor();
+  } else if (act === 'add') {
+    editingRates.push({ roomType: '', occupancy: 'Double', cabins: 1, guests: 2, perGuestCents: 0, extraAdultCents: 0, extraChildCents: 0, taxesCents: 0, totalCents: 0, auto: true });
+    drawRatesEditor();
+  } else if (act === 'remove') {
+    editingRates.splice(Number(btn.dataset.i), 1);
+    drawRatesEditor();
+  } else if (act === 'cancel') {
+    editingRates = null;
+    drawRatesEditor();
+  } else if (act === 'save') {
+    const bad = document.getElementById('rates-edit-bad');
+    const rows = editingRates.filter((r) => r.roomType.trim());
+    if (!rows.length) { bad.hidden = false; bad.textContent = 'Give at least one cabin type a name.'; return; }
+    btn.disabled = true;
+    try {
+      await api(`/api/groups/${encodeURIComponent(groupId)}/rates`, { method: 'PUT', body: { rates: rows.map((r) => ({
+        roomType: r.roomType.trim(), occupancy: r.occupancy.trim(), cabins: r.cabins, guests: r.guests,
+        perGuestCents: r.perGuestCents, extraAdultCents: r.extraAdultCents, extraChildCents: r.extraChildCents,
+        taxesCents: r.taxesCents, totalCents: r.totalCents })) } });
+      editingRates = null;
+      await load();
+    } catch (err) {
+      bad.hidden = false;
+      bad.textContent = err.message || 'The rates could not be saved.';
+      btn.disabled = false;
+    }
+  }
+});
 let lastFiles = [];
 function drawOnPage() {
   const card = document.getElementById('onpage-card');
@@ -1616,6 +1766,9 @@ async function load() {
     pendingRates = null;
     drawRates(d.rates);
     lastRates = d.rates || [];
+    isCopy = Boolean(d.cttPage);
+    editingRates = null;
+    drawRatesEditor();
     renderHeader(group);
     renderLink(group, d.link, d.codeShared);
     drawCttPage(d.cttPage);
