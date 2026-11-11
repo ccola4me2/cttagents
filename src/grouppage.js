@@ -804,7 +804,7 @@ export function bookingBlock(g, base, state) {
   }
   steps.push({
     title: 'Pay your deposit',
-    text: depositWords(g),
+    text: `${depositWords(g)} We will send you a separate payment link once your booking is confirmed.`,
   });
   if (g.passport_due) {
     steps.push({ title: 'Passports', text: 'Send us each traveller\'s passport details.', when: `In by ${sayDate(g.passport_due)}` });
