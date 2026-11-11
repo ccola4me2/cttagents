@@ -543,6 +543,35 @@ async function travellerFor(bookingId, person, isLead) {
 }
 const doneWord = targetId ? 'updated' : 'created';
 
+// The groups this advisor can sell from, so a reservation is put on one by choosing it, not by typing its name.
+let groupsList = [];
+try {
+  const gl = await api('/api/groups');
+  groupsList = (gl.groups || []).filter((g) => g.status !== 'cancelled');
+} catch (e) { groupsList = []; }
+
+/** The group box: a list of the groups, with the one the reservation is already on, or the one the document names, chosen. */
+function groupField(label, read) {
+  const named = String(read.fields.groupLabel || '').trim().toLowerCase();
+  const number = String(read.fields.groupNumber || '').trim().toLowerCase();
+  const onId = targetRec && targetRec.booking ? targetRec.booking.group_id : null;
+  let chosen = groupsList.find((g) => onId && g.id === onId)
+    || groupsList.find((g) => named && String(g.name || '').trim().toLowerCase() === named)
+    || groupsList.find((g) => number && String(g.group_number || g.group_code || '').trim().toLowerCase() === number);
+  let html = '<option value="">No group</option>';
+  for (const g of groupsList) {
+    html += '<option value="' + esc(g.name) + '" data-id="' + esc(g.id) + '" data-number="' + esc(g.group_number || g.group_code || '') + '"'
+      + (chosen && chosen.id === g.id ? ' selected' : '') + '>' + esc(g.name) + (g.depart_date ? ' (' + esc(g.depart_date) + ')' : '') + '</option>';
+  }
+  // A name the document gives that is not one of the groups is kept as it was read, rather than lost.
+  const typed = String(read.fields.groupLabel || '').trim();
+  if (typed && !chosen) html += '<option value="' + esc(typed) + '" selected>' + esc(typed) + ' (not one of your groups)</option>';
+  const source = read.from.groupLabel;
+  return '<div class="field" style="margin-bottom:.7rem;"><label for="cf-groupLabel">' + esc(label) + '</label>'
+    + '<select id="cf-groupLabel" data-conf="groupLabel">' + html + '</select>'
+    + '<p class="field-hint" style="margin:.2rem 0 0;">' + (source ? 'read from: ' + esc(source) : 'Choose the group this belongs to, if any.') + '</p></div>';
+}
+
 async function loadInbox() {
   const addr = document.getElementById('inbox-address');
   const list = document.getElementById('inbox-list');
@@ -613,6 +642,7 @@ document.getElementById('conf-read').addEventListener('click', async () => {
 
   lastRead = read;
   document.getElementById('conf-fields').innerHTML = CONF_FIELDS.map(([key, label]) => {
+    if (key === 'groupLabel') return groupField(label, read);
     const value = read.fields[key];
     const source = read.from[key];
     return `<div class="field" style="margin-bottom:.7rem;">
@@ -783,6 +813,13 @@ document.getElementById('conf-create').addEventListener('click', async () => {
     return;
   }
   if (lastRead && lastRead.fields && lastRead.fields.productType) body.productType = lastRead.fields.productType;
+  // The group chosen from the list brings its own id and number with it.
+  const groupPick = document.getElementById('cf-groupLabel');
+  const pickedOption = groupPick && groupPick.selectedOptions ? groupPick.selectedOptions[0] : null;
+  if (pickedOption && pickedOption.dataset.id) {
+    body.groupId = pickedOption.dataset.id;
+    if (!body.groupNumber && pickedOption.dataset.number) body.groupNumber = pickedOption.dataset.number;
+  }
   // On a reservation that already holds a deposit, from its group, the deposit has to say too, as the server will insist.
   const heldDeposit = targetRec && targetRec.booking && Number(targetRec.booking.deposit_cents) > 0 && !targetRec.booking.deposit_refundable;
   if ((cents(body.deposit) > 0 || heldDeposit) && !body.depositRefundable) {
