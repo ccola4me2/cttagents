@@ -36,7 +36,7 @@ export async function handleRoster(request, env, groupId) {
   const scope = db.scopeFor(env, user, request);
   const gScoped = db.scopeWhere(scope, 'g.user_id');
   const group = await env.DB.prepare(
-    `SELECT g.id, g.user_id, g.name, g.passport_due, g.depart_date
+    `SELECT g.id, g.user_id, g.name, g.passport_due, g.depart_date, g.ctt_group_id, g.ctt_owner_id
        FROM travel_groups g WHERE g.id = ? AND ${gScoped.sql}`
   ).bind(groupId, ...gScoped.binds).first();
   if (!group) return notFound('Group not found.');
@@ -126,8 +126,21 @@ export async function handleRoster(request, env, groupId) {
     };
   });
 
+  // A Group Desk copy takes no names itself; the CTT original's page does. The desk is told who has signed up there, by
+  // name and party size and no more: no contact details, notes, passports or money, which stay with CTT's advisor.
+  let cttSignups = null;
+  if (group.ctt_group_id && group.ctt_owner_id) {
+    const { results: theirs } = await env.DB.prepare(
+      `SELECT name, party_size, status FROM group_registrations
+        WHERE group_id = ? AND user_id = ? ORDER BY created_at ASC LIMIT 300`
+    ).bind(group.ctt_group_id, group.ctt_owner_id).all().catch(() => ({ results: [] }));
+    cttSignups = (theirs || []).map((r) => ({ name: r.name, partySize: r.party_size, status: r.status }));
+  }
+  const { ctt_group_id: _g, ctt_owner_id: _o, ...publicGroup } = group;
+
   return json({
-    group,
+    group: publicGroup,
+    cttSignups,
     registrations: rows,
     statuses: REGISTRATION_STATUSES,
     // What the page offers to download, named here rather than in the markup

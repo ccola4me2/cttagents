@@ -1564,6 +1564,23 @@ function renderRoster() {
       c.people === 1 ? '' : 's'} named`
     : '';
 
+  // A desk copy: the sign-ups are on the CTT original's page, so say who is on it, by name only.
+  if (!rows.length && Array.isArray(roster.cttSignups)) {
+    stats.hidden = true;
+    const theirs = roster.cttSignups;
+    const people = theirs.reduce((n, r) => n + (Number(r.partySize) || 0), 0);
+    document.getElementById('signup-count').textContent = theirs.length
+      ? `${theirs.length} part${theirs.length === 1 ? 'y' : 'ies'}, ${people} traveller${people === 1 ? '' : 's'}`
+      : '';
+    const nameRows = theirs.map((r) => '<li>' + esc(r.name)
+      + (r.partySize ? ' <span class="muted">(' + esc(String(r.partySize)) + ')</span>' : '') + '</li>').join('');
+    host.innerHTML = theirs.length
+      ? '<p class="muted" style="margin:0 0 .6rem;">These signed up on the CTT page. Their details stay with CTT.</p>'
+        + '<ul style="margin:0;padding-left:1.1rem;">' + nameRows + '</ul>'
+      : '<div class="empty"><h3>Nobody yet</h3><p>The sign-up page is on at CTT. Names show here as they arrive.</p></div>';
+    return;
+  }
+
   if (!rows.length) {
     stats.hidden = true;
     host.innerHTML = `<div class="empty"><h3>Nobody yet</h3>
