@@ -389,6 +389,8 @@ const DESK_NAV = [
   { href: '/app/groups', label: 'Groups', icon: I.groups, alsoOn: ['/app/group', '/app/group-sheet'] },
   { href: '/app/desk-leads', label: 'Leads', icon: I.people },
   { href: '/app/settings', label: 'My pages', icon: I.gear },
+  // The agency's numbers (CLIA, IATA, Seller of Travel), for a supplier's form when a group is booked.
+  { href: '/app/agency-info', label: 'Agency info', icon: I.book },
   // Only for the desk member who runs the portal: who is on the desk, and a link for each new person.
   { href: '/app/desk-members', label: 'Desk members', icon: I.shield, deskOperator: true },
 ];

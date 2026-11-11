@@ -782,7 +782,7 @@ async function routeRequest(request, env, ctx) {
 
 // The pages a desk member may open on the group domain, and the few API calls that need no sign in. Anything
 // else under /api needs a signed in desk member, and anything not listed here is not served on that domain at all.
-const DESK_APP_PAGES = new Set(['/app/desk', '/app/desk-leads', '/app/desk-members', '/app/groups', '/app/group', '/app/group-sheet', '/app/settings']);
+const DESK_APP_PAGES = new Set(['/app/desk', '/app/desk-leads', '/app/desk-members', '/app/groups', '/app/group', '/app/group-sheet', '/app/settings', '/app/agency-info']);
 const DESK_OPEN_API = new Set(['/api/auth/login', '/api/auth/logout', '/api/auth/me', '/api/auth/reset']);
 
 /**
