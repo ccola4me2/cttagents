@@ -1441,6 +1441,8 @@ document.getElementById('repeat-go').addEventListener('click', async (e) => {
 // should not wait on it to become editable.
 
 let roster = { registrations: [], statuses: [], counts: {}, canHoldPassports: false };
+// True on a Group Desk copy, which shows the CTT original's sign-ups to read and not to change.
+let readOnlyRoster = false;
 
 function passportChip(t) {
   if (t.hasPassport) {
@@ -1471,7 +1473,7 @@ function travellerLine(t) {
     </div>
     <div style="text-align:right;white-space:nowrap;">
       ${passportChip(t)}
-      ${canEdit ? `<button class="btn btn-ghost btn-sm" data-trav="${esc(t.id)}"
+      ${canEdit && !readOnlyRoster ? `<button class="btn btn-ghost btn-sm" data-trav="${esc(t.id)}"
         style="margin-left:.4rem;">Edit</button>` : ''}
     </div>
   </div>`;
@@ -1529,12 +1531,12 @@ function partyCard(r) {
           ${moneyLine(r)}
           ${chase}
           <div style="margin-top:.5rem;display:flex;gap:.4rem;justify-content:flex-end;">
-            ${canEdit ? `<select class="btn-sm" data-status="${esc(r.id)}"
+            ${canEdit && !readOnlyRoster ? `<select class="btn-sm" data-status="${esc(r.id)}"
               style="padding:.3rem .5rem;">${roster.statuses.map((st) => `<option value="${esc(st)}"${
   st === r.status ? ' selected' : ''}>${esc(st)}</option>`).join('')}</select>` : ''}
             ${r.booking_id
     ? `<a class="btn btn-ghost btn-sm" href="/app/reservation?id=${encodeURIComponent(r.booking_id)}">Booked</a>`
-    : canEdit
+    : canEdit && !readOnlyRoster
       ? `<button class="btn btn-primary btn-sm" data-book="${esc(r.id)}">Book them</button>`
       : ''}
           </div>
@@ -1564,19 +1566,25 @@ function renderRoster() {
       c.people === 1 ? '' : 's'} named`
     : '';
 
-  // A desk copy: the sign-ups are on the CTT original's page, so say who is on it, by name only.
+  // A desk copy: the sign-ups are on the CTT original's page. Show each party as they filled the form in, to read only.
+  readOnlyRoster = false;
   if (!rows.length && Array.isArray(roster.cttSignups)) {
-    stats.hidden = true;
-    const theirs = roster.cttSignups;
-    const people = theirs.reduce((n, r) => n + (Number(r.partySize) || 0), 0);
+    readOnlyRoster = true;
+    const theirs = roster.cttSignups.map((r) => ({
+      ...r,
+      travellers: r.travellers || [],
+      booking_id: null,
+      missingPassport: (r.travellers || []).filter((t) => !t.hasPassport).length,
+      money: { supplier: { due: 0, paid: 0 }, agency: { due: 0, paid: 0 }, supplierOutstanding: 0, agencyOutstanding: 0 },
+    }));
+    const people = theirs.reduce((n, r) => n + r.travellers.length, 0);
     document.getElementById('signup-count').textContent = theirs.length
-      ? `${theirs.length} part${theirs.length === 1 ? 'y' : 'ies'}, ${people} traveller${people === 1 ? '' : 's'}`
+      ? theirs.length + ' part' + (theirs.length === 1 ? 'y' : 'ies') + ', ' + people + ' traveller' + (people === 1 ? '' : 's') + ' named'
       : '';
-    const nameRows = theirs.map((r) => '<li>' + esc(r.name)
-      + (r.partySize ? ' <span class="muted">(' + esc(String(r.partySize)) + ')</span>' : '') + '</li>').join('');
+    stats.hidden = true;
     host.innerHTML = theirs.length
-      ? '<p class="muted" style="margin:0 0 .6rem;">These signed up on the CTT page. Their details stay with CTT.</p>'
-        + '<ul style="margin:0;padding-left:1.1rem;">' + nameRows + '</ul>'
+      ? '<div class="card-pad"><p class="muted" style="margin:0 0 .8rem;">These signed up on the CTT page. This is for reading: they are booked from CTT.</p>'
+        + theirs.map(partyCard).join('') + '</div>'
       : '<div class="empty"><h3>Nobody yet</h3><p>The sign-up page is on at CTT. Names show here as they arrive.</p></div>';
     return;
   }

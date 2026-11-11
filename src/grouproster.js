@@ -126,15 +126,31 @@ export async function handleRoster(request, env, groupId) {
     };
   });
 
-  // A Group Desk copy takes no names itself; the CTT original's page does. The desk is told who has signed up there, by
-  // name and party size and no more: no contact details, notes, passports or money, which stay with CTT's advisor.
+  // A Group Desk copy takes no names itself; the CTT original's page does. The desk works the booking, so it is shown each
+  // party as they filled the form in: contact, the cabin they want, what they ticked, who is travelling, passports as
+  // they are shown everywhere else (the number masked). Not the money, which is CTT's.
   let cttSignups = null;
   if (group.ctt_group_id && group.ctt_owner_id) {
     const { results: theirs } = await env.DB.prepare(
-      `SELECT name, party_size, status FROM group_registrations
-        WHERE group_id = ? AND user_id = ? ORDER BY created_at ASC LIMIT 300`
+      `SELECT r.id, r.name, r.email, r.phone, r.party_size, r.notes, r.status, r.terms_at, r.created_at,
+              rt.room_type AS rate_name
+         FROM group_registrations r
+         LEFT JOIN group_rates rt ON rt.id = r.rate_id
+        WHERE r.group_id = ? AND r.user_id = ? ORDER BY r.created_at DESC LIMIT 300`
     ).bind(group.ctt_group_id, group.ctt_owner_id).all().catch(() => ({ results: [] }));
-    cttSignups = (theirs || []).map((r) => ({ name: r.name, partySize: r.party_size, status: r.status }));
+    const { results: theirPeople } = await env.DB.prepare(
+      `SELECT t.id, t.registration_id, t.name, t.email, t.passport_country, t.dietary, t.accessibility,
+              t.emergency_name, t.emergency_phone, t.emergency_relation, t.is_lead,
+              t.dob_enc, t.passport_number_enc, t.passport_expiry_enc
+         FROM group_travellers t WHERE t.group_id = ? AND t.user_id = ?
+        ORDER BY t.is_lead DESC, t.created_at ASC`
+    ).bind(group.ctt_group_id, group.ctt_owner_id).all().catch(() => ({ results: [] }));
+    const people = new Map();
+    for (const t of theirPeople || []) {
+      if (!people.has(t.registration_id)) people.set(t.registration_id, []);
+      people.get(t.registration_id).push(await publicTraveller(env, t));
+    }
+    cttSignups = (theirs || []).map((r) => ({ ...r, travellers: people.get(r.id) || [] }));
   }
   const { ctt_group_id: _g, ctt_owner_id: _o, ...publicGroup } = group;
 
