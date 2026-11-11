@@ -512,6 +512,37 @@ document.addEventListener('paste', (e) => {
 
 let inboxId = null;
 
+// Arriving from a reservation's own page: the confirmation read here is added to that reservation, not made into a new one.
+// It carries the people already on it, so a guest named on the confirmation is matched to the traveller who is there.
+const targetId = new URLSearchParams(location.search).get('booking') || '';
+let targetRec = null;
+if (targetId) {
+  try {
+    targetRec = await api(`/api/bookings/${encodeURIComponent(targetId)}/record`);
+    const who = (targetRec.booking && targetRec.booking.client_name) || 'this reservation';
+    document.querySelector('h1').textContent = `Add the confirmation to ${who}`;
+    document.querySelector('.topbar .sub').textContent = 'Read the cruise line confirmation and the reservation is filled in from it: confirmation number, cabin, pricing, payments, guests and itinerary.';
+    document.getElementById('conf-create').textContent = 'Update the reservation';
+  } catch (e) { targetRec = null; }
+}
+const guestWords = (s) => String(s || '').toLowerCase().replace(/\b(jr|sr|ii|iii|iv)\b\.?/g, '').replace(/[^a-z ]/g, ' ').split(/\s+/).filter(Boolean);
+function sameGuest(a, b) {
+  const x = guestWords(a);
+  const y = guestWords(b);
+  return x.length > 0 && y.length > 0 && x[0] === y[0] && x[x.length - 1] === y[y.length - 1];
+}
+/** The traveller already on the reservation for this guest, once each; a new one is made when there is none. */
+async function travellerFor(bookingId, person, isLead) {
+  if (targetId && targetRec) {
+    const hit = (targetRec.travellers || []).find((t) => !t.used && sameGuest(t.name, person.name));
+    if (hit) { hit.used = true; return { id: hit.id, existing: true }; }
+  }
+  const made = await api(`/api/bookings/${encodeURIComponent(bookingId)}/travellers`, { method: 'POST',
+    body: { name: person.name, dob: person.dob, email: person.email, phone: person.phone, isLead } });
+  return { id: made.id, existing: false };
+}
+const doneWord = targetId ? 'updated' : 'created';
+
 async function loadInbox() {
   const addr = document.getElementById('inbox-address');
   const list = document.getElementById('inbox-list');
@@ -753,7 +784,9 @@ document.getElementById('conf-create').addEventListener('click', async () => {
     return;
   }
   if (lastRead && lastRead.fields && lastRead.fields.productType) body.productType = lastRead.fields.productType;
-  if (cents(body.deposit) > 0 && !body.depositRefundable) {
+  // On a reservation that already holds a deposit, from its group, the deposit has to say too, as the server will insist.
+  const heldDeposit = targetRec && targetRec.booking && Number(targetRec.booking.deposit_cents) > 0 && !targetRec.booking.deposit_refundable;
+  if ((cents(body.deposit) > 0 || heldDeposit) && !body.depositRefundable) {
     createErr.textContent = 'Choose whether the deposit is refundable or non refundable.';
     { document.getElementById('conf-details').open = true; createErr.hidden = false; createErr.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
     return;
@@ -796,7 +829,13 @@ document.getElementById('conf-create').addEventListener('click', async () => {
           body: { guests: filing, preview: false, accept: review.accept, household: review.household } });
       } catch (e4) { afterwards.push(`the guests were not filed as clients (${esc(e4.message)})`); }
     }
-    const res = await api('/api/bookings', { method: 'POST', body });
+    let res;
+    if (targetId) {
+      const up = await api(`/api/bookings/${encodeURIComponent(targetId)}`, { method: 'PUT', body });
+      res = { booking: { ...(up.booking || {}), id: targetId } };
+    } else {
+      res = await api('/api/bookings', { method: 'POST', body });
+    }
     let travellersMade = false;
     if (hasLines) {
       // The reservation exists by now, so a failure here is said and not hidden, and the
@@ -806,16 +845,15 @@ document.getElementById('conf-create').addEventListener('click', async () => {
         if (splitByGuest) {
           ids = [];
           for (let i = 0; i < people.length; i += 1) {
-            const made = await api(`/api/bookings/${encodeURIComponent(res.booking.id)}/travellers`,
-              { method: 'POST', body: { name: people[i].name, dob: people[i].dob, email: contactOf(people[i].name).email,
-                phone: contactOf(people[i].name).phone, isLead: i === 0 } });
+            const made = await travellerFor(res.booking.id, { name: people[i].name, dob: people[i].dob,
+              email: contactOf(people[i].name).email, phone: contactOf(people[i].name).phone }, i === 0);
             ids.push(made.id);
           }
           travellersMade = true;
         }
         await api(`/api/bookings/${encodeURIComponent(res.booking.id)}/pricing`, { method: 'PUT', body: pricingBody(ids) });
       } catch (e3) {
-        createErr.innerHTML = `The reservation was created, but its pricing was not saved (${esc(e3.message)}).
+        createErr.innerHTML = `The reservation was ${doneWord}, but its pricing was not saved (${esc(e3.message)}).
           <a href="/app/reservation?id=${encodeURIComponent(res.booking.id)}">Open the reservation</a> and enter it on the Pricing tab.`;
         createErr.hidden = false;
         return;
@@ -825,8 +863,7 @@ document.getElementById('conf-create').addEventListener('click', async () => {
     if (!travellersMade) {
       for (let i = 0; i < filing.length; i += 1) {
         try {
-          await api(`/api/bookings/${encodeURIComponent(res.booking.id)}/travellers`, { method: 'POST',
-            body: { name: filing[i].name, dob: filing[i].birthday, email: filing[i].email, phone: filing[i].phone, isLead: i === 0 } });
+          await travellerFor(res.booking.id, { name: filing[i].name, dob: filing[i].birthday, email: filing[i].email, phone: filing[i].phone }, i === 0);
         } catch { /* the reservation stands; they can be added on its Travellers tab */ }
       }
     }
@@ -857,7 +894,7 @@ document.getElementById('conf-create').addEventListener('click', async () => {
       }
     }
     if (afterwards.length) {
-      createErr.innerHTML = `The reservation was created, but ${afterwards.join(' and ')}.
+      createErr.innerHTML = `The reservation was ${doneWord}, but ${afterwards.join(' and ')}.
         <a href="/app/reservation?id=${encodeURIComponent(res.booking.id)}">Open the reservation</a> and add ${afterwards.length === 1 ? 'it' : 'them'} there.`;
       createErr.hidden = false;
       return;

@@ -318,6 +318,14 @@ function guestsFromColumns(lines, n, listed) {
   const last = afterLabel(lines, ['last name', 'last names', 'surname']).split(/\s+/).filter(Boolean);
   // The label can be lost in the text, leaving the row of first names on its own line just above the surnames.
   if (!first.length) first = orphanFirstNames(lines);
+  // A generational suffix belongs to the surname before it: "Sample Sample JR" is two guests, the second a Jr.
+  const surnames = last.reduce((out, t) => {
+    if (out.length && /^(?:jr|sr|ii|iii|iv)\.?$/i.test(t)) {
+      out[out.length - 1] += ` ${/^[js]r/i.test(t) ? t[0].toUpperCase() + t[1].toLowerCase() : t.toUpperCase()}`;
+    }
+    else out.push(t);
+    return out;
+  }, []);
   // A single letter is a middle initial and belongs to the name before it.
   first = first.reduce((out, t) => {
     if (out.length && /^[A-Za-z]\.?$/.test(t)) out[out.length - 1] += ` ${t.replace('.', '')}`;
@@ -328,10 +336,10 @@ function guestsFromColumns(lines, n, listed) {
     .matchAll(/([A-Za-z]{3,9}\.? \d{1,2},? \d{4})/g)].map((m) => anyDate(m[1]) || null);
 
   let names = null;
-  if (first.length === n && last.length === n) {
-    names = first.map((f, i) => `${fixCaps(f)} ${fixCaps(last[i])}`.trim());
-  } else if (first.length === n && last.length === 1) {
-    names = first.map((f) => `${fixCaps(f)} ${fixCaps(last[0])}`.trim());
+  if (first.length === n && surnames.length === n) {
+    names = first.map((f, i) => `${fixCaps(f)} ${fixCaps(surnames[i])}`.trim());
+  } else if (first.length === n && surnames.length === 1) {
+    names = first.map((f) => `${fixCaps(f)} ${fixCaps(surnames[0])}`.trim());
   } else if (listed.length === n) {
     names = listed.map((g) => g.name);
   }
@@ -355,6 +363,8 @@ function readEnhancements(lines) {
   for (const raw of lines.slice(at + 1)) {
     const line = raw.trim();
     if (!line) continue;
+    // An included amenity is printed with a dash for its total ("$175 ONBOARD CREDIT - 1 -"), which is nothing paid.
+    if (/^.+\s+-\s+\d+\s+-$/.test(line)) continue;
     const m = /^(.+?)\s+\$\s*([\d,]+\.\d{2})\s+(\d+)\s+\$\s*([\d,]+\.\d{2})$/.exec(line);
     if (!m) break;
     const key = m[1].trim().toLowerCase();
@@ -389,7 +399,30 @@ function readEnhancements(lines) {
  * gross amount, whatever is left once fare and insurance are taken out of it is
  * counted as fees rather than dropped, and the page says so.
  */
-function readPricing(lines, fields, listed) {
+/**
+ * "Required Cruise Fees &" on one line, "Expenses" on the next and the figures on a third, put back as one row, which is how the
+ * label wraps on some agent copies. Without it the fees have no label and are counted as taxes by the gap rule, which is only
+ * right by luck of the total.
+ */
+function joinRequiredFees(lines) {
+  const out = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const here = String(lines[i]).trim();
+    const next = String(lines[i + 1] || '').trim();
+    const after = String(lines[i + 2] || '').trim();
+    if (/^required cruise fees\b/i.test(here) && !here.match(MONEY_TOKEN) && /^expenses$/i.test(next)
+        && after.match(MONEY_TOKEN) && !after.replace(MONEY_TOKEN, '').replace(/[\s$]/g, '')) {
+      out.push(`${here} ${next} ${after}`);
+      i += 2;
+    } else {
+      out.push(lines[i]);
+    }
+  }
+  return out;
+}
+
+function readPricing(rawLines, fields, listed) {
+  const lines = joinRequiredFees(rawLines);
   const fare = moneyRow(lines, ['cabin fare', 'cruise fare', 'stateroom fare', 'base fare', 'fare'], { all: true });
   if (!fare) return null;
 

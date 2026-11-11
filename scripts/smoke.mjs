@@ -7066,6 +7066,20 @@ async function main() {
   check(tipLines === 'fare:1677.70, taxes:352.00, gratuities:352.00' && withTips.data?.pricing?.guests?.[0]?.gratuities === '176.00'
       && withTips.data?.pricing?.balanced === true,
     'prepaid gratuities in the enhancements table are read as gratuities, a share for each guest', tipLines);
+  // A free amenity is printed with dashes for its total, the fees label can wrap with its figures a line later, and a Jr belongs to the surname.
+  const withJr = await call(advisor, 'POST', '/api/import/confirmation', { text: [
+    'Pat Sample', 'BOOKING ID: 99887755', 'Departure Date: Jun 12, 2027 Return Date: Jun 19, 2027',
+    'Ship: Margaritaville at Sea Beachcomber Total Guests: 2', 'Guest 1 Guest 2', 'First Name PAT LEE', 'Last Name Sample Sample JR',
+    'Date of Birth, Age Jan 02, 1980, 46 Jan 02, 1982, 44', 'Cabin Fare $1,572.50 $1,572.50', 'Discount(s) $943.50 $943.50',
+    'Govt. Taxes & Fees $153.38 $153.38', 'Required Cruise Fees &', 'Expenses', '$66.62 $66.62', 'Passenger Total $849.00 $849.00',
+    'Stateroom Subtotal: $1,698.00', 'Cruise Enhancements Price Qnty Total', '$175 ONBOARD CREDIT - 1 -', '$175 ONBOARD CREDIT - 1 -',
+    'ULTIMATE BEVERAGE CHILL $461.96 1 $461.96', 'ULTIMATE BEVERAGE CHILL $461.96 1 $461.96',
+    'TOTAL STATEROOM AMOUNT: $2,621.92', 'Gross Amount of Reservation: $4,508.92', 'Discounts Applied: $1,887.00', 'Total Booking Amount: $2,621.92',
+  ].join('\n') });
+  const jrLines = (withJr.data?.pricing?.lines || []).map((l) => `${l.kind}:${l.amount}`).join(', ');
+  const jrNames = (withJr.data?.pricing?.guests || []).map((g) => g.name).join(' | ');
+  check(jrLines === 'fare:1258.00, beverage:923.92, taxes:440.00' && jrNames === 'Pat Sample | Lee Sample Jr' && withJr.data?.pricing?.balanced === true,
+    'a free amenity line is skipped, wrapped fees keep their figures, and a Jr stays with the surname', `${jrLines} / ${jrNames}`);
   // The sailing line "Itinerary: ..." is the reservation's itinerary, and the port table is read day by day.
   const withDays = await call(advisor, 'POST', '/api/import/confirmation', { text: [
     'Pat Sample', 'pat.sample@example.test Booking Date: Nov 04, 2026', '5550100123 Status: Pending',

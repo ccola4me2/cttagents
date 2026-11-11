@@ -2262,6 +2262,8 @@ function render() {
          : ''}
        ${outgoing ? `<button class="btn ${stale ? 'btn-secondary' : 'btn-ghost'} btn-sm"
          id="send-statement">${esc(outgoing)}</button>` : ''}
+       ${b.status === 'cancelled' ? '' : `<a class="btn ${b.confirmation_number ? 'btn-ghost' : 'btn-primary'} btn-sm"
+         href="/app/import?booking=${encodeURIComponent(id)}">Import confirmation</a>`}
        <button class="btn btn-ghost btn-sm" id="duplicate-btn">Duplicate</button>
 `
     : '';
