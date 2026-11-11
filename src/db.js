@@ -1202,23 +1202,17 @@ export const BOOKING_OWNED = BOOKING_CHILDREN.filter((t) => t !== 'client_credit
  * kilobytes nobody can reach, and only the first is visible to anybody.
  */
 export async function deleteBooking(env, id, userId) {
-  // A grandchild, and the only one.
+  // A group sign-up that was made into this reservation goes back to being a sign-up.
   //
-  // group_registrations is in the list below, so a reservation made from a
-  // group sign-up takes that sign-up with it. The people named on that sign-up
-  // hang off the registration rather than off the booking, so they are not in
-  // the list and nothing else would ever reach them: the registration would go
-  // and leave rows behind holding sealed passports that no screen can read and
-  // no delete can find.
-  //
-  // Done first, while the registration ids are still there to join on. Best
-  // effort like the batch below, for the same reason.
+  // The reservation is the advisor's work on a party; the party is the client's own sign-up, with the people named on it
+  // and the passports they gave. Deleting a reservation, often to start it again or because it was made by mistake, must
+  // not take the client's sign-up with it: it is unlinked and set back to new, so it is on the group's list again with
+  // everyone on it, ready to be booked. It is done first, so the batch below finds no registration left to delete.
   await env.DB.prepare(
-    `DELETE FROM group_travellers
-      WHERE user_id = ? AND registration_id IN
-        (SELECT r.id FROM group_registrations r WHERE r.booking_id = ? AND r.user_id = ?)`
-  ).bind(userId, id, userId).run()
-    .catch((e) => { console.error('delete group travellers', e); });
+    `UPDATE group_registrations SET booking_id = NULL, status = 'new', updated_at = ?
+      WHERE booking_id = ? AND user_id = ?`
+  ).bind(Math.floor(Date.now() / 1000), id, userId).run()
+    .catch((e) => { console.error('unlink group registration', e); });
 
   const writes = BOOKING_OWNED.map((table) => env.DB.prepare(
     `DELETE FROM ${table} WHERE booking_id = ? AND user_id = ?`

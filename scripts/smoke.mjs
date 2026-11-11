@@ -7708,16 +7708,17 @@ async function main() {
     // Last, after every other assertion, for two reasons. The dashboard's
     // quote panel holds twelve rows, and a reservation left sitting in the
     // quoted state pushed the one a later section asserts on straight off it.
-    // And deleting it is the case worth testing: group_registrations hangs off
-    // the booking, so the sign-up goes with the reservation, and the people
-    // named on that sign-up hang off the registration rather than the booking.
-    // Nothing would have reached them.
+    // And deleting it is the case worth testing: the sign-up is the client's own,
+    // so it is unlinked and set back to new rather than going with the
+    // reservation, and the people named on it stay with it.
     await dropBooking(groupBookingId);
 
     const after = await call(advisor, 'GET', `/api/groups/${signupGroupId}/roster`);
     const left = after.data?.registrations || [];
-    check(!left.some((r) => r.id === patParty.id),
-      'deleting the reservation takes the sign-up it came from with it');
+    const kept = left.find((r) => r.id === patParty.id);
+    check(Boolean(kept) && !kept.booking_id && kept.status === 'new' && kept.travellers.length > 0,
+      'deleting the reservation puts the sign-up it came from back on the list, with its people',
+      JSON.stringify(kept && { booking: kept.booking_id, status: kept.status, people: kept.travellers.length }));
     check(left.every((r) => r.travellers.every((t) => t.registration_id === r.id)),
       'and leaves nobody pointing at a sign-up that has gone');
     check(after.data?.counts?.people === left.reduce((n, r) => n + r.travellers.length, 0),
