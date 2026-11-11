@@ -847,6 +847,28 @@ function extrasBlock(title, lead, json) {
   }</div></div>`;
 }
 
+/**
+ * Everything a client can ask to have added, in one list: the drink packages and then the enhancements. The register form
+ * offers them by position and the server reads the same list back, so what is recorded is the name and price the group's page
+ * showed, and a value that is not in the list is simply ignored.
+ */
+function extrasChoices(g) {
+  return [...extrasList(g.drinks_json), ...extrasList(g.enhancements_json)].slice(0, 30);
+}
+
+/** The "anything extra?" card on the register form: a tick for each package or enhancement the group lists. */
+function extrasPicker(g) {
+  const items = extrasChoices(g);
+  if (!items.length) return '';
+  return '<div class="card"><h2>Anything extra?</h2>'
+    + '<p class="muted" style="margin-top:0;">Tick any you would like added to your booking. Nothing is charged here, and '
+    + 'we will confirm the price and availability with you.</p>'
+    + items.map((x, i) => `<div class="check"><input type="checkbox" id="extra${i}" name="extra" value="${i}">
+      <label for="extra${i}" style="font-weight:400;margin:0;">${esc(x.name)}${x.price ? ` <b>${esc(x.price)}</b>` : ''}${
+  x.note ? `<span class="muted" style="display:block;">${esc(x.note)}</span>` : ''}</label></div>`).join('')
+    + '</div>';
+}
+
 function perksBlock(g) {
   const perks = listOf(g.perks_json).map((p) => String(p || '').trim()).filter(Boolean);
   if (!perks.length) return '';
@@ -1205,6 +1227,8 @@ export async function renderRegisterPage(request, env, rawRef) {
     '<input id="em_rel" name="em_rel" maxlength="60" placeholder="Sister, neighbour"></div>',
     '</div></div>',
 
+    extrasPicker(g),
+
     '<div class="card"><h2>What this costs</h2>',
     '<div class="totals" id="totals">',
     '<div class="row"><span>Trip cost, per guest</span><b id="t-trip">Pick a cabin</b></div>',
@@ -1305,6 +1329,7 @@ form.addEventListener('submit', async (e) => {
     emergencyName: raw['em_name'] || '',
     emergencyPhone: raw['em_phone'] || '',
     emergencyRelation: raw['em_rel'] || '',
+    extras: [...form.querySelectorAll('input[name="extra"]:checked')].map((el) => el.value),
     agree: Boolean(raw['agree']),
     company_website: raw['company_website'] || '',
     'cf-turnstile-response': raw['cf-turnstile-response'] || '',
@@ -1442,6 +1467,15 @@ export async function handleRegister(request, env, rawRef) {
       + 'we will ask for them separately.');
   }
 
+  // What they ticked under "Anything extra?", kept as a line in the sign-up's notes so it is on the roster card and in front of
+  // whoever books them. Only names the group lists count; anything else in the list is dropped.
+  const offered = extrasChoices(g);
+  const picked = [...new Set((Array.isArray(body.extras) ? body.extras : []).map((v) => Number(v)))]
+    .filter((i) => Number.isInteger(i) && i >= 0 && i < offered.length).slice(0, 30);
+  const extrasNote = picked.length
+    ? clean('Extras asked for: ' + picked.map((i) => offered[i].name + (offered[i].price ? ' (' + offered[i].price + ')' : '')).join('; '), 1000)
+    : null;
+
   const ts = now();
   const registrationId = uid();
 
@@ -1451,7 +1485,7 @@ export async function handleRegister(request, env, rawRef) {
         rate_id, status, terms_at, terms_text, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?)`
   ).bind(registrationId, g.id, g.user_id, leadName, leadEmail,
-         clean(body.leadPhone, 40) || null, named.length, null, ipHash,
+         clean(body.leadPhone, 40) || null, named.length, extrasNote, ipHash,
          rate ? rate.id : null,
          // What was on screen, not a pointer to what it says now. The group's
          // terms can be edited afterwards and the only useful record is the

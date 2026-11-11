@@ -7818,6 +7818,19 @@ async function main() {
       && page.raw.includes('$59.99 per person per day') && page.raw.includes('Enhancements and add-ons')
       && page.raw.includes('Wi-Fi'),
     'and drink packages and enhancements, with their prices');
+    // The same lists on the register form, so what a client wants added is asked for at the time they book.
+    const extrasForm = await call(null, 'GET', `/gs/${slugA}/register`);
+    check(extrasForm.raw.includes('Anything extra?') && extrasForm.raw.includes('Premium drink package')
+      && extrasForm.raw.includes('name="extra"'),
+    'the register form offers the group\'s drink packages and enhancements to tick');
+    const extrasPost = await call(null, 'POST', `/gs/${slugA}/register`, {
+      leadName: `Extras ${stamp}`, leadEmail: `extras-${stamp}@test.dev`, extras: ['1', '0', '9', 'nope'],
+      travellers: [{ name: `Extras ${stamp}` }],
+    });
+    const extrasRoster = await call(advisor, 'GET', `/api/groups/${gid}/roster`);
+    const extrasRow = (extrasRoster.data?.registrations || []).find((r) => (r.email || '').startsWith('extras-'));
+    check(extrasPost.status === 200 && (extrasRow?.notes || '') === 'Extras asked for: Wi-Fi ($19.99 per day); Premium drink package ($59.99 per person per day)',
+      'what they tick is kept on the sign-up, and a choice the group does not offer is ignored', `${extrasPost.status} ${extrasRow?.notes}`);
     // Visits, and the owner's view of every group.
     check(!page.raw.includes('Admin login') && !page.raw.includes('/login?next=%2Fadmin%2Fgroups')
       && page.raw.includes('/privacy">Privacy policy'),
