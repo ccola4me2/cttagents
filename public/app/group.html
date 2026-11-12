@@ -1510,7 +1510,21 @@ function moneyLine(r) {
   return bits.length ? `<div style="margin-bottom:.4rem;">${bits.join(' ')}</div>` : '';
 }
 
+/** The extras a sign-up ticked ("Extras asked for: a; b" in its notes), as tags, and the rest of the notes without that line. */
+function splitExtras(notes) {
+  const out = { tags: [], rest: [] };
+  for (const line of String(notes || '').split('\n')) {
+    const m = /^Extras asked for:\s*(.+)$/i.exec(line.trim());
+    if (m) out.tags.push(...m[1].split(/;\s*/).filter(Boolean));
+    else if (line.trim()) out.rest.push(line);
+  }
+  return out;
+}
+
 function partyCard(r) {
+  const extras = splitExtras(r.notes);
+  const wants = extras.tags.map((t) => '<span class="pill pill-good">Wants ' + esc(t) + '</span>').join(' ');
+  const otherNotes = extras.rest.join('\n');
   const when = dateFmt(new Date(r.created_at * 1000).toISOString().slice(0, 10));
   const chase = r.missingPassport
     ? `<span class="pill pill-warn">${r.missingPassport} passport${
@@ -1525,7 +1539,8 @@ function partyCard(r) {
           <div class="muted">Registered ${esc(when)}${
   r.rate_name ? ` \u00b7 wants ${esc(r.rate_name)}` : ''}${
   r.terms_at ? ' \u00b7 agreed the terms' : ''}</div>
-          ${r.notes ? `<div class="muted" style="white-space:normal;">${esc(r.notes)}</div>` : ''}
+          ${wants ? '<div style="margin:.3rem 0;">' + wants + '</div>' : ''}
+          ${otherNotes ? '<div class="muted" style="white-space:normal;">' + esc(otherNotes) + '</div>' : ''}
         </div>
         <div style="text-align:right;">
           ${moneyLine(r)}
