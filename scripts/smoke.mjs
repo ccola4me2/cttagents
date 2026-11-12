@@ -7080,6 +7080,17 @@ async function main() {
   const jrNames = (withJr.data?.pricing?.guests || []).map((g) => g.name).join(' | ');
   check(jrLines === 'fare:1258.00, beverage:923.92, taxes:440.00' && jrNames === 'Pat Sample | Lee Sample Jr' && withJr.data?.pricing?.balanced === true,
     'a free amenity line is skipped, wrapped fees keep their figures, and a Jr stays with the surname', `${jrLines} / ${jrNames}`);
+  // A two word first name makes the first names run to more words than there are guests; the client's own name at the top settles it.
+  const twoWord = await call(advisor, 'POST', '/api/import/confirmation', { text: [
+    'Pat Ann Sample', 'BOOKING ID: 99887766', 'Departure Date: Jun 12, 2027 Return Date: Jun 19, 2027',
+    'Ship: Margaritaville at Sea Beachcomber Total Guests: 2', 'Guest 1 Guest 2', 'First Name PAT ANN LEE', 'Last Name Sample Sample',
+    'Date of Birth, Age Jan 02, 1980, 46 Jan 02, 1982, 44', 'Cabin Fare $1,572.50 $1,572.50', 'Discount(s) $943.50 $943.50',
+    'Govt. Taxes & Fees $153.38 $153.38', '$66.62 $66.62', 'Required Cruise Fees &', 'Expenses', 'Passenger Total $849.00 $849.00',
+    'Stateroom Subtotal: $1,698.00', 'TOTAL STATEROOM AMOUNT: $1,698.00', 'Gross Amount of Reservation: $3,585.00',
+    'Discounts Applied: $1,887.00', 'Total Booking Amount: $1,698.00',
+  ].join('\n') });
+  const twoNames = (twoWord.data?.pricing?.guests || []).map((g) => g.name).join(' | ');
+  check(twoNames === 'Pat Ann Sample | Lee Sample', 'a two word first name is split using the client name printed at the top', twoNames);
   // The sailing line "Itinerary: ..." is the reservation's itinerary, and the port table is read day by day.
   const withDays = await call(advisor, 'POST', '/api/import/confirmation', { text: [
     'Pat Sample', 'pat.sample@example.test Booking Date: Nov 04, 2026', '5550100123 Status: Pending',

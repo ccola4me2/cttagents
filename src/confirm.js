@@ -313,7 +313,7 @@ function orphanFirstNames(lines) {
  * makes the counts disagree and the names are left for a person to fill in, rather than
  * guessed at and filed against the wrong traveller.
  */
-function guestsFromColumns(lines, n, listed) {
+function guestsFromColumns(lines, n, listed, hint) {
   let first = afterLabel(lines, ['first name', 'first names', 'given name']).split(/\s+/).filter(Boolean);
   const last = afterLabel(lines, ['last name', 'last names', 'surname']).split(/\s+/).filter(Boolean);
   // The label can be lost in the text, leaving the row of first names on its own line just above the surnames.
@@ -335,8 +335,18 @@ function guestsFromColumns(lines, n, listed) {
   const born = [...afterLabel(lines, ['date of birth, age', 'date of birth', 'dob'])
     .matchAll(/([A-Za-z]{3,9}\.? \d{1,2},? \d{4})/g)].map((m) => anyDate(m[1]) || null);
 
+  // The client's own name is printed at the top of the copy. When the first names run to more words than there are
+  // guests ("MARY ANN HENRY" for two), the client's first name is the words that match it, and what follows is the rest.
+  const leadWords = String(hint || '').trim().split(/\s+/).filter(Boolean);
+  const leadFirst = leadWords.length > 1 && surnames.length && leadWords[leadWords.length - 1].toLowerCase() === surnames[0].split(/\s+/)[0].toLowerCase()
+    ? leadWords.slice(0, -1) : [];
+  const rest = first.slice(leadFirst.length);
+  const leadMatches = leadFirst.length > 0 && leadFirst.every((w, i) => (first[i] || '').toLowerCase() === w.toLowerCase());
+
   let names = null;
-  if (first.length === n && surnames.length === n) {
+  if (first.length > n && surnames.length === n && leadMatches && rest.length === n - 1) {
+    names = [leadFirst, ...rest.map((w) => [w])].map((w, i) => `${w.map(fixCaps).join(' ')} ${fixCaps(surnames[i])}`.trim());
+  } else if (first.length === n && surnames.length === n) {
     names = first.map((f, i) => `${fixCaps(f)} ${fixCaps(surnames[i])}`.trim());
   } else if (first.length === n && surnames.length === 1) {
     names = first.map((f) => `${fixCaps(f)} ${fixCaps(surnames[0])}`.trim());
@@ -489,7 +499,8 @@ function readPricing(rawLines, fields, listed) {
     // What was bought is not printed against a guest, so each purchase is shared equally between them.
     const bevCols = spread(bevCents, n);
     const extraCols = spread(extraCents, n);
-    const people = guestsFromColumns(lines, n, listed);
+    const firstLine = lines.map((l) => l.trim()).find(Boolean) || '';
+    const people = guestsFromColumns(lines, n, listed, fields.clientName || (/^[A-Za-z][A-Za-z .'-]*$/.test(firstLine) ? firstLine : ''));
     const netFares = fares.map((f, i) => f - offs[i]);
     const comm = fields.commission ? shareBy(toCents(fields.commission), netFares) : new Array(n).fill(0);
     const pack = fields.commissionPackage ? shareBy(toCents(fields.commissionPackage), netFares) : new Array(n).fill(0);
