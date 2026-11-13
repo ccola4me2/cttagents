@@ -1199,12 +1199,14 @@ function shortUrl(link) {
 }
 
 let lastShared = false;
+let signupUrl = '';
 
 /**
  * A group brought onto the desk from CTT has no sign-up page of its own: it shows the page the group already has,
  * with the address people use, whether it is taking names, and what it looks like.
  */
 function drawCttPage(p) {
+  signupUrl = p && p.url ? String(p.url).replace(/\/+$/, '') : signupUrl;
   const card = document.getElementById('ctt-page-card');
   card.hidden = !p;
   // One page for the group, so the desk's own switch for a page is not offered next to it.
@@ -1232,6 +1234,7 @@ function drawCttPage(p) {
 }
 
 function renderLink(g, link, codeShared) {
+  if (link) signupUrl = shortUrl(link).replace(/\/+$/, '');
   const card = document.getElementById('link-card');
   const body = document.getElementById('link-body');
   const hint = document.getElementById('reg-link-hint');
@@ -1510,6 +1513,16 @@ function moneyLine(r) {
   return bits.length ? `<div style="margin-bottom:.4rem;">${bits.join(' ')}</div>` : '';
 }
 
+/** A mail to a sign-up that only sent an enquiry, with the link to the full sign-up form ready in it. */
+function askToSignUp(r) {
+  const first = String(r.name || '').trim().split(/\s+/)[0] || 'there';
+  const body = 'Hi ' + first + ',\n\nThank you for your interest. To hold your place, please fill in the sign-up form here, with each '
+    + 'traveller\'s name as it appears on the passport, date of birth and passport details:\n\n' + signupUrl + '/register\n\n'
+    + 'It only takes a few minutes. Reply if you have any questions.';
+  return 'mailto:' + encodeURIComponent(r.email).replace(/%40/g, '@') + '?subject=' + encodeURIComponent('Please complete your sign-up')
+    + '&body=' + encodeURIComponent(body);
+}
+
 /** The extras a sign-up ticked ("Extras asked for: a; b" in its notes), as tags, and the rest of the notes without that line. */
 function splitExtras(notes) {
   const out = { tags: [], rest: [] };
@@ -1523,6 +1536,15 @@ function splitExtras(notes) {
 
 function partyCard(r) {
   const extras = splitExtras(r.notes);
+  let enquiryNote = '';
+  if (r.travellers.length === 0) {
+    const size = Number(r.party_size) > 0 ? ' for ' + r.party_size + (Number(r.party_size) === 1 ? ' person' : ' people') : '';
+    const ask = signupUrl && r.email
+      ? ' <a class="btn btn-ghost btn-sm" href="' + esc(askToSignUp(r)) + '">Email them the sign-up form</a>' : '';
+    enquiryNote = '<div class="muted" style="margin:.6rem 0 0;white-space:normal;"><b>Enquiry only.</b> They used the short '
+      + '&ldquo;ask a question&rdquo; form, which takes just a name, email, mobile and how many are coming'
+      + esc(size) + '. No names, birthdays, passports or cabin yet, so ask them to fill in the sign-up form.' + ask + '</div>';
+  }
   const wants = extras.tags.map((t) => '<span class="pill pill-good">Wants ' + esc(t) + '</span>').join(' ');
   const otherNotes = extras.rest.join('\n');
   const when = dateFmt(new Date(r.created_at * 1000).toISOString().slice(0, 10));
@@ -1558,9 +1580,7 @@ function partyCard(r) {
         </div>
       </div>
       ${r.travellers.map(travellerLine).join('')}
-      ${r.travellers.length === 0
-    ? '<p class="muted" style="margin:.6rem 0 0;">Nobody named yet. This came in through the short enquiry form.</p>'
-    : ''}
+      ${enquiryNote}
     </div>
   </div>`;
 }
