@@ -158,7 +158,7 @@ function buildDining(all) {
     if (r.traveller_id) parties.set(r.registration_id, parties.get(r.registration_id) + 1);
   }
   return csv(
-    ['Party', 'People in party', 'Name', 'Cannot eat', 'Anything else'],
+    ['Party', 'People in party', 'Name', 'Dietary needs', 'Anything else'],
     wanted.map((r) => [
       r.party_name, parties.get(r.registration_id) || r.party_size || '',
       r.name, r.dietary, r.accessibility,

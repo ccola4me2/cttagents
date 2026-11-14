@@ -1461,7 +1461,7 @@ function travellerLine(t) {
     t.passport_country ? esc(t.passport_country) : '',
   ].filter(Boolean).join(' \u00b7 ');
   const needs = [
-    t.dietary ? `Cannot eat: ${esc(t.dietary)}` : '',
+    t.dietary ? `Dietary needs: ${esc(t.dietary)}` : '',
     t.accessibility ? esc(t.accessibility) : '',
   ].filter(Boolean).join(' \u00b7 ');
   return `<div style="display:flex;gap:.7rem;align-items:flex-start;
@@ -2090,7 +2090,7 @@ await load();
             <input id="trav-country" name="passportCountry" maxlength="60"></div>
         </div>
       </div>
-      <div class="field"><label for="trav-diet">Anything they cannot eat</label>
+      <div class="field"><label for="trav-diet">Dietary needs or allergies</label>
         <input id="trav-diet" name="dietary" maxlength="300"></div>
       <div class="field"><label for="trav-access">Anything that would make the trip easier</label>
         <input id="trav-access" name="accessibility" maxlength="300"></div>

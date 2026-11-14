@@ -1127,7 +1127,7 @@ function travellerBlock(i, withPassport) {
       <div class="field"><label for="t${i}country">Country of issue</label>
         <input id="t${i}country" name="t${i}country" maxlength="60" autocomplete="off"></div>
     </div>` : ''}
-    <div class="field"><label for="t${i}dietary">Anything you cannot eat</label>
+    <div class="field"><label for="t${i}dietary">Dietary needs or allergies</label>
       <input id="t${i}dietary" name="t${i}dietary" maxlength="300"></div>
     <div class="field"><label for="t${i}access">Anything that would make the trip easier</label>
       <input id="t${i}access" name="t${i}access" maxlength="300"></div>
