@@ -121,6 +121,13 @@ check(/extra\.bookingSource === 'tv' \? 'tv' : 'ctt'/.test(cabins),
 check(!/const people = await bridges\(env\);\s*\n\s*if \(!people\.length\) return;/.test(cabins),
   'and no early return stops the Trip Vara pass when nobody here is bridged');
 
+// A desk copy reads the reservations put on the CTT group it came from, not only those that carry its group number.
+// A group with no number yet (the usual case until the cruise line issues one) otherwise showed no cabins at all.
+check(/async function groupBookings\(env, cttId, cttGroupId\)/.test(cabins) && /b\.group_id = \?/.test(cabins),
+  'the desk copy reads the owner\'s reservations that are on the CTT group');
+check(/link\.ctt_group_id && link\.ctt_owner_id === person\.cttId/.test(cabins),
+  'and only the owner\'s own, for the CTT group this copy came from');
+
 console.log('\nAnd the way back');
 const peertv = readFileSync(join(ROOT, 'src', 'peertv.js'), 'utf8');
 check(/export async function takeToTripVara/.test(peertv), 'a cabin can be sent the other way');

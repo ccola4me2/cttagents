@@ -194,6 +194,24 @@ async function bookingOf(env, cttId, bookingId) {
   ).bind(bookingId, cttId).first().catch(() => null);
 }
 
+/**
+ * The person's own booked reservations that were put on a CTT group, whatever the cruise line or group number.
+ *
+ * A reservation is on a group by the group it is attached to, and the group number typed on it is a second, separate
+ * fact that is often missing (a group with no number yet has none to copy). The desk copy of a CTT group reads both,
+ * so putting a reservation on the group is enough for its cabin to turn up on the desk.
+ */
+async function groupBookings(env, cttId, cttGroupId) {
+  const { results } = await env.DB.prepare(
+    `SELECT b.id, b.client_name, b.cabin, b.cabin_category, b.confirmation_number, b.travellers, b.status,
+            b.depart_date, b.group_number, b.gross_cents
+       FROM bookings b
+      WHERE b.user_id = ? AND b.group_id = ? AND b.status IN ('booked', 'travelled')
+      ORDER BY b.depart_date ASC`
+  ).bind(cttId, cttGroupId).all().catch(() => ({ results: [] }));
+  return results || [];
+}
+
 /** What a reservation says about the cabin, in the sheet's own terms. */
 async function describe(env, cttId, b) {
   const { results: people } = await env.DB.prepare(
@@ -285,6 +303,10 @@ async function adopt(env, group, rowId, bookingId, source) {
 
 export async function refreshBridge(env, group) {
   const number = norm(group.group_number) || norm(group.group_code);
+  // Callers hand over different slices of the group, so the link back to the CTT original is read here when it is missing.
+  const link = group.ctt_group_id !== undefined ? group : (await env.DB.prepare(
+    'SELECT ctt_group_id, ctt_owner_id FROM travel_groups WHERE id = ? AND user_id = ?'
+  ).bind(group.id, group.user_id).first().catch(() => null)) || {};
   const { results: linked } = await env.DB.prepare(
     `SELECT id, booking_id, booking_source FROM group_cabins
       WHERE group_id = ? AND user_id = ? AND booking_id IS NOT NULL`
@@ -304,9 +326,13 @@ export async function refreshBridge(env, group) {
       const b = await bookingOf(env, person.cttId, bookingId);
       if (b) await applyReservation(env, group, rowId, await describe(env, person.cttId, b));
     }
-    if (!number) continue;
-    for (const b of await masBookings(env, person.cttId)) {
-      if (here.has(b.id) || norm(b.group_number) !== number) continue;
+    // What is on the CTT group this one is a copy of, and what carries this group's number.
+    const byNumber = number ? (await masBookings(env, person.cttId)).filter((b) => norm(b.group_number) === number) : [];
+    const byGroup = link.ctt_group_id && link.ctt_owner_id === person.cttId
+      ? await groupBookings(env, person.cttId, link.ctt_group_id) : [];
+    const wanted = [...byGroup, ...byNumber.filter((b) => !byGroup.some((x) => x.id === b.id))];
+    for (const b of wanted) {
+      if (here.has(b.id)) continue;
       const d = await describe(env, person.cttId, b);
       const mine = await rowToAdopt(env, group, d.bookingNo, d.cabinNo);
       if (mine) {
