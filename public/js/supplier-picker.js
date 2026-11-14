@@ -40,6 +40,10 @@ const SUGGESTED = {
   car: { label: 'Car rental', names: ['Enterprise', 'Budget', 'Expedia'] },
 };
 
+// The last choice in the departure list, for a sailing the catalog does not have (it lags the cruise line).
+const WRITE_IN = 'other-date';
+const WRITE_IN_OPTION = '<option value="other-date">Not listed: type my own dates</option>';
+
 // The last choice in every list. It leaves the vendor name blank, to be typed in the box.
 const OTHER = 'other:';
 const OTHER_OPTION = '<option value="other:">Other (type the name in)</option>';
@@ -232,12 +236,22 @@ export async function mountSupplierPicker(host, { typeOf, set, onSailing }) {
     dateRows = d.dates;
     pickDate.innerHTML = '<option value="">Departure</option>'
       + d.dates.map((r) => `<option value="${esc(r.depart_date)}">${esc(sailingLabel(r))}</option>`)
-        .join('');
+        .join('') + WRITE_IN_OPTION;
     pickDate.disabled = false;
   }
   pickShip.addEventListener('change', loadDates);
 
   pickDate.addEventListener('change', () => {
+    // A sailing the catalog does not have yet: keep the line and ship, and leave the dates to be typed.
+    if (pickDate.value === WRITE_IN) {
+      if (onSailing) onSailing({ cruise_line: pickedLine, ship: pickShip.value });
+      picked.hidden = false;
+      picked.textContent = 'Not on the list? Type the departure and return dates in the boxes below. '
+        + 'The cruise line and ship are kept.';
+      const dates = host.closest('form') && host.closest('form').elements.departDate;
+      if (dates) dates.focus();
+      return;
+    }
     const r = dateRows.find((x) => x.depart_date === pickDate.value);
     if (!r) return;
     if (onSailing) onSailing(r);
