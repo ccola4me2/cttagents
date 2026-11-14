@@ -294,7 +294,8 @@
           </section>
 
           <section class="card" id="bookings-card" hidden style="margin-top:1.5rem;">
-            <div class="card-head"><h2>Reservations in this group</h2></div>
+            <div class="card-head"><h2>Reservations in this group</h2>
+              <button class="btn btn-primary btn-sm" type="button" id="add-res" hidden>Add reservations</button></div>
             <div id="bookings"></div>
           </section>
         </div>
@@ -1777,16 +1778,142 @@ travForm.addEventListener('submit', async (e) => {
   }
 });
 
+// ------------------------------------------------- adding reservations --
+//
+// Reservations made before the group existed, or booked straight with the cruise line, are put on the group from
+// here: the ones sailing the group's day come up ticked, one press adds them all. Each is changed by the same bulk
+// route the reservations list uses, so every check that route makes still applies.
+const addResDlg = document.getElementById('addres-dlg');
+const addResList = document.getElementById('addres-list');
+const addResErr = document.getElementById('addres-err');
+const addResGo = document.getElementById('addres-go');
+let addResRows = [];
+const addResTicked = new Set();
+
+function addResCount() {
+  const n = addResTicked.size;
+  document.getElementById('addres-count').textContent = n ? `${n} ticked` : 'None ticked';
+  addResGo.disabled = !n;
+  addResGo.textContent = n === 1 ? 'Add 1 reservation' : (n ? `Add ${n} reservations` : 'Add to this group');
+}
+
+function addResRow(b) {
+  const other = b.group_id && b.group_id !== groupId;
+  const note = other
+    ? '<span class="badge badge-amber">In ' + esc(b.group_label || 'another group') + ', moves here</span>' : '';
+  const what = [b.supplier, b.product_name].filter(Boolean).join(' ');
+  return '<label style="display:flex;gap:.7rem;align-items:flex-start;padding:.55rem 1rem;border-top:1px solid var(--border,#e3e8ef);cursor:pointer;">'
+    + '<input type="checkbox" data-res="' + esc(b.id) + '"' + (addResTicked.has(b.id) ? ' checked' : '') + ' style="margin-top:.3rem;">'
+    + '<span style="flex:1;"><b>' + esc(b.client_name || 'Unnamed') + '</b> ' + note
+    + '<span class="muted" style="display:block;">' + esc(what) + (b.confirmation_number ? ' · ' + esc(b.confirmation_number) : '')
+    + '</span></span>'
+    + '<span class="muted" style="text-align:right;white-space:nowrap;">' + (b.depart_date ? esc(dateFmt(b.depart_date)) : 'No date')
+    + '<br>' + (b.travellers || 1) + ' traveller' + ((b.travellers || 1) === 1 ? '' : 's') + '</span></label>';
+}
+
+async function loadAddRes(preTick) {
+  addResErr.hidden = true;
+  const date = document.getElementById('addres-date').value;
+  const q = document.getElementById('addres-q').value.trim();
+  const params = new URLSearchParams();
+  if (date) { params.set('from', date); params.set('to', date); }
+  if (q) params.set('q', q);
+  addResList.innerHTML = '<p class="muted" style="padding:1rem;">Looking...</p>';
+  try {
+    const d = await api('/api/bookings?' + params.toString());
+    addResRows = (d.bookings || []).filter((b) => b.status !== 'cancelled' && b.group_id !== groupId);
+    if (preTick) for (const b of addResRows) if (!b.group_id) addResTicked.add(b.id);
+    if (!addResRows.length) {
+      addResList.innerHTML = '<p class="muted" style="padding:1rem;">' + (date
+        ? 'No other reservations sail on ' + esc(dateFmt(date)) + '. Try Any date, or search by name.'
+        : 'No reservations found.') + '</p>';
+    } else {
+      addResList.innerHTML = addResRows.map(addResRow).join('')
+        + (d.truncated ? '<p class="muted" style="padding:.6rem 1rem;">The list was cut short. Pick a date or search to narrow it.</p>' : '');
+    }
+  } catch (e) {
+    addResList.innerHTML = '';
+    addResErr.textContent = e.message;
+    addResErr.hidden = false;
+  }
+  addResCount();
+}
+
+document.getElementById('add-res').addEventListener('click', () => {
+  addResTicked.clear();
+  document.getElementById('addres-date').value = (group && group.depart_date) || '';
+  document.getElementById('addres-q').value = '';
+  document.getElementById('addres-hint').textContent = (group && group.depart_date)
+    ? 'These are your reservations sailing on ' + dateFmt(group.depart_date) + ' that are not on a group yet, ticked. Untick any that do not belong, or change the date or search to find others.'
+    : 'Search for the reservations to put on this group, tick them, and add them all at once.';
+  addResDlg.showModal();
+  loadAddRes(Boolean(group && group.depart_date));
+});
+document.getElementById('addres-close').addEventListener('click', () => addResDlg.close());
+document.getElementById('addres-date').addEventListener('change', () => loadAddRes(Boolean(document.getElementById('addres-date').value)));
+document.getElementById('addres-any').addEventListener('click', () => { document.getElementById('addres-date').value = ''; loadAddRes(false); });
+let addResTimer = null;
+document.getElementById('addres-q').addEventListener('input', () => {
+  clearTimeout(addResTimer);
+  addResTimer = setTimeout(() => loadAddRes(false), 300);
+});
+addResList.addEventListener('change', (e) => {
+  const id = e.target && e.target.dataset ? e.target.dataset.res : '';
+  if (!id) return;
+  if (e.target.checked) addResTicked.add(id); else addResTicked.delete(id);
+  addResCount();
+});
+document.getElementById('addres-all').addEventListener('click', () => {
+  for (const b of addResRows) addResTicked.add(b.id);
+  addResList.querySelectorAll('input[data-res]').forEach((el) => { el.checked = true; });
+  addResCount();
+});
+
+document.getElementById('addres-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const ids = [...addResTicked];
+  if (!ids.length) return;
+  addResErr.hidden = true;
+  addResGo.disabled = true;
+  const changes = { groupId };
+  if (group && group.name) changes.groupLabel = group.name;
+  if (group && group.group_number) changes.groupNumber = group.group_number;
+  const failed = [];
+  try {
+    for (let i = 0; i < ids.length; i += 50) {
+      const r = await api('/api/bookings/bulk', { method: 'POST', body: { ids: ids.slice(i, i + 50), changes } });
+      for (const x of (r.results || [])) if (!x.ok) failed.push(x);
+    }
+  } catch (err) {
+    addResErr.textContent = err.message;
+    addResErr.hidden = false;
+    addResCount();
+    return;
+  }
+  if (failed.length) {
+    const names = failed.map((f) => (addResRows.find((b) => b.id === f.id) || {}).client_name || f.id);
+    addResErr.textContent = 'Added ' + (ids.length - failed.length) + '. Not added: ' + names.join(', ') + '. ' + (failed[0].error || '');
+    addResErr.hidden = false;
+    for (const b of addResRows) if (!failed.some((f) => f.id === b.id)) addResTicked.delete(b.id);
+    await load();
+    await loadAddRes(false);
+    return;
+  }
+  addResDlg.close();
+  await load();
+});
+
 function renderBookings(rows) {
   const card = document.getElementById('bookings-card');
   // On the desk the cabin sheet is the record of who has booked what, not the agency's own reservations.
   if (me.desk) { card.hidden = true; return; }
   const host = document.getElementById('bookings');
   card.hidden = false;
+  document.getElementById('add-res').hidden = !canEdit || !groupId;
 
   if (!rows.length) {
     host.innerHTML = `<div class="empty"><h3>No cabins sold yet</h3>
-      <p>Reservations you attach to this group show here.</p></div>`;
+      <p>Press Add reservations to put the ones you have already made on this group.</p></div>`;
     return;
   }
 
@@ -2066,6 +2193,29 @@ deleteBtn.addEventListener('click', async () => {
 
 await load();
 </script>
+<dialog id="addres-dlg" style="max-width:44rem;width:92vw;">
+  <form id="addres-form" method="dialog">
+    <div class="card-head"><h2>Add reservations to this group</h2>
+      <button class="btn btn-ghost btn-sm" type="button" id="addres-close">Close</button></div>
+    <div class="card-pad" style="padding-bottom:.4rem;">
+      <p class="field-hint" style="margin-top:0;" id="addres-hint"></p>
+      <div class="notice notice-error" id="addres-err" hidden></div>
+      <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-end;">
+        <div class="field" style="margin:0;"><label for="addres-date">Sailing on</label>
+          <input id="addres-date" type="date"></div>
+        <div class="field" style="margin:0;flex:1;min-width:10rem;"><label for="addres-q">Search</label>
+          <input id="addres-q" placeholder="Name, confirmation number or ship"></div>
+        <button class="btn btn-ghost btn-sm" type="button" id="addres-any">Any date</button>
+        <button class="btn btn-ghost btn-sm" type="button" id="addres-all">Tick all shown</button>
+      </div>
+    </div>
+    <div id="addres-list" style="max-height:48vh;overflow:auto;margin-top:.8rem;"></div>
+    <div class="card-foot" style="display:flex;gap:1rem;align-items:center;justify-content:space-between;">
+      <span class="muted" id="addres-count"></span>
+      <button class="btn btn-primary" type="submit" id="addres-go" disabled>Add to this group</button>
+    </div>
+  </form>
+</dialog>
 <dialog id="trav-dlg">
   <form id="trav-form" method="dialog">
     <div class="card-head"><h2 id="trav-title">Traveller</h2></div>
