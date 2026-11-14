@@ -364,7 +364,7 @@ function drawScheduled() {
     `<option value="${esc(x)}"${x === p.date ? ' selected' : ''}>${esc(dateFmt(x))}</option>`).join('')}`}</select></label></div>`).join('')}
         <span class="muted" style="font-size:.8rem;">Moving a line to another day changes when it is paid. The amount stays the same.</span></div>`
     : `<div class="trips">${a.trips.map((t) => `<span>${esc(t.client)}${t.supplier ? ` (${esc(t.supplier)})` : ''}: ${money(t.cents)}${
-  t.departDate && p.date < safeOn(t.departDate) ? ' <span class="badge badge-amber" title="Sails in more than 30 days after this pay date, so the vendor could still take the commission back">before the 30 day mark</span>' : ''}</span>`).join('')}</div>`}
+  t.departDate && /royal caribbean/i.test(t.supplier || '') && p.date < safeOn(t.departDate) ? ' <span class="badge badge-amber" title="Royal Caribbean can take the commission back until 30 days before sailing, and this sails more than 30 days after this pay date">before the 30 day mark</span>' : ''}</span>`).join('')}</div>`}
         </div>`).join('')}
     </section>`).join('');
 }
@@ -901,7 +901,7 @@ function statementBody(who) {
       <tr class="tot"><td colspan="2">${rows.length} reservation${rows.length === 1 ? '' : 's'}</td><td class="r">${money(sum('received_cents'))}</td><td></td>
         <td class="r">${money(earned)}</td><td class="r">${money(paidOut)}</td>
         <td class="r">${money(rows.reduce((n, r) => n + Math.max(r.due_cents || 0, 0), 0))}</td></tr></tbody></table>
-    <p class="muted">Your share is your split of the commission the vendor has actually paid, not of what is still expected. Commission can be taken back by the vendor if a client cancels before the 30 day mark.</p>`;
+    <p class="muted">Your share is your split of the commission the vendor has actually paid, not of what is still expected. Royal Caribbean can take commission back if a client cancels before the 30 day mark; other vendors have their own rules.</p>`;
 }
 
 function drawStatements() {
