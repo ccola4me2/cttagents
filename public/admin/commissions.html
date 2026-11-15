@@ -361,7 +361,8 @@ function drawScheduled() {
         <span class="muted" style="font-size:.8rem;">${p.unscheduled ? 'Received, but not given a pay day. Press Edit and choose one.' : p.isNext
     ? 'Advisors can see this one' : 'Advisors cannot see this yet'}</span>
         <span class="tot cd-money">${money(p.totalCents)}</span>
-        ${p.unscheduled ? '' : `<button class="btn btn-ghost btn-sm" type="button" data-printrun="${esc(p.date)}">Print the pay run</button>`}
+        ${p.unscheduled ? '' : `<button class="btn btn-ghost btn-sm" type="button" data-paystmts="${esc(p.date)}">Statements</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-printrun="${esc(p.date)}">Print the pay run</button>`}
       </div>
       ${p.advisors.map((a) => `
         <div class="cd-adv">
@@ -925,9 +926,11 @@ function tableHtml(t) {
 
 /** A whole document spec as HTML for the print page. */
 function specHtml(spec) {
-  const parts = ['<div class="pst-head"><h1>' + esc(spec.title) + '</h1>' + (spec.subtitle ? '<p class="muted">' + esc(spec.subtitle) + '</p>' : '') + '</div>'];
+  const head = '<div class="pst-head"><h1>' + esc(spec.title) + '</h1>' + (spec.subtitle ? '<p class="muted">' + esc(spec.subtitle) + '</p>' : '') + '</div>';
+  const parts = [head];
   for (const b of spec.blocks) {
-    if (b.h) parts.push('<h2>' + esc(b.h) + '</h2>');
+    if (b.page) parts.push('<div style="page-break-before:always"></div>' + head);
+    else if (b.h) parts.push('<h2>' + esc(b.h) + '</h2>');
     else if (b.p) parts.push('<p class="muted">' + esc(b.p) + '</p>');
     else if (b.gap) parts.push('<div style="height:' + b.gap + 'px"></div>');
     else if (b.box) {
@@ -969,7 +972,7 @@ function printRun(date) {
  * rather than a picture of it. Self-contained, because the print page is sent a copy of this function's source.
  *
  * spec: { title, subtitle, blocks }. Every value is already text. A block is one of
- *   { h: 'heading' }   { p: 'paragraph' }   { gap: points }
+ *   { h: 'heading' }   { p: 'paragraph' }   { gap: points }   { page: true } to start a new page
  *   { box: [[label, value, red], ...] }   a summary box, the last line bold
  *   { table: { headers, widths, aligns, rows, totals, red } }   widths are shares of the page, aligns are 'l' or 'r',
  *      red is the list of columns drawn in red, a cell of '[]' is a tick box, totals is one row or absent.
@@ -1090,6 +1093,8 @@ function pdfBlob(spec) {
         y -= 12;
       }
       y -= 4;
+    } else if (b.page) {
+      newPage(true);
     } else if (b.gap) {
       y -= b.gap;
     } else if (b.box) {
@@ -1287,6 +1292,8 @@ panel.addEventListener('input', (e) => {
   if (e.target.id === 'st-note') stmt.note = e.target.value;
 });
 panel.addEventListener('click', (e) => {
+  const pa = e.target.closest('[data-paystmts]');
+  if (pa) { statementsForPayDate(pa.dataset.paystmts); return; }
   const ps = e.target.closest('[data-paystmt]');
   if (ps) { const [uid, date, name] = ps.dataset.paystmt.split('|'); statementForPayDate(uid, name, date); return; }
   const run = e.target.closest('[data-printrun]');
@@ -1348,6 +1355,24 @@ async function statementForPayDate(userId, name, date) {
     const html = '<div class="pst-head"><h1>' + esc(spec.title) + '</h1>' + (spec.subtitle ? '<p class="muted">' + esc(spec.subtitle) + '</p>' : '') + '</div>'
       + '<h2 style="margin-top:0;">Agent: ' + esc(name) + '</h2>' + periodStatement(name, st);
     printDoc('Commission statement ' + name, html, { spec, auto: false });
+  } catch (e) { showError(panel, e); }
+}
+
+/** Every advisor's statement for one pay date, one to a page, as a single document. */
+async function statementsForPayDate(date) {
+  const p = d.payDates.find((x) => x.date === date);
+  if (!p || !p.advisors.length) return;
+  try {
+    const parts = await Promise.all(p.advisors.map(async (a) => {
+      const data = await api('/api/commissions?advisor=' + encodeURIComponent(a.userId) + '&stFrom=' + date + '&stTo=' + date + '&stBasis=payout');
+      return statementSpec(a.name, { data, from: date, to: date, basis: 'payout', note: '' });
+    }));
+    const blocks = [];
+    parts.forEach((sp, i) => {
+      if (i) blocks.push({ page: true });
+      for (const b of sp.blocks) blocks.push(b);
+    });
+    printSpec({ file: 'commission-statements-' + date + '.pdf', title: parts[0].title, subtitle: 'Commission statements for the ' + dateFmt(date) + ' pay date', blocks }, false);
   } catch (e) { showError(panel, e); }
 }
 
