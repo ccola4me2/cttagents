@@ -46,7 +46,12 @@
 
 <script type="module">
 import { api, mountShell, esc, money, dateFmt, showError } from '/js/app.js';
-const ME = (await mountShell()).id;
+const me = await mountShell();
+const ME = me.id;
+// An owner is shown what the dashboard counted: the notice there reads the whole agency, so a list cut down to the owner's
+// own reservations said "Nothing missing" for a gap that belonged to an advisor. Everybody else sees their own, as before.
+const OWNER = me.role === 'admin';
+let advisorNames = new Map();
 
 const panel = document.getElementById('panel');
 const err = document.getElementById('err');
@@ -95,7 +100,7 @@ function note(text, bad) {
 }
 
 function render() {
-  const mine = all.filter((b) => b.user_id === ME && b.status !== 'cancelled');
+  const mine = all.filter((b) => (OWNER || b.user_id === ME) && b.status !== 'cancelled');
   const rows = mine.filter((b) => {
     const m = missing(b);
     if (filter.value === 'date') return m.date;
@@ -144,7 +149,8 @@ function render() {
       <th class="num">Schedule</th></tr></thead>
     <tbody>${rows.map((b) => `<tr data-id="${esc(b.id)}">
       <td><a class="name" href="/app/reservation?id=${esc(b.id)}">${esc(b.client_name)}</a>
-        <div class="muted">${esc(b.confirmation_number || '')}</div></td>
+        <div class="muted">${esc(b.confirmation_number || '')}</div>
+        ${b.user_id !== ME ? '<div class="muted">Advisor: ' + esc(advisorNames.get(b.user_id) || 'another advisor') + '</div>' : ''}</td>
       <td>${esc(b.supplier || '-')}<div class="muted">${esc(b.product_name || '')}</div></td>
       <td><input type="date" data-field="departDate" value="${esc(b.depart_date || '')}"></td>
       <td><input type="date" data-field="returnDate" value="${esc(b.return_date || '')}"></td>
@@ -160,8 +166,9 @@ function render() {
             class="${b.commission_cents ? '' : 'wanted'}">`}</td>
       <td class="num">${missing(b).schedule
         ? `<span class="badge badge-amber">${esc(money(unscheduled(b)))} unscheduled</span>
-           <div><button type="button" class="btn btn-ghost btn-sm" data-build="${esc(b.id)}"
-             >Build schedule</button></div>`
+           <div>${b.user_id === ME
+    ? '<button type="button" class="btn btn-ghost btn-sm" data-build="' + esc(b.id) + '">Build schedule</button>'
+    : '<a href="/app/reservation?id=' + esc(b.id) + '">Open to schedule</a>'}</div>`
         : b.status === BOOKED && b.gross_cents > 0
           ? '<span class="muted">scheduled</span>'
           : '<span class="muted">-</span>'}</td>
@@ -280,6 +287,7 @@ async function offerCatalog() {
 try {
   const d = await api('/api/bookings');
   all = d.bookings;
+  advisorNames = new Map((d.advisors || []).map((a) => [a.id, a.name]));
   render();
   await offerCatalog();
 } catch (e) { showError(panel, e); }
