@@ -1795,7 +1795,6 @@ code { overflow-wrap: anywhere; }
 }
 /* A wide table drawn as one card a row on a phone: add class "stack" and a data-label to each cell; the first cell is the card's title. */
 @media (max-width: 640px) {
-  .table-wrap { overflow-x: visible; }
   table.stack, table.stack tbody { display: block; }
   table.stack thead { display: none; }
   table.stack tr { display: grid; grid-template-columns: 1fr 1fr; gap: .15rem 1rem; padding: .7rem .8rem; margin: 0 0 .7rem;
