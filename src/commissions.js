@@ -290,25 +290,26 @@ export async function handleListCommissions(request, env) {
     payDates: payDatesFrom(today, 12),
   };
   // A printable statement for one advisor over a range of days: one line for each reservation that
-  // had commission arrive in the range, with what came in, the advisor's share of it and the agency's.
+  // had commission paid out or arriving in the range, with what came in, the advisor's share of it and the agency's.
   // Only an owner can ask, because the last figure is the agency's own and never goes to an advisor.
   // The share is worked out here, on the sum of a reservation's receipts, so it follows the same
   // rule as the pay run: the bonus is split like anything else and a cent never rounds up.
   const dayOnly = (s) => (/^\d{4}-\d{2}-\d{2}$/.test(s || '') ? s : '');
   const stFrom = dayOnly(url.searchParams.get('stFrom'));
   const stTo = dayOnly(url.searchParams.get('stTo'));
+  // By the pay date a receipt goes out on (what is on the 15th's payout) or by the day it arrived.
+  const byPayDate = url.searchParams.get('stBasis') !== 'received';
   if (ownerView && stFrom && stTo) {
     // The reservations' own filter, which opens with the advisor scope, so the receipts are fenced the same way.
     const scopedWhere = where.join(' AND ');
+    const arrived = `COALESCE(r.received_on, (SELECT k.received_on FROM commission_checks k WHERE k.id = r.check_id),
+                       date(r.created_at, 'unixepoch'))`;
     const rc = await env.DB.prepare(
-      `SELECT r.booking_id, r.amount_cents, r.kind,
-              COALESCE(r.received_on, (SELECT k.received_on FROM commission_checks k WHERE k.id = r.check_id),
-                       date(r.created_at, 'unixepoch')) AS received_on
+      `SELECT r.booking_id, r.amount_cents, r.kind, r.payout_on, ${arrived} AS received_on
          FROM commission_receipts r JOIN bookings b ON b.id = r.booking_id
         WHERE ${scopedWhere} AND ${shown}
-          AND COALESCE(r.received_on, (SELECT k.received_on FROM commission_checks k WHERE k.id = r.check_id),
-                       date(r.created_at, 'unixepoch')) BETWEEN ? AND ?
-        ORDER BY received_on ASC, r.created_at ASC`
+          AND ${byPayDate ? 'r.payout_on' : arrived} BETWEEN ? AND ?
+        ORDER BY ${byPayDate ? 'r.payout_on' : 'received_on'} ASC, r.created_at ASC`
     ).bind(...binds, stFrom, stTo).all();
     const byId = new Map(rows.map((r) => [r.id, r]));
     const lines = new Map();
@@ -317,18 +318,19 @@ export async function handleListCommissions(request, env) {
       if (!b) continue;
       const e = lines.get(x.booking_id) || {
         booking_id: b.id, client_name: b.client_name, supplier: b.supplier, confirmation_number: b.confirmation_number,
-        depart_date: b.depart_date, split_pct: b.split_pct, received_cents: 0, unsplit_cents: 0, received_on: x.received_on,
+        depart_date: b.depart_date, split_pct: b.split_pct, received_cents: 0, unsplit_cents: 0, received_on: x.received_on, payout_on: x.payout_on,
       };
       e.received_cents += x.amount_cents || 0;
       if (UNSPLIT_COMMISSION_KINDS.includes(x.kind)) e.unsplit_cents += x.amount_cents || 0;
       e.received_on = x.received_on;
+      e.payout_on = x.payout_on;
       lines.set(x.booking_id, e);
     }
     payload.statementLines = [...lines.values()].map((e) => {
       const s = shareOf(e.received_cents, e.split_pct, e.unsplit_cents);
       return { ...e, advisor_cents: s.advisorCents, agency_cents: s.agencyCents };
     });
-    payload.statementRange = { from: stFrom, to: stTo };
+    payload.statementRange = { from: stFrom, to: stTo, basis: byPayDate ? 'payout' : 'received' };
     payload.agencyName = user.agencyName || '';
   }
   if (!ownerView) {

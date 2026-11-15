@@ -873,13 +873,22 @@ function printRun(date) {
     <p class="muted">${p.advisors.length} advisor${p.advisors.length === 1 ? '' : 's'}, ${money(p.totalCents)} in all. Printed ${esc(dateFmt(d.today))}.</p>${body}`);
 }
 
-const stmt = { advisor: '', data: null, from: '', to: '', note: '' };
+const stmt = { advisor: '', data: null, from: '', to: '', note: '', basis: 'payout' };
 
-/** The day range a statement covers: the last 30 days, this month so far, last month, or this year so far. */
+/** The pay date before another: the 15th gives the 1st of the month, the 1st gives the 15th of the month before. */
+function pay_before(iso) {
+  const y = Number(iso.slice(0, 4));
+  const m = Number(iso.slice(5, 7));
+  if (Number(iso.slice(8, 10)) > 1) return `${iso.slice(0, 8)}01`;
+  return new Date(Date.UTC(y, m - 2, 15)).toISOString().slice(0, 10);
+}
+
+/** The day range a statement covers: the next pay date, the one before it, this month so far, last month, or this year so far. */
 function stmtRange(which) {
   const t = d.today;
   const y = Number(t.slice(0, 4));
   const m = Number(t.slice(5, 7));
+  const next = (d.payDates && d.payDates[0] && d.payDates[0].date) || t;
   if (which === 'last') {
     stmt.from = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 10);
     stmt.to = new Date(Date.UTC(y, m - 1, 0)).toISOString().slice(0, 10);
@@ -889,9 +898,12 @@ function stmtRange(which) {
   } else if (which === 'month') {
     stmt.from = `${t.slice(0, 8)}01`;
     stmt.to = t;
+  } else if (which === 'prev') {
+    stmt.from = pay_before(next);
+    stmt.to = stmt.from;
   } else {
-    stmt.from = new Date(Date.parse(`${t}T00:00:00Z`) - 30 * 86400000).toISOString().slice(0, 10);
-    stmt.to = t;
+    stmt.from = next;
+    stmt.to = next;
   }
 }
 
@@ -899,9 +911,9 @@ async function loadStatement(id) {
   stmt.advisor = id;
   stmt.data = null;
   if (!id) { draw(); return; }
-  if (!stmt.from || !stmt.to) stmtRange('30');
+  if (!stmt.from || !stmt.to) stmtRange('next');
   try {
-    stmt.data = await api(`/api/commissions?advisor=${encodeURIComponent(id)}&stFrom=${stmt.from}&stTo=${stmt.to}`);
+    stmt.data = await api(`/api/commissions?advisor=${encodeURIComponent(id)}&stFrom=${stmt.from}&stTo=${stmt.to}&stBasis=${stmt.basis}`);
   } catch (e) { stmt.advisor = ''; showError(panel, e); return; }
   draw();
 }
@@ -920,21 +932,21 @@ function periodStatement(who) {
   const when = stmt.from === stmt.to ? dateFmt(stmt.from) : `${dateFmt(stmt.from)} to ${dateFmt(stmt.to)}`;
   const body = lines.length ? lines.map((l) => `<tr>
       <td>${esc(l.client_name)}</td><td>${esc(l.supplier || '')}</td><td>${esc(l.confirmation_number || '')}</td>
-      <td>${l.received_on ? esc(dateFmt(l.received_on)) : ''}</td>
+      <td>${l.received_on ? esc(dateFmt(l.received_on)) : ''}</td><td>${l.payout_on ? esc(dateFmt(l.payout_on)) : ''}</td>
       <td class="r">${money(l.received_cents)}</td>
       <td class="r pst-agency">${money(l.agency_cents)}</td>
       <td class="r">${money(l.advisor_cents)}${varies ? `<span class="pst-sub">${esc(String(l.split_pct))}%</span>` : ''}</td></tr>`).join('')
-    : '<tr><td colspan="7" class="muted">No commission arrived on this advisor\'s reservations in these dates.</td></tr>';
+    : '<tr><td colspan="8" class="muted">Nothing for this advisor in these dates.</td></tr>';
   const note = (stmt.note || '').trim();
-  return `<p>Statement period: <b>${esc(when)}</b> &middot; ${lines.length} item${lines.length === 1 ? '' : 's'}</p>
-    <table class="pst"><thead><tr><th>Client</th><th>Vendor</th><th>Confirmation</th><th>Received</th>
+  return `<p>${stmt.basis === 'payout' ? 'Pay date' : 'Commission received'}: <b>${esc(when)}</b> &middot; ${lines.length} item${lines.length === 1 ? '' : 's'}</p>
+    <table class="pst"><thead><tr><th>Client</th><th>Vendor</th><th>Confirmation</th><th>Received</th><th>Pay date</th>
       <th class="r">Total commission earned</th><th class="r">Agency share</th><th class="r">${esc(head)}</th></tr></thead><tbody>${body}
-      <tr class="tot"><td colspan="4">TOTALS: ${lines.length} item${lines.length === 1 ? '' : 's'}</td><td class="r">${money(sum('received_cents'))}</td>
+      <tr class="tot"><td colspan="5">TOTALS: ${lines.length} item${lines.length === 1 ? '' : 's'}</td><td class="r">${money(sum('received_cents'))}</td>
         <td class="r pst-agency">${money(sum('agency_cents'))}</td><td class="r">${money(sum('advisor_cents'))}</td></tr></tbody></table>
     <div class="pst-box"><div><span>Total commission earned</span><span>${money(sum('received_cents'))}</span></div>
       <div><span>Agency share</span><span class="pst-agency">${money(sum('agency_cents'))}</span></div>
       <div class="last"><span>${esc(first)}'s share</span><span>${money(sum('advisor_cents'))}</span></div></div>
-    <p class="muted">The share is ${esc(first)}'s split of the commission the vendors paid in these dates. Pay days are the 1st and the 15th.</p>
+    <p class="muted">The share is ${esc(first)}'s split of the commission the vendors paid. Pay days are the 1st and the 15th.</p>
     ${note ? `<p class="muted">${esc(note)}</p>` : ''}`;
 }
 
@@ -980,9 +992,13 @@ function drawStatements() {
   const pick = `<div class="card cd-filters"><div><label for="st-adv">Advisor</label>
     <select id="st-adv" data-stpick="1"><option value="">Choose an advisor</option>${list.map((a) =>
     `<option value="${esc(a.id)}"${a.id === stmt.advisor ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>
-    ${stmt.advisor ? `<div><label for="st-from">From</label><input type="date" id="st-from" data-stdate="from" value="${esc(stmt.from)}"></div>
+    ${stmt.advisor ? `<div><label for="st-basis">Show</label><select id="st-basis" data-stbasis="1">
+      <option value="payout"${stmt.basis === 'payout' ? ' selected' : ''}>What is paid out on these dates</option>
+      <option value="received"${stmt.basis === 'received' ? ' selected' : ''}>What arrived on these dates</option></select></div>
+    <div><label for="st-from">From</label><input type="date" id="st-from" data-stdate="from" value="${esc(stmt.from)}"></div>
     <div><label for="st-to">To</label><input type="date" id="st-to" data-stdate="to" value="${esc(stmt.to)}"></div>
-    <div><button class="btn btn-sm" type="button" data-strange="30">Last 30 days</button>
+    <div><button class="btn btn-sm" type="button" data-strange="next">Next pay date</button>
+      <button class="btn btn-sm" type="button" data-strange="prev">Previous pay date</button>
       <button class="btn btn-sm" type="button" data-strange="month">This month</button>
       <button class="btn btn-sm" type="button" data-strange="last">Last month</button>
       <button class="btn btn-sm" type="button" data-strange="year">This year</button></div>` : ''}</div>`;
@@ -1003,6 +1019,7 @@ function drawStatements() {
 
 panel.addEventListener('change', (e) => {
   if (e.target.dataset && e.target.dataset.stpick) loadStatement(e.target.value);
+  if (e.target.dataset && e.target.dataset.stbasis && stmt.advisor) { stmt.basis = e.target.value; loadStatement(stmt.advisor); }
   if (e.target.dataset && e.target.dataset.stdate && stmt.advisor) {
     stmt[e.target.dataset.stdate] = e.target.value;
     if (stmt.from && stmt.to && stmt.from > stmt.to) { if (e.target.dataset.stdate === 'from') stmt.to = stmt.from; else stmt.from = stmt.to; }

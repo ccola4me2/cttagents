@@ -8287,14 +8287,14 @@ async function main() {
   check(sr3?.settlement === 'settled', 'the bonus arriving settles it', sr3?.settlement);
 
   // The printable statement: one line for the reservation, the agency's share beside the advisor's, for an owner only.
-  const stRange = `stFrom=${isoDay(-3)}&stTo=${isoDay(0)}`;
+  const stRange = `stFrom=${isoDay(-3)}&stTo=${isoDay(0)}&stBasis=received`;
   const ownerStmt = await call(admin, 'GET', `/api/commissions?advisor=all&${stRange}`);
   const stLine = (ownerStmt.data?.statementLines || []).find((l) => l.booking_id === splitId);
   const stWant = Math.trunc((60000 * Number(sr3?.split_pct)) / 100 + 1e-7) + 15000;
   check(stLine?.received_cents === 75000 && stLine?.advisor_cents === stWant && stLine?.agency_cents === 75000 - stWant,
     'the statement line splits the base and leaves the bonus whole with the advisor',
     JSON.stringify(stLine));
-  const outOfRange = await call(admin, 'GET', `/api/commissions?advisor=all&stFrom=${isoDay(-30)}&stTo=${isoDay(-10)}`);
+  const outOfRange = await call(admin, 'GET', `/api/commissions?advisor=all&stFrom=${isoDay(-30)}&stTo=${isoDay(-10)}&stBasis=received`);
   check(!(outOfRange.data?.statementLines || []).some((l) => l.booking_id === splitId),
     'and a reservation paid outside the dates is not on it', '');
   const advStmtView = await call(advisor, 'GET', `/api/commissions?${stRange}`);
