@@ -46,6 +46,17 @@
   .cd-filters { display: grid; gap: .6rem .8rem; grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr)); align-items: end; padding: .8rem 1rem; margin-bottom: .8rem; }
   .cd-filters label { display: block; font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-400); margin-bottom: .2rem; }
   .cd-filters input, .cd-filters select { width: 100%; }
+  /* The statement and the account summary on screen; the printed copy has its own styles in PRINT_CSS. */
+  #st-period table, #st-body table { width: 100%; }
+  #st-period tr.tot td, #st-body tr.tot td { font-weight: 700; border-top: 2px solid var(--ink-700, #12315e); }
+  .pst-agency { color: #8a1c1c; font-weight: 700; } .pst-sub { display: block; font-size: .72rem; color: var(--ink-400); font-weight: 400; }
+  .pst-box { display: block; max-width: 26rem; border: 1px solid var(--line, #d5e0ee); border-left: 4px solid #c9a227; padding: .7rem 1rem; margin: 1rem 0; }
+  .pst-box div { display: flex; justify-content: space-between; gap: 2rem; padding: .2rem 0; }
+  .pst-box .last { border-top: 1px solid var(--line, #d5e0ee); margin-top: .3rem; padding-top: .5rem; font-weight: 700; }
+  #st-body .big { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .7rem; margin: .6rem 0 1rem; }
+  #st-body .big div { border: 1px solid var(--line, #d5e0ee); border-radius: 8px; padding: .6rem .8rem; }
+  #st-body .big b { display: block; font-size: 1.2rem; margin-top: .2rem; }
+  #st-period h2, #st-body h2 { margin: 1.4rem 0 .4rem; }
   .cd-table th[data-sort] { cursor: pointer; user-select: none; }
   .cd-table th[data-sort]:hover { color: var(--navy-800); }
   .cd-table tr.tot td { font-weight: 700; background: var(--navy-50); }
@@ -864,7 +875,7 @@ function printRun(date) {
 
 const stmt = { advisor: '', data: null, from: '', to: '', note: '' };
 
-/** The day range a statement covers: this month so far, last month, or this year so far. */
+/** The day range a statement covers: the last 30 days, this month so far, last month, or this year so far. */
 function stmtRange(which) {
   const t = d.today;
   const y = Number(t.slice(0, 4));
@@ -875,8 +886,11 @@ function stmtRange(which) {
   } else if (which === 'year') {
     stmt.from = `${y}-01-01`;
     stmt.to = t;
-  } else {
+  } else if (which === 'month') {
     stmt.from = `${t.slice(0, 8)}01`;
+    stmt.to = t;
+  } else {
+    stmt.from = new Date(Date.parse(`${t}T00:00:00Z`) - 30 * 86400000).toISOString().slice(0, 10);
     stmt.to = t;
   }
 }
@@ -885,7 +899,7 @@ async function loadStatement(id) {
   stmt.advisor = id;
   stmt.data = null;
   if (!id) { draw(); return; }
-  if (!stmt.from || !stmt.to) stmtRange('month');
+  if (!stmt.from || !stmt.to) stmtRange('30');
   try {
     stmt.data = await api(`/api/commissions?advisor=${encodeURIComponent(id)}&stFrom=${stmt.from}&stTo=${stmt.to}`);
   } catch (e) { stmt.advisor = ''; showError(panel, e); return; }
@@ -968,7 +982,8 @@ function drawStatements() {
     `<option value="${esc(a.id)}"${a.id === stmt.advisor ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>
     ${stmt.advisor ? `<div><label for="st-from">From</label><input type="date" id="st-from" data-stdate="from" value="${esc(stmt.from)}"></div>
     <div><label for="st-to">To</label><input type="date" id="st-to" data-stdate="to" value="${esc(stmt.to)}"></div>
-    <div><button class="btn btn-sm" type="button" data-strange="month">This month</button>
+    <div><button class="btn btn-sm" type="button" data-strange="30">Last 30 days</button>
+      <button class="btn btn-sm" type="button" data-strange="month">This month</button>
       <button class="btn btn-sm" type="button" data-strange="last">Last month</button>
       <button class="btn btn-sm" type="button" data-strange="year">This year</button></div>` : ''}</div>`;
   if (!stmt.advisor) return `${pick}<div class="card"><div class="empty"><h3>Choose an advisor</h3><p>Their statement shows here, ready to print or send.</p></div></div>`;
