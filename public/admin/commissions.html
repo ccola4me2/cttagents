@@ -362,7 +362,7 @@ function drawScheduled() {
         <div class="cd-adv">
           <span class="nm">${esc(a.name)}${a.notAtBank ? ' <span class="badge badge-amber" title="Some of this came on a check that has not been marked as at the bank. Open Money received and mark it deposited.">check not at the bank yet</span>' : ''}</span>
           <span class="cd-money">${money(a.cents)}</span>
-          <span class="acts"><button class="btn btn-ghost btn-sm" type="button" data-editsched="${esc(p.date)}|${esc(a.userId)}">${
+          <span class="acts"><button class="btn btn-ghost btn-sm" type="button" data-paystmt="${esc(a.userId)}|${esc(p.date)}|${esc(a.name)}">Statement</button> <button class="btn btn-ghost btn-sm" type="button" data-editsched="${esc(p.date)}|${esc(a.userId)}">${
   editingSched.has(`${p.date}|${a.userId}`) ? 'Done' : 'Edit'}</button>${p.isNext
     ? ` <button class="btn btn-secondary btn-sm" type="button" data-pay="${esc(a.userId)}" data-date="${esc(p.date)}"
                  data-name="${esc(a.name)}" data-cents="${a.cents}"${a.notAtBank ? ' data-notatbank="1"' : ''}>Mark paid</button>` : ''}</span>
@@ -549,7 +549,9 @@ function owedTable(rows) {
 function drawOwed() {
   return `<div style="display:flex;gap:.8rem;align-items:center;margin-bottom:.8rem;">
       <input id="owed-q" value="${esc(owedQ)}" placeholder="Search by client, confirmation number or vendor" autocomplete="off" style="flex:1;">
-      <button class="btn btn-ghost btn-sm" type="button" id="owed-csv">Download what I see</button></div>
+      <button class="btn btn-ghost btn-sm" type="button" id="owed-csv">Download as CSV</button>
+      <button class="btn btn-sm" type="button" data-doc="print" data-from="owed">Print</button>
+      <button class="btn btn-sm" type="button" data-doc="pdf" data-from="owed">Download PDF</button></div>
     <div id="owed-body">${owedTable(owedRows())}</div>`;
 }
 
@@ -773,7 +775,9 @@ function drawAll() {
     `<option value="${k}"${allFilter.state === k ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
     <div><label for="af-from">Sails from</label><input id="af-from" data-af="from" type="date" value="${esc(allFilter.from)}"></div>
     <div><label for="af-to">Sails to</label><input id="af-to" data-af="to" type="date" value="${esc(allFilter.to)}"></div>
-    <div><button class="btn btn-ghost btn-sm" type="button" id="all-csv">Download what I see</button></div>
+    <div><button class="btn btn-ghost btn-sm" type="button" id="all-csv">Download as CSV</button>
+      <button class="btn btn-sm" type="button" data-doc="print" data-from="all">Print</button>
+      <button class="btn btn-sm" type="button" data-doc="pdf" data-from="all">Download PDF</button></div>
   </div><div id="all-body">${allBody()}</div>`;
 }
 
@@ -849,31 +853,116 @@ const PRINT_CSS = `body{font:14px/1.45 -apple-system,Segoe UI,Helvetica,Arial,sa
   .pst-box div{display:flex;justify-content:space-between;gap:2rem;padding:.2rem 0;} .pst-box .last{border-top:1px solid #c5d0e0;margin-top:.3rem;padding-top:.5rem;font-weight:700;}
   @media print{.noprint{display:none;} body{margin:0;}}`;
 
-/** A page of its own for printing or saving as a PDF, opened from a blob so nothing is sent anywhere. With a pdf spec it also gets a Download PDF button. */
+/** Runs inside the print page, which is given SPEC and pdfBlob beside it. */
+function printPageBoot() {
+  document.getElementById('pr').onclick = function () { window.print(); };
+  document.getElementById('dl').onclick = function () {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(pdfBlob(SPEC));
+    a.download = SPEC.file;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+  if (SPEC.auto) setTimeout(function () { window.print(); }, 300);
+}
+
+/** A page of its own for printing or saving as a PDF, opened from a blob so nothing is sent anywhere. With a pdf it also gets Print and Download PDF buttons. */
 function printDoc(title, inner, pdf) {
-  const bar = pdf
-    ? `<p class="noprint"><button id="pr" type="button">Print</button> <button id="dl" type="button">Download PDF</button>
-        <span class="muted">Or press Cmd+P (Ctrl+P on Windows).</span></p>
-       <script>const SPEC = ${JSON.stringify(pdf.spec).replace(/</g, '\\u003c')};
-         const pdfBlob = ${pdfBlob.toString()};
-         document.getElementById('pr').onclick = function () { window.print(); };
-         document.getElementById('dl').onclick = function () { saveBlob(pdfBlob(SPEC), SPEC.file); };
-         function saveBlob(b, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
-         ${pdf.auto ? 'window.addEventListener("load", function () { setTimeout(function () { window.print(); }, 300); });' : ''}<\/script>`
-    : '<p class="noprint">Press Cmd+P (Ctrl+P on Windows) to print this, or to save it as a PDF.</p>';
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${PRINT_CSS}
-    .noprint button{font:inherit;padding:.35rem .9rem;margin-right:.4rem;border:1px solid #12315e;border-radius:6px;background:#12315e;color:#fff;cursor:pointer;}
-    </style></head><body>${bar}${inner}</body></html>`;
+  const plainBar = '<p class="noprint">To print this or save it as a PDF, press Cmd+P on a Mac or Ctrl+P on Windows.</p>';
+  const buttonBar = '<p class="noprint"><button id="pr" type="button">Print</button> <button id="dl" type="button">Download PDF</button></p>';
+  const open = '<scr' + 'ipt>';
+  const close = '</scr' + 'ipt>';
+  let boot = '';
+  if (pdf) {
+    const data = JSON.stringify(Object.assign({}, pdf.spec, { auto: Boolean(pdf.auto) })).replace(/</g, '\\u003c');
+    boot = [open, 'const SPEC = ' + data + ';', 'const pdfBlob = ' + pdfBlob.toString() + ';', '(' + printPageBoot.toString() + ')();', close].join('\n');
+  }
+  const css = PRINT_CSS + '.noprint button{font:inherit;padding:.35rem .9rem;margin-right:.4rem;border:1px solid #12315e;border-radius:6px;background:#12315e;color:#fff;cursor:pointer;}';
+  const html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>' + css + '</style></head><body>'
+    + (pdf ? buttonBar : plainBar) + inner + boot + '</body></html>';
   const href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
   const w = window.open(href, '_blank');
   if (!w) showError(errEl, new Error('Your browser blocked the new window. Allow pop-ups for this site and try again.'));
   setTimeout(() => URL.revokeObjectURL(href), 120000);
 }
 
+/** The PDF of a document spec, saved to the person's downloads. */
+function savePdf(spec) {
+  const href = URL.createObjectURL(pdfBlob(spec));
+  const link = document.createElement('a');
+  link.href = href;
+  link.download = spec.file;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 60000);
+}
+
+/** One table of a document spec as HTML, so what is printed and what is saved as a PDF are the same table. */
+function tableHtml(t) {
+  const right = (i) => Boolean(t.aligns && t.aligns[i] === 'r');
+  const redCol = (i) => (t.red || []).includes(i);
+  const cell = (v, i, tag, red) => {
+    const cls = (right(i) ? 'r' : '') + (red && redCol(i) ? ' pst-agency' : '');
+    return '<' + tag + ' class="' + cls + '">' + (v === '[]' ? '<span class="box"></span>' : esc(String(v))) + '</' + tag + '>';
+  };
+  const row = (r, tag, red) => r.map((v, i) => cell(v, i, tag, red)).join('');
+  return '<table class="pst"><thead><tr>' + row(t.headers, 'th', false) + '</tr></thead><tbody>'
+    + t.rows.map((r) => '<tr>' + row(r, 'td', true) + '</tr>').join('')
+    + (t.totals ? '<tr class="tot">' + row(t.totals, 'td', true) + '</tr>' : '') + '</tbody></table>';
+}
+
+/** A whole document spec as HTML for the print page. */
+function specHtml(spec) {
+  const parts = ['<div class="pst-head"><h1>' + esc(spec.title) + '</h1>' + (spec.subtitle ? '<p class="muted">' + esc(spec.subtitle) + '</p>' : '') + '</div>'];
+  for (const b of spec.blocks) {
+    if (b.h) parts.push('<h2>' + esc(b.h) + '</h2>');
+    else if (b.p) parts.push('<p class="muted">' + esc(b.p) + '</p>');
+    else if (b.gap) parts.push('<div style="height:' + b.gap + 'px"></div>');
+    else if (b.box) {
+      parts.push('<div class="pst-box">' + b.box.map((x, i) => '<div' + (i === b.box.length - 1 ? ' class="last"' : '') + '><span>' + esc(x[0])
+        + '</span><span' + (x[2] ? ' class="pst-agency"' : '') + '>' + esc(x[1]) + '</span></div>').join('') + '</div>');
+    } else if (b.table) parts.push(tableHtml(b.table));
+  }
+  return parts.join('\n');
+}
+
+/** A spec on the print page, with its Print and Download PDF buttons. */
+function printSpec(spec, auto) {
+  printDoc(spec.title + ' ' + spec.subtitle, specHtml(spec), { spec, auto: Boolean(auto) });
+}
+
+/** The pay run for one pay date: who is paid what, trip by trip, with a box to tick as each is done. */
+function payRunSpec(date) {
+  const p = d.payDates.find((x) => x.date === date);
+  if (!p) return null;
+  const blocks = [{ h: 'Pay run for ' + dateFmt(date) },
+    { p: p.advisors.length + ' advisor' + (p.advisors.length === 1 ? '' : 's') + ', ' + money(p.totalCents) + ' in all. Printed ' + dateFmt(d.today) + '.' }];
+  for (const a of p.advisors) {
+    blocks.push({ h: a.name + '   ' + money(a.cents) });
+    blocks.push({ table: { headers: ['', 'Reservation', 'Amount'], widths: [1, 10, 2], aligns: ['l', 'l', 'r'],
+      rows: a.trips.map((t) => ['[]', t.client + (t.supplier ? ' (' + t.supplier + ')' : ''), money(t.cents)]),
+      totals: ['', 'Pay ' + a.name, money(a.cents)] } });
+    blocks.push({ p: 'Paid on ____ / ____ / ______ by check, bank transfer or other: ______________ Reference: ______________' });
+  }
+  return { file: 'pay-run-' + date + '.pdf', title: d.agencyName || 'Pay run', subtitle: 'Pay run for ' + dateFmt(date), blocks };
+}
+
+function printRun(date) {
+  const spec = payRunSpec(date);
+  if (spec) printSpec(spec, false);
+}
+
 /**
- * A PDF of a table, written by hand so nothing is loaded from anywhere and no figure leaves the browser: Letter, landscape,
- * real text rather than a picture of it. Self-contained, because the print page is sent a copy of this function's source.
- * spec: { agency, who, period, headers, widths, rows, totals, summary, note }, every cell already formatted as text.
+ * A PDF written by hand, so nothing is loaded from anywhere and no figure leaves the browser: Letter, landscape, real text
+ * rather than a picture of it. Self-contained, because the print page is sent a copy of this function's source.
+ *
+ * spec: { title, subtitle, blocks }. Every value is already text. A block is one of
+ *   { h: 'heading' }   { p: 'paragraph' }   { gap: points }
+ *   { box: [[label, value, red], ...] }   a summary box, the last line bold
+ *   { table: { headers, widths, aligns, rows, totals, red } }   widths are shares of the page, aligns are 'l' or 'r',
+ *      red is the list of columns drawn in red, a cell of '[]' is a tick box, totals is one row or absent.
  */
 function pdfBlob(spec) {
   const W = 792;
@@ -882,84 +971,133 @@ function pdfBlob(spec) {
   const NAVY = '0.07 0.19 0.37';
   const RED = '0.54 0.11 0.11';
   const GREY = '0.36 0.45 0.53';
-  const known = { ' ': 278, '$': 556, ',': 278, '.': 278, '-': 333, '(': 333, ')': 333, '%': 889, '\'': 191, ':': 278, '/': 278, '&': 667 };
+  const known = { ' ': 278, '$': 556, ',': 278, '.': 278, '-': 333, '(': 333, ')': 333, '%': 889, '\'': 191, ':': 278, '/': 278, '&': 667, '|': 260 };
   const clean = (v) => String(v === null || v === undefined ? '' : v).replace(/[^\x20-\x7e]/g, '?');
-  const wid = (v, size) => {
+  const wid = (v, size, bold) => {
     let n = 0;
     for (const ch of clean(v)) n += known[ch] || (/[0-9]/.test(ch) ? 556 : /[A-Z]/.test(ch) ? 667 : /[a-z]/.test(ch) ? 500 : 556);
-    return (n * size) / 1000;
+    return (n * size * (bold ? 1.08 : 1)) / 1000;
   };
-  const fit = (v, size, max) => {
+  const fit = (v, size, max, bold) => {
     let t = clean(v);
-    if (wid(t, size) <= max) return t;
-    while (t.length > 1 && wid(`${t}...`, size) > max) t = t.slice(0, -1);
+    if (wid(t, size, bold) <= max) return t;
+    while (t.length > 1 && wid(`${t}...`, size, bold) > max) t = t.slice(0, -1);
     return `${t}...`;
+  };
+  /** Words broken into lines no wider than max. */
+  const wrap = (v, size, max, bold) => {
+    const lines = [];
+    let cur = '';
+    for (const word of clean(v).split(' ')) {
+      const next = cur ? `${cur} ${word}` : word;
+      if (cur && wid(next, size, bold) > max) { lines.push(cur); cur = word; } else cur = next;
+    }
+    if (cur) lines.push(cur);
+    return lines.length ? lines : [''];
   };
   const pages = [];
   let out = '';
   let y = 0;
   const txt = (x, yy, v, size, bold, col, right) => {
     const t = clean(v);
-    const px = right ? x - wid(t, size) : x;
+    const px = right ? x - wid(t, size, bold) : x;
     out += `BT ${col} rg /${bold ? 'F2' : 'F1'} ${size} Tf ${px.toFixed(2)} ${yy.toFixed(2)} Td (${t.replace(/([\\()])/g, '\\$1')}) Tj ET\n`;
   };
   const rect = (x, yy, w, h, col) => { out += `${col} rg ${x.toFixed(2)} ${yy.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f\n`; };
-  const line = (yy, thick) => { out += `${NAVY} RG ${thick} w ${M} ${yy.toFixed(2)} m ${W - M} ${yy.toFixed(2)} l S\n`; };
-  const xs = [];
-  let at = M;
-  for (const w of spec.widths) { xs.push(at); at += w; }
-  const cell = (i, yy, v, bold, col, size) => {
-    const right = i >= spec.widths.length - 3;
-    const w = spec.widths[i] - 8;
-    txt(right ? xs[i] + spec.widths[i] - 6 : xs[i] + 6, yy, right ? v : fit(v, size, w), size, bold, col, right);
-  };
-  const head = () => {
-    rect(M, y - 22, W - 2 * M, 24, NAVY);
-    spec.headers.forEach((h, i) => cell(i, y - 15, h.toUpperCase(), true, '1 1 1', 7.5));
-    y -= 22;
-  };
-  const start = (first) => {
+  const hline = (yy, thick, col) => { out += `${col || NAVY} RG ${thick} w ${M} ${yy.toFixed(2)} m ${W - M} ${yy.toFixed(2)} l S\n`; };
+  const newPage = (first) => {
     if (out) pages.push(out);
     out = '';
     y = H - M;
     if (first) {
-      txt(M, y - 14, spec.agency || 'Commission statement', 18, true, NAVY, false);
-      txt(M, y - 30, 'Commission statement', 9, false, GREY, false);
-      line(y - 40, 2.5);
-      txt(M, y - 62, `Agent: ${spec.who}`, 13, true, NAVY, false);
-      txt(M, y - 80, spec.period, 10, false, NAVY, false);
-      y -= 92;
+      txt(M, y - 14, spec.title || 'Commission report', 18, true, NAVY, false);
+      if (spec.subtitle) txt(M, y - 30, spec.subtitle, 9, false, GREY, false);
+      hline(y - 40, 2.5);
+      y -= 58;
     } else {
-      txt(M, y - 10, `${spec.who} (continued)`, 9, false, GREY, false);
-      y -= 24;
+      txt(M, y - 10, `${spec.title || 'Commission report'} (continued)`, 9, false, GREY, false);
+      y -= 26;
     }
-    head();
   };
-  start(true);
-  for (const r of spec.rows) {
-    if (y < M + 40) start(false);
-    r.forEach((v, i) => cell(i, y - 14, v, false, i === spec.widths.length - 2 ? RED : NAVY, 9));
-    y -= 20;
-    out += `0.84 0.88 0.93 RG 0.5 w ${M} ${y.toFixed(2)} m ${W - M} ${y.toFixed(2)} l S\n`;
+  const room = (h) => { if (y - h < M) { newPage(false); return true; } return false; };
+
+  const table = (t) => {
+    const total = t.widths.reduce((a, b) => a + b, 0);
+    const ws = t.widths.map((w) => (w * (W - 2 * M)) / total);
+    const xs = [];
+    let at = M;
+    for (const w of ws) { xs.push(at); at += w; }
+    const n = t.headers.length;
+    const size = n > 10 ? 7.5 : n > 8 ? 8 : 9;
+    const hsize = n > 10 ? 6.5 : 7;
+    const right = (i) => (t.aligns && t.aligns[i] === 'r');
+    const red = (i) => (t.red || []).includes(i);
+    const cell = (i, yy, v, bold, col, sz) => {
+      if (v === '[]') { out += `${NAVY} RG 0.8 w ${(xs[i] + 6).toFixed(2)} ${(yy - 1).toFixed(2)} 9 9 re S\n`; return; }
+      if (right(i)) txt(xs[i] + ws[i] - 6, yy, v, sz, bold, col, true);
+      else txt(xs[i] + 6, yy, fit(v, sz, ws[i] - 10, bold), sz, bold, col, false);
+    };
+    const head = () => {
+      const lines = t.headers.map((h, i) => wrap(String(h).toUpperCase(), hsize, ws[i] - 10, true).slice(0, 2));
+      const two = lines.some((l) => l.length > 1);
+      const hh = two ? 28 : 20;
+      rect(M, y - hh, W - 2 * M, hh, NAVY);
+      lines.forEach((l, i) => l.forEach((ln, k) => {
+        const yy = y - (two ? 11 + k * 9 : 13);
+        if (right(i)) txt(xs[i] + ws[i] - 6, yy, ln, hsize, true, '1 1 1', true); else txt(xs[i] + 6, yy, ln, hsize, true, '1 1 1', false);
+      }));
+      y -= hh;
+    };
+    room(60);
+    head();
+    const rh = size + 11;
+    for (const r of t.rows) {
+      if (room(rh + (t.totals ? 0 : 0))) head();
+      r.forEach((v, i) => cell(i, y - rh + 5, v, false, red(i) ? RED : NAVY, size));
+      y -= rh;
+      out += `0.84 0.88 0.93 RG 0.5 w ${M} ${y.toFixed(2)} m ${W - M} ${y.toFixed(2)} l S\n`;
+    }
+    if (t.totals) {
+      if (room(rh + 4)) head();
+      rect(M, y - rh, W - 2 * M, rh, '0.93 0.95 0.97');
+      hline(y, 1.5);
+      t.totals.forEach((v, i) => { if (v) cell(i, y - rh + 5, v, true, red(i) ? RED : NAVY, size); });
+      y -= rh;
+    }
+    y -= 10;
+  };
+
+  newPage(true);
+  for (const b of spec.blocks) {
+    if (b.h) {
+      room(50);
+      txt(M, y - 12, fit(b.h, 12, W - 2 * M, true), 12, true, NAVY, false);
+      y -= 22;
+    } else if (b.p) {
+      for (const ln of wrap(b.p, 8.5, W - 2 * M, false)) {
+        room(14);
+        txt(M, y - 9, ln, 8.5, false, GREY, false);
+        y -= 12;
+      }
+      y -= 4;
+    } else if (b.gap) {
+      y -= b.gap;
+    } else if (b.box) {
+      const bh = 14 + b.box.length * 18;
+      room(bh + 10);
+      const bw = 260;
+      rect(M, y - bh, bw, bh, '0.96 0.97 0.99');
+      rect(M, y - bh, 3, bh, '0.79 0.64 0.15');
+      b.box.forEach((pair, i) => {
+        const last = i === b.box.length - 1;
+        txt(M + 14, y - 18 - i * 18, pair[0], 9.5, last, NAVY, false);
+        txt(M + bw - 12, y - 18 - i * 18, pair[1], 9.5, last, pair[2] ? RED : NAVY, true);
+      });
+      y -= bh + 14;
+    } else if (b.table) {
+      table(b.table);
+    }
   }
-  if (y < M + 130) start(false);
-  rect(M, y - 22, W - 2 * M, 22, '0.93 0.95 0.97');
-  line(y, 1.5);
-  spec.totals.forEach((v, i) => { if (v) cell(i, y - 15, v, true, i === spec.widths.length - 2 ? RED : NAVY, 9); });
-  y -= 40;
-  const bx = M;
-  const bw = 260;
-  const bh = 22 + spec.summary.length * 18;
-  rect(bx, y - bh, bw, bh, '0.96 0.97 0.99');
-  rect(bx, y - bh, 3, bh, '0.79 0.64 0.15');
-  spec.summary.forEach((pair, i) => {
-    const last = i === spec.summary.length - 1;
-    const col = pair[2] ? RED : NAVY;
-    txt(bx + 14, y - 20 - i * 18, pair[0], 9.5, last, NAVY, false);
-    txt(bx + bw - 12, y - 20 - i * 18, pair[1], 9.5, last, col, true);
-  });
-  y -= bh + 20;
-  (spec.notes || []).forEach((n) => { if (n) { txt(M, y, fit(n, 8.5, W - 2 * M), 8.5, false, GREY, false); y -= 14; } });
   pages.push(out);
 
   const objs = [];
@@ -978,20 +1116,6 @@ function pdfBlob(spec) {
   pdf += `xref\n0 ${objs.length}\n0000000000 65535 f \n${offs.slice(1).map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`;
   pdf += `trailer\n<< /Size ${objs.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
   return new Blob([pdf], { type: 'application/pdf' });
-}
-
-/** The pay run for one pay date: who is paid what, trip by trip, with a box to tick as each is done. */
-function printRun(date) {
-  const p = d.payDates.find((x) => x.date === date);
-  if (!p) return;
-  const body = p.advisors.map((a) => `<h2>${esc(a.name)} <span class="muted">${money(a.cents)}</span></h2>
-    <table><thead><tr><th></th><th>Reservation</th><th class="r">Amount</th></tr></thead><tbody>${a.trips.map((t) => `<tr>
-      <td><span class="box"></span></td><td>${esc(t.client)}${t.supplier ? ` <span class="muted">${esc(t.supplier)}</span>` : ''}</td>
-      <td class="r">${money(t.cents)}</td></tr>`).join('')}
-      <tr class="tot"><td></td><td>Pay ${esc(a.name)}</td><td class="r">${money(a.cents)}</td></tr></tbody></table>
-    <p class="muted">Paid on ____ / ____ / ______ by check, bank transfer or other: ______________ Reference: ______________</p>`).join('');
-  printDoc(`Pay run ${dateFmt(date)}`, `<h1>Pay run for ${esc(dateFmt(date))}</h1>
-    <p class="muted">${p.advisors.length} advisor${p.advisors.length === 1 ? '' : 's'}, ${money(p.totalCents)} in all. Printed ${esc(dateFmt(d.today))}.</p>${body}`);
 }
 
 const stmt = { advisor: '', data: null, from: '', to: '', note: '', basis: 'payout' };
@@ -1043,14 +1167,14 @@ async function loadStatement(id) {
  * The statement for a stretch of days, one line for each reservation that had commission arrive in it: what came in, what the
  * agency keeps and the advisor's share. The agency's column is here because this is printed by the owner, never by the advisor.
  */
-function periodStatement(who) {
-  const lines = stmt.data.statementLines || [];
+function periodStatement(who, st = stmt) {
+  const lines = st.data.statementLines || [];
   const sum = (k) => lines.reduce((n, l) => n + (Number(l[k]) || 0), 0);
   const first = who.split(' ')[0] || who;
   const pcts = [...new Set(lines.map((l) => Number(l.split_pct)))];
   const varies = pcts.length > 1;
   const head = pcts.length === 1 ? `${first}'s share (${pcts[0]}%)` : `${first}'s share`;
-  const when = stmt.from === stmt.to ? dateFmt(stmt.from) : `${dateFmt(stmt.from)} to ${dateFmt(stmt.to)}`;
+  const when = st.from === st.to ? dateFmt(st.from) : `${dateFmt(st.from)} to ${dateFmt(st.to)}`;
   const body = lines.length ? lines.map((l) => `<tr>
       <td>${esc(l.client_name)}</td><td>${esc(l.supplier || '')}</td><td>${esc(l.confirmation_number || '')}</td>
       <td>${l.received_on ? esc(dateFmt(l.received_on)) : ''}</td><td>${l.payout_on ? esc(dateFmt(l.payout_on)) : ''}</td>
@@ -1058,8 +1182,8 @@ function periodStatement(who) {
       <td class="r pst-agency">${money(l.agency_cents)}</td>
       <td class="r">${money(l.advisor_cents)}${varies ? `<span class="pst-sub">${esc(String(l.split_pct))}%</span>` : ''}</td></tr>`).join('')
     : '<tr><td colspan="8" class="muted">Nothing for this advisor in these dates.</td></tr>';
-  const note = (stmt.note || '').trim();
-  return `<p>${stmt.basis === 'payout' ? 'Pay date' : 'Commission received'}: <b>${esc(when)}</b> &middot; ${lines.length} item${lines.length === 1 ? '' : 's'}</p>
+  const note = (st.note || '').trim();
+  return `<p>${st.basis === 'payout' ? 'Pay date' : 'Commission received'}: <b>${esc(when)}</b> &middot; ${lines.length} item${lines.length === 1 ? '' : 's'}</p>
     <table class="pst"><thead><tr><th>Client</th><th>Vendor</th><th>Confirmation</th><th>Received</th><th>Pay date</th>
       <th class="r">Total commission earned</th><th class="r">Agency share</th><th class="r">${esc(head)}</th></tr></thead><tbody>${body}
       <tr class="tot"><td colspan="5">TOTALS: ${lines.length} item${lines.length === 1 ? '' : 's'}</td><td class="r">${money(sum('received_cents'))}</td>
@@ -1069,28 +1193,6 @@ function periodStatement(who) {
       <div class="last"><span>${esc(first)}'s share</span><span>${money(sum('advisor_cents'))}</span></div></div>
     <p class="muted">The share is ${esc(first)}'s split of the commission the vendors paid. Pay days are the 1st and the 15th.</p>
     ${note ? `<p class="muted">${esc(note)}</p>` : ''}`;
-}
-
-/** The same statement as plain text cells, for the PDF. */
-function statementSpec(who) {
-  const lines = stmt.data.statementLines || [];
-  const sum = (k) => lines.reduce((n, l) => n + (Number(l[k]) || 0), 0);
-  const first = who.split(' ')[0] || who;
-  const pcts = [...new Set(lines.map((l) => Number(l.split_pct)))];
-  const when = stmt.from === stmt.to ? dateFmt(stmt.from) : `${dateFmt(stmt.from)} to ${dateFmt(stmt.to)}`;
-  const day = (x) => (x ? dateFmt(x) : '');
-  return {
-    file: `${who} commission statement ${stmt.from}${stmt.from === stmt.to ? '' : ` to ${stmt.to}`}.pdf`,
-    agency: stmt.data.agencyName || '', who,
-    period: `${stmt.basis === 'payout' ? 'Pay date' : 'Commission received'}: ${when}   |   ${lines.length} item${lines.length === 1 ? '' : 's'}`,
-    headers: ['Client', 'Vendor', 'Confirmation', 'Received', 'Pay date', 'Total earned', 'Agency share', pcts.length === 1 ? `${first}'s share (${pcts[0]}%)` : `${first}'s share`],
-    widths: [120, 105, 80, 64, 64, 84, 84, 111],
-    rows: lines.map((l) => [l.client_name, l.supplier || '', l.confirmation_number || '', day(l.received_on), day(l.payout_on),
-      money(l.received_cents), money(l.agency_cents), pcts.length > 1 ? `${money(l.advisor_cents)} (${l.split_pct}%)` : money(l.advisor_cents)]),
-    totals: [`TOTALS: ${lines.length} item${lines.length === 1 ? '' : 's'}`, '', '', '', '', money(sum('received_cents')), money(sum('agency_cents')), money(sum('advisor_cents'))],
-    summary: [['Total commission earned', money(sum('received_cents')), false], ['Agency share', money(sum('agency_cents')), true], [`${first}'s share`, money(sum('advisor_cents')), false]],
-    notes: [`The share is ${first}'s split of the commission the vendors paid. Pay days are the 1st and the 15th.`, (stmt.note || '').trim()],
-  };
 }
 
 /** What an advisor sees of their own money, and nothing of the agency's side. */
@@ -1158,7 +1260,8 @@ function drawStatements() {
     <div class="card" style="padding:1rem 1.2rem;margin-top:1rem;"><h2 style="margin:0 0 .2rem;">Account summary</h2>
     <p class="muted">Everything to date as of ${esc(dateFmt(d.today))}. It never shows what the agency keeps.</p>
     <div id="st-body">${statementBody(who)}</div>
-    <p style="margin-top:.6rem;"><button class="btn btn-sm" type="button" id="st-print">Print or save as PDF</button></p></div>`;
+    <p style="margin-top:.6rem;"><button class="btn btn-sm" type="button" data-doc="print" data-from="account">Print</button>
+      <button class="btn btn-sm" type="button" data-doc="pdf" data-from="account">Download PDF</button></p></div>`;
 }
 
 panel.addEventListener('change', (e) => {
@@ -1174,21 +1277,15 @@ panel.addEventListener('input', (e) => {
   if (e.target.id === 'st-note') stmt.note = e.target.value;
 });
 panel.addEventListener('click', (e) => {
+  const ps = e.target.closest('[data-paystmt]');
+  if (ps) { const [uid, date, name] = ps.dataset.paystmt.split('|'); statementForPayDate(uid, name, date); return; }
   const run = e.target.closest('[data-printrun]');
   if (run) { printRun(run.dataset.printrun); return; }
   const rng = e.target.closest('[data-strange]');
   if (rng && stmt.advisor) { stmtRange(rng.dataset.strange); loadStatement(stmt.advisor); return; }
   if (e.target.closest('#st-pdf-period') && stmt.data) {
     const who = ((all.advisors || []).find((a) => a.id === stmt.advisor) || {}).name || '';
-    const spec = statementSpec(who);
-    const href = URL.createObjectURL(pdfBlob(spec));
-    const link = document.createElement('a');
-    link.href = href;
-    link.download = spec.file;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(href), 60000);
+    savePdf(statementSpec(who));
     return;
   }
   if (e.target.closest('#st-print-period') && stmt.data) {
@@ -1199,11 +1296,156 @@ panel.addEventListener('click', (e) => {
     { spec: statementSpec(who), auto: true });
     return;
   }
-  if (e.target.closest('#st-print') && stmt.data) {
-    const who = ((all.advisors || []).find((a) => a.id === stmt.advisor) || {}).name || '';
-    printDoc(`Commission statement ${who}`, `<h1>Commission statement</h1><p><b>${esc(who)}</b></p>
-      <p class="muted">As of ${esc(dateFmt(d.today))}</p>${statementBody(who)}`);
+});
+
+/** The same statement as a document spec, for the PDF. */
+function statementSpec(who, st = stmt) {
+  const lines = st.data.statementLines || [];
+  const sum = (k) => lines.reduce((n, l) => n + (Number(l[k]) || 0), 0);
+  const first = who.split(' ')[0] || who;
+  const pcts = [...new Set(lines.map((l) => Number(l.split_pct)))];
+  const when = st.from === st.to ? dateFmt(st.from) : dateFmt(st.from) + ' to ' + dateFmt(st.to);
+  const day = (x) => (x ? dateFmt(x) : '');
+  const agency = st.data.agencyName || '';
+  const shareHead = pcts.length === 1 ? first + '\'s share (' + pcts[0] + '%)' : first + '\'s share';
+  return {
+    file: who + ' commission statement ' + st.from + (st.from === st.to ? '' : ' to ' + st.to) + '.pdf',
+    title: agency || 'Commission statement',
+    subtitle: agency ? 'Commission statement' : '',
+    blocks: [
+      { h: 'Agent: ' + who },
+      { p: (st.basis === 'payout' ? 'Pay date: ' : 'Commission received: ') + when + '   |   ' + lines.length + ' item' + (lines.length === 1 ? '' : 's') },
+      { table: {
+        headers: ['Client', 'Vendor', 'Confirmation', 'Received', 'Pay date', 'Total earned', 'Agency share', shareHead],
+        widths: [120, 105, 80, 64, 64, 84, 84, 111], aligns: ['l', 'l', 'l', 'l', 'l', 'r', 'r', 'r'], red: [6],
+        rows: lines.map((l) => [l.client_name, l.supplier || '', l.confirmation_number || '', day(l.received_on), day(l.payout_on),
+          money(l.received_cents), money(l.agency_cents), pcts.length > 1 ? money(l.advisor_cents) + ' (' + l.split_pct + '%)' : money(l.advisor_cents)]),
+        totals: ['TOTALS: ' + lines.length + ' item' + (lines.length === 1 ? '' : 's'), '', '', '', '', money(sum('received_cents')), money(sum('agency_cents')), money(sum('advisor_cents'))],
+      } },
+      { box: [['Total commission earned', money(sum('received_cents'))], ['Agency share', money(sum('agency_cents')), true], [first + '\'s share', money(sum('advisor_cents'))]] },
+      { p: 'The share is ' + first + '\'s split of the commission the vendors paid. Pay days are the 1st and the 15th.' },
+      { p: (st.note || '').trim() },
+    ].filter((b) => b.h || b.table || b.box || (b.p && b.p.length)),
+  };
+}
+
+/** An advisor's statement for one pay date, from the Payouts by date list: fetched on its own, so the Statements screen is left alone. */
+async function statementForPayDate(userId, name, date) {
+  try {
+    const data = await api('/api/commissions?advisor=' + encodeURIComponent(userId) + '&stFrom=' + date + '&stTo=' + date + '&stBasis=payout');
+    const st = { data, from: date, to: date, basis: 'payout', note: '' };
+    const spec = statementSpec(name, st);
+    const html = '<div class="pst-head"><h1>' + esc(spec.title) + '</h1>' + (spec.subtitle ? '<p class="muted">' + esc(spec.subtitle) + '</p>' : '') + '</div>'
+      + '<h2 style="margin-top:0;">Agent: ' + esc(name) + '</h2>' + periodStatement(name, st);
+    printDoc('Commission statement ' + name, html, { spec, auto: false });
+  } catch (e) { showError(panel, e); }
+}
+
+function plainCell(v, type) {
+  if (type === 'money') return money(v);
+  if (type === 'pct') return (Number(v) || 0).toFixed(1) + '%';
+  if (type === 'days') return v === null || v === undefined ? '-' : String(v);
+  return v === null || v === undefined ? '' : String(v);
+}
+
+/** The report on screen as a document, top rows only. */
+function reportSpec() {
+  const r = reportData();
+  const label = (REPORTS.find((x) => x[0] === rep.kind) || ['', 'Report'])[1];
+  let totals = null;
+  if (Array.isArray(r.total)) totals = r.cols.map((c, i) => String(r.total[i] || ''));
+  else if (r.total) {
+    totals = r.cols.map(([k, , type], i) => {
+      if (i === 0) return 'Total';
+      return type === 'money' || type === 'int' ? plainCell(r.rows.reduce((n, row) => n + (Number(row[k]) || 0), 0), type) : '';
+    });
   }
+  const blocks = [];
+  if (r.note) blocks.push({ p: r.note });
+  blocks.push({ table: { headers: r.cols.map((c) => c[1]), widths: r.cols.map((c) => (c[2] === 'text' ? 2.2 : 1)),
+    aligns: r.cols.map((c) => (c[2] === 'text' ? 'l' : 'r')), rows: r.rows.map((row) => r.cols.map(([k, , type]) => plainCell(row[k], type))), totals } });
+  const dates = rep.from || rep.to ? ' | Sails ' + (rep.from ? dateFmt(rep.from) : 'any') + ' to ' + (rep.to ? dateFmt(rep.to) : 'any') : '';
+  return { file: 'commission-report-' + rep.kind + '-' + d.today + '.pdf', title: d.agencyName || 'Commission report',
+    subtitle: label + dates + ' | Printed ' + dateFmt(d.today), blocks };
+}
+
+/** The Still owed list as it is filtered on screen. */
+function owedSpec() {
+  const rows = owedRows();
+  const sum = (k) => rows.reduce((n, o) => n + (Number(o[k]) || 0), 0);
+  return { file: 'still-owed-' + d.today + '.pdf', title: d.agencyName || 'Commission still owed', subtitle: 'Still owed to the agency | Printed ' + dateFmt(d.today),
+    blocks: [{ table: {
+      headers: ['Client', 'Advisor', 'Vendor', 'Ship', 'Confirmation', 'Sails', 'Expected', 'Received', 'Still owed'],
+      widths: [3, 2, 2, 2, 2, 1.5, 1.2, 1.2, 1.2], aligns: ['l', 'l', 'l', 'l', 'l', 'l', 'r', 'r', 'r'],
+      rows: rows.map((o) => [o.clientName, o.advisorName || '', o.supplier || '', o.productName || '', o.confirmationNumber || '',
+        o.travelDate ? dateFmt(o.travelDate) : '', money(o.expectedCents), money(o.receivedCents), money(o.owedCents)]),
+      totals: ['Total', '', '', '', '', '', money(sum('expectedCents')), money(sum('receivedCents')), money(sum('owedCents'))],
+    } }] };
+}
+
+/** Every commission as it is filtered on screen. */
+function allSpec() {
+  const rows = allRows();
+  const sum = (f) => rows.reduce((n, r) => n + f(r), 0);
+  const due = (r) => Math.max(r.due_cents || 0, 0);
+  return { file: 'commissions-' + d.today + '.pdf', title: d.agencyName || 'Commissions', subtitle: 'All commissions | Printed ' + dateFmt(d.today),
+    blocks: [{ table: {
+      headers: ['Client', 'Advisor', 'Vendor', 'Confirmation', 'Sails', 'Expected', 'Received', 'Status', 'Advisor share', 'Paid out', 'Still due', 'Agency keeps'],
+      widths: [2.6, 2, 2, 1.8, 1.4, 1.3, 1.3, 1.5, 1.3, 1.3, 1.3, 1.3], aligns: ['l', 'l', 'l', 'l', 'l', 'r', 'r', 'l', 'r', 'r', 'r', 'r'], red: [11],
+      rows: rows.map((r) => [r.client_name, r.advisor_name || '', r.supplier || '', r.confirmation_number || '', r.depart_date ? dateFmt(r.depart_date) : '',
+        money(r.commission_cents), money(r.received_cents), STATE_LABEL[r.settlement] || r.settlement || '', money(r.payout_cents),
+        money(r.paid_out_cents), money(due(r)), money(r.agency_received_cents)]),
+      totals: ['Total', '', '', '', '', money(sum((r) => r.commission_cents || 0)), money(sum((r) => r.received_cents || 0)), '', money(sum((r) => r.payout_cents || 0)),
+        money(sum((r) => r.paid_out_cents || 0)), money(sum(due)), money(sum((r) => r.agency_received_cents || 0))],
+    } }] };
+}
+
+/** An advisor's account to date, which never shows what the agency keeps. */
+function accountSpec(who) {
+  const rows = stmt.data.rows.filter((r) => (r.received_cents || 0) > 0 || (r.paid_out_cents || 0) > 0 || (r.advisor_cents || 0) > 0);
+  const sum = (k) => rows.reduce((n, r) => n + (Number(r[k]) || 0), 0);
+  const payouts = d.paid.filter((x) => x.advisor_name === who);
+  const scheduled = d.payDates.flatMap((p) => p.advisors.filter((a) => a.name === who).map((a) => ({ date: p.date, cents: a.cents })));
+  const earned = sum('payout_cents');
+  const paidOut = sum('paid_out_cents');
+  const coming = rows.reduce((n, r) => n + Math.max((r.advisor_cents || 0) - (r.payout_cents || 0), 0), 0);
+  const due = (r) => Math.max(r.due_cents || 0, 0);
+  const blocks = [{ h: 'Account summary: ' + who }, { p: 'Everything to date as of ' + dateFmt(d.today) + '.' },
+    { box: [['Earned from what vendors have paid', money(earned)], ['Already paid to you', money(paidOut)], ['Still to come from vendors', money(coming)],
+      ['Owed to you now', money(Math.max(earned - paidOut, 0))]] }];
+  if (scheduled.length) {
+    blocks.push({ h: 'Scheduled to be paid' });
+    blocks.push({ table: { headers: ['Pay date', 'Amount'], widths: [3, 1], aligns: ['l', 'r'], rows: scheduled.map((x) => [dateFmt(x.date), money(x.cents)]) } });
+  }
+  blocks.push({ h: 'Payments made to you' });
+  if (payouts.length) {
+    blocks.push({ table: { headers: ['Paid on', 'How', 'Reference', 'Reservations', 'Amount'], widths: [2, 2, 3, 1, 1.5], aligns: ['l', 'l', 'l', 'r', 'r'],
+      rows: payouts.map((x) => [x.paid_on ? dateFmt(x.paid_on) : '', (methods.find((m) => m.key === x.method) || { label: x.method || '' }).label, x.reference || '', String(x.trips), money(x.amount_cents)]) } });
+  } else blocks.push({ p: 'Nothing paid out in ' + year + '.' });
+  blocks.push({ h: 'Reservations' });
+  blocks.push({ table: { headers: ['Reservation', 'Sails', 'Commission received', 'Your split', 'Your share', 'Paid to you', 'Owed now'], widths: [4, 1.4, 1.6, 1, 1.4, 1.4, 1.4],
+    aligns: ['l', 'l', 'r', 'r', 'r', 'r', 'r'],
+    rows: rows.map((r) => [r.client_name + (r.supplier ? ' (' + r.supplier + ')' : ''), r.depart_date ? dateFmt(r.depart_date) : '', money(r.received_cents), r.split_pct + '%',
+      money(r.payout_cents), money(r.paid_out_cents), money(due(r))]),
+    totals: [rows.length + ' reservation' + (rows.length === 1 ? '' : 's'), '', money(sum('received_cents')), '', money(earned), money(paidOut), money(rows.reduce((n, r) => n + due(r), 0))] } });
+  blocks.push({ p: 'Your share is your split of the commission the vendor has actually paid, not of what is still expected.' });
+  return { file: who + ' account summary ' + d.today + '.pdf', title: d.agencyName || 'Account summary', subtitle: 'Account summary', blocks };
+}
+
+const DOCS = {
+  report: () => (all ? reportSpec() : null),
+  owed: () => owedSpec(),
+  all: () => (all ? allSpec() : null),
+  account: () => (stmt.data && all ? accountSpec(((all.advisors || []).find((a) => a.id === stmt.advisor) || {}).name || '') : null),
+};
+
+panel.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-doc]');
+  if (!b) return;
+  const make = DOCS[b.dataset.from];
+  const spec = make ? make() : null;
+  if (!spec) return;
+  if (b.dataset.doc === 'pdf') savePdf(spec); else printSpec(spec, true);
 });
 
 // ---------------------------------------------------------------------------
@@ -1443,7 +1685,9 @@ function drawReports() {
     <div class="card cd-filters">
       <div><label for="rp-from">Sails from</label><input id="rp-from" data-rp="from" type="date" value="${esc(rep.from)}"></div>
       <div><label for="rp-to">Sails to</label><input id="rp-to" data-rp="to" type="date" value="${esc(rep.to)}"></div>
-      <div><button class="btn btn-ghost btn-sm" type="button" id="rp-csv">Download this report</button></div>
+      <div><button class="btn btn-ghost btn-sm" type="button" id="rp-csv">Download as CSV</button>
+        <button class="btn btn-sm" type="button" data-doc="print" data-from="report">Print</button>
+        <button class="btn btn-sm" type="button" data-doc="pdf" data-from="report">Download PDF</button></div>
     </div><div id="rp-body">${reportTable()}</div>
     ${all.rows.length >= 500 ? '<p class="muted">Based on the first 500 reservations. Use the dates to narrow it.</p>' : ''}`;
 }

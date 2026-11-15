@@ -1194,6 +1194,7 @@ export async function handleCommissionDesk(request, env) {
       writtenOffCents,
       writtenOffCount: writtenOff.length,
     },
+    agencyName: admin.agency_name || '',
     checkLines,
     loose,
     checks: (checkRows.results || []).map((c) => ({
