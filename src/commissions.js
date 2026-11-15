@@ -289,6 +289,42 @@ export async function handleListCommissions(request, env) {
     mayPay: isAdmin(user) && !user.acting_as,
     payDates: payDatesFrom(today, 12),
   };
+  // A printable statement for one advisor over a range of days: one line for each reservation that
+  // had commission arrive in the range, with what came in, the advisor's share of it and the agency's.
+  // Only an owner can ask, because the last figure is the agency's own and never goes to an advisor.
+  // The share is worked out here, on the sum of a reservation's receipts, so it follows the same
+  // rule as the pay run: the bonus is split like anything else and a cent never rounds up.
+  const dayOnly = (s) => (/^\d{4}-\d{2}-\d{2}$/.test(s || '') ? s : '');
+  const stFrom = dayOnly(url.searchParams.get('stFrom'));
+  const stTo = dayOnly(url.searchParams.get('stTo'));
+  if (ownerView && stFrom && stTo) {
+    const rc = await env.DB.prepare(
+      `SELECT r.booking_id, r.amount_cents, r.kind, r.received_on
+         FROM commission_receipts r JOIN bookings b ON b.id = r.booking_id
+        WHERE ${where.join(' AND ')} AND ${shown} AND r.received_on >= ? AND r.received_on <= ?
+        ORDER BY r.received_on ASC, r.created_at ASC`
+    ).bind(...binds, stFrom, stTo).all();
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const lines = new Map();
+    for (const x of rc.results || []) {
+      const b = byId.get(x.booking_id);
+      if (!b) continue;
+      const e = lines.get(x.booking_id) || {
+        booking_id: b.id, client_name: b.client_name, supplier: b.supplier, confirmation_number: b.confirmation_number,
+        depart_date: b.depart_date, split_pct: b.split_pct, received_cents: 0, unsplit_cents: 0, received_on: x.received_on,
+      };
+      e.received_cents += x.amount_cents || 0;
+      if (UNSPLIT_COMMISSION_KINDS.includes(x.kind)) e.unsplit_cents += x.amount_cents || 0;
+      e.received_on = x.received_on;
+      lines.set(x.booking_id, e);
+    }
+    payload.statementLines = [...lines.values()].map((e) => {
+      const s = shareOf(e.received_cents, e.split_pct, e.unsplit_cents);
+      return { ...e, advisor_cents: s.advisorCents, agency_cents: s.agencyCents };
+    });
+    payload.statementRange = { from: stFrom, to: stTo };
+    payload.agencyName = user.agencyName || '';
+  }
   if (!ownerView) {
     for (const row of payload.rows) {
       delete row.agency_cents;

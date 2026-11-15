@@ -830,6 +830,12 @@ const PRINT_CSS = `body{font:14px/1.45 -apple-system,Segoe UI,Helvetica,Arial,sa
   .muted{color:#5c7286;font-size:.85rem;} .tot td{font-weight:700;border-top:2px solid #12315e;} .box{display:inline-block;width:.9rem;height:.9rem;border:1px solid #12315e;}
   .big{display:grid;grid-template-columns:repeat(4,1fr);gap:.6rem;margin:.6rem 0;} .big div{border:1px solid #d5e0ee;border-radius:6px;padding:.5rem .7rem;}
   .big b{display:block;font-size:1.1rem;} .noprint{background:#e7f1fb;padding:.5rem .8rem;border-radius:6px;margin-bottom:1rem;}
+  table.pst th{background:#12315e;color:#fff;padding:.5rem;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  table.pst tr.tot td{background:#eef1f7;border-top:2px solid #12315e;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  .pst-agency{color:#8a1c1c;font-weight:700;} .pst-sub{display:block;font-size:.7rem;color:#5c7286;font-weight:400;}
+  .pst-head{border-bottom:3px solid #12315e;padding-bottom:.5rem;margin-bottom:1rem;} .pst-head h1{font-size:1.5rem;}
+  .pst-box{display:inline-block;min-width:22rem;border:1px solid #d5e0ee;border-left:4px solid #c9a227;background:#f6f8fc;padding:.7rem 1rem;margin:.8rem 0;}
+  .pst-box div{display:flex;justify-content:space-between;gap:2rem;padding:.2rem 0;} .pst-box .last{border-top:1px solid #c5d0e0;margin-top:.3rem;padding-top:.5rem;font-weight:700;}
   @media print{.noprint{display:none;} body{margin:0;}}`;
 
 /** A page of its own for printing or saving as a PDF, opened from a blob so nothing is sent anywhere. */
@@ -856,16 +862,66 @@ function printRun(date) {
     <p class="muted">${p.advisors.length} advisor${p.advisors.length === 1 ? '' : 's'}, ${money(p.totalCents)} in all. Printed ${esc(dateFmt(d.today))}.</p>${body}`);
 }
 
-const stmt = { advisor: '', data: null };
+const stmt = { advisor: '', data: null, from: '', to: '', note: '' };
+
+/** The day range a statement covers: this month so far, last month, or this year so far. */
+function stmtRange(which) {
+  const t = d.today;
+  const y = Number(t.slice(0, 4));
+  const m = Number(t.slice(5, 7));
+  if (which === 'last') {
+    stmt.from = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 10);
+    stmt.to = new Date(Date.UTC(y, m - 1, 0)).toISOString().slice(0, 10);
+  } else if (which === 'year') {
+    stmt.from = `${y}-01-01`;
+    stmt.to = t;
+  } else {
+    stmt.from = `${t.slice(0, 8)}01`;
+    stmt.to = t;
+  }
+}
 
 async function loadStatement(id) {
   stmt.advisor = id;
   stmt.data = null;
   if (!id) { draw(); return; }
+  if (!stmt.from || !stmt.to) stmtRange('month');
   try {
-    stmt.data = await api(`/api/commissions?advisor=${encodeURIComponent(id)}`);
+    stmt.data = await api(`/api/commissions?advisor=${encodeURIComponent(id)}&stFrom=${stmt.from}&stTo=${stmt.to}`);
   } catch (e) { stmt.advisor = ''; showError(panel, e); return; }
   draw();
+}
+
+/**
+ * The statement for a stretch of days, one line for each reservation that had commission arrive in it: what came in, what the
+ * agency keeps and the advisor's share. The agency's column is here because this is printed by the owner, never by the advisor.
+ */
+function periodStatement(who) {
+  const lines = stmt.data.statementLines || [];
+  const sum = (k) => lines.reduce((n, l) => n + (Number(l[k]) || 0), 0);
+  const first = who.split(' ')[0] || who;
+  const pcts = [...new Set(lines.map((l) => Number(l.split_pct)))];
+  const varies = pcts.length > 1;
+  const head = pcts.length === 1 ? `${first}'s share (${pcts[0]}%)` : `${first}'s share`;
+  const when = stmt.from === stmt.to ? dateFmt(stmt.from) : `${dateFmt(stmt.from)} to ${dateFmt(stmt.to)}`;
+  const body = lines.length ? lines.map((l) => `<tr>
+      <td>${esc(l.client_name)}</td><td>${esc(l.supplier || '')}</td><td>${esc(l.confirmation_number || '')}</td>
+      <td>${l.received_on ? esc(dateFmt(l.received_on)) : ''}</td>
+      <td class="r">${money(l.received_cents)}</td>
+      <td class="r pst-agency">${money(l.agency_cents)}</td>
+      <td class="r">${money(l.advisor_cents)}${varies ? `<span class="pst-sub">${esc(String(l.split_pct))}%</span>` : ''}</td></tr>`).join('')
+    : '<tr><td colspan="7" class="muted">No commission arrived on this advisor\'s reservations in these dates.</td></tr>';
+  const note = (stmt.note || '').trim();
+  return `<p>Statement period: <b>${esc(when)}</b> &middot; ${lines.length} item${lines.length === 1 ? '' : 's'}</p>
+    <table class="pst"><thead><tr><th>Client</th><th>Vendor</th><th>Confirmation</th><th>Received</th>
+      <th class="r">Total commission earned</th><th class="r">Agency share</th><th class="r">${esc(head)}</th></tr></thead><tbody>${body}
+      <tr class="tot"><td colspan="4">TOTALS: ${lines.length} item${lines.length === 1 ? '' : 's'}</td><td class="r">${money(sum('received_cents'))}</td>
+        <td class="r pst-agency">${money(sum('agency_cents'))}</td><td class="r">${money(sum('advisor_cents'))}</td></tr></tbody></table>
+    <div class="pst-box"><div><span>Total commission earned</span><span>${money(sum('received_cents'))}</span></div>
+      <div><span>Agency share</span><span class="pst-agency">${money(sum('agency_cents'))}</span></div>
+      <div class="last"><span>${esc(first)}'s share</span><span>${money(sum('advisor_cents'))}</span></div></div>
+    <p class="muted">The share is ${esc(first)}'s split of the commission the vendors paid in these dates. Pay days are the 1st and the 15th.</p>
+    ${note ? `<p class="muted">${esc(note)}</p>` : ''}`;
 }
 
 /** What an advisor sees of their own money, and nothing of the agency's side. */
@@ -910,20 +966,49 @@ function drawStatements() {
   const pick = `<div class="card cd-filters"><div><label for="st-adv">Advisor</label>
     <select id="st-adv" data-stpick="1"><option value="">Choose an advisor</option>${list.map((a) =>
     `<option value="${esc(a.id)}"${a.id === stmt.advisor ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>
-    ${stmt.data ? '<div><button class="btn btn-primary btn-sm" type="button" id="st-print">Print or save as PDF</button></div>' : ''}</div>`;
+    ${stmt.advisor ? `<div><label for="st-from">From</label><input type="date" id="st-from" data-stdate="from" value="${esc(stmt.from)}"></div>
+    <div><label for="st-to">To</label><input type="date" id="st-to" data-stdate="to" value="${esc(stmt.to)}"></div>
+    <div><button class="btn btn-sm" type="button" data-strange="month">This month</button>
+      <button class="btn btn-sm" type="button" data-strange="last">Last month</button>
+      <button class="btn btn-sm" type="button" data-strange="year">This year</button></div>` : ''}</div>`;
   if (!stmt.advisor) return `${pick}<div class="card"><div class="empty"><h3>Choose an advisor</h3><p>Their statement shows here, ready to print or send.</p></div></div>`;
   if (!stmt.data) return `${pick}<p class="spinner">Loading...</p>`;
   const who = (list.find((a) => a.id === stmt.advisor) || {}).name || '';
   return `${pick}<div class="card" style="padding:1rem 1.2rem;"><h2 style="margin:0 0 .2rem;">${esc(who)}</h2>
-    <p class="muted">Commission statement as of ${esc(dateFmt(d.today))}</p><div id="st-body">${statementBody(who)}</div></div>`;
+    <p class="muted">Commission statement for the dates above. It shows the agency's share, so print it for your own records or to send an advisor on purpose.</p>
+    <div id="st-period">${periodStatement(who)}</div>
+    <div class="cd-filters" style="margin-top:.6rem;"><div style="flex:1;min-width:14rem;"><label for="st-note">A line to add at the bottom (optional)</label>
+      <input id="st-note" value="${esc(stmt.note)}" maxlength="300" autocomplete="off"></div>
+      <div><button class="btn btn-primary btn-sm" type="button" id="st-print-period">Print or save as PDF</button></div></div></div>
+    <div class="card" style="padding:1rem 1.2rem;margin-top:1rem;"><h2 style="margin:0 0 .2rem;">Account summary</h2>
+    <p class="muted">Everything to date as of ${esc(dateFmt(d.today))}. It never shows what the agency keeps.</p>
+    <div id="st-body">${statementBody(who)}</div>
+    <p style="margin-top:.6rem;"><button class="btn btn-sm" type="button" id="st-print">Print or save as PDF</button></p></div>`;
 }
 
 panel.addEventListener('change', (e) => {
   if (e.target.dataset && e.target.dataset.stpick) loadStatement(e.target.value);
+  if (e.target.dataset && e.target.dataset.stdate && stmt.advisor) {
+    stmt[e.target.dataset.stdate] = e.target.value;
+    if (stmt.from && stmt.to && stmt.from > stmt.to) { if (e.target.dataset.stdate === 'from') stmt.to = stmt.from; else stmt.from = stmt.to; }
+    if (stmt.from && stmt.to) loadStatement(stmt.advisor);
+  }
+});
+panel.addEventListener('input', (e) => {
+  if (e.target.id === 'st-note') stmt.note = e.target.value;
 });
 panel.addEventListener('click', (e) => {
   const run = e.target.closest('[data-printrun]');
   if (run) { printRun(run.dataset.printrun); return; }
+  const rng = e.target.closest('[data-strange]');
+  if (rng && stmt.advisor) { stmtRange(rng.dataset.strange); loadStatement(stmt.advisor); return; }
+  if (e.target.closest('#st-print-period') && stmt.data) {
+    const who = ((all.advisors || []).find((a) => a.id === stmt.advisor) || {}).name || '';
+    const agency = stmt.data.agencyName || '';
+    printDoc(`Commission statement ${who}`, `<div class="pst-head"><h1>${esc(agency || 'Commission statement')}</h1>
+      <p class="muted">Commission statement</p></div><h2 style="margin-top:0;">Agent: ${esc(who)}</h2>${periodStatement(who)}`);
+    return;
+  }
   if (e.target.closest('#st-print') && stmt.data) {
     const who = ((all.advisors || []).find((a) => a.id === stmt.advisor) || {}).name || '';
     printDoc(`Commission statement ${who}`, `<h1>Commission statement</h1><p><b>${esc(who)}</b></p>
