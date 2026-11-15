@@ -1917,16 +1917,16 @@ function renderBookings(rows) {
     return;
   }
 
-  host.innerHTML = `<div class="table-wrap"><table>
+  host.innerHTML = `<div class="table-wrap"><table class="stack">
     <thead><tr><th>Client</th><th>Confirmation</th><th class="num">Travellers</th>
       <th>Status</th><th class="num">Gross</th><th class="num">Commission</th></tr></thead>
     <tbody>${rows.map((b) => `<tr>
-      <td><a class="name" href="/app/reservation?id=${encodeURIComponent(b.id)}">${esc(b.client_name || 'Unnamed')}</a></td>
-      <td class="muted">${esc(b.confirmation_number || '-')}</td>
-      <td class="num">${b.travellers || 1}</td>
-      <td><span class="badge ${b.status === 'booked' ? 'badge-green' : 'badge-navy'}">${esc(b.status)}</span></td>
-      <td class="num">${money(b.gross_cents || 0)}</td>
-      <td class="num">${money(b.commission_cents || 0)}</td>
+      <td class="first"><a class="name" href="/app/reservation?id=${encodeURIComponent(b.id)}">${esc(b.client_name || 'Unnamed')}</a></td>
+      <td class="muted" data-label="Confirmation">${esc(b.confirmation_number || '-')}</td>
+      <td class="num" data-label="Travellers">${b.travellers || 1}</td>
+      <td data-label="Status"><span class="badge ${b.status === 'booked' ? 'badge-green' : 'badge-navy'}">${esc(b.status)}</span></td>
+      <td class="num" data-label="Gross">${money(b.gross_cents || 0)}</td>
+      <td class="num" data-label="Commission">${money(b.commission_cents || 0)}</td>
     </tr>`).join('')}</tbody></table></div>`;
 }
 
