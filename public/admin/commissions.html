@@ -925,11 +925,11 @@ function tableHtml(t) {
 }
 
 /** A whole document spec as HTML for the print page. */
-function specHtml(spec) {
+function specHtml(spec, onScreen) {
   const head = '<div class="pst-head"><h1>' + esc(spec.title) + '</h1>' + (spec.subtitle ? '<p class="muted">' + esc(spec.subtitle) + '</p>' : '') + '</div>';
-  const parts = [head];
+  const parts = onScreen ? [] : [head];
   for (const b of spec.blocks) {
-    if (b.page) parts.push('<div style="page-break-before:always"></div>' + head);
+    if (b.page) parts.push(onScreen ? '<hr style="margin:1.4rem 0;border:0;border-top:2px solid var(--navy-100);">' : '<div style="page-break-before:always"></div>' + head);
     else if (b.h) parts.push('<h2>' + esc(b.h) + '</h2>');
     else if (b.p) parts.push('<p class="muted">' + esc(b.p) + '</p>');
     else if (b.gap) parts.push('<div style="height:' + b.gap + 'px"></div>');
@@ -1250,7 +1250,7 @@ function drawStatements() {
   if (!all) { loadAll(); return '<p class="spinner">Loading...</p>'; }
   const list = (all.advisors || []).filter((a) => a.id);
   const pick = `<div class="card cd-filters"><div><label for="st-adv">Advisor</label>
-    <select id="st-adv" data-stpick="1"><option value="">Choose an advisor</option>${list.map((a) =>
+    <select id="st-adv" data-stpick="1"><option value="">Choose an advisor</option><option value="all"${stmt.advisor === 'all' ? ' selected' : ''}>All advisors together</option>${list.map((a) =>
     `<option value="${esc(a.id)}"${a.id === stmt.advisor ? ' selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>
     ${stmt.advisor ? `<div><label for="st-basis">Show</label><select id="st-basis" data-stbasis="1">
       <option value="payout"${stmt.basis === 'payout' ? ' selected' : ''}>What is paid out on these dates</option>
@@ -1264,6 +1264,15 @@ function drawStatements() {
       <button class="btn btn-sm" type="button" data-strange="year">This year</button></div>` : ''}</div>`;
   if (!stmt.advisor) return `${pick}<div class="card"><div class="empty"><h3>Choose an advisor</h3><p>Their statement shows here, ready to print or send.</p></div></div>`;
   if (!stmt.data) return `${pick}<p class="spinner">Loading...</p>`;
+  if (stmt.advisor === 'all') {
+    return `${pick}<div class="card" style="padding:1rem 1.2rem;"><h2 style="margin:0 0 .2rem;">All advisors together</h2>
+    <p class="muted">The total for everyone, then each advisor on their own page when printed. It shows the agency's share, so keep it for yourself.</p>
+    <div id="st-period">${specHtml(statementAllSpec(stmt), true)}</div>
+    <div class="cd-filters" style="margin-top:.6rem;"><div style="flex:1;min-width:14rem;"><label for="st-note">A line to add at the bottom (optional)</label>
+      <input id="st-note" value="${esc(stmt.note)}" maxlength="300" autocomplete="off"></div>
+      <div><button class="btn btn-primary btn-sm" type="button" id="st-print-period">Print</button>
+        <button class="btn btn-sm" type="button" id="st-pdf-period">Download PDF</button></div></div></div>`;
+  }
   const who = (list.find((a) => a.id === stmt.advisor) || {}).name || '';
   return `${pick}<div class="card" style="padding:1rem 1.2rem;"><h2 style="margin:0 0 .2rem;">${esc(who)}</h2>
     <p class="muted">Commission statement for the dates above. It shows the agency's share, so print it for your own records or to send an advisor on purpose.</p>
@@ -1302,7 +1311,12 @@ panel.addEventListener('click', (e) => {
   if (rng && stmt.advisor) { stmtRange(rng.dataset.strange); loadStatement(stmt.advisor); return; }
   if (e.target.closest('#st-pdf-period') && stmt.data) {
     const who = ((all.advisors || []).find((a) => a.id === stmt.advisor) || {}).name || '';
-    savePdf(statementSpec(who));
+    savePdf(stmt.advisor === 'all' ? statementAllSpec(stmt) : statementSpec(who));
+    return;
+  }
+  if (e.target.closest('#st-print-period') && stmt.data && stmt.advisor === 'all') {
+    const spec = statementAllSpec(stmt);
+    printDoc('Commission statement all advisors', specHtml(spec), { spec, auto: true });
     return;
   }
   if (e.target.closest('#st-print-period') && stmt.data) {
@@ -1344,6 +1358,39 @@ function statementSpec(who, st = stmt) {
       { p: (st.note || '').trim() },
     ].filter((b) => b.h || b.table || b.box || (b.p && b.p.length)),
   };
+}
+
+/** Everyone's statement for the dates: the total for all advisors together, then each advisor on a page of their own. */
+function statementAllSpec(st = stmt) {
+  const lines = st.data.statementLines || [];
+  const by = new Map();
+  for (const l of lines) {
+    const k = l.advisor_id || l.advisor_name || '';
+    if (!by.has(k)) by.set(k, { name: l.advisor_name || 'Not recorded', lines: [] });
+    by.get(k).lines.push(l);
+  }
+  const groups = [...by.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const sum = (ls, k) => ls.reduce((n, l) => n + (Number(l[k]) || 0), 0);
+  const when = st.from === st.to ? dateFmt(st.from) : dateFmt(st.from) + ' to ' + dateFmt(st.to);
+  const agency = st.data.agencyName || '';
+  const blocks = [
+    { h: 'Everyone together' },
+    { p: (st.basis === 'payout' ? 'Pay date: ' : 'Commission received: ') + when + '   |   ' + groups.length + ' advisor' + (groups.length === 1 ? '' : 's') + ', ' + lines.length + ' item' + (lines.length === 1 ? '' : 's') },
+    { table: {
+      headers: ['Advisor', 'Items', 'Total earned', 'Agency share', 'Advisor share'], widths: [4, 1, 2, 2, 2], aligns: ['l', 'r', 'r', 'r', 'r'], red: [3],
+      rows: groups.map((g) => [g.name, String(g.lines.length), money(sum(g.lines, 'received_cents')), money(sum(g.lines, 'agency_cents')), money(sum(g.lines, 'advisor_cents'))]),
+      totals: ['TOTAL', String(lines.length), money(sum(lines, 'received_cents')), money(sum(lines, 'agency_cents')), money(sum(lines, 'advisor_cents'))],
+    } },
+    { box: [['Total commission earned', money(sum(lines, 'received_cents'))], ['Agency share', money(sum(lines, 'agency_cents')), true], ['Advisors\' share', money(sum(lines, 'advisor_cents'))]] },
+  ];
+  if ((st.note || '').trim()) blocks.push({ p: st.note.trim() });
+  for (const g of groups) {
+    blocks.push({ page: true });
+    const one = statementSpec(g.name, { data: { agencyName: agency, statementLines: g.lines }, from: st.from, to: st.to, basis: st.basis, note: '' });
+    for (const b of one.blocks) blocks.push(b);
+  }
+  return { file: 'commission-statement-everyone ' + st.from + (st.from === st.to ? '' : ' to ' + st.to) + '.pdf', title: agency || 'Commission statement',
+    subtitle: 'Commission statement: all advisors', blocks };
 }
 
 /** An advisor's statement for one pay date, from the Payouts by date list: fetched on its own, so the Statements screen is left alone. */

@@ -317,7 +317,7 @@ export async function handleListCommissions(request, env) {
       const b = byId.get(x.booking_id);
       if (!b) continue;
       const e = lines.get(x.booking_id) || {
-        booking_id: b.id, client_name: b.client_name, supplier: b.supplier, confirmation_number: b.confirmation_number,
+        booking_id: b.id, advisor_id: b.user_id, advisor_name: b.advisor_name, client_name: b.client_name, supplier: b.supplier, confirmation_number: b.confirmation_number,
         depart_date: b.depart_date, split_pct: b.split_pct, received_cents: 0, unsplit_cents: 0, received_on: x.received_on, payout_on: x.payout_on,
       };
       e.received_cents += x.amount_cents || 0;
