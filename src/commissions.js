@@ -298,10 +298,12 @@ export async function handleListCommissions(request, env) {
   const stFrom = dayOnly(url.searchParams.get('stFrom'));
   const stTo = dayOnly(url.searchParams.get('stTo'));
   if (ownerView && stFrom && stTo) {
+    // The reservations' own filter, which opens with the advisor scope, so the receipts are fenced the same way.
+    const scopedWhere = where.join(' AND ');
     const rc = await env.DB.prepare(
       `SELECT r.booking_id, r.amount_cents, r.kind, r.received_on
          FROM commission_receipts r JOIN bookings b ON b.id = r.booking_id
-        WHERE ${where.join(' AND ')} AND ${shown} AND r.received_on >= ? AND r.received_on <= ?
+        WHERE ${scopedWhere} AND ${shown} AND r.received_on >= ? AND r.received_on <= ?
         ORDER BY r.received_on ASC, r.created_at ASC`
     ).bind(...binds, stFrom, stTo).all();
     const byId = new Map(rows.map((r) => [r.id, r]));
