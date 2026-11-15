@@ -849,14 +849,135 @@ const PRINT_CSS = `body{font:14px/1.45 -apple-system,Segoe UI,Helvetica,Arial,sa
   .pst-box div{display:flex;justify-content:space-between;gap:2rem;padding:.2rem 0;} .pst-box .last{border-top:1px solid #c5d0e0;margin-top:.3rem;padding-top:.5rem;font-weight:700;}
   @media print{.noprint{display:none;} body{margin:0;}}`;
 
-/** A page of its own for printing or saving as a PDF, opened from a blob so nothing is sent anywhere. */
-function printDoc(title, inner) {
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${PRINT_CSS}</style></head>
-    <body><p class="noprint">Press Cmd+P (Ctrl+P on Windows) to print this, or to save it as a PDF.</p>${inner}</body></html>`;
+/** A page of its own for printing or saving as a PDF, opened from a blob so nothing is sent anywhere. With a pdf spec it also gets a Download PDF button. */
+function printDoc(title, inner, pdf) {
+  const bar = pdf
+    ? `<p class="noprint"><button id="pr" type="button">Print</button> <button id="dl" type="button">Download PDF</button>
+        <span class="muted">Or press Cmd+P (Ctrl+P on Windows).</span></p>
+       <script>const SPEC = ${JSON.stringify(pdf.spec).replace(/</g, '\\u003c')};
+         const pdfBlob = ${pdfBlob.toString()};
+         document.getElementById('pr').onclick = function () { window.print(); };
+         document.getElementById('dl').onclick = function () { saveBlob(pdfBlob(SPEC), SPEC.file); };
+         function saveBlob(b, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+         ${pdf.auto ? 'window.addEventListener("load", function () { setTimeout(function () { window.print(); }, 300); });' : ''}<\/script>`
+    : '<p class="noprint">Press Cmd+P (Ctrl+P on Windows) to print this, or to save it as a PDF.</p>';
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${PRINT_CSS}
+    .noprint button{font:inherit;padding:.35rem .9rem;margin-right:.4rem;border:1px solid #12315e;border-radius:6px;background:#12315e;color:#fff;cursor:pointer;}
+    </style></head><body>${bar}${inner}</body></html>`;
   const href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
   const w = window.open(href, '_blank');
   if (!w) showError(errEl, new Error('Your browser blocked the new window. Allow pop-ups for this site and try again.'));
   setTimeout(() => URL.revokeObjectURL(href), 120000);
+}
+
+/**
+ * A PDF of a table, written by hand so nothing is loaded from anywhere and no figure leaves the browser: Letter, landscape,
+ * real text rather than a picture of it. Self-contained, because the print page is sent a copy of this function's source.
+ * spec: { agency, who, period, headers, widths, rows, totals, summary, note }, every cell already formatted as text.
+ */
+function pdfBlob(spec) {
+  const W = 792;
+  const H = 612;
+  const M = 40;
+  const NAVY = '0.07 0.19 0.37';
+  const RED = '0.54 0.11 0.11';
+  const GREY = '0.36 0.45 0.53';
+  const known = { ' ': 278, '$': 556, ',': 278, '.': 278, '-': 333, '(': 333, ')': 333, '%': 889, '\'': 191, ':': 278, '/': 278, '&': 667 };
+  const clean = (v) => String(v === null || v === undefined ? '' : v).replace(/[^\x20-\x7e]/g, '?');
+  const wid = (v, size) => {
+    let n = 0;
+    for (const ch of clean(v)) n += known[ch] || (/[0-9]/.test(ch) ? 556 : /[A-Z]/.test(ch) ? 667 : /[a-z]/.test(ch) ? 500 : 556);
+    return (n * size) / 1000;
+  };
+  const fit = (v, size, max) => {
+    let t = clean(v);
+    if (wid(t, size) <= max) return t;
+    while (t.length > 1 && wid(`${t}...`, size) > max) t = t.slice(0, -1);
+    return `${t}...`;
+  };
+  const pages = [];
+  let out = '';
+  let y = 0;
+  const txt = (x, yy, v, size, bold, col, right) => {
+    const t = clean(v);
+    const px = right ? x - wid(t, size) : x;
+    out += `BT ${col} rg /${bold ? 'F2' : 'F1'} ${size} Tf ${px.toFixed(2)} ${yy.toFixed(2)} Td (${t.replace(/([\\()])/g, '\\$1')}) Tj ET\n`;
+  };
+  const rect = (x, yy, w, h, col) => { out += `${col} rg ${x.toFixed(2)} ${yy.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f\n`; };
+  const line = (yy, thick) => { out += `${NAVY} RG ${thick} w ${M} ${yy.toFixed(2)} m ${W - M} ${yy.toFixed(2)} l S\n`; };
+  const xs = [];
+  let at = M;
+  for (const w of spec.widths) { xs.push(at); at += w; }
+  const cell = (i, yy, v, bold, col, size) => {
+    const right = i >= spec.widths.length - 3;
+    const w = spec.widths[i] - 8;
+    txt(right ? xs[i] + spec.widths[i] - 6 : xs[i] + 6, yy, right ? v : fit(v, size, w), size, bold, col, right);
+  };
+  const head = () => {
+    rect(M, y - 22, W - 2 * M, 24, NAVY);
+    spec.headers.forEach((h, i) => cell(i, y - 15, h.toUpperCase(), true, '1 1 1', 7.5));
+    y -= 22;
+  };
+  const start = (first) => {
+    if (out) pages.push(out);
+    out = '';
+    y = H - M;
+    if (first) {
+      txt(M, y - 14, spec.agency || 'Commission statement', 18, true, NAVY, false);
+      txt(M, y - 30, 'Commission statement', 9, false, GREY, false);
+      line(y - 40, 2.5);
+      txt(M, y - 62, `Agent: ${spec.who}`, 13, true, NAVY, false);
+      txt(M, y - 80, spec.period, 10, false, NAVY, false);
+      y -= 92;
+    } else {
+      txt(M, y - 10, `${spec.who} (continued)`, 9, false, GREY, false);
+      y -= 24;
+    }
+    head();
+  };
+  start(true);
+  for (const r of spec.rows) {
+    if (y < M + 40) start(false);
+    r.forEach((v, i) => cell(i, y - 14, v, false, i === spec.widths.length - 2 ? RED : NAVY, 9));
+    y -= 20;
+    out += `0.84 0.88 0.93 RG 0.5 w ${M} ${y.toFixed(2)} m ${W - M} ${y.toFixed(2)} l S\n`;
+  }
+  if (y < M + 130) start(false);
+  rect(M, y - 22, W - 2 * M, 22, '0.93 0.95 0.97');
+  line(y, 1.5);
+  spec.totals.forEach((v, i) => { if (v) cell(i, y - 15, v, true, i === spec.widths.length - 2 ? RED : NAVY, 9); });
+  y -= 40;
+  const bx = M;
+  const bw = 260;
+  const bh = 22 + spec.summary.length * 18;
+  rect(bx, y - bh, bw, bh, '0.96 0.97 0.99');
+  rect(bx, y - bh, 3, bh, '0.79 0.64 0.15');
+  spec.summary.forEach((pair, i) => {
+    const last = i === spec.summary.length - 1;
+    const col = pair[2] ? RED : NAVY;
+    txt(bx + 14, y - 20 - i * 18, pair[0], 9.5, last, NAVY, false);
+    txt(bx + bw - 12, y - 20 - i * 18, pair[1], 9.5, last, col, true);
+  });
+  y -= bh + 20;
+  (spec.notes || []).forEach((n) => { if (n) { txt(M, y, fit(n, 8.5, W - 2 * M), 8.5, false, GREY, false); y -= 14; } });
+  pages.push(out);
+
+  const objs = [];
+  objs[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+  objs[2] = `<< /Type /Pages /Kids [${pages.map((c, i) => `${5 + i * 2} 0 R`).join(' ')}] /Count ${pages.length} >>`;
+  objs[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+  objs[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+  pages.forEach((c, i) => {
+    objs[5 + i * 2] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${6 + i * 2} 0 R >>`;
+    objs[6 + i * 2] = `<< /Length ${c.length} >>\nstream\n${c}endstream`;
+  });
+  let pdf = '%PDF-1.4\n';
+  const offs = [];
+  for (let i = 1; i < objs.length; i += 1) { offs[i] = pdf.length; pdf += `${i} 0 obj\n${objs[i]}\nendobj\n`; }
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objs.length}\n0000000000 65535 f \n${offs.slice(1).map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`;
+  pdf += `trailer\n<< /Size ${objs.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return new Blob([pdf], { type: 'application/pdf' });
 }
 
 /** The pay run for one pay date: who is paid what, trip by trip, with a box to tick as each is done. */
@@ -950,6 +1071,28 @@ function periodStatement(who) {
     ${note ? `<p class="muted">${esc(note)}</p>` : ''}`;
 }
 
+/** The same statement as plain text cells, for the PDF. */
+function statementSpec(who) {
+  const lines = stmt.data.statementLines || [];
+  const sum = (k) => lines.reduce((n, l) => n + (Number(l[k]) || 0), 0);
+  const first = who.split(' ')[0] || who;
+  const pcts = [...new Set(lines.map((l) => Number(l.split_pct)))];
+  const when = stmt.from === stmt.to ? dateFmt(stmt.from) : `${dateFmt(stmt.from)} to ${dateFmt(stmt.to)}`;
+  const day = (x) => (x ? dateFmt(x) : '');
+  return {
+    file: `${who} commission statement ${stmt.from}${stmt.from === stmt.to ? '' : ` to ${stmt.to}`}.pdf`,
+    agency: stmt.data.agencyName || '', who,
+    period: `${stmt.basis === 'payout' ? 'Pay date' : 'Commission received'}: ${when}   |   ${lines.length} item${lines.length === 1 ? '' : 's'}`,
+    headers: ['Client', 'Vendor', 'Confirmation', 'Received', 'Pay date', 'Total earned', 'Agency share', pcts.length === 1 ? `${first}'s share (${pcts[0]}%)` : `${first}'s share`],
+    widths: [120, 105, 80, 64, 64, 84, 84, 111],
+    rows: lines.map((l) => [l.client_name, l.supplier || '', l.confirmation_number || '', day(l.received_on), day(l.payout_on),
+      money(l.received_cents), money(l.agency_cents), pcts.length > 1 ? `${money(l.advisor_cents)} (${l.split_pct}%)` : money(l.advisor_cents)]),
+    totals: [`TOTALS: ${lines.length} item${lines.length === 1 ? '' : 's'}`, '', '', '', '', money(sum('received_cents')), money(sum('agency_cents')), money(sum('advisor_cents'))],
+    summary: [['Total commission earned', money(sum('received_cents')), false], ['Agency share', money(sum('agency_cents')), true], [`${first}'s share`, money(sum('advisor_cents')), false]],
+    notes: [`The share is ${first}'s split of the commission the vendors paid. Pay days are the 1st and the 15th.`, (stmt.note || '').trim()],
+  };
+}
+
 /** What an advisor sees of their own money, and nothing of the agency's side. */
 function statementBody(who) {
   const rows = stmt.data.rows.filter((r) => (r.received_cents || 0) > 0 || (r.paid_out_cents || 0) > 0 || (r.advisor_cents || 0) > 0);
@@ -1010,7 +1153,8 @@ function drawStatements() {
     <div id="st-period">${periodStatement(who)}</div>
     <div class="cd-filters" style="margin-top:.6rem;"><div style="flex:1;min-width:14rem;"><label for="st-note">A line to add at the bottom (optional)</label>
       <input id="st-note" value="${esc(stmt.note)}" maxlength="300" autocomplete="off"></div>
-      <div><button class="btn btn-primary btn-sm" type="button" id="st-print-period">Print or save as PDF</button></div></div></div>
+      <div><button class="btn btn-primary btn-sm" type="button" id="st-print-period">Print</button>
+        <button class="btn btn-sm" type="button" id="st-pdf-period">Download PDF</button></div></div></div>
     <div class="card" style="padding:1rem 1.2rem;margin-top:1rem;"><h2 style="margin:0 0 .2rem;">Account summary</h2>
     <p class="muted">Everything to date as of ${esc(dateFmt(d.today))}. It never shows what the agency keeps.</p>
     <div id="st-body">${statementBody(who)}</div>
@@ -1034,11 +1178,25 @@ panel.addEventListener('click', (e) => {
   if (run) { printRun(run.dataset.printrun); return; }
   const rng = e.target.closest('[data-strange]');
   if (rng && stmt.advisor) { stmtRange(rng.dataset.strange); loadStatement(stmt.advisor); return; }
+  if (e.target.closest('#st-pdf-period') && stmt.data) {
+    const who = ((all.advisors || []).find((a) => a.id === stmt.advisor) || {}).name || '';
+    const spec = statementSpec(who);
+    const href = URL.createObjectURL(pdfBlob(spec));
+    const link = document.createElement('a');
+    link.href = href;
+    link.download = spec.file;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 60000);
+    return;
+  }
   if (e.target.closest('#st-print-period') && stmt.data) {
     const who = ((all.advisors || []).find((a) => a.id === stmt.advisor) || {}).name || '';
     const agency = stmt.data.agencyName || '';
     printDoc(`Commission statement ${who}`, `<div class="pst-head"><h1>${esc(agency || 'Commission statement')}</h1>
-      <p class="muted">Commission statement</p></div><h2 style="margin-top:0;">Agent: ${esc(who)}</h2>${periodStatement(who)}`);
+      ${agency ? '<p class="muted">Commission statement</p>' : ''}</div><h2 style="margin-top:0;">Agent: ${esc(who)}</h2>${periodStatement(who)}`,
+    { spec: statementSpec(who), auto: true });
     return;
   }
   if (e.target.closest('#st-print') && stmt.data) {

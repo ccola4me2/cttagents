@@ -331,7 +331,7 @@ export async function handleListCommissions(request, env) {
       return { ...e, advisor_cents: s.advisorCents, agency_cents: s.agencyCents };
     });
     payload.statementRange = { from: stFrom, to: stTo, basis: byPayDate ? 'payout' : 'received' };
-    payload.agencyName = user.agencyName || '';
+    payload.agencyName = user.agency_name || user.agencyName || '';
   }
   if (!ownerView) {
     for (const row of payload.rows) {
