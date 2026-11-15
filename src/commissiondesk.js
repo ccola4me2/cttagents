@@ -805,7 +805,10 @@ export async function handleCommissionRecall(request, env) {
 
   const today = todayIso();
   const rows = (results || []).map((b) => {
-    const safeOn = b.depart_date ? minusDays(b.depart_date, SAFE_DAYS) : null;
+    // Only Royal Caribbean can take commission back up to 30 days before sailing. Every other vendor is safe on receipt.
+    const holds = /royal caribbean/i.test(b.supplier || '');
+    const safeOn = b.depart_date && holds ? minusDays(b.depart_date, SAFE_DAYS) : null;
+    const usDay = (iso) => `${iso.slice(5, 7)}/${iso.slice(8, 10)}/${iso.slice(0, 4)}`;
     const share = shareOf(b.received_cents, b.split_pct, b.unsplit_cents).advisorCents;
     const due = Math.max(share - b.paid_out_cents, 0);
     const before = Boolean(safeOn && today < safeOn);
@@ -818,11 +821,11 @@ export async function handleCommissionRecall(request, env) {
         : 'Cancelled. The vendor may take the commission back. Nothing has been paid out yet, so hold it.';
     } else if (b.paid_out_cents > 0 && before) {
       state = 'early';
-      note = `Paid out before the safe date, ${safeOn}. If the client cancels the commission may have to be given back.`;
+      note = `Paid out before the safe date, ${usDay(safeOn)}. If the client cancels the commission may have to be given back.`;
     } else if (before && due > 0) {
       state = 'hold';
-      note = `Hold until ${safeOn}, 30 days before sailing.`;
-    } else if (!b.depart_date) {
+      note = `Hold until ${usDay(safeOn)}, 30 days before sailing.`;
+    } else if (!b.depart_date && holds) {
       state = 'nodate';
       note = 'No sailing date on the reservation, so there is no safe date to work from.';
     }

@@ -11,10 +11,10 @@
   /* Four to a row, the money on top and the four ways to look at it underneath, the way the agency's other portal lays it out. */
   .cd-tiles { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
   #tiles.cd-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  #tiles .cd-tile:nth-child(n+5) .value { font-size: 1.2rem; }
   @media (max-width: 1100px) { #tiles.cd-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 520px) { #tiles.cd-tiles { grid-template-columns: minmax(0, 1fr); } }
-  #tiles .cd-tile.wide { grid-column: 1 / -1; }
+  #tiles .cd-views { grid-column: 1 / -1; margin: .2rem 0 .4rem; }
+  .cd-views .cd-chip { font-size: .86rem; padding: .45rem 1rem; }
   .cd-tile {
     font: inherit; text-align: left; cursor: pointer; background: #fff; border: 1.5px solid var(--navy-100);
     border-radius: var(--radius); padding: 1rem 1.15rem; box-shadow: var(--shadow-sm);
@@ -282,8 +282,8 @@ const dayLabel = (x) => (x === NOT_SCHEDULED ? 'Not scheduled yet' : dateFmt(x))
 function drawTiles() {
   const t = d.tiles;
   const next = d.payDates.find((p) => p.isNext);
-  const tile = (key, label, value, meta, wide) => `
-    <button class="cd-tile${wide ? ' wide' : ''}" type="button" data-view="${key}" aria-pressed="${view === key}">
+  const tile = (key, label, value, meta) => `
+    <button class="cd-tile" type="button" data-view="${key}" aria-pressed="${view === key}">
       <p class="label">${label}</p><p class="value">${value}</p><p class="meta">${meta}</p></button>`;
   $('tiles').innerHTML = [
     // The checks before fees, then the fees, then what reached the bank, so the three numbers read as a sum.
@@ -297,15 +297,20 @@ function drawTiles() {
     tile('owed', 'Still owed to us', money(t.owedToUsCents),
       `${t.owedToUsCount} reservation${t.owedToUsCount === 1 ? '' : 's'} not yet paid${t.writtenOffCount
         ? `, and ${money(t.writtenOffCents)} written off` : ''}`),
-    tile('all', 'Everything', 'All commissions', 'every reservation and advisor, to search, filter and download'),
-    tile('statements', 'Statements', 'For each advisor', 'what they earned, were paid and are owed, to print or send'),
-    tile('reports', 'Reports', 'By advisor, vendor, month', 'the books in tables you can download'),
-    tile('recall', 'Recall watch', rc ? (needAttention() ? `${needAttention()} to review` : 'All clear') : 'Safe to pay?',
-      rc ? `${money(rc.totals.holdCents)} held until safe, ${money(rc.totals.cancelledReceivedCents)} on cancelled trips` : 'what could still be taken back'),
-    // What is left of what was received once every advisor is paid or scheduled: the agency's own money.
-    tile('agency', 'The agency keeps', money(t.receivedCents - t.paidOutCents - t.scheduledCents),
-      `${money(t.receivedCents)} received, less ${money(t.paidOutCents)} paid out and ${money(t.scheduledCents)} scheduled to advisors. Press to see it advisor by advisor.`, true),
-  ].join('');
+  ].join('') + viewStrip(t);
+}
+
+/** The other ways to look at it, as one strip of tabs rather than five more tiles. */
+function viewStrip(t) {
+  const views = [
+    ['all', 'All commissions', '', 'Every reservation and advisor, to search, filter and download'],
+    ['statements', 'Advisor statements', '', 'What each advisor earned, was paid and is owed, to print or send'],
+    ['reports', 'Reports', '', 'By advisor, vendor and month, to print or download'],
+    ['recall', 'Recall watch', rc && needAttention() ? String(needAttention()) : '', 'What a cruise line could still take back'],
+    ['agency', 'What the agency keeps', money(t.receivedCents - t.paidOutCents - t.scheduledCents), 'Received, less what is paid out or scheduled, advisor by advisor'],
+  ];
+  return '<div class="cd-chips cd-views">' + views.map(([key, label, n, hint]) => '<button class="cd-chip" type="button" data-view="' + key
+    + '" aria-pressed="' + (view === key) + '" title="' + esc(hint) + '">' + esc(label) + (n ? '<span class="n">' + esc(n) + '</span>' : '') + '</button>').join('') + '</div>';
 }
 
 // ---------------------------------------------------------------------------
@@ -375,7 +380,7 @@ function drawScheduled() {
     `<option value="${esc(x)}"${x === p.date ? ' selected' : ''}>${esc(dateFmt(x))}</option>`).join('')}`}</select></label></div>`).join('')}
         <span class="muted" style="font-size:.8rem;">Moving a line to another day changes when it is paid. The amount stays the same.</span></div>`
     : `<div class="trips">${a.trips.map((t) => `<span>${esc(t.client)}${t.supplier ? ` (${esc(t.supplier)})` : ''}: ${money(t.cents)}${
-  t.departDate && /royal caribbean/i.test(t.supplier || '') && p.date < safeOn(t.departDate) ? ' <span class="badge badge-amber" title="Royal Caribbean can take the commission back until 30 days before sailing, and this sails more than 30 days after this pay date">before the 30 day mark</span>' : ''}</span>`).join('')}</div>`}
+  t.departDate && holdsBack(t.supplier) && p.date < safeOn(t.departDate) ? ' <span class="badge badge-amber" title="Royal Caribbean can take the commission back until 30 days before sailing, and this sails more than 30 days after this pay date">before the 30 day mark</span>' : ''}</span>`).join('')}</div>`}
         </div>`).join('')}
     </section>`).join('');
 }
@@ -616,8 +621,13 @@ document.getElementById('chase-form').addEventListener('submit', async (e) => {
 function safeOn(depart) {
   return depart ? new Date(Date.parse(`${depart}T00:00:00Z`) - 30 * 86400000).toISOString().slice(0, 10) : null;
 }
+/** Only Royal Caribbean can take commission back up to 30 days before sailing; other vendors have no hold. */
+function holdsBack(supplier) {
+  return /royal caribbean/i.test(supplier || '');
+}
 /** Money received and not yet safe to pay out. */
 function onHold(r) {
+  if (!holdsBack(r.supplier)) return false;
   const safe = safeOn(r.depart_date);
   return Boolean(safe && d.today < safe && (r.received_cents || 0) > 0 && (r.due_cents || 0) > 0);
 }
@@ -739,7 +749,7 @@ function allBody() {
         <div class="muted">${esc([r.supplier, r.product_name, r.confirmation_number].filter(Boolean).join(' · '))}</div></td>
       <td>${esc(r.advisor_name || '')}</td>
       <td>${r.depart_date ? esc(dateFmt(r.depart_date)) : '<span class="muted">no date</span>'}</td>
-      <td>${r.depart_date ? `${esc(dateFmt(safeOn(r.depart_date)))}${onHold(r) ? ' <span class="badge badge-amber">hold</span>' : ''}` : ''}</td>
+      <td>${r.depart_date && holdsBack(r.supplier) ? `${esc(dateFmt(safeOn(r.depart_date)))}${onHold(r) ? ' <span class="badge badge-amber">hold</span>' : ''}` : ''}</td>
       <td class="r cd-money">${money(r.commission_cents)}</td>
       <td class="r cd-money">${money(r.received_cents)}</td>
       <td><span class="badge ${STATE_BADGE[r.settlement] || ''}">${esc(STATE_LABEL[r.settlement] || r.settlement)}</span></td>
@@ -792,7 +802,7 @@ function downloadAll() {
   const head = ['Client', 'Advisor', 'Vendor', 'Ship', 'Confirmation', 'Sails', 'Safe to pay from', 'Returns', 'Expected', 'Received', 'Status',
     'Split to advisor %', 'Advisor share of received', 'Paid out', 'Still due to advisor', 'Agency keeps'];
   const lines = [head.join(',')].concat(rows.map((r) => [r.client_name, r.advisor_name, r.supplier, r.product_name, r.confirmation_number,
-    r.depart_date, safeOn(r.depart_date) || '', r.return_date, dollars(r.commission_cents), dollars(r.received_cents), STATE_LABEL[r.settlement] || r.settlement,
+    r.depart_date, (holdsBack(r.supplier) && safeOn(r.depart_date)) || '', r.return_date, dollars(r.commission_cents), dollars(r.received_cents), STATE_LABEL[r.settlement] || r.settlement,
     r.split_pct, dollars(r.payout_cents), dollars(r.paid_out_cents), dollars(Math.max(r.due_cents, 0)),
     dollars(r.agency_received_cents)].map(csvCell).join(',')));
   const href = URL.createObjectURL(new Blob([`${lines.join('\n')}\n`], { type: 'text/csv' }));
@@ -1767,7 +1777,7 @@ const TITLES = {
   owed: ['Still owed to us', 'Booked reservations whose commission hasn\u2019t fully come in. Record it when the check arrives, or mark it if the vendor won\u2019t pay.'],
   all: ['All commissions', 'Every reservation that earns commission, for every advisor. Search, filter, sort, open a row for its lines, and download what you see.'],
   reports: ['Reports', 'Commission by advisor, by vendor and by month, what is short or over, every check, and what each advisor was paid in the year for their 1099. Each one downloads as a spreadsheet file.'],
-  recall: ['Recall watch', 'A cruise line can take commission back if a client cancels, until 30 days before sailing. This shows what is being held until then, what was paid out early, and cancelled trips with money to recover.'],
+  recall: ['Recall watch', 'Royal Caribbean can take commission back if a client cancels, until 30 days before sailing; other vendors have no hold. This shows what is being held until then, what was paid out early, and cancelled trips with money to recover.'],
   agency: ['The agency keeps', 'What is left of the money received once every advisor has been paid or is scheduled to be paid. This is the agency\u2019s own money.'],
   statements: ['Advisor statements', 'What one advisor earned, has been paid and is still owed. Print it or save it as a PDF to send. It never shows what the agency keeps.'],
 };
