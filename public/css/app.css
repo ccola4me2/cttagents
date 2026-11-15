@@ -1807,3 +1807,13 @@ code { overflow-wrap: anywhere; }
   table.stack td.full::before { content: none; }
   table.stack td:empty { display: none; }
 }
+
+/* ----------------------------------------------------------- folding cards -- */
+/* A card whose heading opens and closes it (the group page): the chevron turns, the rest of the card is hidden while folded. */
+.card.fold > .card-head h2 { cursor: pointer; user-select: none; display: flex; align-items: center; gap: .55rem; }
+.card.fold > .card-head h2::before { content: ''; flex: none; width: .5rem; height: .5rem; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  transform: rotate(45deg); transition: transform .15s; margin: -.2rem .1rem 0 .1rem; }
+.card.fold.folded > .card-head h2::before { transform: rotate(-45deg); margin-top: 0; }
+.card.fold.folded > :not(.card-head) { display: none; }
+.card.fold.folded > .card-head { border-bottom: 0; }
+@media (prefers-reduced-motion: reduce) { .card.fold > .card-head h2::before { transition: none; } }

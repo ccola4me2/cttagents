@@ -2261,4 +2261,31 @@ await load();
   </form>
 </dialog>
 
+<script>
+// Each card on this page folds shut under its heading. On a phone the long forms start folded and the lists start open; on a bigger
+// screen everything starts open. A choice made here is remembered for next time.
+(function () {
+  var phone = window.matchMedia('(max-width: 700px)').matches;
+  var STARTS_OPEN = ['Who is coming', 'Reservations in this group', 'Client page', 'Repeat this group'];
+  function saved(key) { try { return window.localStorage.getItem(key); } catch (e) { return null; } }
+  function save(key, v) { try { window.localStorage.setItem(key, v); } catch (e) { /* a private window keeps nothing */ } }
+  document.querySelectorAll('section.card').forEach(function (card) {
+    var head = card.querySelector(':scope > .card-head');
+    var title = head && head.querySelector('h2');
+    if (!title || card.closest('dialog')) return;
+    var name = title.textContent.trim();
+    var key = 'group-fold:' + name;
+    var mem = saved(key);
+    var open = mem === '1' ? true : mem === '0' ? false : (!phone || STARTS_OPEN.indexOf(name) >= 0);
+    card.classList.add('fold');
+    title.setAttribute('role', 'button');
+    title.tabIndex = 0;
+    function set(v) { card.classList.toggle('folded', !v); title.setAttribute('aria-expanded', String(v)); }
+    set(open);
+    function flip() { var v = card.classList.contains('folded'); set(v); save(key, v ? '1' : '0'); }
+    title.addEventListener('click', flip);
+    title.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
+  });
+})();
+</script>
 </body></html>
