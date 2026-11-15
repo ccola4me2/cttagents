@@ -10,7 +10,10 @@
 <style>
   /* Four to a row, the money on top and the four ways to look at it underneath, the way the agency's other portal lays it out. */
   .cd-tiles { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
-  #tiles.cd-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  #tiles.cd-tiles { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  @media (max-width: 1350px) { #tiles.cd-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  .cd-tile.next { background: var(--teal-50); border-color: var(--teal-500); }
+  .cd-tile.next .value { font-size: 2.1rem; }
   @media (max-width: 1100px) { #tiles.cd-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 520px) { #tiles.cd-tiles { grid-template-columns: minmax(0, 1fr); } }
   #tiles .cd-views { grid-column: 1 / -1; margin: .2rem 0 .4rem; }
@@ -291,6 +294,7 @@ function drawTiles() {
       t.feesCents ? `less ${money(t.feesCents)} fees = ${money(t.netCents)} at the bank` : `${t.receivedLines} line${t.receivedLines === 1 ? '' : 's'} from vendors`),
     tile('paid', `Paid out in ${esc(year)}`, money(t.paidOutCents),
       `${t.payouts} payout${t.payouts === 1 ? '' : 's'} to advisors`),
+    nextTile(next),
     tile('scheduled', 'Scheduled to pay out', money(t.scheduledCents),
       (next ? `next payout ${esc(short(d.nextPayDate))}: ${money(next.totalCents)}` : `next pay date ${esc(short(d.nextPayDate))}`)
         + (t.unscheduledCents ? `, and ${money(t.unscheduledCents)} not scheduled yet` : '')),
@@ -298,6 +302,14 @@ function drawTiles() {
       `${t.owedToUsCount} reservation${t.owedToUsCount === 1 ? '' : 's'} not yet paid${t.writtenOffCount
         ? `, and ${money(t.writtenOffCents)} written off` : ''}`),
   ].join('') + viewStrip(t);
+}
+
+/** The next payout on its own, big, so it does not have to be read out of the line under the scheduled total. */
+function nextTile(next) {
+  const when = next ? dateFmt(next.date) : dateFmt(d.nextPayDate);
+  const meta = next ? next.advisors.length + ' advisor' + (next.advisors.length === 1 ? '' : 's') + ' to pay. Press Mark paid on each as you pay them.' : 'Nothing scheduled for this date yet';
+  return '<button class="cd-tile next" type="button" data-view="scheduled" aria-pressed="false"><p class="label">Next payout, ' + esc(when) + '</p><p class="value">'
+    + money(next ? next.totalCents : 0) + '</p><p class="meta">' + esc(meta) + '</p></button>';
 }
 
 /** The other ways to look at it, as one strip of tabs rather than five more tiles. */
