@@ -4022,4 +4022,43 @@ else await load();
     <div id="lib-list"></div>
   </div>
 </dialog>
+<script>
+// Each card on this page folds shut under its heading. On a phone only the short ones start open and the strip of tabs under the
+// figures opens whichever one it jumps to; on a bigger screen everything starts open. A choice made here is remembered for next time.
+(function () {
+  var phone = window.matchMedia('(max-width: 700px)').matches;
+  var STARTS_OPEN = ['Travellers', 'Payment schedule', 'To do'];
+  function saved(key) { try { return window.localStorage.getItem(key); } catch (e) { return null; } }
+  function save(key, v) { try { window.localStorage.setItem(key, v); } catch (e) { /* a private window keeps nothing */ } }
+  var flips = new Map();
+  document.querySelectorAll('section.card').forEach(function (card) {
+    var head = card.querySelector(':scope > .card-head');
+    var title = head && head.querySelector('h2');
+    if (!title || card.closest('dialog')) return;
+    var name = title.textContent.trim();
+    var key = 'reservation-fold:' + name;
+    var mem = saved(key);
+    var open = mem === '1' ? true : mem === '0' ? false : (!phone || STARTS_OPEN.indexOf(name) >= 0);
+    card.classList.add('fold');
+    title.setAttribute('role', 'button');
+    title.tabIndex = 0;
+    function set(v) { card.classList.toggle('folded', !v); title.setAttribute('aria-expanded', String(v)); }
+    set(open);
+    function flip() { var v = card.classList.contains('folded'); set(v); save(key, v ? '1' : '0'); }
+    flips.set(card, flip);
+    title.addEventListener('click', flip);
+    title.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
+  });
+  function openFor(id) {
+    var target = id && document.getElementById(id);
+    var card = target && target.closest('section.card.fold');
+    if (card && card.classList.contains('folded')) flips.get(card)();
+  }
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('#section-nav a');
+    if (a) openFor((a.getAttribute('href') || '').slice(1));
+  }, true);
+  if (window.location.hash) openFor(window.location.hash.slice(1));
+})();
+</script>
 </body></html>
