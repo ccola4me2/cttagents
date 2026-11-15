@@ -99,24 +99,24 @@ async function load() {
         group${d.owners[n].groups === 1 ? '' : 's'}, ${d.owners[n].guests} guests</p></div>`).join('');
 
   document.getElementById('groups').innerHTML = d.groups.length
-    ? `<div class="table-wrap"><table>
+    ? `<div class="table-wrap"><table class="stack">
       <thead><tr><th>Group</th><th>Owner</th><th>Sails</th><th>Option</th><th>Final payment</th>
         <th class="num">In group</th><th class="num">Booked</th><th class="num">Open</th><th class="num">Guests</th><th class="num">TC earned</th><th>Next TC</th><th></th></tr></thead>
       <tbody>${d.groups.map((g) => `<tr>
-        <td><a href="/app/group-sheet?id=${encodeURIComponent(g.id)}"><strong>${esc(g.name)}</strong></a>
+        <td class="first"><a href="/app/group-sheet?id=${encodeURIComponent(g.id)}"><strong>${esc(g.name)}</strong></a>
           <div class="muted" style="font-size:.84rem;">${esc(g.ship)}${g.groupNumber ? ` &middot; Group ${esc(g.groupNumber)}` : ''}${
             g.status !== 'open' ? ` &middot; ${esc(g.status)}` : ''}</div></td>
-        <td>${esc(g.owner)}</td>
-        <td>${when(g.departDate, d.today)}</td>
-        <td>${when(g.optionDate, d.today)}</td>
-        <td>${when(g.finalPaymentDue, d.today)}</td>
-        <td class="num">${g.cabinsHeld || '-'}</td>
-        <td class="num">${g.cabins}${g.minimumMet ? '' : ' <span class="badge badge-amber" title="Under the minimum of 6">under 6</span>'}</td>
-        <td class="num"><strong${g.cabinsHeld && !g.available ? ' style="color:#b3382a;"' : ''}>${g.cabinsHeld ? g.available : '-'}</strong></td>
-        <td class="num">${g.guests}</td>
-        <td class="num"><strong>${g.tcEarned}</strong></td>
-        <td class="muted">${g.toNextTc} guest${g.toNextTc === 1 ? '' : 's'} to go</td>
-        <td class="num">${g.waiting ? `<a class="badge badge-amber" href="/app/group-sheet?id=${encodeURIComponent(g.id)}">${g.waiting} sign-up${g.waiting === 1 ? '' : 's'} to add</a>` : ''}</td>
+        <td data-label="Owner">${esc(g.owner)}</td>
+        <td data-label="Sails">${when(g.departDate, d.today)}</td>
+        <td data-label="Option">${when(g.optionDate, d.today)}</td>
+        <td data-label="Final payment">${when(g.finalPaymentDue, d.today)}</td>
+        <td class="num" data-label="In group">${g.cabinsHeld || '-'}</td>
+        <td class="num" data-label="Booked">${g.cabins}${g.minimumMet ? '' : ' <span class="badge badge-amber" title="Under the minimum of 6">under 6</span>'}</td>
+        <td class="num" data-label="Open"><strong${g.cabinsHeld && !g.available ? ' style="color:#b3382a;"' : ''}>${g.cabinsHeld ? g.available : '-'}</strong></td>
+        <td class="num" data-label="Guests">${g.guests}</td>
+        <td class="num" data-label="TC earned"><strong>${g.tcEarned}</strong></td>
+        <td class="muted" data-label="Next TC">${g.toNextTc} guest${g.toNextTc === 1 ? '' : 's'} to go</td>
+        <td class="num full">${g.waiting ? `<a class="badge badge-amber" href="/app/group-sheet?id=${encodeURIComponent(g.id)}">${g.waiting} sign-up${g.waiting === 1 ? '' : 's'} to add</a>` : ''}</td>
       </tr>`).join('')}</tbody></table></div>`
     : '<div class="card-pad"><p class="muted">No groups on the desk yet. Start one under Groups: upload the cruise line’s group proposal and the details fill in for you to check.</p></div>';
 }
@@ -130,13 +130,13 @@ async function loadCtt() {
   const list = (d.groups || []).filter((g) => !g.onDesk);
   card.hidden = !d.available || !list.length;
   if (card.hidden) return;
-  document.getElementById('ctt-groups').innerHTML = `<div class="table-wrap"><table>
+  document.getElementById('ctt-groups').innerHTML = `<div class="table-wrap"><table class="stack">
     <thead><tr><th>Group</th><th>Sails</th><th class="num">Cabins held</th><th>In CTT</th><th></th></tr></thead>
-    <tbody>${list.map((g) => `<tr><td><strong>${esc(g.name)}</strong>
+    <tbody>${list.map((g) => `<tr><td class="first"><strong>${esc(g.name)}</strong>
       <div class="muted" style="font-size:.84rem;">${esc(g.ship)}${g.number ? ` &middot; ${esc(g.number)}` : ''}</div></td>
-      <td>${esc(dateFmt(g.departDate))}</td><td class="num">${g.cabinsHeld}</td>
-      <td>${g.pageOpen ? 'Sign-up page live' : 'Page off'}</td>
-      <td class="num"><button class="btn btn-ghost btn-sm" data-bring="${esc(g.id)}">Bring onto the desk</button></td></tr>`).join('')}
+      <td data-label="Sails">${esc(dateFmt(g.departDate))}</td><td class="num" data-label="Cabins held">${g.cabinsHeld}</td>
+      <td data-label="In CTT">${g.pageOpen ? 'Sign-up page live' : 'Page off'}</td>
+      <td class="num full"><button class="btn btn-ghost btn-sm" data-bring="${esc(g.id)}">Bring onto the desk</button></td></tr>`).join('')}
     </tbody></table></div>`;
   document.querySelectorAll('[data-bring]').forEach((b) => b.addEventListener('click', () => bring({ groupId: b.dataset.bring }, b)));
 }

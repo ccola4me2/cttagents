@@ -1784,3 +1784,27 @@ code { overflow-wrap: anywhere; }
   .rates-grid td.perguest::before { display: block; margin-bottom: .2rem; }
   .rates-grid .perguest { min-width: 0; }
 }
+
+/* ------------------------------------------------------ phones, stat tiles and stacked tables -- */
+/* Two stat tiles to a row on a phone instead of one each, so the numbers are not a screenful of scrolling before the list begins. */
+@media (max-width: 560px) {
+  .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+  .stat-grid .stat { padding: .8rem .9rem; }
+  .stat-grid .stat .value { font-size: 1.35rem; }
+  .stat-grid .stat .label { font-size: .66rem; letter-spacing: .07em; }
+}
+/* A wide table drawn as one card a row on a phone: add class "stack" and a data-label to each cell; the first cell is the card's title. */
+@media (max-width: 640px) {
+  .table-wrap { overflow-x: visible; }
+  table.stack, table.stack tbody { display: block; }
+  table.stack thead { display: none; }
+  table.stack tr { display: grid; grid-template-columns: 1fr 1fr; gap: .15rem 1rem; padding: .7rem .8rem; margin: 0 0 .7rem;
+    border: 1px solid var(--navy-100); border-radius: 10px; background: #fff; }
+  table.stack td { border: 0; padding: .1rem 0; display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; text-align: right; min-width: 0; }
+  table.stack td::before { content: attr(data-label); color: var(--ink-400); font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; text-align: left; }
+  table.stack td.first { grid-column: 1 / -1; display: block; text-align: left; padding-bottom: .35rem; border-bottom: 1px solid var(--navy-100); margin-bottom: .3rem; }
+  table.stack td.first::before { content: none; }
+  table.stack td.full { grid-column: 1 / -1; justify-content: flex-start; }
+  table.stack td.full::before { content: none; }
+  table.stack td:empty { display: none; }
+}

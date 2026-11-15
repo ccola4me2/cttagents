@@ -116,9 +116,9 @@ function row(e, advisors) {
 }
 
 function table(list, advisors) {
-  return `<table class="table">
+  return `<div class="table-wrap"><table class="table">
     <thead><tr><th>Event</th><th>When</th><th>Going</th><th></th></tr></thead>
-    <tbody>${list.map((e) => row(e, advisors)).join('')}</tbody></table>`;
+    <tbody>${list.map((e) => row(e, advisors)).join('')}</tbody></table></div>`;
 }
 
 function render() {

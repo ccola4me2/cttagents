@@ -71,10 +71,10 @@ function render(d) {
       <p style="margin-top:0;">${d.advisors.length} advisor${d.advisors.length === 1 ? '' : 's'}${
         notStarted ? `, ${notStarted} yet to start` : ', everybody has made a start'}.</p>
     </div>
-    <table class="table">
+    <div class="table-wrap"><table class="table">
       <thead><tr><th>Advisor</th><th>Status</th><th>Progress</th><th>Last worked on</th></tr></thead>
       <tbody>${d.advisors.map((a) => row(a, d.total)).join('')}</tbody>
-    </table>`;
+    </table></div>`;
 }
 
 try { render(await api('/api/admin/training')); }
