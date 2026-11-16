@@ -999,7 +999,7 @@ export async function handleCommissionDesk(request, env) {
               COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''), u.email)
                 AS advisor_name,
               (SELECT COUNT(*) FROM advisor_payout_lines l WHERE l.payout_id = p.id AND ${scopeL.sql}) AS trips,
-              (SELECT GROUP_CONCAT(pb.client_name, ', ') FROM advisor_payout_lines l
+              (SELECT GROUP_CONCAT(pb.client_name || CASE WHEN COALESCE(pb.confirmation_number, '') <> '' THEN ' (' || pb.confirmation_number || ')' ELSE '' END, ', ') FROM advisor_payout_lines l
                  JOIN bookings pb ON pb.id = l.booking_id WHERE l.payout_id = p.id AND ${scopeL.sql}) AS names
          FROM advisor_payouts p JOIN users u ON u.id = p.user_id
         WHERE ${scopeP.sql} AND substr(COALESCE(p.paid_on, ''), 1, 4) = ?
@@ -1014,7 +1014,7 @@ export async function handleCommissionDesk(request, env) {
       `SELECT r.id, r.booking_id, r.amount_cents, r.kind, r.payout_on, r.received_on, r.check_id, r.reference, r.notes,
               (SELECT ck.deposited_on FROM commission_checks ck WHERE ck.id = r.check_id AND ck.agency_id = ?) AS check_deposited_on,
               b.depart_date, b.user_id, b.commission_status, b.personal, b.lead_source, b.advisor_split_pct,
-              b.agreed_split_pct, b.agreed_lead_split_pct, b.client_name, b.supplier, b.product_name,
+              b.agreed_split_pct, b.agreed_lead_split_pct, b.client_name, b.confirmation_number, b.supplier, b.product_name,
               u.default_split_pct, u.lead_split_pct,
               COALESCE(NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), ''), u.email)
                 AS advisor_name
@@ -1060,7 +1060,7 @@ export async function handleCommissionDesk(request, env) {
   for (let at = 0; at < payoutIds.length; at += 60) {
     const chunk = payoutIds.slice(at, at + 60);
     const { results: found } = await env.DB.prepare(
-      `SELECT l.id, l.payout_id, l.booking_id, l.amount_cents, b.client_name
+      `SELECT l.id, l.payout_id, l.booking_id, l.amount_cents, b.client_name, b.confirmation_number
          FROM advisor_payout_lines l JOIN bookings b ON b.id = l.booking_id AND b.user_id = l.user_id
         WHERE ${scopeL.sql} AND l.payout_id IN (${chunk.map(() => '?').join(', ')})`
     ).bind(...scopeL.binds, ...chunk).all();
@@ -1151,7 +1151,7 @@ export async function handleCommissionDesk(request, env) {
     if (!r.check_id) continue;
     if (!checkLines[r.check_id]) checkLines[r.check_id] = [];
     checkLines[r.check_id].push({
-      id: r.id, booking_id: r.booking_id, client_name: r.client_name, supplier: r.supplier,
+      id: r.id, booking_id: r.booking_id, client_name: r.client_name, confirmation_number: r.confirmation_number || '', supplier: r.supplier,
       advisor_name: r.advisor_name, amount_cents: r.amount_cents, payout_on: r.payout_on,
       product_name: r.product_name, split_pct: splitPct(r, r.default_split_pct, r.lead_split_pct),
     });
@@ -1165,7 +1165,7 @@ export async function handleCommissionDesk(request, env) {
       && String(r.received_on || '').slice(0, 4) === year)
     .map((r) => ({
       id: r.id, booking_id: r.booking_id, received_on: r.received_on, client_name: r.client_name,
-      supplier: r.supplier, advisor_name: r.advisor_name, amount_cents: r.amount_cents,
+      supplier: r.supplier, confirmation_number: r.confirmation_number || '', advisor_name: r.advisor_name, amount_cents: r.amount_cents,
       payout_on: r.payout_on, reference: r.reference || '', notes: r.notes || '',
       split_pct: splitPct(r, r.default_split_pct, r.lead_split_pct),
     }));

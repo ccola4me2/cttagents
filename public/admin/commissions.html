@@ -435,7 +435,7 @@ function checkDetail(c) {
     : (c.notes ? `<p class="muted" style="margin:.2rem 0 .6rem;">${esc(c.notes)}</p>` : '')}
     ${lines.length ? `<table class="cd-lines"><thead><tr><th>Reservation</th><th>Advisor</th><th class="r">Amount</th><th>Pay out date</th></tr></thead><tbody>
       ${lines.map((l) => `<tr><td><a href="/app/reservation?id=${encodeURIComponent(l.booking_id)}">${esc(l.client_name)}</a>
-        ${l.supplier ? `<span class="muted"> ${esc(l.supplier)}</span>` : ''}</td>
+        ${l.supplier || l.confirmation_number ? `<span class="muted"> ${esc([l.supplier, l.confirmation_number].filter(Boolean).join(' '))}</span>` : ''}</td>
         <td>${esc(l.advisor_name)}</td><td class="r cd-money">${money(l.amount_cents)}</td>
         <td>${l.payout_on ? payDateSelect(l) : '<span class="muted">next payout</span>'}</td></tr>`).join('')}
       </tbody></table>` : '<p class="muted">No lines yet.</p>'}
@@ -498,7 +498,7 @@ function drawReceived() {
       <th>Received</th><th>Reservation</th><th>Advisor</th><th class="r">Amount</th><th>Pay out date</th><th></th></tr></thead><tbody>
       ${d.loose.map((r) => `<tr><td>${esc(r.received_on ? dateFmt(r.received_on) : '')}</td>
         <td><a href="/app/reservation?id=${encodeURIComponent(r.booking_id)}">${esc(r.client_name)}</a>
-          ${r.supplier ? `<span class="muted"> ${esc(r.supplier)}</span>` : ''}</td>
+          ${r.supplier || r.confirmation_number ? `<span class="muted"> ${esc([r.supplier, r.confirmation_number].filter(Boolean).join(' '))}</span>` : ''}</td>
         <td>${esc(r.advisor_name)}</td><td class="r cd-money">${money(r.amount_cents)}</td>
         <td>${payDateSelect(r)}</td>
         <td class="cd-acts"><button class="cd-link" type="button" data-editloose="${esc(r.id)}">Edit</button></td></tr>`).join('')}
@@ -2022,7 +2022,7 @@ function openEditPayout(p) {
   const pl = (d.payoutLines || {})[p.id] || [];
   $('pay-lines').hidden = !pl.length;
   $('pay-lines').innerHTML = pl.map((l) => `<div class="field-row" style="align-items:center;margin-bottom:.4rem;">
-      <div>${esc(l.client_name)}</div>
+      <div>${esc(l.client_name)}${l.confirmation_number ? ` <span class="muted">${esc(l.confirmation_number)}</span>` : ''}</div>
       <div><input data-payline="${esc(l.id)}" inputmode="decimal" value="${esc(plain(l.amount_cents))}" aria-label="Paid on ${esc(l.client_name)}" autocomplete="off"></div></div>`).join('');
   $('pay-save').textContent = 'Save the changes';
   $('paidOn').value = p.paid_on || d.today;
