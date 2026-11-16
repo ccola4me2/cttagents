@@ -279,7 +279,8 @@ function tidyLine(raw) {
       kind: oneOf(raw.kind, COMMISSION_KIND_KEYS),
       payoutOn: payoutDateOf(raw.payoutOn),
       // The day the advisor was already paid this, when it was paid before the check was entered.
-      paidOutOn: cleanDate(raw.paidOutOn),
+      // A check only records money coming in. Paying the advisor is Mark paid, with the method and number, never a side effect of a check.
+      paidOutOn: null,
       notes: clean(raw.notes, 300) || null,
     },
   };

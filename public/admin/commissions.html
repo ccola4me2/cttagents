@@ -2166,7 +2166,6 @@ function lineHtml(l, i) {
   const short = l.bookingId && l.expected && amt && amt < l.expected - 1;
   const travel = l.returnDate || l.departDate;
   const dates = [...new Set([...(d.payDatesList || []), l.paidOutOn || l.payoutOn === NOT_SCHEDULED ? null : l.payoutOn].filter(Boolean))].sort();
-  const past = [...new Set([...pastPayDates(6), l.paidOutOn].filter(Boolean))].sort().reverse();
   return `<div class="cd-line" data-i="${i}">
     ${l.page ? `<div class="page">From the page: ${esc(l.page)}</div>` : ''}
     <div class="top">
@@ -2180,9 +2179,7 @@ function lineHtml(l, i) {
       <div><label>Commission Paid Amount</label><input data-amount="${i}" inputmode="decimal" value="${esc(l.amount)}" placeholder="0.00 or -4.00" autocomplete="off">${amt < 0 ? '<div class="sub">Money taken back from this reservation</div>' : ''}</div>
       <div><label>Pay out date</label>
         <select data-pay="${i}">${l.payoutOn ? '' : `<option value="" selected>Automatic, 30 days before they sail${l.suggested ? ` (${esc(dateFmt(l.suggested))})` : ''}</option>`}<option value="none"${l.payoutOn === NOT_SCHEDULED ? ' selected' : ''}>Not scheduled yet</option>${dates.map((x) =>
-    `<option value="${esc(x)}" ${x === l.payoutOn ? 'selected' : ''}>${esc(dateFmt(x))}${x === l.suggested ? ' (suggested)' : ''}</option>`).join('')}
-          <optgroup label="Already paid out">${past.map((x) =>
-    `<option value="paid:${esc(x)}" ${x === l.paidOutOn ? 'selected' : ''}>Already paid out ${esc(dateFmt(x))}</option>`).join('')}</optgroup></select></div>
+    `<option value="${esc(x)}" ${x === l.payoutOn ? 'selected' : ''}>${esc(dateFmt(x))}${x === l.suggested ? ' (suggested)' : ''}</option>`).join('')}</select></div>
       <div><button class="btn btn-ghost btn-sm" type="button" data-remove="${i}" aria-label="Remove this line">&times;</button></div>
     </div>
     ${!l.bookingId && (l.candidates.length || l.results.length) ? `<div class="cd-pick">${[...l.candidates, ...l.results].map((r) =>
@@ -2191,7 +2188,6 @@ function lineHtml(l, i) {
   r.departDate ? ` · ${esc(dateFmt(r.departDate))}` : ''}${
   r.receivedCents ? ` · <strong style="color:var(--amber-600);">${money(r.receivedCents)} already received</strong>` : ''}</span></button>`).join('')}</div>` : ''}
     ${l.bookingId && travel && l.payoutOn && l.payoutOn !== NOT_SCHEDULED ? `<div class="sub">${l.departDate ? 'Sails' : 'Back'} ${esc(dateFmt(l.departDate || travel))}, so paid out ${esc(dateFmt(l.suggested))}${l.departDate ? ', the first pay date 30 days before sailing,' : ''} unless you choose another day.</div>` : ''}
-    ${l.paidOutOn ? `<div class="sub">${esc(l.advisorName || 'The advisor')} was already paid this on ${esc(dateFmt(l.paidOutOn))}. Saving records that payout, so it is not scheduled or owed again.</div>` : ''}
     ${l.bookingId && !l.paidOutOn && l.payoutOn && l.suggested && l.payoutOn < l.suggested ? `<div class="warn">${esc(dateFmt(l.payoutOn))} is before ${
   l.departDate ? 'the usual 30 days before sailing' : 'the usual day'}. The usual day is ${esc(dateFmt(l.suggested))}. Change it only if you mean to pay early.</div>` : ''}
     ${l.bookingId && l.received ? `<div class="warn">This reservation already has ${money(l.received)} received${
