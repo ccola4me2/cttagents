@@ -13421,9 +13421,14 @@ async function main() {
   check(after.data?.tiles?.feesCents >= 400 && after.data?.tiles?.receivedCents >= 20000,
     'and counted in the year\'s totals');
 
-  // A new check is not at the bank until the owner says so, and the pay run says it is waiting.
-  check(checkRow && !checkRow.deposited_on && mine?.notAtBank === true,
-    'a new check is not at the bank yet, and the pay run says so', JSON.stringify([checkRow?.deposited_on, mine?.notAtBank]));
+  // A new check starts out at the bank, because it is recorded once it has come in. Undoing that brings the warning back.
+  check(checkRow && !!checkRow.deposited_on && mine?.notAtBank === false,
+    'a new check starts out at the bank, so the pay run has no warning', JSON.stringify([checkRow?.deposited_on, mine?.notAtBank]));
+  const undone = await call(admin, 'POST', `/api/commission-checks/${checkId}/deposit`, { on: '' });
+  const afterUndo = await call(admin, 'GET', '/api/commission-desk');
+  const mineU = ((afterUndo.data?.payDates || []).find((p) => p.date === laterPay)?.advisors || []).find((x) => x.userId === advisorId);
+  check(undone.status === 200 && mineU?.notAtBank === true,
+    'and when it is marked not at the bank, the pay run says so', JSON.stringify([undone.status, mineU?.notAtBank]));
   const advDeposit = await call(advisor, 'POST', `/api/commission-checks/${checkId}/deposit`, { on: isoDay(0) });
   check(advDeposit.status === 403, 'an advisor cannot mark a check deposited', `status ${advDeposit.status}`);
   const badDeposit = await call(admin, 'POST', `/api/commission-checks/${checkId}/deposit`, { on: 'soon' });
