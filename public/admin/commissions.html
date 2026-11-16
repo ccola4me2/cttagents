@@ -258,6 +258,7 @@ const errEl = $('err');
 
 let d = null;
 let view = 'scheduled';
+let acct = 'in';
 let year = String(new Date().getFullYear());
 let openCheck = null;
 let bucket = '';
@@ -315,6 +316,7 @@ function nextTile(next) {
 /** The other ways to look at it, as one strip of tabs rather than five more tiles. */
 function viewStrip(t) {
   const views = [
+    ['accounting', 'Accounting', '', 'Every check that came in, and every payment out to an advisor'],
     ['all', 'All commissions', '', 'Every reservation and advisor, to search, filter and download'],
     ['statements', 'Advisor statements', '', 'What each advisor earned, was paid and is owed, to print or send'],
     ['reports', 'Reports', '', 'By advisor, vendor and month, to print or download'],
@@ -504,6 +506,13 @@ function drawReceived() {
         <td class="cd-acts"><button class="cd-link" type="button" data-editloose="${esc(r.id)}">Edit</button></td></tr>`).join('')}
       </tbody></table></div>` : '';
   return checks + loose;
+}
+
+/** One place for the money: what came in, and what went out to advisors. Each is the list it always was. */
+function drawAccounting() {
+  const tab = (key, label) => `<button class="cd-chip" type="button" data-acct="${key}" aria-pressed="${acct === key}">${label}</button>`;
+  return `<div class="cd-chips" style="margin-bottom:.8rem;">${tab('in', 'Incoming')}${tab('out', 'Outgoing')}</div>`
+    + (acct === 'in' ? drawReceived() : drawPaid());
 }
 
 function drawPaid() {
@@ -1864,6 +1873,7 @@ const TITLES = {
   all: ['All commissions', 'Every reservation that earns commission, for every advisor. Search, filter, sort, open a row for its lines, and download what you see.'],
   reports: ['Reports', 'Commission by advisor, by vendor and by month, what is short or over, every check, and what each advisor was paid in the year for their 1099. Each one downloads as a spreadsheet file.'],
   recall: ['Recall watch', 'Royal Caribbean can take commission back if a client cancels, until 30 days before sailing; other vendors have no hold. This shows what is being held until then, what was paid out early, and cancelled trips with money to recover.'],
+  accounting: ['Accounting', 'Incoming is every check or payment that came in, with the reservations it paid. Click one to see what was on it or to edit it. Outgoing is what was paid to advisors, how, and the number or trace.'],
   agency: ['The agency keeps', 'What is left of the money received once every advisor has been paid or is scheduled to be paid. This is the agency\u2019s own money.'],
   statements: ['Advisor statements', 'What one advisor earned, has been paid and is still owed. Print it or save it as a PDF to send. It never shows what the agency keeps.'],
 };
@@ -1871,9 +1881,9 @@ const TITLES = {
 function draw() {
   drawTiles();
   const [base, sub] = TITLES[view];
-  const title = view === 'received' || view === 'paid' ? `${base} in ${year}` : base;
+  const title = view === 'received' || view === 'paid' || view === 'accounting' ? `${base} in ${year}` : base;
   const body = view === 'scheduled' ? drawScheduled() : view === 'received' ? drawReceived()
-    : view === 'paid' ? drawPaid() : view === 'all' ? drawAll() : view === 'statements' ? drawStatements() : view === 'recall' ? drawRecall() : view === 'reports' ? drawReports() : view === 'agency' ? drawAgency() : drawOwed();
+    : view === 'paid' ? drawPaid() : view === 'all' ? drawAll() : view === 'statements' ? drawStatements() : view === 'recall' ? drawRecall() : view === 'reports' ? drawReports() : view === 'agency' ? drawAgency() : view === 'accounting' ? drawAccounting() : drawOwed();
   panel.innerHTML = `<div class="cd-head"><h2>${esc(title)}</h2><span class="m">${esc(sub)}</span></div>${body}`;
 }
 
@@ -1904,6 +1914,7 @@ $('tiles').addEventListener('click', (e) => {
 panel.addEventListener('click', async (e) => {
   const t = e.target.closest('button, tr[data-row]');
   if (!t) return;
+  if (t.dataset.acct) { acct = t.dataset.acct; draw(); return; }
   if (t.dataset.bucket !== undefined) { bucket = t.dataset.bucket; draw(); return; }
   if (t.dataset.editloose) { openEditLoose(t.dataset.editloose); return; }
   if (t.dataset.recordowed) {
