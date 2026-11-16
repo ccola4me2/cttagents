@@ -256,8 +256,8 @@ for (const [label, text] of [['stacked', PAYMODE_STACKED], ['one line', PAYMODE_
     owedByDate([line(19800, '2026-11-01')], 80, 0, NOW), [{ date: '2026-11-01', cents: 15840 }]);
   is('a line with no date is payable at the next run',
     owedByDate([line(10000, null)], 50, 0, NOW), [{ date: NOW, cents: 5000 }]);
-  is('a date already past is payable at the next run too',
-    owedByDate([line(10000, '2026-09-15')], 50, 0, NOW), [{ date: NOW, cents: 5000 }]);
+  is('a date already past stays on its own date, it is never moved to the next run',
+    owedByDate([line(10000, '2026-09-15')], 50, 0, NOW), [{ date: '2026-09-15', cents: 5000 }]);
   is('two lines on two dates are two amounts',
     owedByDate([line(10000, '2026-10-15'), line(20000, '2026-11-01')], 50, 0, NOW),
     [{ date: '2026-10-15', cents: 5000 }, { date: '2026-11-01', cents: 10000 }]);

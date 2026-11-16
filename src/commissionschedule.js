@@ -22,13 +22,13 @@ import { shareOf, UNSPLIT_COMMISSION_KINDS } from './split.js';
  * `paidCents` is what the advisor has already been paid on this reservation, and
  * is taken off the earliest dates first, since those are the ones that were paid.
  *
- * `nowDate` is the date to file the undated and the overdue under: anything that
- * should already have been paid is simply waiting for the next run.
+ * `nowDate` is the date to file the undated under. A line with a pay date stays on it, even once that day
+ * has passed: nothing is ever moved to another day unless the owner moves it.
  */
 export function owedByDate(receipts, pct, paidCents, nowDate) {
   const lines = [...receipts].sort((a, b) => {
-    const x = a.payout_on && a.payout_on > nowDate ? a.payout_on : nowDate;
-    const y = b.payout_on && b.payout_on > nowDate ? b.payout_on : nowDate;
+    const x = a.payout_on || nowDate;
+    const y = b.payout_on || nowDate;
     return x < y ? -1 : x > y ? 1 : 0;
   });
 
@@ -37,7 +37,7 @@ export function owedByDate(receipts, pct, paidCents, nowDate) {
   let exempt = 0;
   let before = 0;
   for (const r of lines) {
-    const date = r.payout_on && r.payout_on > nowDate ? r.payout_on : nowDate;
+    const date = r.payout_on || nowDate;
     cum += r.amount_cents || 0;
     if (UNSPLIT_COMMISSION_KINDS.includes(r.kind)) exempt += r.amount_cents || 0;
     const share = shareOf(cum, pct, exempt).advisorCents;

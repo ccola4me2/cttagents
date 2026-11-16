@@ -1090,7 +1090,7 @@ export async function handleCommissionDesk(request, env) {
       const a = advisors.get(head.user_id);
       a.cents += b.cents;
       // The lines behind this amount that fall on this date, so a pay date can be changed from the schedule.
-      const onDate = lines.filter((r) => (r.payout_on && r.payout_on > next ? r.payout_on : next) === b.date);
+      const onDate = lines.filter((r) => (r.payout_on || next) === b.date);
       const onThisDate = onDate.map((r) => r.id);
       // Money that came on a check nobody has confirmed at the bank. Money entered one reservation at a time has no check to ask.
       const notAtBank = onDate.some((r) => r.check_id && !r.check_deposited_on);
@@ -1098,11 +1098,15 @@ export async function handleCommissionDesk(request, env) {
         departDate: head.depart_date || null, notAtBank });
     }
   }
+  // The pay date to pay now: the oldest one that has come and is not paid yet, which may be one that has already
+  // passed (a pay day that fell on a weekend), else the next on the calendar. Nothing is moved onto it.
+  const dueDates = [...dates.keys()].filter((x) => x !== NOT_SCHEDULED && x <= next).sort();
+  const headDate = dueDates[0] || next;
   const payDates = [...dates.entries()].sort(([x], [y]) => (x < y ? -1 : 1)).map(([date, advisors]) => {
     const list = [...advisors.values()].filter((a) => a.cents !== 0).sort((x, y) => y.cents - x.cents);
     return {
       date,
-      isNext: date === next,
+      isNext: date === headDate,
       unscheduled: date === NOT_SCHEDULED,
       totalCents: list.reduce((n, a) => n + a.cents, 0),
       advisors: list.map((a) => ({ ...a, notAtBank: a.trips.some((t) => t.notAtBank) })),
@@ -1176,7 +1180,7 @@ export async function handleCommissionDesk(request, env) {
     .filter(Boolean).sort().reverse();
 
   return json({
-    year, years: yearList, today, nextPayDate: next, payDatesList: payDatesFrom(today, 10), payoutLines,
+    year, years: yearList, today, nextPayDate: headDate, payDatesList: payDatesFrom(today, 10), payoutLines,
     tiles: {
       receivedCents: received,
       // The checks as they arrived, before any fee, which is the figure the line under it takes the fees from.

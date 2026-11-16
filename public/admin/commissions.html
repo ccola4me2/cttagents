@@ -369,11 +369,13 @@ function drawScheduled() {
     <section class="card cd-date">
       <div class="cd-date-head">
         <h3>${p.unscheduled ? 'No pay date yet' : esc(dayLabel(p.date))}</h3>
-        <span class="badge ${p.unscheduled ? 'badge-amber' : p.isNext ? 'badge-green' : 'badge-navy'}">${p.unscheduled ? 'Not scheduled' : p.isNext ? 'Next payout' : 'Scheduled'}</span>
+        <span class="badge ${p.unscheduled ? 'badge-amber' : p.isNext ? 'badge-green' : 'badge-navy'}">${p.unscheduled ? 'Not scheduled' : p.isNext ? (p.date < d.today ? 'Pay now' : 'Next payout') : 'Scheduled'}</span>
         <span class="muted" style="font-size:.8rem;">${p.unscheduled ? 'Received, but not given a pay day. Press Edit and choose one.' : p.isNext
     ? 'Advisors can see this one' : 'Advisors cannot see this yet'}</span>
         <span class="tot cd-money">${money(p.totalCents)}</span>
-        ${p.unscheduled ? '' : `<button class="btn btn-ghost btn-sm" type="button" data-paystmts="${esc(p.date)}">Statements</button>
+        ${p.unscheduled ? '' : `<label class="muted" style="font-size:.8rem;margin:0;">Pay date
+          <input type="date" value="${esc(p.date)}" data-movedate="${esc(p.date)}" aria-label="Change this pay date"></label>
+          <button class="btn btn-ghost btn-sm" type="button" data-paystmts="${esc(p.date)}">Statements</button>
           <button class="btn btn-ghost btn-sm" type="button" data-printrun="${esc(p.date)}">Print the pay run</button>`}
       </div>
       ${p.advisors.map((a) => `
@@ -1951,6 +1953,20 @@ panel.addEventListener('change', async (e) => {
         await api(`/api/commissions/receipts/${encodeURIComponent(id)}/pay-date`, { method: 'PUT', body: { payoutOn: move.value } });
       }
       errEl.innerHTML = '<div class="notice notice-ok">Pay date changed.</div>';
+      await load();
+    } catch (err) { showError(errEl, err); }
+    return;
+  }
+  // The whole pay date moved to another day (a pay day that is not the 1st or the 15th): every line on it goes together.
+  const whole = e.target.closest('input[data-movedate]');
+  if (whole) {
+    const to = whole.value;
+    const day = d.payDates.find((x) => x.date === whole.dataset.movedate);
+    if (!to || !day || to === day.date) return;
+    const ids = day.advisors.flatMap((a) => a.trips.flatMap((t) => t.receipts || []));
+    try {
+      for (const id of ids) await api(`/api/commissions/receipts/${encodeURIComponent(id)}/pay-date`, { method: 'PUT', body: { payoutOn: to } });
+      errEl.innerHTML = `<div class="notice notice-ok">Pay date changed to ${esc(dateFmt(to))}.</div>`;
       await load();
     } catch (err) { showError(errEl, err); }
     return;
