@@ -385,13 +385,14 @@ export async function handleCreateCheck(request, env) {
   const writes = [env.DB.prepare(
     `INSERT INTO commission_checks
        (id, agency_id, added_by, vendor_id, vendor_name, reference, received_on, remitted_on,
-        statement_cents, fee_cents, fee_note, notes, filename, payment_method, trace_number, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        statement_cents, fee_cents, fee_note, notes, filename, payment_method, trace_number, deposited_on, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(id, admin.agency_id, admin.id, clean(body.vendorId, 64) || null, vendorName, reference,
          receivedOn, cleanDate(body.remittedOn), statementCents, feeCents,
          clean(body.feeNote, 200) || null, clean(body.notes, 1000) || null,
          clean(body.filename, 160) || null, oneOfOrNull(body.paymentMethod, PAYMENT_METHODS),
-         clean(body.traceNumber, 80) || null, ts, ts)];
+         // A check is recorded once it has come in, so it starts out at the bank. It can still be undone on the check.
+         clean(body.traceNumber, 80) || null, cleanDate(body.depositedOn) || receivedOn, ts, ts)];
 
   for (const l of lines) {
     writes.push(env.DB.prepare(
@@ -470,10 +471,10 @@ export async function handleCheckFromLines(request, env) {
   const writes = [env.DB.prepare(
     `INSERT INTO commission_checks
        (id, agency_id, added_by, vendor_id, vendor_name, reference, received_on, remitted_on,
-        statement_cents, fee_cents, fee_note, notes, filename, created_at, updated_at)
-     VALUES (?, ?, ?, NULL, ?, ?, ?, NULL, ?, 0, NULL, ?, NULL, ?, ?)`
+        statement_cents, fee_cents, fee_note, notes, filename, deposited_on, created_at, updated_at)
+     VALUES (?, ?, ?, NULL, ?, ?, ?, NULL, ?, 0, NULL, ?, NULL, ?, ?, ?)`
   ).bind(id, admin.agency_id, admin.id, vendorName, reference, receivedOn, statementCents,
-         'Made from payments recorded one reservation at a time', ts, ts)];
+         'Made from payments recorded one reservation at a time', receivedOn, ts, ts)];
   for (const r of found) {
     writes.push(env.DB.prepare(
       'UPDATE commission_receipts SET check_id = ?, updated_at = ? WHERE id = ? AND check_id IS NULL AND user_id = ?'
