@@ -263,7 +263,7 @@ let year = String(new Date().getFullYear());
 let openCheck = null;
 let bucket = '';
 let methods = [{ key: 'check', label: 'Check' }, { key: 'ach', label: 'Bank transfer' },
-  { key: 'cash', label: 'Cash' }, { key: 'other', label: 'Something else' }];
+  { key: 'zelle', label: 'Zelle' }, { key: 'cash', label: 'Cash' }, { key: 'other', label: 'Something else' }];
 
 const short = (iso) => (iso ? dateFmt(iso).replace(/,? \d{4}$/, '') : '');
 // A minus sign or brackets make it money taken back: -4.00 and (4.00) are both minus four dollars.

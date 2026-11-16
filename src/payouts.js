@@ -27,6 +27,7 @@ import { receiptShown, nextPayDate, todayIso } from './paydates.js';
 export const PAYOUT_METHODS = [
   { key: 'check', label: 'Check' },
   { key: 'ach', label: 'Bank transfer' },
+  { key: 'zelle', label: 'Zelle' },
   { key: 'cash', label: 'Cash' },
   { key: 'other', label: 'Something else' },
 ];
