@@ -191,6 +191,7 @@ function card(l) {
     ${l.askedAbout ? `<div class="c">${esc(l.askedAbout)}</div>` : ''}
     ${l.stage === 'booked' ? '<div class="n">Booked</div>' : l.nextStep ? `<div class="n${late ? ' due' : ''}">${esc(l.nextStep)}${
       l.nextStepOn ? ` &middot; ${esc(dateFmt(l.nextStepOn))}` : ''}</div>`
+      : l.interest === 'guide' ? '<div class="n">On the email list</div>'
       : '<div class="n due">No next step</div>'}
     <div class="w">${esc(cameFrom(l))} &middot; ${esc(timeAgo(l.since))}</div>
   </article>`;
@@ -365,6 +366,7 @@ function list() {
         <td class="muted">${esc(l.askedAbout || '')}</td>
         <td${late ? ' style="color:var(--red-600);font-weight:600;"' : ''}>${
           l.stage === 'booked' ? '<span class="muted">booked</span>' : l.nextStep ? `${esc(l.nextStep)}${l.nextStepOn ? ` &middot; ${esc(dateFmt(l.nextStepOn))}` : ''}`
+            : l.interest === 'guide' ? '<span class="muted">on the email list</span>'
             : '<span style="color:var(--red-600);">nothing planned</span>'}</td>
         <td>${esc(l.stageName)}</td>
         <td class="num"><button class="btn btn-ghost btn-sm" data-edit="${esc(l.id)}">Open</button></td>

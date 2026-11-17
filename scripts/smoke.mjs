@@ -1580,6 +1580,25 @@ async function main() {
       JSON.stringify([hello.status, waitBefore, waitAfter]));
   }
 
+  // A reader (free guide or deal alerts) is emailed, not rung: it is never counted as owed a call or as having nothing
+  // planned, even when it is New and carries a past date or none.
+  {
+    const before = (await call(advisor, 'GET', '/api/leads')).data;
+    const made = await call(advisor, 'POST', '/api/leads', {
+      name: `Reader ${stamp}`, email: `reader-${stamp}@example.com`, source: 'Form: Free Guide', stage: 'new',
+    });
+    const mid = (await call(advisor, 'GET', '/api/leads')).data;
+    const dated = await call(advisor, 'POST', '/api/leads', {
+      name: `Reader Late ${stamp}`, email: `readerlate-${stamp}@example.com`, source: 'Form: Free Guide Updates',
+      stage: 'new', nextStep: 'Old step', nextStepOn: isoDay(-3),
+    });
+    const after = (await call(advisor, 'GET', '/api/leads')).data;
+    check((made.status === 200 || made.status === 201) && (dated.status === 200 || dated.status === 201)
+      && mid?.untouched === before?.untouched && after?.nudge === before?.nudge && after?.untouched === before?.untouched,
+      'a free guide reader is never counted as owed a call or as having nothing planned',
+      JSON.stringify([made.status, dated.status, before?.nudge, after?.nudge, before?.untouched, mid?.untouched, after?.untouched]));
+  }
+
   // A task typed in the To do drawer can name who it is about, which is the
   // only way the portal ever learns that three rows on one screen are the
   // same person.

@@ -142,11 +142,12 @@ export async function handleLeadBoard(request, env) {
     interest,
     // The ones who have not been answered. A pipeline exists to produce this
     // number and most of them make it hard to find.
-    nudge: open.filter((l) => l.stage !== 'lost' && l.stage !== 'booked'
+    // Readers are left out of both numbers: a guide signup is emailed, not rung, so it is never owed a call.
+    nudge: open.filter((l) => l.interest === 'request' && l.stage !== 'lost' && l.stage !== 'booked'
       && l.nextStepOn && l.nextStepOn <= today).length,
     // Nobody has rung them and nothing is scheduled. Worse than overdue,
     // because overdue at least means somebody made a plan.
-    untouched: open.filter((l) => l.stage === 'new' && !l.nextStepOn).length,
+    untouched: open.filter((l) => l.interest === 'request' && l.stage === 'new' && !l.nextStepOn).length,
     converted: converted.length,
     // Everyone who became a client, not a sample, because the tile that counts them opens the list.
     convertedRecent: converted,

@@ -780,7 +780,10 @@ export async function handlePublicSubmit(request, env, slug) {
         // Only a new person gets a stage. Somebody already being worked is not
         // dragged back to New because they filled in a form again.
         // Tomorrow in the advisor's day, so an evening request is not pushed out to the day after.
-        const helloOn = clientIsNew
+        // A free guide or deal alerts signup is a reader, not a request: it is emailed by an automation, not rung, so it
+        // gets no hello step to sit overdue on the board.
+        const reader = /free guide|deal alerts/i.test(String(form.name || ''));
+        const helloOn = clientIsNew && !reader
           ? dayInZone(zoneOfUser(env, await db.getUserById(env, owner).catch(() => null)), 1)
           : null;
         await env.DB.prepare(
@@ -804,7 +807,7 @@ export async function handlePublicSubmit(request, env, slug) {
         ).bind(email || null, phone || null, `Form: ${form.name}`.slice(0, 120),
                clientIsNew ? 'new' : null, now(),
                `From the ${form.name} form`.slice(0, 500),
-               clientIsNew ? 'Say hello and ask what trip they have in mind' : null,
+               clientIsNew && !reader ? 'Say hello and ask what trip they have in mind' : null,
                helloOn,
                now(), clientId, owner).run();
         await env.DB.prepare('UPDATE form_submissions SET contact_id = ? WHERE id = ?')
