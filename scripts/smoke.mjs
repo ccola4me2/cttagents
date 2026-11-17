@@ -1524,6 +1524,26 @@ async function main() {
   check(!(todoAgain.data?.leads || []).some((l) => l.client_name === `Unplanned Lead ${stamp}`),
     'is not counted as due, because nothing was planned for it');
 
+  // A free guide signup and a cruise request are told apart by the form they came in on, and the board can show either alone.
+  {
+    const gName = `Guide Reader ${stamp}`;
+    const rName = `Cruise Asker ${stamp}`;
+    await call(advisor, 'POST', '/api/leads', { name: gName, email: `guide-${stamp}@example.com`, source: 'Form: Free Guide' });
+    await call(advisor, 'POST', '/api/leads', { name: rName, email: `ask-${stamp}@example.com`, phone: '555 0100', source: 'Form: Margaritaville at Sea' });
+    const flatOf = (r) => (r.data?.stages || []).flatMap((x) => x.leads || []);
+    const both = await call(advisor, 'GET', '/api/leads');
+    const onlyGuide = await call(advisor, 'GET', '/api/leads?interest=guide');
+    const onlyAsk = await call(advisor, 'GET', '/api/leads?interest=request');
+    const kindOf = (r, n) => flatOf(r).find((l) => l.name === n)?.interest;
+    check(kindOf(both, gName) === 'guide' && kindOf(both, rName) === 'request',
+      'a free guide signup is marked as a guide and a cruise form as a request', JSON.stringify([kindOf(both, gName), kindOf(both, rName)]));
+    check(flatOf(onlyGuide).some((l) => l.name === gName) && !flatOf(onlyGuide).some((l) => l.name === rName)
+      && flatOf(onlyAsk).some((l) => l.name === rName) && !flatOf(onlyAsk).some((l) => l.name === gName),
+    'and asking for one kind leaves the other off the board');
+    check(both.data?.counts && both.data.counts.request + both.data.counts.guide === both.data.counts.all,
+      'with the two counts adding up to everyone', JSON.stringify(both.data?.counts));
+  }
+
   // A task typed in the To do drawer can name who it is about, which is the
   // only way the portal ever learns that three rows on one screen are the
   // same person.

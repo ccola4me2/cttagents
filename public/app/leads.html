@@ -12,6 +12,10 @@
   .opp .n.due { color: var(--red-600); font-weight:600; }
   .opp .w { font-size:.75rem; color: var(--ink-400); margin-top:.3rem; }
   .board-col.cold { background: transparent; border:1px dashed var(--navy-100); }
+  .cd-chips { display: flex; gap: .5rem; flex-wrap: wrap; }
+  .cd-chip { font: inherit; font-size: .86rem; font-weight: 600; cursor: pointer; border: 1px solid var(--navy-200); background: #fff; color: var(--navy-700); border-radius: 999px; padding: .45rem 1rem; }
+  .cd-chip[aria-pressed="true"] { background: var(--navy-800); border-color: var(--navy-800); color: #fff; }
+  .cd-chip .n { font-weight: 400; opacity: .75; margin-left: .4rem; }
 </style>
 </head>
 <body>
@@ -35,6 +39,7 @@
     </header>
     <div class="content">
       <div class="notice notice-error" id="err" hidden></div>
+      <div id="interest" class="cd-chips" style="margin:0 0 1rem;" role="group" aria-label="Which leads to show"></div>
       <section id="run-banner" class="card" style="margin-bottom:1.2rem;" hidden></section>
       <section id="summary" class="stat-grid" hidden></section>
       <section id="converted-box" class="card" style="margin-bottom:1.2rem;" hidden></section>
@@ -123,6 +128,31 @@ const q = document.getElementById('q');
 const view = document.getElementById('view');
 let data = null;
 let editing = null;
+// Cruise requests are the people to ring, so that is what opens; the free guide signups are a click away.
+let interest = 'request';
+try {
+  const savedInterest = localStorage.getItem('leads-interest');
+  if (savedInterest === 'request' || savedInterest === 'guide' || savedInterest === 'all') interest = savedInterest;
+} catch { /* the default is fine */ }
+// The dashboard notice is about people who asked, so it opens on them whatever was last chosen.
+if (new URLSearchParams(location.search).get('run') === '1') interest = 'request';
+const INTEREST_TABS = [
+  ['request', 'Cruise requests', 'People who asked for a cruise or a quote'],
+  ['guide', 'Free guide', 'Signed up for the free guide or for deal alerts: an email to send to, not a call'],
+  ['all', 'Everyone', 'Both together'],
+];
+function renderInterest() {
+  const counts = (data && data.counts) || {};
+  document.getElementById('interest').innerHTML = INTEREST_TABS.map(([key, label, hint]) =>
+    `<button class="cd-chip" type="button" data-interest="${key}" aria-pressed="${interest === key}" title="${esc(hint)}">${esc(label)}<span class="n">${esc(String(counts[key] ?? ''))}</span></button>`).join('');
+}
+document.getElementById('interest').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-interest]');
+  if (!b || b.dataset.interest === interest) return;
+  interest = b.dataset.interest;
+  try { localStorage.setItem('leads-interest', interest); } catch { /* nothing to do */ }
+  load();
+});
 
 try {
   const saved = localStorage.getItem('leads-view');
@@ -503,8 +533,10 @@ async function load() {
     const params = [];
     if (q.value.trim()) params.push(`q=${encodeURIComponent(q.value.trim())}`);
     if (advisorParam()) params.push(advisorParam());
+    params.push(`interest=${interest}`);
     data = await api(`/api/leads${params.length ? `?${params.join('&')}` : ''}`);
     mountScopePicker(document.getElementById('scope'), data, load);
+    renderInterest();
     render();
   } catch (e) {
     summary.hidden = true;

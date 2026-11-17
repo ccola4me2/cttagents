@@ -566,6 +566,8 @@ async function noticesFor(env, user, scope) {
       WHERE ${fresh.sql}
         AND ((c.lead_stage = 'new' AND c.lead_next_step_on IS NULL)
           OR (c.lead_stage = 'contacted' AND c.lead_next_step_on IS NOT NULL AND c.lead_next_step_on <= ?))
+        -- A free guide or deal alert signup is a reader, not somebody who asked to be rung.
+        AND COALESCE(c.source, '') NOT LIKE '%free guide%' AND COALESCE(c.source, '') NOT LIKE '%deal alerts%'
         AND NOT EXISTS (SELECT 1 FROM bookings b WHERE b.client_id = c.id AND b.status IN ('booked', 'travelled'))`
   ).bind(...fresh.binds, isoDay(0)).first().catch(() => null);
   if (unanswered && unanswered.n) {

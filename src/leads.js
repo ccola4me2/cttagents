@@ -39,6 +39,12 @@ export const LEAD_STAGES = [
 ];
 const STAGE_IDS = LEAD_STAGES.map((s) => s.id);
 
+// What somebody is after. A signup for the free guide or for deal alerts is a reader, not a request for a quote, and the two
+// need different handling: a guide signup is an email address to send to, a cruise request is somebody to ring. Told from the
+// form they came in on, since that is what they actually did.
+export const GUIDE_SOURCE = /free guide|deal alerts/i;
+export const interestOf = (source) => (GUIDE_SOURCE.test(String(source || '')) ? 'guide' : 'request');
+
 function shape(r) {
   return {
     id: r.id,
@@ -46,6 +52,7 @@ function shape(r) {
     email: r.email || '',
     phone: r.phone || '',
     source: r.source || '',
+    interest: interestOf(r.source),
     // The channel and the note beside it. One is countable and one says which
     // form, whose party, which post.
     sourceKind: r.source_kind || '',
@@ -100,7 +107,17 @@ export async function handleLeadBoard(request, env) {
   const everyone = (results || []).map(shape);
   // Booked is derived, so it cannot disagree with the reservations. Somebody
   // who books leaves the board on their own.
-  const open = everyone.filter((l) => !l.trips);
+  const allOpen = everyone.filter((l) => !l.trips);
+  // Cruise requests and guide signups are counted apart, and the board shows one kind at a time when asked: a column of
+  // ninety guide signups buries the ten people who asked for a quote.
+  const counts = {
+    request: allOpen.filter((l) => l.interest === 'request').length,
+    guide: allOpen.filter((l) => l.interest === 'guide').length,
+    all: allOpen.length,
+  };
+  const wanted = url.searchParams.get('interest');
+  const interest = wanted === 'request' || wanted === 'guide' ? wanted : 'all';
+  const open = interest === 'all' ? allOpen : allOpen.filter((l) => l.interest === interest);
   const converted = everyone.filter((l) => l.trips);
   const today = new Date().toISOString().slice(0, 10);
 
@@ -116,6 +133,8 @@ export async function handleLeadBoard(request, env) {
     // from `stages`: a second copy is a second thing to keep in step.
     kinds: SOURCE_KINDS,
     total: open.length,
+    counts,
+    interest,
     // The ones who have not been answered. A pipeline exists to produce this
     // number and most of them make it hard to find.
     nudge: open.filter((l) => l.stage !== 'lost'
