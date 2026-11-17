@@ -868,7 +868,7 @@ async function openSend(kind) {
   const head = quoting
     ? '<th class="num">Trip</th><th class="num">Deposit</th><th>Deposit due</th>'
     : '<th class="num">Trip</th><th class="num">Received</th><th class="num">Balance</th><th>Next due</th><th>Files to attach</th>';
-  document.getElementById('quote-rows').innerHTML = `<div class="table-wrap"><table>
+  document.getElementById('quote-rows').innerHTML = `<div class="table-wrap"><table class="qstack">
     <thead><tr><th style="width:1.5rem;"></th><th>Client</th><th>Sent to</th>${head}<th></th></tr></thead>
     <tbody>${quoteRows.map((r) => {
       const can = sendable(r);
@@ -876,22 +876,22 @@ async function openSend(kind) {
         : r.alreadySent ? `<span class="badge badge-amber">sent ${r.sentCount || 1} time${(r.sentCount || 1) === 1 ? '' : 's'} before</span>`
         : quoting && !r.depositCents ? '<span class="badge badge-amber">no deposit set, so it will not ask for one</span>' : '';
       const cells = quoting
-        ? `<td class="num">${money(r.tripCents)}</td>
-        <td class="num">${r.depositCents ? money(r.depositCents) : '<span class="muted">-</span>'}</td>
-        <td>${r.depositDue ? esc(dateFmt(r.depositDue)) : '<span class="muted">-</span>'}</td>`
-        : `<td class="num">${money(r.tripCents)}</td>
-        <td class="num">${money(r.paidCents)}</td>
-        <td class="num">${money(r.balanceCents)}</td>
-        <td>${r.nextDue ? esc(dateFmt(r.nextDue)) : '<span class="muted">-</span>'}</td>
-        <td data-qfile>${filesCell(r)}</td>`;
+        ? `<td class="num" data-label="Trip">${money(r.tripCents)}</td>
+        <td class="num" data-label="Deposit">${r.depositCents ? money(r.depositCents) : '<span class="muted">-</span>'}</td>
+        <td data-label="Deposit due">${r.depositDue ? esc(dateFmt(r.depositDue)) : '<span class="muted">-</span>'}</td>`
+        : `<td class="num" data-label="Trip">${money(r.tripCents)}</td>
+        <td class="num" data-label="Received">${money(r.paidCents)}</td>
+        <td class="num" data-label="Balance">${money(r.balanceCents)}</td>
+        <td data-label="Next due">${r.nextDue ? esc(dateFmt(r.nextDue)) : '<span class="muted">-</span>'}</td>
+        <td data-qfile class="full" data-label="Files to attach">${filesCell(r)}</td>`;
       return `<tr>
         <td><input type="checkbox" data-qsend="${esc(r.id)}" ${can ? '' : 'disabled'}${can && r.to && !r.alreadySent ? ' checked' : ''}></td>
         <td><strong>${esc(r.client || (cache.find((b) => b.id === r.id) || {}).client_name || '')}</strong></td>
-        <td>${can ? `<input type="email" data-qto="${esc(r.id)}" value="${esc(r.to || '')}" maxlength="160"
+        <td class="full" data-label="Sent to">${can ? `<input type="email" data-qto="${esc(r.id)}" value="${esc(r.to || '')}" maxlength="160"
           placeholder="no email on file, type one" style="min-width:15rem;">
           <span class="muted" data-qone hidden>goes in the one email</span>` : '<span class="muted">-</span>'}</td>
         ${cells}
-        <td>${note}${can ? ` <button class="btn btn-ghost btn-sm" type="button" data-qlook="${esc(r.id)}">Preview</button>` : ''}</td></tr>`;
+        <td class="full">${note}${can ? ` <button class="btn btn-ghost btn-sm" type="button" data-qlook="${esc(r.id)}">Preview</button>` : ''}</td></tr>`;
     }).join('')}</tbody></table></div>`;
   // The one address a combined email goes to, offered as the most common one on the list.
   const seen = {};

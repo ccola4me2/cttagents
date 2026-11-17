@@ -1817,3 +1817,34 @@ code { overflow-wrap: anywhere; }
 .card.fold.folded > :not(.card-head) { display: none; }
 .card.fold.folded > .card-head { border-bottom: 0; }
 @media (prefers-reduced-motion: reduce) { .card.fold > .card-head h2::before { transition: none; } }
+
+/* ------------------------------------------------- the invoice or quote preview -- */
+/* The words to change beside the preview of what is sent; on a phone they stack, the preview first, and the long addresses wrap. */
+.st-grid { display: grid; grid-template-columns: minmax(15rem, 20rem) 1fr; gap: 1rem; align-items: start; }
+.st-grid > * { min-width: 0; }
+#st-envelope dd { overflow-wrap: anywhere; min-width: 0; }
+@media (max-width: 760px) {
+  .st-grid { grid-template-columns: minmax(0, 1fr); }
+  .st-grid > div:last-child { order: -1; }
+  .st-grid iframe { height: 30rem !important; }
+  #st-envelope.pairs { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  #st-envelope dt { margin-top: .55rem; }
+  #statement-dlg .card-foot { flex-wrap: wrap; }
+}
+
+/* The bulk quote and invoice window: one card for each reservation on a phone, instead of a table that scrolls sideways. */
+@media (max-width: 640px) {
+  table.qstack thead { display: none; }
+  table.qstack, table.qstack tbody { display: block; }
+  table.qstack tr { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .2rem .6rem; padding: .7rem .8rem; margin: 0 0 .7rem;
+    border: 1px solid var(--navy-100); border-radius: 10px; background: #fff; }
+  table.qstack td { border: 0; padding: .1rem 0; min-width: 0; }
+  table.qstack td:nth-child(1) { grid-column: 1; }
+  table.qstack td:nth-child(2) { grid-column: 2; }
+  table.qstack td:nth-child(n+3) { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; text-align: right; }
+  table.qstack td[data-label]::before { content: attr(data-label); color: var(--ink-400); font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; text-align: left; }
+  table.qstack td.full { display: block; text-align: left; }
+  table.qstack td.full[data-label]::before { display: block; margin-bottom: .15rem; }
+  table.qstack input[type=email] { min-width: 0 !important; width: 100%; }
+  table.qstack td:empty { display: none; }
+}
