@@ -1560,6 +1560,26 @@ async function main() {
       'and it stops counting as a live lead or one owed a call', JSON.stringify([liveBefore?.total, liveAfter?.total, liveBefore?.nudge, liveAfter?.nudge]));
   }
 
+  // A new cruise request from a form carries a hello step for the next day. That date must not hide them from the
+  // "waiting on you" notice: New means nobody has answered, whatever date it carries.
+  {
+    const waitN = async () => {
+      const note = ((await call(advisor, 'GET', '/api/dashboard')).data?.notices || [])
+        .find((n) => /waiting on you/.test(n.title || ''));
+      return note ? parseInt(note.title, 10) : 0;
+    };
+    const waitBefore = await waitN();
+    const hello = await call(advisor, 'POST', '/api/leads', {
+      name: `Hello Due ${stamp}`, email: `hellodue-${stamp}@example.com`, phone: '555 0111',
+      source: 'Form: Margaritaville at Sea', stage: 'new',
+      nextStep: 'Say hello and ask what trip they have in mind', nextStepOn: isoDay(1),
+    });
+    const waitAfter = await waitN();
+    check((hello.status === 200 || hello.status === 201) && waitAfter === waitBefore + 1,
+      'a new form lead with a hello step for tomorrow still counts as waiting on you',
+      JSON.stringify([hello.status, waitBefore, waitAfter]));
+  }
+
   // A task typed in the To do drawer can name who it is about, which is the
   // only way the portal ever learns that three rows on one screen are the
   // same person.

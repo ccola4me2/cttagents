@@ -245,9 +245,12 @@ function unanswered() {
   const written = (data.stages || []).find((s) => s.id === 'contacted');
   // Follow-ups that have come due go first, since they were promised; then the new ones, newest first, because
   // somebody who asked this morning is warmer than somebody who asked last week.
-  const due = (written ? written.leads : []).filter((l) => l.nextStepOn && l.nextStepOn <= data.today)
+  // A free guide signup is a reader, not somebody to ring, so it is not in the queue. New means not answered yet: every new
+  // form lead carries a hello step for the next day, so the date is not what says whether they have been dealt with.
+  const asked = (l) => l.interest !== 'guide';
+  const due = (written ? written.leads : []).filter((l) => asked(l) && l.nextStepOn && l.nextStepOn <= data.today)
     .sort((a, b) => String(a.nextStepOn).localeCompare(String(b.nextStepOn)));
-  const news = (fresh ? fresh.leads : []).filter((l) => !l.nextStepOn).sort((a, b) => b.since - a.since);
+  const news = (fresh ? fresh.leads : []).filter(asked).sort((a, b) => b.since - a.since);
   return [...due, ...news];
 }
 
