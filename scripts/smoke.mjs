@@ -1544,6 +1544,22 @@ async function main() {
       'with the two counts adding up to everyone', JSON.stringify(both.data?.counts));
   }
 
+  // A lead can be marked booked without a reservation: it stays on the board in its own column, is not live, and loses its follow-up.
+  {
+    const bName = `Booked Elsewhere ${stamp}`;
+    const made = await call(advisor, 'POST', '/api/leads', { name: bName, email: `booked-${stamp}@example.com`, stage: 'new', nextStep: 'Ring', nextStepOn: isoDay(-1) });
+    const flatB = async (qs = '') => ((await call(advisor, 'GET', `/api/leads${qs}`)).data?.stages || []).flatMap((x) => x.leads || []);
+    const before = (await flatB()).find((l) => l.name === bName);
+    const liveBefore = (await call(advisor, 'GET', '/api/leads')).data;
+    const moved = before && await call(advisor, 'POST', `/api/leads/${before.id}/stage`, { stage: 'booked' });
+    const after = (await flatB()).find((l) => l.name === bName);
+    const liveAfter = (await call(advisor, 'GET', '/api/leads')).data;
+    check(moved?.status === 200 && after?.stage === 'booked' && !after.nextStepOn && !after.nextStep,
+      'a lead marked booked stays on the board as booked and its follow-up is cleared', JSON.stringify([made.status, moved?.status, after && [after.stage, after.nextStepOn]]));
+    check(liveAfter?.total === liveBefore?.total - 1 && liveAfter?.nudge <= liveBefore?.nudge,
+      'and it stops counting as a live lead or one owed a call', JSON.stringify([liveBefore?.total, liveAfter?.total, liveBefore?.nudge, liveAfter?.nudge]));
+  }
+
   // A task typed in the To do drawer can name who it is about, which is the
   // only way the portal ever learns that three rows on one screen are the
   // same person.

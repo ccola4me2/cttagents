@@ -12,6 +12,7 @@
   .opp .n.due { color: var(--red-600); font-weight:600; }
   .opp .w { font-size:.75rem; color: var(--ink-400); margin-top:.3rem; }
   .board-col.cold { background: transparent; border:1px dashed var(--navy-100); }
+  .board-col.won { background: var(--green-50, #ecf8f0); border: 1px solid var(--green-200, #bfe6cc); }
   .cd-chips { display: flex; gap: .5rem; flex-wrap: wrap; }
   .cd-chip { font: inherit; font-size: .86rem; font-weight: 600; cursor: pointer; border: 1px solid var(--navy-200); background: #fff; color: var(--navy-700); border-radius: 999px; padding: .45rem 1rem; }
   .cd-chip[aria-pressed="true"] { background: var(--navy-800); border-color: var(--navy-800); color: #fff; }
@@ -101,6 +102,7 @@
     </div>
     <div class="dialog-foot">
       <button class="btn btn-ghost" type="button" id="off" hidden>Take off the board</button>
+      <button class="btn btn-secondary" type="button" id="mark-booked" hidden>They booked</button>
       <!-- The step this board never offered, which is why it was not obvious
            that the two boards are one road and not a choice between them. A
            lead is a person; the moment the conversation is a particular ship on
@@ -187,7 +189,7 @@ function card(l) {
   return `<article class="opp" draggable="true" data-id="${esc(l.id)}">
     <div class="t">${esc(l.name)}</div>
     ${l.askedAbout ? `<div class="c">${esc(l.askedAbout)}</div>` : ''}
-    ${l.nextStep ? `<div class="n${late ? ' due' : ''}">${esc(l.nextStep)}${
+    ${l.stage === 'booked' ? '<div class="n">Booked</div>' : l.nextStep ? `<div class="n${late ? ' due' : ''}">${esc(l.nextStep)}${
       l.nextStepOn ? ` &middot; ${esc(dateFmt(l.nextStepOn))}` : ''}</div>`
       : '<div class="n due">No next step</div>'}
     <div class="w">${esc(cameFrom(l))} &middot; ${esc(timeAgo(l.since))}</div>
@@ -332,7 +334,7 @@ function render() {
 
 function board() {
   return `<div class="board">${data.stages.map((s) => `
-    <div class="board-col${s.id === 'lost' ? ' cold' : ''}" data-stage="${esc(s.id)}">
+    <div class="board-col${s.id === 'lost' ? ' cold' : s.id === 'booked' ? ' won' : ''}" data-stage="${esc(s.id)}">
       <h3>${esc(s.name)}</h3>
       <p class="col-meta">${s.count}</p>
       ${s.leads.map(card).join('')
@@ -359,7 +361,7 @@ function list() {
         <td>${reach(l) || '<span class="muted">nothing on file</span>'}</td>
         <td class="muted">${esc(l.askedAbout || '')}</td>
         <td${late ? ' style="color:var(--red-600);font-weight:600;"' : ''}>${
-          l.nextStep ? `${esc(l.nextStep)}${l.nextStepOn ? ` &middot; ${esc(dateFmt(l.nextStepOn))}` : ''}`
+          l.stage === 'booked' ? '<span class="muted">booked</span>' : l.nextStep ? `${esc(l.nextStep)}${l.nextStepOn ? ` &middot; ${esc(dateFmt(l.nextStepOn))}` : ''}`
             : '<span style="color:var(--red-600);">nothing planned</span>'}</td>
         <td>${esc(l.stageName)}</td>
         <td class="num"><button class="btn btn-ghost btn-sm" data-edit="${esc(l.id)}">Open</button></td>
@@ -402,6 +404,8 @@ function open(l) {
   document.getElementById('dlg-err').hidden = true;
   document.getElementById('dlg-title').textContent = l ? l.name : 'Somebody called';
   document.getElementById('off').hidden = !l;
+  // For somebody who booked without a reservation being started from here.
+  document.getElementById('mark-booked').hidden = !l || l.stage === 'booked';
   // Only for somebody already saved: there is nobody to attach a trip to until
   // the lead exists, and the reservation form fills itself in from the name.
   const go = document.getElementById('to-reservation');
@@ -508,6 +512,19 @@ onSubmit(document.getElementById('form'), async (values) => {
   }
   dlg.close();
   await load();
+});
+
+document.getElementById('mark-booked').addEventListener('click', async () => {
+  if (!editing) return;
+  const btn = document.getElementById('mark-booked');
+  btn.disabled = true;
+  try {
+    await api(`/api/leads/${encodeURIComponent(editing.id)}/stage`, { method: 'POST', body: { stage: 'booked' } });
+    dlg.close();
+    await load();
+  } catch (e) {
+    showError(document.getElementById('dlg-err'), e);
+  } finally { btn.disabled = false; }
 });
 
 document.getElementById('off').addEventListener('click', async () => {

@@ -36,6 +36,9 @@ export const LEAD_STAGES = [
   { id: 'talking', name: 'In conversation' },
   { id: 'nurture', name: 'Keeping warm' },
   { id: 'lost', name: 'Gone cold' },
+  // Booked without a reservation started from the lead: they booked on their own, with a vendor, or somebody else made the
+  // reservation. Somebody who does have a reservation leaves the board by themselves, so this is for the ones who do not.
+  { id: 'booked', name: 'Booked' },
 ];
 const STAGE_IDS = LEAD_STAGES.map((s) => s.id);
 
@@ -111,9 +114,9 @@ export async function handleLeadBoard(request, env) {
   // Cruise requests and guide signups are counted apart, and the board shows one kind at a time when asked: a column of
   // ninety guide signups buries the ten people who asked for a quote.
   const counts = {
-    request: allOpen.filter((l) => l.interest === 'request').length,
-    guide: allOpen.filter((l) => l.interest === 'guide').length,
-    all: allOpen.length,
+    request: allOpen.filter((l) => l.interest === 'request' && l.stage !== 'booked').length,
+    guide: allOpen.filter((l) => l.interest === 'guide' && l.stage !== 'booked').length,
+    all: allOpen.filter((l) => l.stage !== 'booked').length,
   };
   const wanted = url.searchParams.get('interest');
   const interest = wanted === 'request' || wanted === 'guide' ? wanted : 'all';
@@ -132,12 +135,13 @@ export async function handleLeadBoard(request, env) {
     // its dropdown from this for the same reason it builds the stage dropdown
     // from `stages`: a second copy is a second thing to keep in step.
     kinds: SOURCE_KINDS,
-    total: open.length,
+    // Booked ones stay on the board for the record but are not live: nobody is waiting on them.
+    total: open.filter((l) => l.stage !== 'booked').length,
     counts,
     interest,
     // The ones who have not been answered. A pipeline exists to produce this
     // number and most of them make it hard to find.
-    nudge: open.filter((l) => l.stage !== 'lost'
+    nudge: open.filter((l) => l.stage !== 'lost' && l.stage !== 'booked'
       && l.nextStepOn && l.nextStepOn <= today).length,
     // Nobody has rung them and nothing is scheduled. Worse than overdue,
     // because overdue at least means somebody made a plan.
@@ -250,6 +254,9 @@ export async function handleUpdateLead(request, env, id) {
     fields.sourceKind = (cur && cur.source_kind) || null;
   }
 
+  // Booked has nothing left to do, so no follow-up stays on it to turn up in the To do list.
+  if (fields.stage === 'booked') { fields.nextStep = null; fields.nextStepOn = null; }
+
   const res = await env.DB.prepare(
     `UPDATE clients
         SET name = ?, email = ?, phone = ?, source = ?,
@@ -318,9 +325,15 @@ export async function handleMoveLead(request, env, id) {
   const stage = oneOf(body.stage, STAGE_IDS);
   if (!stage) return badRequest('That is not one of the columns.');
 
-  const res = await env.DB.prepare(
-    'UPDATE clients SET lead_stage = ?, updated_at = ? WHERE id = ? AND user_id = ?'
-  ).bind(stage, now(), id, owner.id).run();
+  // Booked has nothing left to do, so the follow-up goes with it rather than turning up in the To do list.
+  const res = stage === 'booked'
+    ? await env.DB.prepare(
+      `UPDATE clients SET lead_stage = ?, lead_next_step = NULL, lead_next_step_on = NULL, updated_at = ?
+        WHERE id = ? AND user_id = ?`
+    ).bind(stage, now(), id, owner.id).run()
+    : await env.DB.prepare(
+      'UPDATE clients SET lead_stage = ?, updated_at = ? WHERE id = ? AND user_id = ?'
+    ).bind(stage, now(), id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('That lead is not here.');
   return json({ ok: true, stage });
 }
