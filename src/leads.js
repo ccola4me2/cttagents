@@ -26,6 +26,7 @@ import { isSuppressed } from './suppression.js';
 import { fillWords, wordingFor, greeting, LEAD_HELLO, LEAD_FOLLOWUP } from './tripemails.js';
 import { escapeHtml, PermanentError } from './util.js';
 import { SOURCE_KINDS, SOURCE_KIND_IDS } from './attribution.js';
+import { dayInZone, zoneOfUser } from './eventzone.js';
 
 // Where somebody is in the conversation, in the words an advisor would use.
 // "Booked" is not here on purpose: it is a fact about reservations, so it is
@@ -366,7 +367,8 @@ export async function handleCloseLead(request, env, id) {
 // ---------------------------------------------------------------------------
 
 const FOLLOW_UP_DAYS = 3;
-const dayPlus = (days) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+// Days on in the advisor's own day, not Greenwich's: a note sent at eight in the evening is not a day ahead of itself.
+const dayPlus = (days, zone) => dayInZone(zone, days);
 
 /** The lead as the hello is written for them: only this advisor's, and only somebody on the board. */
 async function leadFor(env, owner, id) {
@@ -412,7 +414,7 @@ async function afterReaching(env, owner, id, step, days = FOLLOW_UP_DAYS) {
     `UPDATE clients SET lead_stage = CASE WHEN lead_stage = 'new' THEN 'contacted' ELSE lead_stage END,
             lead_next_step = ?, lead_next_step_on = ?, updated_at = ?
       WHERE id = ? AND user_id = ? AND lead_stage IS NOT NULL`
-  ).bind(step, dayPlus(days), now(), id, owner.id).run();
+  ).bind(step, dayPlus(days, zoneOfUser(env, owner)), now(), id, owner.id).run();
 }
 
 /** POST /api/leads/:id/hello { subject, body } : send it, move them to Reached out, and plan the follow-up. */

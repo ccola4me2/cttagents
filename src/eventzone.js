@@ -88,3 +88,15 @@ export function zoneOfUser(env, user) {
   const own = user && user.timezone;
   return (own && validZone(own) ? own : null) || env.PORTAL_TZ || 'America/New_York';
 }
+
+/**
+ * A calendar day in a zone, as YYYY-MM-DD: today there, or some days on.
+ *
+ * "Tomorrow" is the advisor's tomorrow, not Greenwich's. Worked out from the UTC date, a form filled in at seven in the
+ * evening in New York lands after midnight in UTC and its "tomorrow" came out two days away.
+ */
+export function dayInZone(zone, plusDays = 0, at = Date.now()) {
+  const z = zone && validZone(zone) ? zone : 'America/New_York';
+  const [y, m, d] = clockIn(at, z).date.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + plusDays)).toISOString().slice(0, 10);
+}

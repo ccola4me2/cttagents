@@ -19,6 +19,7 @@ import { sendSignupNoticeEmail } from './email.js';
 import { brandForUser, brandOf, DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand.js';
 import { renderGroupTripPage, loadGroup, refOf } from './grouppage.js';
 import { verifyTurnstile, turnstileWidget, TURNSTILE_FAILED } from './turnstile.js';
+import { dayInZone, zoneOfUser } from './eventzone.js';
 
 /**
  * The agency behind a hosted form.
@@ -778,6 +779,10 @@ export async function handlePublicSubmit(request, env, slug) {
         // advisor looks, so this is what makes the form worth having.
         // Only a new person gets a stage. Somebody already being worked is not
         // dragged back to New because they filled in a form again.
+        // Tomorrow in the advisor's day, so an evening request is not pushed out to the day after.
+        const helloOn = clientIsNew
+          ? dayInZone(zoneOfUser(env, await db.getUserById(env, owner).catch(() => null)), 1)
+          : null;
         await env.DB.prepare(
           `UPDATE clients
               SET email = COALESCE(NULLIF(email, ''), ?),
@@ -800,7 +805,7 @@ export async function handlePublicSubmit(request, env, slug) {
                clientIsNew ? 'new' : null, now(),
                `From the ${form.name} form`.slice(0, 500),
                clientIsNew ? 'Say hello and ask what trip they have in mind' : null,
-               clientIsNew ? new Date(Date.now() + 86400000).toISOString().slice(0, 10) : null,
+               helloOn,
                now(), clientId, owner).run();
         await env.DB.prepare('UPDATE form_submissions SET contact_id = ? WHERE id = ?')
           .bind(clientId, submissionId).run();
