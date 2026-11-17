@@ -42,8 +42,8 @@ const STAGE_IDS = LEAD_STAGES.map((s) => s.id);
 // What somebody is after. A signup for the free guide or for deal alerts is a reader, not a request for a quote, and the two
 // need different handling: a guide signup is an email address to send to, a cruise request is somebody to ring. Told from the
 // form they came in on, since that is what they actually did.
-export const GUIDE_SOURCE = /free guide|deal alerts/i;
-export const interestOf = (source) => (GUIDE_SOURCE.test(String(source || '')) ? 'guide' : 'request');
+const GUIDE_SOURCE = /free guide|deal alerts/i;
+const interestOf = (source) => (GUIDE_SOURCE.test(String(source || '')) ? 'guide' : 'request');
 
 function shape(r) {
   return {
