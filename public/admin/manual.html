@@ -157,6 +157,10 @@
 <p>Leads from the website forms land on each advisor's <a href="/app/leads">Leads</a> board. A notice on the dashboard and a banner on the page say how many
   have not heard back, and <strong>Answer them now</strong> walks through them one at a time with a note already written. The first note and the follow-up are
   the agency's wording, edited under Client emails above. Nothing is sent until an advisor reads it and presses send.</p>
+<p>The Leads page is split into <strong>Cruise requests</strong> and <strong>Free guide</strong> (the free guide and deal alert signups), told apart by the form
+  they came in on, and opens on the cruise requests. The banner and the dashboard notice count only the cruise requests, since a guide signup is an email address
+  to send to rather than somebody to ring. A lead that booked without a reservation being started from their card is marked <strong>They booked</strong> and
+  moves to the <strong>Booked</strong> column.</p>
 
 <h2 id="tax-1099">Tax and 1099</h2>
 <p><a href="/admin/tax">Tax and 1099</a> in the admin menu is where you keep what you need on each advisor to report what you paid them at the end of
@@ -252,11 +256,20 @@
   on the reservation. The portal never takes the card itself.</p>
 
 <h2 id="commission-desk">Commissions: checks in, advisors paid</h2>
-<p>Under <strong>Commissions</strong> in this menu. Four figures across the top, and the one you
+<p>Under <strong>Commissions</strong> in this menu. Five figures across the top, and the one you
   press decides the list underneath: <strong>Received</strong> in the year (with what the fees
   took, so you can see what reached the bank), <strong>Paid out</strong> to advisors,
-  <strong>Scheduled to pay out</strong>, and <strong>Still owed to us</strong> by vendors. The
-  year at the top changes the first two.</p>
+  <strong>Next payout</strong> (in bold, the pay date to pay now), <strong>Scheduled to pay out</strong>, and
+  <strong>Still owed to us</strong> by vendors. The year at the top changes Received and Paid out. Under the figures is a row of tabs:
+  <strong>Accounting</strong>, <strong>All commissions</strong>, <strong>Advisor statements</strong>, <strong>Reports</strong>,
+  <strong>Recall watch</strong> and <strong>What the agency keeps</strong>.</p>
+<h3>Accounting: money in, money out</h3>
+<p>The <strong>Accounting</strong> tab keeps the two kinds of money apart. <strong>Incoming</strong> is every check or payment
+  that came in from a vendor, with its date, vendor, number, method and amount. Click one to see what was on it, reservation by
+  reservation, and press <strong>Edit the check</strong> to change it. <strong>Outgoing</strong> is every payment to an advisor:
+  the date, who, how it was paid (check, bank transfer, Zelle, cash or something else), your check number or trace, and the clients with their
+  reservation numbers. Recording a check only ever records money coming in: it never records a payout. Paying an advisor is a separate
+  step, <strong>Mark paid</strong>, below.</p>
 <h3>Recording a check</h3>
 <p>Press <strong>Record a check</strong>. If the vendor sent a remittance PDF, drop it in: it
   fills in the check number, the amount and a line for each traveller, and finds the
@@ -272,18 +285,25 @@
   that says which column is the commission or amount, the guest and the confirmation number helps and is not needed. Each row is matched
   to a reservation by its confirmation number first and the guest's name second, you check every line, and nothing is recorded until you press
   <strong>Save the check</strong>. A pasted statement has no check total, so the total starts as the sum of the lines: change it to the amount on the check.</p>
-<p>Each line has a <strong>Pay out date</strong>, a choice of the next 1sts and 15ths.
+<p>Each line has a <strong>Pay out date</strong>, a choice of the next 1sts and 15ths (a pay day that falls on another date is fixed
+  afterwards, see Pay dates that are not the 1st or the 15th).
   It suggests the first pay date on or after 30 days before sailing, so a cruise leaving
   March 3 goes out on February 1, and one that was paid for inside those 30 days goes out on
   the next pay date. That is the point at which a cruise line can no longer take the commission
   back if the client cancels. Change it if you want. You can record a check before every line is matched and add the rest later.</p>
 <h3>Is the check at the bank?</h3>
-<p>A check you record starts as <strong>not at the bank yet</strong>. When the money has landed, open the check and press
-  <strong>It is at the bank</strong>; press the same button again, which then says <strong>Deposited</strong> with the date, to undo
-  it. Until you do, an advisor who is owed money from that check shows a <strong>check not at the bank yet</strong> badge on
-  <strong>Scheduled to pay out</strong>, and <strong>Mark paid</strong> warns you. It only warns: it never stops you paying. Checks
-  recorded before this existed count as deposited on the day they arrived, and money typed in on a single reservation, with no
-  check behind it, is never flagged.</p>
+<p>A check you record starts as <strong>at the bank</strong>, dated the day it was received, because a check is recorded once it has
+  come in. If one has not landed yet, press <strong>Deposited, Undo</strong> on it: it then shows <strong>not at the bank yet</strong>
+  with an <strong>It is at the bank</strong> button beside it, on the check's own row, to press when the money lands. While it is not at the
+  bank, an advisor who is owed money from that check shows a <strong>check not at the bank yet</strong> badge on
+  <strong>Scheduled to pay out</strong>, and <strong>Mark paid</strong> warns you. It only warns: it never stops you paying. Money typed in on
+  a single reservation, with no check behind it, is never flagged.</p>
+<h3>Pay dates that are not the 1st or the 15th</h3>
+<p>Pay days are normally the 1st and the 15th, but not always (a 15th that falls on a Sunday, for instance). Each pay date on
+  <strong>Scheduled to pay out</strong> has a <strong>Pay date</strong> box: choose the real day and every line on it moves there
+  together, and that is the only way a pay date changes. <strong>Nothing moves by itself.</strong> A pay date that has come and gone
+  without being paid stays where it was recorded and is marked <strong>Pay now</strong>; it is not carried over to the next 1st or 15th.
+  The <strong>Next payout</strong> figure is the oldest pay date still unpaid.</p>
 <h3>Cents are never rounded up</h3>
 <p>An advisor's share of a commission is worked out to the cent and any fraction of a cent is dropped, never rounded up. 97% of $227.70 is
   $220.869, so the advisor's share is $220.86 and the agency keeps the rest. It is the same on every screen, in every report and in what a
@@ -303,7 +323,7 @@
   need a 1099-NEC. <strong>Year-end summary</strong> is one page for your accountant: what came in, the fees vendors took out of checks (agency
   expenses that never come out of an advisor's share), what was deposited, the advisors' share, what was paid and what is still owed, and what the
   agency kept before and after fees.</p>
-<p>Money recorded one reservation at a time, from Mark paid or Still owed, is received but is not on a check. Under <strong>Money in</strong>
+<p>Money recorded one reservation at a time, from Mark paid or Still owed, is received but is not on a check. Under <strong>Accounting, Incoming</strong> (after the checks)
   those payments are grouped by vendor and day, and <strong>Make this a check</strong> turns a group into one check for its total. No amount,
   date or pay out date changes. Open the check afterward to add a processing fee if one was taken.</p>
 <h3>When a vendor does not pay</h3>
@@ -318,6 +338,19 @@
   reduces what an advisor is paid, because their share is a share of what the vendor said they
   paid. If a check is lower than expected because the commission was entered wrong on the
   reservation, correct the reservation: the advisor is paid on what actually arrived.</p>
+<h3>Paying an advisor</h3>
+<p>On a pay date, press <strong>Mark paid</strong> on the advisor's line, choose how you paid them (<strong>Check</strong>,
+  <strong>Bank transfer</strong>, <strong>Zelle</strong>, <strong>Cash</strong> or <strong>Something else</strong>), and enter your check number or
+  the trace. That is the payout, and it appears under <strong>Accounting, Outgoing</strong>. Pressing it twice cannot pay twice: what is owed
+  is worked out from what has arrived less what has already been paid on each reservation, so the second press finds nothing owed. The
+  amount an advisor is paid is only ever what has arrived for them, not what the vendor was expected to pay.</p>
+<h3>Advisor statements</h3>
+<p>The <strong>Advisor statements</strong> tab prints or saves as a PDF what one advisor earned: each reservation with the client, vendor, confirmation
+  number, what was received, the agency's share and the advisor's share. Choose the advisor and the pay dates to show (it opens on the next
+  pay date), or <strong>All advisors together</strong> for the whole group, then each one on their own page. Every pay date has a
+  <strong>Statements</strong> button for all advisors at once and each advisor's line has its own <strong>Statement</strong>. Reports and the pay run have
+  <strong>Print</strong> and <strong>Download PDF</strong> too. Statements show the agency's share, so they are for you, not for sending to an
+  advisor as it stands. Advisors never see the agency's side anywhere in the portal.</p>
 <h3>What an advisor sees</h3>
 <p>Each advisor sees commission that has arrived and is assigned to the next pay date, and
   nothing scheduled for a later one. <strong>Scheduled to pay out</strong> shows what each
