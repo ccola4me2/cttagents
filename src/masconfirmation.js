@@ -10,9 +10,9 @@
 // followed by its value is what survives that. Anything it cannot find is left out and said so, never guessed:
 // a cabin number or a payment that is wrong looks exactly like one that is right.
 //
-// What it keeps is the booking, the sailing, the cabins, the guests' names and the money. It does not keep dates
-// of birth, email addresses or phone numbers, which are the guests' own, nor the agent's commission, which is the
-// agency's own.
+// What it keeps is the booking, the sailing, the cabins, the guests' names, the enhancements and the money. It does not keep dates
+// of birth, email addresses or phone numbers, which are the guests' own. The agent's commission is read so it can be checked
+// against the reservation, and is never shown to the client.
 
 const MONTHS = { jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06', jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12' };
 
@@ -112,6 +112,22 @@ export function parseMasAgentCopy(text) {
   if (guestsTotal && rooms.length === 1 && rooms[0].guests.length && rooms[0].guests.length !== guestsTotal) {
     warnings.push(`It says ${guestsTotal} guests but ${rooms[0].guests.length} names were read. Check them.`);
   }
+  // The enhancements table: "PREPAID GRATUITIES 7-NIGHT $154.00 1 $154.00", one row each, between its heading and the
+  // stateroom total. A row is a name, a price, a quantity and a total, and one that does not add up is left out and said so.
+  const enhancements = [];
+  const table = /Cruise Enhancements\s+Price\s+Qnty\s+Total\s+(.*?)\s+TOTAL STATEROOM AMOUNT/i.exec(t);
+  if (table) {
+    for (const m of table[1].matchAll(/([A-Za-z][A-Za-z0-9&'\/\-., ]*?)\s+\$\s*([\d,]+\.\d{2})\s+(\d+)\s+\$\s*([\d,]+\.\d{2})/g)) {
+      const price = centsOf(`$${m[2]}`);
+      const qty = Number(m[3]);
+      const total = centsOf(`$${m[4]}`);
+      if (price === null || total === null || !qty) continue;
+      if (price * qty !== total) { warnings.push(`The enhancement "${m[1].trim()}" does not add up, so it was left out.`); continue; }
+      enhancements.push({ name: title(m[1]), priceCents: price, qty, totalCents: total });
+    }
+  }
+  const insuranceCents = centsOf(grab(/Insurance Amount:\s*(\$\s*[\d,.]+)/));
+  const commissionCents = centsOf(grab(/Fare Commission:\s*(\$\s*[\d,.]+)/));
   if (totalCents === null) warnings.push('The booking total was not found.');
   if (paidCents === null) warnings.push('What has been paid was not found.');
   if (!departDate) warnings.push('The sailing date was not found.');
@@ -119,6 +135,6 @@ export function parseMasAgentCopy(text) {
   return {
     ok: true, bookingId, bookingDate: isoOf(grab(/Booking Date:\s*([A-Za-z]{3,9}\.? \d{1,2}, \d{4})/)),
     cancelled: /cancel/i.test(status || ''), bookedBy, itinerary, ship, departDate, returnDate,
-    totalCents, paidCents, dueCents, guestsTotal, rooms, warnings,
+    totalCents, paidCents, dueCents, guestsTotal, rooms, enhancements, insuranceCents, commissionCents, warnings,
   };
 }

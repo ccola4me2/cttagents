@@ -56,5 +56,21 @@ for (const [label, text] of [['the browser reading', BROWSER], ['the other readi
   is(`${label}: nothing to warn about`, r.warnings, []);
 }
 
+// Enhancements added after the booking: a table of name, price, quantity and total between the stateroom subtotal and the stateroom
+// total, with and without the space after the dollar sign. The same read also takes the insurance and the fare commission in cash.
+const ENHANCEMENTS = 'Cruise Enhancements Price Qnty Total\nPREPAID GRATUITIES 7-NIGHT $154.00 1 $154.00\n'
+  + 'PREPAID GRATUITIES 7-NIGHT $ 154.00 1 $ 154.00\nULTIMATE BEVERAGE CHILL $461.96 1 $461.96\n';
+for (const [label, text] of [['the browser reading', BROWSER], ['the other reading', OTHER]]) {
+  const r = parseMasAgentCopy(`${text.replace('TOTAL STATEROOM AMOUNT', `${ENHANCEMENTS}TOTAL STATEROOM AMOUNT`)}
+Insurance Amount: $ 138.00
+Fare Commission: $ 265.20`);
+  is(`${label}: the enhancements, one row each, priced to the cent`,
+    r.enhancements.map((e) => [e.name, e.priceCents, e.qty, e.totalCents]),
+    [['Prepaid Gratuities 7-Night', 15400, 1, 15400], ['Prepaid Gratuities 7-Night', 15400, 1, 15400], ['Ultimate Beverage Chill', 46196, 1, 46196]]);
+  is(`${label}: the insurance and the fare commission`, [r.insuranceCents, r.commissionCents], [13800, 26520]);
+  is(`${label}: still nothing to warn about`, r.warnings, []);
+  is(`${label}: a document with no enhancements reads as none`, parseMasAgentCopy(text).enhancements, []);
+}
+
 console.log(`\n${checks - failures} of ${checks} checks passed`);
 if (failures) process.exit(1);

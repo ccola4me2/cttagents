@@ -376,7 +376,7 @@ export async function handleDeletePriceLine(request, env, id) {
  * figures that can disagree eventually will. A reservation with no breakdown
  * keeps whatever was typed, so nothing is lost by never using this.
  */
-async function syncBookingTotals(env, bookingId, userId) {
+export async function syncBookingTotals(env, bookingId, userId) {
   const lines = await listPricing(env, bookingId, { all: false, userId });
   if (!lines.length) return;
   const s = summarise(lines, null);
