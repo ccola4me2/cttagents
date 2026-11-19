@@ -667,8 +667,33 @@ let all = null;
 let allOpen = null;
 const allSort = { key: 'back', dir: 1 };
 const allFilter = { q: '', advisor: '', vendor: '', state: '', from: '', to: '' };
-const STATE_LABEL = { unpaid: 'Nothing received', short: 'Paid short', settled: 'Settled', over: 'Overpaid' };
-const STATE_BADGE = { unpaid: 'badge-amber', short: 'badge-red', settled: 'badge-green', over: 'badge-navy' };
+const STATE_LABEL = { unpaid: 'Nothing received', short: 'Paid short', bonus: 'Bonus to come', settled: 'Settled', over: 'Overpaid' };
+const STATE_BADGE = { unpaid: 'badge-amber', short: 'badge-red', bonus: 'badge-amber', settled: 'badge-green', over: 'badge-navy' };
+
+/**
+ * The state a reservation is shown in.
+ *
+ * Paid short is for a vendor who paid less than the commission on the fare. A reservation whose commission is all in and whose
+ * only open part is a bonus is not short: nothing was underpaid, a bonus is still on its way. Showing it in red beside the
+ * ones that really are short, and keeping it out of Settled, made six paid out reservations read as five.
+ */
+function stateOf(r) {
+  const o = r.outstanding_by_kind || {};
+  return r.settlement === 'short' && !o.base && !o.package && o.bonus > 0 ? 'bonus' : r.settlement;
+}
+const stateLabel = (r) => (stateOf(r) === 'bonus'
+  ? `Bonus ${money((r.outstanding_by_kind || {}).bonus)} to come` : (STATE_LABEL[r.settlement] || r.settlement || ''));
+
+/** What a statement line says is still expected, in words: the amount and which part of the commission it is. */
+function stillNote(l) {
+  if (!(l.still_cents > 0)) return '';
+  const k = l.still_by_kind || {};
+  const parts = [];
+  if (k.base) parts.push(`${money(k.base)} commission`);
+  if (k.package) parts.push(`${money(k.package)} package commission`);
+  if (k.bonus) parts.push(`${money(k.bonus)} bonus`);
+  return `${parts.length ? parts.join(' and ') : money(l.still_cents)} still expected from the vendor`;
+}
 
 async function loadAll() {
   try {
@@ -686,7 +711,9 @@ function allRows() {
     if (allFilter.state === 'hold') { if (!onHold(r)) return false; }
     else if (allFilter.state === 'due') { if (!(r.due_cents > 0)) return false; }
     else if (allFilter.state === 'written_off') { if (r.commission_chase !== 'written_off') return false; }
-    else if (allFilter.state && r.settlement !== allFilter.state) return false;
+    // Settled includes the ones only waiting on a bonus: the commission itself is in and paid.
+    else if (allFilter.state === 'settled') { if (stateOf(r) !== 'settled' && stateOf(r) !== 'bonus') return false; }
+    else if (allFilter.state && stateOf(r) !== allFilter.state) return false;
     if (allFilter.from && (r.depart_date || '') < allFilter.from) return false;
     if (allFilter.to && (r.depart_date || '9999') > allFilter.to) return false;
     if (q) {
@@ -776,7 +803,7 @@ function allBody() {
       <td>${r.depart_date && holdsBack(r.supplier) ? `${esc(dateFmt(safeOn(r.depart_date)))}${onHold(r) ? ' <span class="badge badge-amber">hold</span>' : ''}` : ''}</td>
       <td class="r cd-money">${money(r.commission_cents)}</td>
       <td class="r cd-money">${money(r.received_cents)}</td>
-      <td><span class="badge ${STATE_BADGE[r.settlement] || ''}">${esc(STATE_LABEL[r.settlement] || r.settlement)}</span></td>
+      <td><span class="badge ${STATE_BADGE[stateOf(r)] || ''}">${esc(stateLabel(r))}</span></td>
       <td class="r cd-money">${money(r.payout_cents)}</td>
       <td class="r cd-money">${money(r.paid_out_cents)}</td>
       <td class="r cd-money"><strong>${money(Math.max(r.due_cents, 0))}</strong></td>
@@ -805,7 +832,7 @@ function drawAll() {
     <div><label for="af-vendor">Vendor</label><select id="af-vendor" data-af="vendor">${opt(vendors, allFilter.vendor)}</select></div>
     <div><label for="af-state">Status</label><select id="af-state" data-af="state">
       <option value="">All</option>
-      ${[['unpaid', 'Nothing received'], ['short', 'Paid short'], ['settled', 'Settled'], ['over', 'Overpaid'], ['due', 'Still due to an advisor'], ['hold', 'Held until 30 days before sailing'], ['written_off', 'Written off']].map(([k, l]) =>
+      ${[['unpaid', 'Nothing received'], ['short', 'Paid short'], ['bonus', 'Bonus to come'], ['settled', 'Settled (includes bonus to come)'], ['over', 'Overpaid'], ['due', 'Still due to an advisor'], ['hold', 'Held until 30 days before sailing'], ['written_off', 'Written off']].map(([k, l]) =>
     `<option value="${k}"${allFilter.state === k ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
     <div><label for="af-from">Sails from</label><input id="af-from" data-af="from" type="date" value="${esc(allFilter.from)}"></div>
     <div><label for="af-to">Sails to</label><input id="af-to" data-af="to" type="date" value="${esc(allFilter.to)}"></div>
@@ -826,7 +853,7 @@ function downloadAll() {
   const head = ['Client', 'Advisor', 'Vendor', 'Ship', 'Confirmation', 'Sails', 'Safe to pay from', 'Returns', 'Expected', 'Received', 'Status',
     'Split to advisor %', 'Advisor share of received', 'Paid out', 'Still due to advisor', 'Agency keeps'];
   const lines = [head.join(',')].concat(rows.map((r) => [r.client_name, r.advisor_name, r.supplier, r.product_name, r.confirmation_number,
-    r.depart_date, (holdsBack(r.supplier) && safeOn(r.depart_date)) || '', r.return_date, dollars(r.commission_cents), dollars(r.received_cents), STATE_LABEL[r.settlement] || r.settlement,
+    r.depart_date, (holdsBack(r.supplier) && safeOn(r.depart_date)) || '', r.return_date, dollars(r.commission_cents), dollars(r.received_cents), stateLabel(r),
     r.split_pct, dollars(r.payout_cents), dollars(r.paid_out_cents), dollars(Math.max(r.due_cents, 0)),
     dollars(r.agency_received_cents)].map(csvCell).join(',')));
   const href = URL.createObjectURL(new Blob([`${lines.join('\n')}\n`], { type: 'text/csv' }));
@@ -1214,7 +1241,7 @@ function periodStatement(who, st = stmt) {
   const head = pcts.length === 1 ? `${first}'s share (${pcts[0]}%)` : `${first}'s share`;
   const when = st.from === st.to ? dateFmt(st.from) : `${dateFmt(st.from)} to ${dateFmt(st.to)}`;
   const body = lines.length ? lines.map((l) => `<tr>
-      <td>${esc(l.client_name)}</td><td>${esc(l.supplier || '')}</td><td>${esc(l.confirmation_number || '')}</td>
+      <td>${esc(l.client_name)}${stillNote(l) ? `<span class="pst-sub" style="display:block;">${esc(stillNote(l))}</span>` : ''}</td><td>${esc(l.supplier || '')}</td><td>${esc(l.confirmation_number || '')}</td>
       <td>${l.received_on ? esc(dateFmt(l.received_on)) : ''}</td><td>${l.payout_on ? esc(dateFmt(l.payout_on)) : ''}</td>
       <td class="r">${money(l.received_cents)}</td>
       <td class="r pst-agency">${money(l.agency_cents)}</td>
@@ -1377,6 +1404,10 @@ function statementSpec(who, st = stmt) {
         totals: ['TOTALS: ' + lines.length + ' item' + (lines.length === 1 ? '' : 's'), '', '', '', '', money(sum('received_cents')), money(sum('agency_cents')), money(sum('advisor_cents'))],
       } },
       { box: [['Total commission earned', money(sum('received_cents'))], ['Agency share', money(sum('agency_cents')), true], [first + '\'s share', money(sum('advisor_cents'))]] },
+      ...(lines.some((l) => l.still_cents > 0)
+        ? [{ h: 'Still expected, not paid yet' }].concat(lines.filter((l) => l.still_cents > 0)
+          .map((l) => ({ p: l.client_name + (l.confirmation_number ? ' (' + l.confirmation_number + ')' : '') + ': ' + stillNote(l) + '. Not in this statement.' })))
+        : []),
       { p: 'The share is ' + first + '\'s split of the commission the vendors paid. Pay days are the 1st and the 15th.' },
       { p: (st.note || '').trim() },
     ].filter((b) => b.h || b.table || b.box || (b.p && b.p.length)),
@@ -1498,7 +1529,7 @@ function allSpec() {
       headers: ['Client', 'Advisor', 'Vendor', 'Confirmation', 'Sails', 'Expected', 'Received', 'Status', 'Advisor share', 'Paid out', 'Still due', 'Agency keeps'],
       widths: [2.6, 2, 2, 1.8, 1.4, 1.3, 1.3, 1.5, 1.3, 1.3, 1.3, 1.3], aligns: ['l', 'l', 'l', 'l', 'l', 'r', 'r', 'l', 'r', 'r', 'r', 'r'], red: [11],
       rows: rows.map((r) => [r.client_name, r.advisor_name || '', r.supplier || '', r.confirmation_number || '', r.depart_date ? dateFmt(r.depart_date) : '',
-        money(r.commission_cents), money(r.received_cents), STATE_LABEL[r.settlement] || r.settlement || '', money(r.payout_cents),
+        money(r.commission_cents), money(r.received_cents), stateLabel(r), money(r.payout_cents),
         money(r.paid_out_cents), money(due(r)), money(r.agency_received_cents)]),
       totals: ['Total', '', '', '', '', money(sum((r) => r.commission_cents || 0)), money(sum((r) => r.received_cents || 0)), '', money(sum((r) => r.payout_cents || 0)),
         money(sum((r) => r.paid_out_cents || 0)), money(sum(due)), money(sum((r) => r.agency_received_cents || 0))],
@@ -1634,7 +1665,7 @@ function reportData() {
     return { cols: [['name', 'Reservation', 'text'], ['advisor', 'Advisor', 'text'], ['vendor', 'Vendor', 'text'], ['state', 'Status', 'text'],
       ['expected', 'Expected', 'money'], ['received', 'Received', 'money'], ['variance', 'Difference', 'money']],
     rows: rows.filter((r) => r.settlement === 'short' || r.settlement === 'over').map((r) => ({
-      name: r.client_name, advisor: r.advisor_name, vendor: r.supplier, state: STATE_LABEL[r.settlement], expected: r.commission_cents,
+      name: r.client_name, advisor: r.advisor_name, vendor: r.supplier, state: stateLabel(r), expected: r.commission_cents,
       received: r.received_cents, variance: r.variance_cents })), total: true };
   }
   if (rep.kind === 'checks') {
@@ -1734,7 +1765,7 @@ function drillRows(row, label) {
     <td><a href="/app/reservation?id=${encodeURIComponent(k.id)}">${esc(k.client_name || '')}</a>${k.confirmation_number ? ` <span class="muted">${esc(k.confirmation_number)}</span>` : ''}</td>
     <td>${esc(others[1](k) || '')}</td>
     <td>${k.depart_date ? esc(dateFmt(k.depart_date)) : '<span class="muted">no date</span>'}</td>
-    <td>${esc(STATE_LABEL[k.settlement] || '')}</td>
+    <td>${esc(stateLabel(k))}</td>
     <td class="r cd-money">${money(k.commission_cents || 0)}</td><td class="r cd-money">${money(k.received_cents || 0)}</td>
     <td class="r cd-money">${k.variance_cents ? money(k.variance_cents) : '<span class="muted">-</span>'}</td></tr>`).join('');
   return `<table class="cd-table" style="margin:.2rem 0 0;background:#fff;"><thead>${head}</thead><tbody>${body}</tbody></table>`;

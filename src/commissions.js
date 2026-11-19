@@ -319,6 +319,9 @@ export async function handleListCommissions(request, env) {
       const e = lines.get(x.booking_id) || {
         booking_id: b.id, advisor_id: b.user_id, advisor_name: b.advisor_name, client_name: b.client_name, supplier: b.supplier, confirmation_number: b.confirmation_number,
         depart_date: b.depart_date, split_pct: b.split_pct, received_cents: 0, unsplit_cents: 0, received_on: x.received_on, payout_on: x.payout_on,
+        // What the vendor still owes on the reservation, by part, so a statement can say a bonus is yet to come rather than
+        // looking as though the line is the whole of what was expected.
+        still_cents: b.outstanding_cents || 0, still_by_kind: b.outstanding_by_kind || {},
       };
       e.received_cents += x.amount_cents || 0;
       if (UNSPLIT_COMMISSION_KINDS.includes(x.kind)) e.unsplit_cents += x.amount_cents || 0;
