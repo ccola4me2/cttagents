@@ -1848,3 +1848,21 @@ code { overflow-wrap: anywhere; }
   table.qstack input[type=email] { min-width: 0 !important; width: 100%; }
   table.qstack td:empty { display: none; }
 }
+
+/* The pricing grid on a phone: one card for each charge with a box for each passenger, instead of a table wider than the screen whose passenger columns sit off to the right where only the last one is found. */
+@media (max-width: 640px) {
+  .price-grid thead { display: none; }
+  .price-grid, .price-grid tbody, .price-grid tfoot { display: block; }
+  .price-grid tbody tr { display: block; padding: .7rem .8rem; margin: 0 0 .7rem; border: 1px solid var(--navy-100); border-radius: 10px; background: #fff; }
+  .price-grid tbody td { display: block; border: 0; padding: .15rem 0; min-width: 0; }
+  .price-grid tbody td:empty { display: none; }
+  .price-grid td[data-label] { display: flex; justify-content: space-between; align-items: center; gap: .6rem; margin-top: .3rem; }
+  .price-grid td[data-label]::before, .price-grid th[data-label]::before { content: attr(data-label); font-weight: 600; color: var(--navy-800); font-size: .9rem; text-align: left; }
+  .price-grid td[data-label] input.cell { width: 8.5rem; max-width: 55%; text-align: right; }
+  .price-grid tfoot tr { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .1rem .6rem; padding: .35rem .8rem; }
+  .price-grid tfoot th { border: 0; padding: .1rem 0; }
+  .price-grid tfoot th:empty { display: none; }
+  .price-grid tfoot tr.each th:first-child { flex: 1 0 100%; }
+  .price-grid tfoot tr.each th[data-label] { flex: 1 0 100%; display: flex; justify-content: space-between; }
+  .price-grid tfoot tr.grand th[colspan] { text-align: right; }
+}

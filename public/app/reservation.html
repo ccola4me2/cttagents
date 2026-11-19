@@ -1704,7 +1704,7 @@ function drawPricing() {
               <span class="m rate-earned"></span>
             </div>`;
           })()}</td>
-          ${columns.map((c) => `<td class="num"><input class="cell" inputmode="decimal"
+          ${columns.map((c) => `<td class="num" data-label="${esc(c.name)}"><input class="cell" inputmode="decimal"
             data-cell="${esc(k.kind)}" data-col="${esc(c.id || '')}"
             value="${esc(cash(at(k.kind, c.id) ? at(k.kind, c.id).amount_cents : 0))}"
             placeholder="0.00" ${d.editable ? '' : 'disabled'}></td>`).join('')}
@@ -1714,15 +1714,15 @@ function drawPricing() {
           <td><span class="name">${esc(row.label)}</span>
             <div class="muted">${esc(row.note)}</div></td>
           <td></td>
-          ${columns.map((c) => `<td class="num"><input class="cell" inputmode="decimal"
+          ${columns.map((c) => `<td class="num" data-label="${esc(c.name)}"><input class="cell" inputmode="decimal"
             data-commission="${esc(c.id || '')}" data-ckind="${esc(row.kind)}"
             value="${esc(cash(commissionAt(c.id, row.kind)))}"
             placeholder="0.00" ${d.editable ? '' : 'disabled'}></td>`).join('')}
         </tr>`).join('')}
       </tbody>
       <tfoot>
-        <tr><th>Each passenger</th><th></th>
-          ${columns.map((c) => `<th class="num" data-coltotal="${esc(c.id || '')}"></th>`).join('')}
+        <tr class="each"><th>Each passenger</th><th></th>
+          ${columns.map((c) => `<th class="num" data-label="${esc(c.name)}" data-coltotal="${esc(c.id || '')}"></th>`).join('')}
         </tr>
         <tr class="grand"><th>Trip total</th><th></th>
           <th class="num" colspan="${columns.length}" data-grand></th></tr>
