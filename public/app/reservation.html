@@ -1257,6 +1257,7 @@ function drawDetail() {
 const SETTLE_WORD = {
   unpaid: { tone: 'badge-navy', label: 'Nothing in yet' },
   short: { tone: 'badge-red', label: 'Paid short' },
+  bonus: { tone: 'badge-amber', label: 'Bonus to come' },
   settled: { tone: 'badge-green', label: 'Settled' },
   over: { tone: 'badge-amber', label: 'Overpaid' },
 };
@@ -1316,7 +1317,7 @@ function drawCommission() {
     <p class="value"${tone ? ` style="color:var(--${tone}-600);"` : ''}>${money(cents)}</p>
     <p class="meta">${note}</p></div>`;
 
-  const s = SETTLE_WORD[c.settlement] || SETTLE_WORD.unpaid;
+  const s = SETTLE_WORD[c.bonusOnly ? 'bonus' : c.settlement] || SETTLE_WORD.unpaid;
   const rows = c.receipts || [];
 
   document.getElementById('commission').innerHTML = `
@@ -1324,7 +1325,7 @@ function drawCommission() {
       <div class="stat-grid" style="margin:0;">
         ${figure('Expected', c.expectedCents, 'What the vendor owes')}
         ${figure('Received', c.receivedCents, `<span class="badge ${s.tone}">${esc(s.label)}</span>${
-      c.outstandingCents ? ` &middot; ${money(c.outstandingCents)} still out` : ''}`)}
+      c.outstandingCents ? ` &middot; ${money(c.outstandingCents)} ${c.bonusOnly ? 'bonus still to come' : 'still out'}` : ''}`)}
         ${c.agencyCents === undefined ? '' : figure('Taken', c.agencyCents, c.pct === 100 ? 'No split recorded, so nothing'
         : `The agency's ${esc(String(100 - c.pct))}%`)}
         ${figure('Paid out', c.payoutCents,
@@ -1332,7 +1333,7 @@ function drawCommission() {
       : ` &middot; ${money(c.fullPayoutCents)} when it all lands`}${c.paidOutCents
       ? `<br><strong>${money(c.paidOutCents)} paid to the advisor</strong>${c.paidOutCents >= c.payoutCents && c.payoutCents > 0 ? ', paid out' : ', part paid out'}` : ''}`)}
       </div>
-      ${c.varianceCents < 0 && c.receivedCents ? `<p class="field-hint" style="margin:.8rem 0 0;">
+      ${c.varianceCents < 0 && c.receivedCents && !c.bonusOnly ? `<p class="field-hint" style="margin:.8rem 0 0;">
         The vendor has paid ${money(Math.abs(c.varianceCents))} less than this trip expected.
         Either chase the rest or correct the expected figure, so the two stop disagreeing.</p>` : ''}
       ${c.varianceCents > 1 ? `<p class="field-hint" style="margin:.8rem 0 0;">

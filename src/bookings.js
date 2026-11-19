@@ -602,8 +602,20 @@ export async function handleBookingRecord(request, env, id) {
       ? shareOf(receivedCents, split.pct, unsplitCents)
       : { advisorCents: 0, agencyCents: receivedCents };
     const { state, variance } = settlement(expectedCents, receivedCents);
+    // Whether the only part still out is the bonus. A vendor who has paid the
+    // base and the package and not yet the bonus has not paid short: the
+    // bonus comes later, so the page says so rather than "Paid short".
+    const sumKind = (list, kinds, kindField, moneyField) => list
+      .filter((x) => kinds.includes(x[kindField])).reduce((n, x) => n + (x[moneyField] || 0), 0);
+    const owedOf = (kinds) => sumKind(priceLines, kinds, 'commission_kind', 'commission_cents')
+      - sumKind(rows, kinds, 'kind', 'amount_cents');
+    const bonusOwed = earns ? owedOf(['bonus', 'bonus_shared']) : 0;
+    const bonusOnly = state === 'short' && bonusOwed > 0
+      && owedOf(['base']) <= 0 && owedOf(['package']) <= 0;
     return {
       earns,
+      bonusOnly,
+      bonusOwedCents: bonusOnly ? bonusOwed : 0,
       status: booking.commission_status,
       pct: split.pct,
       // Why the agency takes nothing, when it takes nothing. Their own
