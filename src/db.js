@@ -961,6 +961,40 @@ export function mayWrite(user, row) {
   return user.role === 'admin' && Boolean(user.agency_id);
 }
 
+/**
+ * A booked reservation is locked to the advisor who entered it.
+ *
+ * Two hours after a reservation is entered, once it is booked (or travelled) its details, pricing, travellers
+ * and amenities are fixed for an advisor: only an owner changes them. A quote
+ * stays open, and so do the everyday records that keep moving after booking:
+ * payments, notes, tasks and documents. The page hides the buttons, and every
+ * route that edits the fixed parts asks here as well, because a hidden button
+ * is still a control.
+ */
+export const LOCKED_STATUSES = ['booked', 'travelled'];
+const LOCK_GRACE_SECONDS = 2 * 60 * 60;
+export const LOCKED_MESSAGE = 'This reservation is booked, so it is locked. Ask the owner to change it.';
+
+export async function bookingLocked(env, user, bookingId) {
+  if (!bookingId || (user && user.role === 'admin')) return false;
+  const row = await env.DB.prepare('SELECT status, created_at FROM bookings WHERE id = ?')
+    .bind(bookingId).first();
+  // Two hours of grace from the moment it was entered, because entering a
+  // booked reservation and then adding its pricing and travellers is one job.
+  return Boolean(row && LOCKED_STATUSES.includes(row.status)
+    && Number(row.created_at || 0) < Math.floor(Date.now() / 1000) - LOCK_GRACE_SECONDS);
+}
+
+/** The same, asked about a child row (a traveller, an amenity or a price line). */
+export async function rowLocked(env, user, table, id) {
+  if (!['travellers', 'amenities', 'booking_pricing'].includes(table)) {
+    throw new Error(`rowLocked: ${table} is not a locked table`);
+  }
+  if (!id || (user && user.role === 'admin')) return false;
+  const row = await env.DB.prepare(`SELECT booking_id FROM ${table} WHERE id = ?`).bind(id).first();
+  return row ? bookingLocked(env, user, row.booking_id) : false;
+}
+
 /** The two fields that decide how a commission divides. Admin path only. */
 export async function setBookingSplit(env, id, { advisorSplitPct, leadSource }) {
   await env.DB.prepare(

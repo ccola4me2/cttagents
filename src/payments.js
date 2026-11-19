@@ -9,7 +9,7 @@
 // on the booking and is deliberately kept out of these totals. Mixing the two
 // would make it look like the agency turned over the full trip cost.
 
-import { json, badRequest, notFound, uid, now, clean, cleanDate, toCents, oneOf, readJson } from './util.js';
+import { json, badRequest, notFound, forbidden, uid, now, clean, cleanDate, toCents, oneOf, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import { sendPaymentReminder } from './email.js';
 import * as db from './db.js';
@@ -961,6 +961,11 @@ export async function handleSetBookingStatus(request, env, bookingId) {
 
   const body = await readJson(request);
   const status = oneOf(body.status, ['booked', 'quoted', 'travelled', 'cancelled']);
+  // Booked is where the lock starts, so an advisor cannot walk a booked
+  // reservation back to a quote to open it up again.
+  if (status === 'quoted' && await db.bookingLocked(env, user, bookingId)) {
+    return forbidden(db.LOCKED_MESSAGE);
+  }
 
   const booking = await db.getBooking(env, bookingId, owner.id);
   if (!booking) return notFound('Booking not found.');

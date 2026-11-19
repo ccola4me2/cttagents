@@ -11,7 +11,7 @@
 //
 //   A birthday is a reason to make contact that costs nothing and is welcome.
 
-import { json, badRequest, notFound, clean, cleanDate, oneOf, toCents, uid, now, readJson } from './util.js';
+import { json, badRequest, notFound, forbidden, clean, cleanDate, oneOf, toCents, uid, now, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 
@@ -88,6 +88,7 @@ export async function handleAddTraveller(request, env, bookingId) {
   // Whose record this is: see db.writerFor.
   const owner = await db.writerForBooking(env, user, bookingId);
   if (!owner) return notFound('Reservation not found.');
+  if (await db.bookingLocked(env, user, bookingId)) return forbidden(db.LOCKED_MESSAGE);
 
   const booking = await db.getBooking(env, bookingId, owner.id);
   if (!booking) return notFound('Reservation not found.');
@@ -125,6 +126,7 @@ export async function handleUpdateTraveller(request, env, id) {
   // Whose record this is: see db.writerFor.
   const owner = await db.writerFor(env, user, 'travellers', id);
   if (!owner) return notFound('Traveller not found.');
+  if (await db.rowLocked(env, user, 'travellers', id)) return forbidden(db.LOCKED_MESSAGE);
 
   const { fields, error } = parseTraveller(await readJson(request));
   if (error) return badRequest(error);
@@ -157,6 +159,7 @@ export async function handleDeleteTraveller(request, env, id) {
   // Whose record this is: see db.writerFor.
   const owner = await db.writerFor(env, user, 'travellers', id);
   if (!owner) return notFound('Traveller not found.');
+  if (await db.rowLocked(env, user, 'travellers', id)) return forbidden(db.LOCKED_MESSAGE);
   const row = await env.DB.prepare('SELECT booking_id FROM travellers WHERE id = ? AND user_id = ?')
     .bind(id, owner.id).first();
   if (!row) return notFound('Traveller not found.');
@@ -209,6 +212,7 @@ export async function handleAddAmenity(request, env, bookingId) {
   // Whose record this is: see db.writerFor.
   const owner = await db.writerForBooking(env, user, bookingId);
   if (!owner) return notFound('Reservation not found.');
+  if (await db.bookingLocked(env, user, bookingId)) return forbidden(db.LOCKED_MESSAGE);
 
   const booking = await db.getBooking(env, bookingId, owner.id);
   if (!booking) return notFound('Reservation not found.');
@@ -237,6 +241,7 @@ export async function handleUpdateAmenity(request, env, id) {
   // Whose record this is: see db.writerFor.
   const owner = await db.writerFor(env, user, 'amenities', id);
   if (!owner) return notFound('Amenity not found.');
+  if (await db.rowLocked(env, user, 'amenities', id)) return forbidden(db.LOCKED_MESSAGE);
 
   const body = await readJson(request);
   // Moving one along is the common case and should not need the whole record.
@@ -267,6 +272,7 @@ export async function handleDeleteAmenity(request, env, id) {
   // Whose record this is: see db.writerFor.
   const owner = await db.writerFor(env, user, 'amenities', id);
   if (!owner) return notFound('Amenity not found.');
+  if (await db.rowLocked(env, user, 'amenities', id)) return forbidden(db.LOCKED_MESSAGE);
   const res = await env.DB.prepare('DELETE FROM amenities WHERE id = ? AND user_id = ?')
     .bind(id, owner.id).run();
   if (!res.meta || res.meta.changes === 0) return notFound('Amenity not found.');

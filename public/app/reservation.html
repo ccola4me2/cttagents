@@ -995,7 +995,7 @@ const selectOptions = (list, current) => (list || [])
 function drawDetail() {
   const b = d.booking;
   const o = d.fieldOptions || {};
-  const ro = !d.editable;
+  const ro = !canEdit();
   // Whether the grid has anything in it. With lines, the totals are its
   // arithmetic; without, they are the only figures there are.
   const priced = Boolean(d.priceSummary);
@@ -1253,6 +1253,13 @@ function drawDetail() {
   cancelBtn.hidden = ro || b.status === 'cancelled';
   document.getElementById('detail-state').textContent = ro ? 'Read only' : '';
 }
+
+/**
+ * May this reader change the details, pricing, travellers and amenities?
+ * Not once the reservation is booked, unless they are an owner: the server
+ * sends `locked`, and refuses the same edits whatever this page shows.
+ */
+function canEdit() { return Boolean(d.editable && !d.locked); }
 
 const SETTLE_WORD = {
   unpaid: { tone: 'badge-navy', label: 'Nothing in yet' },
@@ -1675,7 +1682,7 @@ function drawPricing() {
   const rows = showAllRows ? kinds : kinds.filter((k) => used(k) || k.kind === 'fare');
   const cash = (cents) => (cents ? (cents / 100).toFixed(2) : '');
 
-  document.getElementById('pricing-actions').innerHTML = d.editable
+  document.getElementById('pricing-actions').innerHTML = canEdit()
     ? `<button class="btn btn-ghost btn-sm" id="toggle-rows">${
         showAllRows ? 'Hide empty rows' : 'Show every charge'}</button>
        ${people.length > 1 ? '<button class="btn btn-ghost btn-sm" id="copy-across">Copy first column across</button>' : ''}`
@@ -1699,20 +1706,20 @@ function drawPricing() {
             const pct = pctFor(k.kind);
             return `<label class="task-tick" style="gap:.35rem;">
               <input type="checkbox" data-comm="${esc(k.kind)}"${earns ? ' checked' : ''}${
-                d.editable ? '' : ' disabled'}>
+                canEdit() ? '' : ' disabled'}>
               <span class="m">earns</span></label>
             <div class="rate-wrap"${earns ? '' : ' hidden'}>
               <input class="rate" inputmode="decimal" data-rate="${esc(k.kind)}"
                 value="${pct === null ? '' : esc(String(pct))}"
                 placeholder="${esc(d.vendorRate ? String(d.vendorRate) : '')}"
-                ${d.editable ? '' : 'disabled'}><span class="m">%</span>
+                ${canEdit() ? '' : 'disabled'}><span class="m">%</span>
               <span class="m rate-earned"></span>
             </div>`;
           })()}</td>
           ${columns.map((c) => `<td class="num" data-label="${esc(c.name)}"><input class="cell" inputmode="decimal"
             data-cell="${esc(k.kind)}" data-col="${esc(c.id || '')}"
             value="${esc(cash(at(k.kind, c.id) ? at(k.kind, c.id).amount_cents : 0))}"
-            placeholder="0.00" ${d.editable ? '' : 'disabled'}></td>`).join('')}
+            placeholder="0.00" ${canEdit() ? '' : 'disabled'}></td>`).join('')}
         </tr>`).join('')}
         ${COMMISSION_ROWS.map((row, i) => `
         <tr${i === 0 ? ' style="border-top:2px solid var(--navy-100);"' : ''}>
@@ -1722,7 +1729,7 @@ function drawPricing() {
           ${columns.map((c) => `<td class="num" data-label="${esc(c.name)}"><input class="cell" inputmode="decimal"
             data-commission="${esc(c.id || '')}" data-ckind="${esc(row.kind)}"
             value="${esc(cash(commissionAt(c.id, row.kind)))}"
-            placeholder="0.00" ${d.editable ? '' : 'disabled'}></td>`).join('')}
+            placeholder="0.00" ${canEdit() ? '' : 'disabled'}></td>`).join('')}
         </tr>`).join('')}
       </tbody>
       <tfoot>
@@ -1740,7 +1747,7 @@ function drawPricing() {
       way out: every charge belongs to a passenger, and the totals add up at the bottom. It is
       still here because this reservation has amounts in it. Move them onto the passengers and
       it will go.</p></div>` : ''}
-    ${d.editable ? `<div class="card-foot">
+    ${canEdit() ? `<div class="card-foot">
       <span class="muted" id="grid-note"></span>
       <button class="btn btn-primary" id="save-pricing">Save pricing</button></div>` : ''}
     <div class="card-pad" id="price-summary" style="border-top:1px solid var(--navy-100);"></div>
@@ -2028,7 +2035,7 @@ function drawPriceSummary() {
   const box = document.getElementById('price-summary');
   if (!box) return;
   const b = d.booking;
-  const ro = !d.editable;
+  const ro = !canEdit();
   const cash = (c) => (c ? (c / 100).toFixed(2) : '');
 
   // Where the commission is read is where it is set.
@@ -2102,12 +2109,12 @@ function wireCommission() {
 }
 
 function drawTravellers() {
-  document.getElementById('traveller-actions').innerHTML = d.editable
+  document.getElementById('traveller-actions').innerHTML = canEdit()
     ? `<button class="btn btn-ghost btn-sm" id="house-traveller" hidden>From the household</button>
        <button class="btn btn-ghost btn-sm" id="add-traveller">Add a traveller</button>` : '';
   const add = document.getElementById('add-traveller');
   if (add) add.addEventListener('click', () => openTraveller(null));
-  if (d.editable) drawHousehold();
+  if (canEdit()) drawHousehold();
 
   document.getElementById('travellers').innerHTML = d.travellers.length
     ? `<div class="table-wrap"><table>
@@ -2124,7 +2131,7 @@ function drawTravellers() {
             ? `${esc(t.passport_number)}${t.passport_expiry ? `<div class="muted">to ${esc(short(t.passport_expiry))}</div>` : ''}`
             : '<span class="muted">not on file</span>'}
             ${t.passportWarning ? `<div><span class="badge badge-red">${esc(t.passportWarning)}</span></div>` : ''}</td>
-          <td class="num">${d.editable
+          <td class="num">${canEdit()
             ? `<button class="btn btn-ghost btn-sm" data-traveller="${esc(t.id)}">Edit</button>` : ''}</td>
         </tr>`).join('')}</tbody></table></div>`
     : `<div class="empty"><h3>No travellers named</h3>
@@ -2194,7 +2201,7 @@ async function drawHousehold() {
 }
 
 function drawAmenities() {
-  document.getElementById('amenity-actions').innerHTML = d.editable
+  document.getElementById('amenity-actions').innerHTML = canEdit()
     ? '<button class="btn btn-ghost btn-sm" id="add-amenity">Add</button>' : '';
   const add = document.getElementById('add-amenity');
   if (add) add.addEventListener('click', () => openAmenity(null));
@@ -2206,7 +2213,7 @@ function drawAmenities() {
             ${a.source ? ' · ' + esc(a.source === 'tln' ? 'TLN' : a.source.charAt(0).toUpperCase() + a.source.slice(1)) : ''}</span></span>
         <span style="text-align:right;">
           <strong>${a.amount_cents ? money(a.amount_cents) : ''}</strong>
-          ${d.editable ? `<div><button class="btn btn-ghost btn-sm" data-amenity="${esc(a.id)}">Edit</button></div>` : ''}
+          ${canEdit() ? `<div><button class="btn btn-ghost btn-sm" data-amenity="${esc(a.id)}">Edit</button></div>` : ''}
         </span></div></li>`).join('')}</ul>`
     : '<p class="wempty" style="text-align:left;padding:.9rem 1rem;">Nothing granted on this booking.</p>';
 
@@ -2296,14 +2303,18 @@ function render() {
   // are about to change instead. Saying nothing would be worse than saying it
   // is read only was: a page that looks exactly like your own, and is not.
   const ro2 = document.getElementById('readonly');
-  ro2.innerHTML = !d.onBehalfOf ? '' : (d.editable
+  const lockedNote = d.editable && d.locked ? `<div class="notice notice-info">
+        This reservation is booked, so its details, pricing and travellers are locked.
+        You can still post payments, add notes and tasks, and upload documents. To change
+        anything else, ask the owner.</div>` : '';
+  ro2.innerHTML = lockedNote + (!d.onBehalfOf ? '' : (d.editable
     ? `<div class="notice notice-info">
         You are working on <strong>${esc(d.onBehalfOf)}</strong>'s reservation. Anything you
         change here is saved as theirs, stays on their production and their commission, and
         is noted in their activity with your name against it.</div>`
     : `<div class="notice notice-info">
         This is ${esc(d.onBehalfOf)}'s reservation, so it is read only for you. Everything is
-        here to look at; the buttons that would change it are not shown.</div>`);
+        here to look at; the buttons that would change it are not shown.</div>`));
   const ask = document.getElementById('ask-review');
   if (ask) ask.addEventListener('click', async () => {
     ask.disabled = true;

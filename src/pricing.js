@@ -7,7 +7,7 @@
 // underpayment from a normal one, because every reservation's apparent rate is
 // dragged down by money nobody was ever going to pay on.
 
-import { json, badRequest, notFound, clean, oneOf, toCents, uid, now, readJson } from './util.js';
+import { json, badRequest, notFound, forbidden, clean, oneOf, toCents, uid, now, readJson } from './util.js';
 import { requireUser } from './auth.js';
 import * as db from './db.js';
 import { UNSPLIT_COMMISSION_KINDS } from './split.js';
@@ -184,6 +184,7 @@ export async function handleSavePricingGrid(request, env, bookingId) {
   // Whose record this is: see db.writerFor.
   const owner = await db.writerForBooking(env, user, bookingId);
   if (!owner) return notFound('Reservation not found.');
+  if (await db.bookingLocked(env, user, bookingId)) return forbidden(db.LOCKED_MESSAGE);
 
   const booking = await db.getBooking(env, bookingId, owner.id);
   if (!booking) return notFound('Reservation not found.');
@@ -302,6 +303,7 @@ export async function handleAddPriceLine(request, env, bookingId) {
   // Whose record this is: see db.writerFor.
   const owner = await db.writerForBooking(env, user, bookingId);
   if (!owner) return notFound('Reservation not found.');
+  if (await db.bookingLocked(env, user, bookingId)) return forbidden(db.LOCKED_MESSAGE);
 
   const booking = await db.getBooking(env, bookingId, owner.id);
   if (!booking) return notFound('Reservation not found.');
@@ -329,6 +331,7 @@ export async function handleUpdatePriceLine(request, env, id) {
   // Whose record this is: see db.writerFor.
   const owner = await db.writerFor(env, user, 'booking_pricing', id);
   if (!owner) return notFound('Price line not found.');
+  if (await db.rowLocked(env, user, 'booking_pricing', id)) return forbidden(db.LOCKED_MESSAGE);
 
   const row = await env.DB.prepare(
     'SELECT booking_id FROM booking_pricing WHERE id = ? AND user_id = ?'
@@ -355,6 +358,7 @@ export async function handleDeletePriceLine(request, env, id) {
   // Whose record this is: see db.writerFor.
   const owner = await db.writerFor(env, user, 'booking_pricing', id);
   if (!owner) return notFound('Price line not found.');
+  if (await db.rowLocked(env, user, 'booking_pricing', id)) return forbidden(db.LOCKED_MESSAGE);
   const row = await env.DB.prepare(
     'SELECT booking_id FROM booking_pricing WHERE id = ? AND user_id = ?'
   ).bind(id, owner.id).first();

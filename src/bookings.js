@@ -748,6 +748,8 @@ export async function handleBookingRecord(request, env, id) {
     // buttons that would fail. An owner may correct an advisor's reservation;
     // it stays the advisor's, and the page says whose it is while they do.
     editable: db.mayWrite(user, booking),
+    // Booked reservations are fixed for an advisor: see db.bookingLocked.
+    locked: await db.bookingLocked(env, user, booking.id),
     // Null when it is the reader's own, so the page has nothing to announce.
     onBehalfOf: booking.user_id === user.id ? null : (booking.advisor_name || 'another advisor'),
     today: new Date().toISOString().slice(0, 10),
@@ -988,6 +990,7 @@ export async function handleQuickUpdate(request, env, id) {
   // Whose record this is: see db.writerFor.
   const owner = await db.writerForBooking(env, user, id);
   if (!owner) return notFound('Reservation not found.');
+  if (await db.bookingLocked(env, user, id)) return forbidden(db.LOCKED_MESSAGE);
 
   const body = await readJson(request);
   const sets = [];
@@ -1109,6 +1112,7 @@ export async function handleUpdateBooking(request, env, id) {
   // Whose record this is: see db.writerFor.
   const owner = await db.writerForBooking(env, user, id);
   if (!owner) return notFound('Booking not found.');
+  if (await db.bookingLocked(env, user, id)) return forbidden(db.LOCKED_MESSAGE);
 
   // Kept, not consumed. The chase date is not a column on this table, so
   // parseBooking has nothing to say about it and it has to be read from what
