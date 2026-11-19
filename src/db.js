@@ -977,8 +977,10 @@ export const LOCKED_MESSAGE = 'This reservation is booked, so it is locked. Ask 
 
 export async function bookingLocked(env, user, bookingId) {
   if (!bookingId || (user && user.role === 'admin')) return false;
-  const row = await env.DB.prepare('SELECT status, created_at FROM bookings WHERE id = ?')
-    .bind(bookingId).first();
+  // A non-owner only ever edits their own reservation (writerFor has already
+  // said so), so the row is read through their own id.
+  const row = await env.DB.prepare('SELECT status, created_at FROM bookings WHERE id = ? AND user_id = ?')
+    .bind(bookingId, user.id).first();
   // Two hours of grace from the moment it was entered, because entering a
   // booked reservation and then adding its pricing and travellers is one job.
   return Boolean(row && LOCKED_STATUSES.includes(row.status)
@@ -987,11 +989,15 @@ export async function bookingLocked(env, user, bookingId) {
 
 /** The same, asked about a child row (a traveller, an amenity or a price line). */
 export async function rowLocked(env, user, table, id) {
-  if (!['travellers', 'amenities', 'booking_pricing'].includes(table)) {
-    throw new Error(`rowLocked: ${table} is not a locked table`);
-  }
+  // Written out rather than built, so the scope checker can see each table.
+  const SQL = {
+    travellers: 'SELECT booking_id FROM travellers WHERE id = ? AND user_id = ?',
+    amenities: 'SELECT booking_id FROM amenities WHERE id = ? AND user_id = ?',
+    booking_pricing: 'SELECT booking_id FROM booking_pricing WHERE id = ? AND user_id = ?',
+  };
+  if (!SQL[table]) throw new Error(`rowLocked: ${table} is not a locked table`);
   if (!id || (user && user.role === 'admin')) return false;
-  const row = await env.DB.prepare(`SELECT booking_id FROM ${table} WHERE id = ?`).bind(id).first();
+  const row = await env.DB.prepare(SQL[table]).bind(id, user.id).first();
   return row ? bookingLocked(env, user, row.booking_id) : false;
 }
 
