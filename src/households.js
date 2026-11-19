@@ -432,6 +432,10 @@ export async function handleHouseholdTravellers(request, env) {
   const url = new URL(request.url);
   const clientId = clean(url.searchParams.get('client'), 64);
   const name = clean(url.searchParams.get('name'), 120);
+  // The client too, for a reservation they are not on. Insurance for a daughter
+  // is booked under the parent, who is not travelling, and dropping them from
+  // the list assumed they were.
+  const everyone = url.searchParams.get('all') === '1';
   if (!clientId && !name) return json({ household: null, travellers: [], companions: [] });
 
   const scope = db.selfScope(user);
@@ -474,8 +478,9 @@ export async function handleHouseholdTravellers(request, env) {
 
   return json({
     household: house ? { id: house.id, name: house.name, address: house.address } : null,
-    // Everybody except the person already on the booking.
-    travellers: house ? house.members.filter((m) => m.id !== client.id).map(asTraveller) : [],
+    // Everybody except the client, unless the caller will do the filtering
+    // itself against who is actually on the trip.
+    travellers: house ? house.members.filter((m) => everyone || m.id !== client.id).map(asTraveller) : [],
     companions,
   });
 }

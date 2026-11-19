@@ -2554,7 +2554,7 @@ export const PAYMENT_COLUMNS = `
   p.id, p.booking_id, p.user_id, p.kind, p.payment_class, p.amount_cents,
   p.due_date, p.paid_date, p.method, p.reference, p.notes, p.created_at, p.updated_at,
   p.reminded_at, p.reminder_count, p.auto_lead_sent,
-  p.payment_type, p.paid_by, p.credit_id, p.card_last4, p.from_booking,
+  p.payment_type, p.paid_by, p.paid_by_other, p.credit_id, p.card_last4, p.from_booking,
   -- Both null on every row today. Selected all the same, because a column the
   -- table has and the code never reads comes back undefined silently, which is
   -- what check-columns exists to stop. See 0111_group_payment_tracking.sql.
@@ -2604,12 +2604,13 @@ export async function createPayment(env, userId, f) {
   await env.DB.prepare(
     `INSERT INTO booking_payments
        (id, booking_id, user_id, kind, payment_class, amount_cents, due_date,
-        paid_date, method, reference, notes, payment_type, paid_by, credit_id,
+        paid_date, method, reference, notes, payment_type, paid_by, paid_by_other, credit_id,
         card_last4, from_booking, registration_id, owed_to, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(id, f.bookingId, userId, f.kind, f.paymentClass || 'hard', f.amountCents,
          f.dueDate, f.paidDate, f.method || null, f.reference || null,
-         f.notes || null, f.paymentType || null, f.paidBy || null, f.creditId || null,
+         f.notes || null, f.paymentType || null, f.paidBy || null, f.paidByOther || null,
+         f.creditId || null,
          // Whether this row is a copy of a date on the reservation, and so
          // whether it moves when that date moves. Only the generator sets it.
          f.cardLast4 || null, f.fromBooking ? 1 : 0,
@@ -2625,7 +2626,7 @@ export async function updatePayment(env, id, userId, f) {
   const res = await env.DB.prepare(
     `UPDATE booking_payments
         SET kind = ?, payment_class = ?, amount_cents = ?, due_date = ?, paid_date = ?,
-            method = ?, reference = ?, notes = ?, payment_type = ?, paid_by = ?,
+            method = ?, reference = ?, notes = ?, payment_type = ?, paid_by = ?, paid_by_other = ?,
             credit_id = ?, card_last4 = ?,
             -- Edited by hand, so it stops following the reservation. Somebody
             -- has said something more specific than the reservation says, and
@@ -2635,8 +2636,8 @@ export async function updatePayment(env, id, userId, f) {
       WHERE id = ? AND user_id = ?`
   ).bind(f.kind, f.paymentClass || 'hard', f.amountCents, f.dueDate, f.paidDate,
          f.method || null, f.reference || null, f.notes || null,
-         f.paymentType || null, f.paidBy || null, f.creditId || null, f.cardLast4 || null,
-         now(), id, userId).run();
+         f.paymentType || null, f.paidBy || null, f.paidByOther || null, f.creditId || null,
+         f.cardLast4 || null, now(), id, userId).run();
   if (!res.meta || res.meta.changes === 0) return null;
   return getPayment(env, id, userId);
 }

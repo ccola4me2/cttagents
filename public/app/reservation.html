@@ -312,7 +312,11 @@
       </div>
       <div class="field" id="pp-by-field"><label for="pp-by">Who paid</label>
         <select id="pp-by" name="paidBy"></select>
-        <p class="field-hint">Travellers on this reservation. Leave it unset if you do not know.</p></div>
+        <div id="pp-by-other-wrap" hidden style="margin-top:.5rem;">
+          <input id="pp-by-other" name="paidByOther" maxlength="120" placeholder="Their name, for example Brian Simon">
+          <p class="field-hint">A client comes up as you type. Anybody else, just type the name.</p></div>
+        <p class="field-hint">A traveller on this reservation, or Someone else when a parent or friend paid.
+          Leave it unset if you do not know.</p></div>
       <div class="field" id="pp-card-field" hidden>
         <label for="pp-card">Last four digits</label>
         <input id="pp-card" name="cardLast4" inputmode="numeric" maxlength="19" placeholder="4242">
@@ -2144,8 +2148,8 @@ let houseCache = null;
 async function loadHouse() {
   if (houseCache) return houseCache;
   const b = d.booking || {};
-  const q = b.client_id ? `client=${encodeURIComponent(b.client_id)}`
-    : (b.client_name ? `name=${encodeURIComponent(b.client_name)}` : '');
+  const q = b.client_id ? `client=${encodeURIComponent(b.client_id)}&all=1`
+    : (b.client_name ? `name=${encodeURIComponent(b.client_name)}&all=1` : '');
   if (!q) return { household: null, travellers: [] };
   try { houseCache = await api(`/api/households/travellers?${q}`); }
   catch { houseCache = { household: null, travellers: [] }; }
@@ -3690,8 +3694,11 @@ function openPost(paymentId) {
 
   document.getElementById('pp-by').innerHTML =
     '<option value="">Not recorded</option>' + (d.travellers || [])
-      .map((t) => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('');
-  postForm.elements.paidBy.value = (p && p.paid_by) || '';
+      .map((t) => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')
+      + '<option value="__other">Someone else...</option>';
+  postForm.elements.paidBy.value = (p && p.paid_by) || (p && p.paid_by_other ? '__other' : '');
+  postForm.elements.paidByOther.value = (p && p.paid_by_other) || '';
+  payerBox();
 
   const credits = d.spendableCredits || [];
   document.getElementById('pp-credit').innerHTML =
@@ -3714,9 +3721,27 @@ function openPost(paymentId) {
 const last4 = (v) => (v || '').replace(/\D/g, '').slice(-4);
 postForm.elements.cardLast4.addEventListener('blur', (e) => { e.target.value = last4(e.target.value); });
 postForm.elements.paymentType.addEventListener('change', postFields);
+
+// The box for somebody who is not on the trip, shown only when asked for. The
+// name list is the client book, so a client is picked rather than retyped, and
+// a name nobody has is still taken as typed.
+function payerBox() {
+  document.getElementById('pp-by-other-wrap').hidden = postForm.elements.paidBy.value !== '__other';
+}
+mountClientSuggest(postForm.elements.paidByOther);
+postForm.elements.paidBy.addEventListener('change', payerBox);
 document.querySelector('[data-close-post]').addEventListener('click', () => postDlg.close());
 onSubmit(postForm, async (values) => {
   values.cardLast4 = last4(values.cardLast4);
+  // One answer from two boxes. Someone else with no name is a payment that
+  // says somebody paid and not who, which is worse than leaving it unset.
+  if (values.paidBy === '__other') {
+    values.paidBy = '';
+    values.paidByOther = (values.paidByOther || '').trim();
+    if (!values.paidByOther) throw new Error('Type the name of who paid, or pick a traveller.');
+  } else {
+    values.paidByOther = '';
+  }
   if (!editing && !values.paidDate) throw new Error('Say the date it was received.');
   let saved = null;
   if (editing) {

@@ -668,6 +668,13 @@ async function main() {
     const other = (offer.data?.travellers || [])[0];
     check(Boolean(other) && other.clientId === mateId,
       'booking one offers the other as a traveller', other && other.clientId);
+    // Insurance for somebody else in the house is booked under the client, who is
+    // not travelling: asked for everyone, the client is in the list too.
+    const everyone = await call(advisor, 'GET', `/api/households/travellers?client=${cid}&all=1`);
+    check((everyone.data?.travellers || []).some((t) => t.clientId === cid)
+      && (everyone.data?.travellers || []).some((t) => t.clientId === mateId),
+      'asked for everyone, the household includes the client as well', 
+      (everyone.data?.travellers || []).length);
     // The one from earlier has a passport; this is the whole point of holding
     // it on the person.
     const backAtYou = await call(advisor, 'GET', `/api/households/travellers?client=${mateId}`);
@@ -8828,6 +8835,34 @@ async function main() {
 
   check(keptRow?.paid_by_name === `Ada Settle ${stamp}`,
     'the record names the payer rather than showing an id', keptRow?.paid_by_name);
+
+  // A parent or friend who is not on the trip can be the one who paid.
+  const outsider = await call(advisor, 'POST', '/api/payments', {
+    bookingId: settleId, kind: 'installment', amount: '75', paidDate: isoDay(0),
+    paymentType: 'check', paidByOther: `Brian Simon ${stamp}`,
+  });
+  check(outsider.status === 201 && outsider.data?.payment?.paid_by === null
+    && outsider.data?.payment?.paid_by_other === `Brian Simon ${stamp}`,
+    'somebody who is not on the trip can be recorded as the payer',
+    `${outsider.status} / ${outsider.data?.payment?.paid_by_other}`);
+  const outsiderId = outsider.data?.payment?.id;
+  // Naming somebody else replaces a traveller rather than sitting beside them.
+  const both = await call(advisor, 'POST', '/api/payments', {
+    bookingId: settleId, kind: 'installment', amount: '5', paidDate: isoDay(0),
+    paidBy: payerId, paidByOther: `Brian Simon ${stamp}`,
+  });
+  check(both.data?.payment?.paid_by === null && Boolean(both.data?.payment?.paid_by_other),
+    'and naming somebody else wins over a traveller sent with it',
+    `${both.data?.payment?.paid_by} / ${both.data?.payment?.paid_by_other}`);
+  // A partial edit must not wipe the outside payer either.
+  await call(advisor, 'PUT', `/api/payments/${outsiderId}`, {
+    bookingId: settleId, kind: 'installment', amount: '75', dueDate: isoDay(0), paidDate: isoDay(0),
+  });
+  const again = await call(advisor, 'GET', `/api/bookings/${settleId}/record`);
+  const outRow = (again.data?.payments || []).find((x) => x.id === outsiderId);
+  check(outRow?.paid_by_other === `Brian Simon ${stamp}` && outRow?.paid_by_name === `Brian Simon ${stamp}`,
+    'a partial edit leaves an outside payer alone, and the record shows the name',
+    `${outRow?.paid_by_other} / ${outRow?.paid_by_name}`);
   const creditRow = (kept.data?.payments || []).find((x) => x.id === spendId);
   check(creditRow?.credit_amount_cents === 25000,
     'and shows the credit amount beside the payment it settled',

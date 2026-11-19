@@ -1,0 +1,11 @@
+-- Somebody who paid who is not on the trip.
+--
+-- Who paid was a traveller on the reservation, and that is wrong whenever a
+-- parent, a friend or an employer pays for people who are going. Brian Simon
+-- paying for his daughter's trip is not a traveller on it, and the only way to
+-- record him was to leave the field blank, which loses who the money came from.
+--
+-- A plain name, because the person may or may not be a client and either way
+-- the question being answered is only "whose money was this". Null for every
+-- payment already made, which is read as "a traveller, or not recorded".
+ALTER TABLE booking_payments ADD COLUMN paid_by_other TEXT;

@@ -198,7 +198,11 @@ function parsePayment(body) {
       // Left null when nobody said. oneOf would otherwise turn silence into
       // the first item in the list, which is a claim about how a client paid.
       paymentType: body.paymentType ? oneOf(body.paymentType, PAYMENT_TYPES) : null,
-      paidBy: clean(body.paidBy, 64) || null,
+      // One choice, not two: a traveller on the trip, or somebody else by
+      // name. Naming somebody else wins, so a form that sends both cannot
+      // leave a payment claiming to be paid by two people.
+      paidBy: clean(body.paidByOther, 120) ? null : (clean(body.paidBy, 64) || null),
+      paidByOther: clean(body.paidByOther, 120) || null,
       creditId: clean(body.creditId, 64) || null,
       // The last four digits and nothing more. Storing a card number would
       // put this Worker and its database inside PCI scope, which is a serious
@@ -365,7 +369,7 @@ export async function handleUpdatePayment(request, env, id) {
   // payment it is, whether it is the vendor's deadline or an advisor's own
   // reminder, when it is due, and the note saying where it came from. Absent
   // is silence; a field sent empty still clears.
-  for (const [key, column] of [['paymentType', 'payment_type'], ['paidBy', 'paid_by'],
+  for (const [key, column] of [['paymentType', 'payment_type'],
                                ['creditId', 'credit_id'], ['cardLast4', 'card_last4'],
                                ['kind', 'kind'], ['paymentClass', 'payment_class'],
                                ['dueDate', 'due_date'], ['reference', 'reference'],
@@ -375,6 +379,13 @@ export async function handleUpdatePayment(request, env, id) {
   // The method follows the same rule, except that unposting a payment clears
   // it: a payment nobody has received was not received by any means.
   if (body.method === undefined && fields.paidDate) fields.method = existing.method || null;
+  // Who paid is one choice carried by two columns, so it is kept or replaced
+  // as a pair. Sending either one restates the whole answer; sending neither
+  // leaves it alone.
+  if (body.paidBy === undefined && body.paidByOther === undefined) {
+    fields.paidBy = existing.paid_by || null;
+    fields.paidByOther = existing.paid_by_other || null;
+  }
 
   const problem = (await creditProblem(env, owner.id, fields.creditId, id))
     || (await payerProblem(env, owner.id, fields.bookingId, fields.paidBy));
@@ -442,6 +453,7 @@ async function syncSoftReminder(env, user, bookingId, kind) {
       method: keep.method || null,
       paymentType: keep.payment_type || null,
       paidBy: keep.paid_by || null,
+      paidByOther: keep.paid_by_other || null,
       creditId: keep.credit_id || null,
       cardLast4: keep.card_last4 || null,
       reference: keep.reference,
@@ -486,8 +498,11 @@ export async function handleMarkPaid(request, env, id) {
   // payment that already recorded it.
   const creditId = body.creditId === undefined
     ? (existing.credit_id || null) : (clean(body.creditId, 64) || null);
-  const paidBy = body.paidBy === undefined
-    ? (existing.paid_by || null) : (clean(body.paidBy, 64) || null);
+  const sentWho = body.paidBy !== undefined || body.paidByOther !== undefined;
+  const paidByOther = sentWho ? (clean(body.paidByOther, 120) || null) : (existing.paid_by_other || null);
+  const paidBy = sentWho
+    ? (paidByOther ? null : (clean(body.paidBy, 64) || null))
+    : (existing.paid_by || null);
 
   const problem = (await creditProblem(env, owner.id, creditId, id))
     || (await payerProblem(env, owner.id, existing.booking_id, paidBy));
@@ -523,6 +538,7 @@ export async function handleMarkPaid(request, env, id) {
       ? (existing.payment_type || null)
       : (body.paymentType ? oneOf(body.paymentType, PAYMENT_TYPES) : null),
     paidBy,
+    paidByOther,
     creditId,
     cardLast4: body.cardLast4 === undefined
       ? (existing.card_last4 || null)
@@ -548,6 +564,7 @@ export async function handleMarkPaid(request, env, id) {
       notes: existing.notes,
       paymentType: null,
       paidBy: existing.paid_by || null,
+      paidByOther: existing.paid_by_other || null,
       creditId: null,
       cardLast4: null,
     });

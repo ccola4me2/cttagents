@@ -459,18 +459,30 @@ form.elements.clientName.addEventListener('change', mirrorClientName);
  */
 const houseOffer = document.getElementById('household-offer');
 let offered = new Set();
+let houseFor = null;
+let houseData = null;
 
 async function offerHousehold() {
   const name = form.elements.clientName.value.trim();
   if (!name) { houseOffer.innerHTML = ''; return; }
   let d;
   try {
-    d = await api(`/api/households/travellers?name=${encodeURIComponent(name)}`);
+    if (houseFor !== name) {
+      houseData = await api(`/api/households/travellers?name=${encodeURIComponent(name)}&all=1`);
+      houseFor = name;
+    }
+    d = houseData;
   } catch { houseOffer.innerHTML = ''; return; }
 
-  const left = (d.travellers || []).filter((t) => !offered.has(t.name));
+  // Offered unless they are already in a traveller row. The client is in the
+  // list too: the trip is often for somebody else in the house, and the client
+  // is only on it if their name is in a row.
+  const inRows = new Set([...document.querySelectorAll('.traveller-name')]
+    .map((el) => el.value.trim().toLowerCase()).filter(Boolean));
+  const free = (t) => !offered.has(t.name) && !inRows.has(String(t.name || '').trim().toLowerCase());
+  const left = (d.travellers || []).filter(free);
   // The people they travel with who live somewhere else, offered the same way.
-  const also = (d.companions || []).filter((t) => !offered.has(t.name));
+  const also = (d.companions || []).filter(free);
   if (!(d.household && left.length) && !also.length) { houseOffer.innerHTML = ''; return; }
 
   const buttons = (list) => `<div style="display:flex;gap:.4rem;flex-wrap:wrap;">
@@ -500,6 +512,8 @@ async function offerHousehold() {
 }
 
 form.elements.clientName.addEventListener('change', () => { offered = new Set(); offerHousehold(); });
+// Who is in the rows decides who is still on offer, so editing a row refreshes it.
+document.getElementById('traveller-rows').addEventListener('change', () => offerHousehold());
 
 
 // Straight to the reservation, which is where the pricing, the travellers and

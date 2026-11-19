@@ -407,7 +407,7 @@ export async function handleBookingRecord(request, env, id) {
     // a $1,000 payment is a difference worth seeing, not one worth hiding.
     env.DB.prepare(
       `SELECT ${db.PAYMENT_COLUMNS},
-              t.name AS paid_by_name,
+              COALESCE(t.name, p.paid_by_other) AS paid_by_name,
               cr.amount_cents AS credit_amount_cents, cr.vendor AS credit_vendor
          FROM booking_payments p
          LEFT JOIN travellers t ON t.id = p.paid_by
