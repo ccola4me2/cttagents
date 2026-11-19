@@ -41,6 +41,7 @@
                 <option value="">Anything still owed</option>
                 <option value="in">Money in, to pay out</option>
                 <option value="short">Paid short</option>
+                <option value="bonus">Bonus to come</option>
                 <option value="unpaid">Nothing received</option>
                 <option value="settled">Settled</option>
                 <option value="all">Everything</option>
@@ -145,6 +146,10 @@ const SETTLE = {
   settled: { tone: 'badge-green', label: 'Settled' },
   over: { tone: 'badge-amber', label: 'Overpaid' },
 };
+// Only a bonus is still to come: the commission on the fare is in, so it is not short.
+const settleOf = (r) => (r.bonus_only
+  ? { tone: 'badge-amber', label: `Bonus ${money((r.outstanding_by_kind || {}).bonus)} to come` }
+  : SETTLE[r.settlement]);
 
 function ageLabel(r) {
   if (r.daysSince === null) return 'no dates';
@@ -246,6 +251,9 @@ function render() {
     // on the 15th and the 30th, which is the whole reason payouts are
     // recorded at all.
     : pick === 'in' ? (r.due_cents || 0) > 0
+    : pick === 'short' ? r.settlement === 'short' && !r.bonus_only
+    : pick === 'bonus' ? Boolean(r.bonus_only)
+    : pick === 'settled' ? r.settlement === 'settled' || Boolean(r.bonus_only)
     : pick ? r.settlement === pick
     : r.outstanding_cents > 0));
 
@@ -269,7 +277,7 @@ function render() {
             showAdvisor ? `<div class="muted">${esc(r.advisor_name || '')}</div>` : ''}</td>
           <td>${esc(r.supplier || '-')}</td>
           <td>${esc(short(r.back))}<div class="muted" style="font-size:.72rem;">${esc(ageLabel(r))}</div></td>
-          <td><span class="badge ${SETTLE[r.settlement].tone}">${esc(SETTLE[r.settlement].label)}</span>
+          <td><span class="badge ${settleOf(r).tone}">${esc(settleOf(r).label)}</span>
             <div class="muted" style="font-size:.72rem;">${esc(r.commission_status)}</div></td>
           <td class="num">${money(r.commission_cents)}</td>
           <td class="num">${r.received_cents ? money(r.received_cents) : '<span class="muted">-</span>'}

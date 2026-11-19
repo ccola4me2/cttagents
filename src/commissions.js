@@ -193,6 +193,10 @@ export async function handleListCommissions(request, env) {
       agency_cents: (r.commission_status === 'none' ? 0 : (r.commission_cents || 0))
         - (r.advisor_cents || 0),
       settlement: state,
+      // Short only by a bonus that has not come. The commission on the fare is in, so nothing was underpaid and the
+      // reservation is not counted or coloured as paid short.
+      bonus_only: state === 'short' && !outstandingByKind.base && !outstandingByKind.package
+        && (outstandingByKind.bonus || 0) > 0,
       variance_cents: variance,
       // Written off is not owed any more. It is still expected and still shown as such where that is the question.
       outstanding_cents: r.commission_chase === 'written_off' ? 0
@@ -266,9 +270,9 @@ export async function handleListCommissions(request, env) {
         .reduce((n, r) => n + (r.outstanding_cents || 0), 0),
       // Reservations the vendor has paid something towards and then stopped.
       // Not late, not unpaid, and previously invisible.
-      shortCents: rows.filter((r) => r.settlement === 'short')
+      shortCents: rows.filter((r) => r.settlement === 'short' && !r.bonus_only)
         .reduce((n, r) => n + Math.abs(r.variance_cents || 0), 0),
-      shortCount: rows.filter((r) => r.settlement === 'short').length,
+      shortCount: rows.filter((r) => r.settlement === 'short' && !r.bonus_only).length,
       overCount: rows.filter((r) => r.settlement === 'over').length,
       // What is still owed, by the part a vendor pays it in. A bonus nobody
       // has chased is invisible in a single total.

@@ -8425,6 +8425,8 @@ async function main() {
     `settlement ${shortRow?.settlement}`);
   check(shortRow?.variance_cents === -15000, 'with the 150 difference named',
     `variance ${shortRow?.variance_cents}`);
+  check(shortRow?.bonus_only === false, 'a shortfall on the commission itself is not mistaken for a bonus still to come',
+    `bonus_only ${shortRow?.bonus_only}`);
   check(shortRow?.outstanding_cents === 15000, 'and the shortfall still owed',
     `outstanding ${shortRow?.outstanding_cents}`);
   check(shortView.data?.totals?.shortCents >= 15000,
