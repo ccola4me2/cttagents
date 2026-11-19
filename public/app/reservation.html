@@ -1250,8 +1250,9 @@ function drawDetail() {
   // enforces; this only stops offering it to people it would refuse.
   document.getElementById('delete-booking').hidden = ro || me.role !== 'admin';
   const cancelBtn = document.getElementById('cancel-booking');
-  cancelBtn.hidden = ro || b.status === 'cancelled';
-  document.getElementById('detail-state').textContent = ro ? 'Read only' : '';
+  // Cancelling stays with the advisor even when the reservation is locked.
+  cancelBtn.hidden = !d.editable || b.status === 'cancelled';
+  document.getElementById('detail-state').textContent = !d.editable ? 'Read only' : '';
 }
 
 /**
@@ -2305,7 +2306,7 @@ function render() {
   const ro2 = document.getElementById('readonly');
   const lockedNote = d.editable && d.locked ? `<div class="notice notice-info">
         This reservation is booked, so its details, pricing and travellers are locked.
-        You can still post payments, add notes and tasks, and upload documents. To change
+        You can still post payments, add notes and tasks, upload documents, and cancel the trip. To change
         anything else, ask the owner.</div>` : '';
   ro2.innerHTML = lockedNote + (!d.onBehalfOf ? '' : (d.editable
     ? `<div class="notice notice-info">

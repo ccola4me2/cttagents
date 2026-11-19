@@ -990,9 +990,12 @@ export async function handleQuickUpdate(request, env, id) {
   // Whose record this is: see db.writerFor.
   const owner = await db.writerForBooking(env, user, id);
   if (!owner) return notFound('Reservation not found.');
-  if (await db.bookingLocked(env, user, id)) return forbidden(db.LOCKED_MESSAGE);
 
   const body = await readJson(request);
+  // An advisor may cancel their own booked reservation, and only cancel it:
+  // anything else sent with it is still a change to a locked reservation.
+  const cancelOnly = Object.keys(body).length === 1 && body.status === 'cancelled';
+  if (!cancelOnly && await db.bookingLocked(env, user, id)) return forbidden(db.LOCKED_MESSAGE);
   const sets = [];
   const binds = [];
 
