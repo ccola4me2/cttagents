@@ -16,6 +16,9 @@ import { appUrl } from './share.js';
 import { docsReady } from './documents.js';
 import { sniffPicture } from './grouppicture.js';
 import { SECTION_KINDS } from './proposalkinds.js';
+import { cleanTrip, readTrip, hasTrip } from './quicktrip.js';
+import { PRODUCT_TYPES } from './producttypes.js';
+import { PRICE_KINDS, syncBookingTotals } from './pricing.js';
 import { brandForUser } from './brand.js';
 import { sendQuickProposalEmail } from './email.js';
 import * as db from './db.js';
@@ -77,6 +80,7 @@ function shape(r, images) {
     expiresAt: r.expires_at || null, sentCount: r.sent_count || 0, lastSentAt: r.last_sent_at || null,
     viewCount: r.view_count || 0, firstViewedAt: r.first_viewed_at || null, bookingId: r.booking_id || null,
     leadId: r.lead_id || null,
+    trip: readTrip(r.trip_json),
     createdAt: r.created_at, updatedAt: r.updated_at,
     images: images || [],
   };
@@ -155,6 +159,8 @@ export async function handleGetQuickProposal(request, env, id) {
     link: `${appUrl(env)}/p/${row.code}`,
     storage: docsReady(env),
     kinds: SECTION_KINDS,
+    productTypes: PRODUCT_TYPES,
+    priceKinds: PRICE_KINDS.map((k) => ({ kind: k.kind, label: k.label, credit: Boolean(k.credit) })),
   });
 }
 
@@ -181,10 +187,13 @@ export async function handleSaveQuickProposal(request, env, id) {
 
   await env.DB.prepare(
     `UPDATE quick_proposals SET title = ?, for_name = ?, note = ?, cover_image_id = ?, sections_json = ?,
-            total_text = ?, expires_at = ?, updated_at = ?
+            total_text = ?, trip_json = ?, expires_at = ?, updated_at = ?
       WHERE id = ? AND user_id = ?`
   ).bind(title, clean(body.forName, 120) || null, cleanText(body.note, 3000) || null, cover,
-    JSON.stringify(sections), clean(body.totalText, 120) || null, expiresAt, now(), id, user.id).run();
+    JSON.stringify(sections), clean(body.totalText, 120) || null,
+    // Left as it was when a save does not mention the trip, so an older page cannot wipe it.
+    body.trip === undefined ? row.trip_json : JSON.stringify(cleanTrip(body.trip)),
+    expiresAt, now(), id, user.id).run();
   return json({ ok: true, proposal: shape(await load(env, user, id), imageList(env, await loadImages(env, user, id))) });
 }
 
@@ -338,12 +347,51 @@ export async function handleProposalToQuote(request, env, id) {
   ].filter(Boolean).join('\n').slice(0, 3800);
 
   const clientId = leadRow ? leadRow.id : await db.resolveClient(env, user.id, clientName, {});
+  // The trip the quote described becomes the reservation's own fields, travellers and price lines, so nothing is typed
+  // twice. A quote with no trip filled in comes across as before, with just its words in the notes.
+  const trip = readTrip(row.trip_json);
+  const useTrip = hasTrip(trip);
+  const T = useTrip ? trip : {};
+  const people = useTrip ? trip.travellers : [];
   const booking = await db.createBooking(env, user.id, {
-    clientName, clientId: clientId || null, productType: 'cruise', productName: row.title,
-    departDate: null, returnDate: null, depositDue: null, finalPaymentDue: null, travellers: 1,
+    clientName, clientId: clientId || null, productType: useTrip ? trip.productType : 'cruise',
+    supplier: T.supplier || null, productName: T.productName || row.title,
+    destination: T.destination || null, itinerary: T.itinerary || null,
+    cabin: T.cabin || null, cabinCategory: T.cabinCategory || null,
+    departDate: T.departDate || null, returnDate: T.returnDate || null,
+    depositDue: T.depositDue || null, finalPaymentDue: T.finalPaymentDue || null,
+    travellers: Math.max(1, people.length), depositCents: T.depositCents || 0, depositRefundable: T.depositRefundable || null,
     grossCents: 0, commissionCents: 0, commissionStatus: 'pending', status: 'quoted',
     notes, insuranceStatus: 'unknown',
   });
+  if (useTrip) {
+    const ts = now();
+    const ids = [];
+    for (let i = 0; i < people.length; i++) {
+      const who = people[i];
+      if (!who.name) { ids.push(null); continue; }
+      const tid = uid();
+      await env.DB.prepare(
+        `INSERT INTO travellers (id, booking_id, user_id, name, email, phone, is_lead, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(tid, booking.id, user.id, who.name, who.email || null, who.phone || null, i === 0 ? 1 : 0, ts, ts).run();
+      ids.push(tid);
+    }
+    const order = new Map(PRICE_KINDS.map((k, i) => [k.kind, i]));
+    const commissionable = new Set(PRICE_KINDS.filter((k) => k.commissionable).map((k) => k.kind));
+    for (const line of trip.lines) {
+      for (let i = 0; i < line.amounts.length; i++) {
+        if (!(line.amounts[i] > 0)) continue;
+        await env.DB.prepare(
+          `INSERT INTO booking_pricing (id, booking_id, user_id, traveller_id, component_id, kind, label, amount_cents,
+             commissionable, commission_cents, commission_pct, commission_kind, sort_order, created_at, updated_at)
+           VALUES (?, ?, ?, ?, NULL, ?, NULL, ?, ?, 0, NULL, 'base', ?, ?, ?)`
+        ).bind(uid(), booking.id, user.id, ids[i] || null, line.kind, line.amounts[i],
+          commissionable.has(line.kind) ? 1 : 0, order.get(line.kind) || 0, ts, ts).run();
+      }
+    }
+    if (trip.lines.length) await syncBookingTotals(env, booking.id, user.id);
+  }
   await env.DB.prepare('UPDATE quick_proposals SET booking_id = ?, updated_at = ? WHERE id = ? AND user_id = ?')
     .bind(booking.id, now(), id, user.id).run();
   await db.logActivity(env, user.id, 'proposal.quote', `Turned the proposal "${row.title}" into a quote for ${clientName}`,

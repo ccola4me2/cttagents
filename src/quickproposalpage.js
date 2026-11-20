@@ -13,6 +13,7 @@ import { brandForUser, DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand
 import { appUrl } from './share.js';
 import { docsReady } from './documents.js';
 import { SECTION_KINDS } from './proposalkinds.js';
+import { readTrip, hasTrip, tripTotals } from './quicktrip.js';
 
 const TYPE_OF_EXT = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' };
 const KIND_LABEL = Object.fromEntries(SECTION_KINDS);
@@ -77,6 +78,7 @@ ${head}
          font-weight:800;background:#1f7a5a;color:#fff;border-radius:999px;padding:.12rem .55rem;vertical-align:.1rem}
   .price{display:inline-block;margin-top:.5rem;background:#f1f9f5;border:1px solid #cfe5dc;color:#1f7a5a;
          font-weight:750;border-radius:999px;padding:.3rem .9rem}
+  .pt{width:100%;border-collapse:collapse;margin:.4rem 0 0}.pt td{padding:.5rem 0;border-top:1px solid var(--line)}.pt td:last-child{text-align:right;font-weight:600;color:var(--navy)}.pt .sub td{color:var(--soft);font-size:.9rem}
   .total{background:var(--navy);color:#fff;border-radius:14px;padding:1.4rem;margin-bottom:1.1rem}
   .total .lbl{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;opacity:.8;font-weight:700}
   .total .amt{font-size:1.7rem;font-weight:800;margin-top:.2rem}
@@ -99,7 +101,7 @@ function gone(brand, env, message) {
 /** GET /p/<code> */
 export async function renderQuickProposal(request, env, code) {
   const row = await env.DB.prepare(
-    `SELECT id, user_id, title, for_name, note, cover_image_id, sections_json, total_text, expires_at
+    `SELECT id, user_id, title, for_name, note, cover_image_id, sections_json, total_text, trip_json, expires_at
        FROM quick_proposals WHERE code = ?`
   ).bind(String(code || '').toLowerCase()).first();
   if (!row) return gone(null, env, 'The link may be mistyped. Ask whoever sent it for the current one.');
@@ -131,6 +133,27 @@ export async function renderQuickProposal(request, env, code) {
   const initials = (name || brand.name).split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
   const logo = brand.logoUrl || '';
 
+  const trip = readTrip(row.trip_json);
+  const money = (c) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const sayDay = (d) => (d ? new Date(`${d}T00:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '');
+  let tripHtml = '';
+  if (hasTrip(trip)) {
+    const tot = tripTotals(trip);
+    const facts = [
+      ['Cruise line or vendor', trip.supplier], ['Ship or product', trip.productName], ['Itinerary', trip.itinerary],
+      ['Destination', trip.destination], ['Departs', sayDay(trip.departDate)], ['Returns', sayDay(trip.returnDate)],
+      ['Cabin category', trip.cabinCategory], ['Cabin', trip.cabin],
+      ['Travelling', (trip.travellers || []).map((t) => t.name).filter(Boolean).join(', ')],
+    ].filter((f) => f[1]);
+    tripHtml = `<div class="card pad"><h2 style="margin:0 0 .6rem;font-size:1.25rem;color:var(--navy);">Your trip</h2>
+      ${facts.length ? `<dl class="facts">${facts.map((f) => `<div><dt>${esc(f[0])}</dt><dd>${esc(f[1])}</dd></div>`).join('')}</dl>` : ''}
+      ${tot.lines.length ? `<table class="pt">${tot.lines.map((l) => `<tr><td>${esc(l.label)}</td><td>${l.credit ? '-' : ''}${esc(money(l.cents))}</td></tr>`).join('')}
+        <tr><td><strong>Total</strong></td><td>${esc(money(tot.totalCents))}</td></tr>
+        ${trip.depositCents ? `<tr class="sub"><td>Deposit to hold it${trip.depositRefundable ? ` (${trip.depositRefundable === 'refundable' ? 'refundable' : 'non refundable'})` : ''}${trip.depositDue ? `, due ${esc(sayDay(trip.depositDue))}` : ''}</td><td>${esc(money(trip.depositCents))}</td></tr>` : ''}
+        ${trip.finalPaymentDue ? `<tr class="sub"><td>Final payment due</td><td>${esc(sayDay(trip.finalPaymentDue))}</td></tr>` : ''}</table>` : ''}
+    </div>`;
+  }
+
   const body = `<header class="hero${cover ? ' photo' : ''}"${cover ? ` style="--cover:url('${esc(cover)}')"` : ''}>
     <div class="hero-in">
       <div class="brand">${logo ? `<img src="${esc(logo)}" alt="">` : ''}<span>${esc(brand.name)}</span></div>
@@ -140,6 +163,7 @@ export async function renderQuickProposal(request, env, code) {
   <main class="wrap">
     ${row.note ? `<div class="card pad note">${paragraphs(row.note)}
       <div class="from"><span class="avatar">${esc(initials)}</span><span>${esc(name || brand.name)}</span></div></div>` : ''}
+    ${tripHtml}
     ${sections.map((s) => `<div class="card sec">${s.imageId ? `<img src="${esc(pic(s.imageId))}" alt="${esc(s.heading || '')}" loading="lazy">` : ''}
       <div class="pad">${s.kind && s.kind !== 'other' && KIND_LABEL[s.kind] ? `<span class="kind">${esc(KIND_LABEL[s.kind])}</span>` : ''}${
   s.heading ? `<h2>${esc(s.heading)}</h2>` : ''}${paragraphs(s.body)}${

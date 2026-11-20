@@ -43,6 +43,55 @@
         <div class="card-pad" id="lead-body"><p class="muted">Loading what they told you...</p></div>
       </section>
 
+      <section class="card" id="trip-card" style="margin-bottom:1.25rem;">
+        <div class="card-head"><h2>The trip</h2></div>
+        <div class="card-pad">
+          <p class="field-hint" style="margin-top:0;">The same facts a reservation holds. They show on the proposal your client opens, and
+            fill the reservation in for you when they accept. Nothing here is on your book yet.</p>
+          <p class="form-group">Who and what</p>
+          <div class="field-row">
+            <div class="field"><label for="t-type">Type</label><select id="t-type"></select></div>
+            <div class="field"><label for="t-supplier">Vendor</label><input id="t-supplier" maxlength="120" placeholder="Margaritaville at Sea"></div>
+          </div>
+          <div id="t-pick"></div>
+          <div class="field-row">
+            <div class="field"><label for="t-product">Ship, hotel or product</label><input id="t-product" maxlength="120" placeholder="Margaritaville at Sea Beachcomber"></div>
+            <div class="field"><label for="t-itinerary">Itinerary</label><input id="t-itinerary" maxlength="160" placeholder="7-Night Key West and Western Caribbean"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label for="t-destination">Destination</label><input id="t-destination" maxlength="120"></div>
+            <div class="field"><label for="t-category">Category</label><input id="t-category" maxlength="80" placeholder="Interior"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label for="t-cabin">Cabin or room</label><input id="t-cabin" maxlength="80"></div>
+            <div class="field"></div>
+          </div>
+          <p class="form-group">Travel</p>
+          <div class="field-row">
+            <div class="field"><label for="t-depart">Departing</label><input id="t-depart" type="date"></div>
+            <div class="field"><label for="t-return">Returning</label><input id="t-return" type="date"></div>
+          </div>
+          <p class="form-group">Who is going</p>
+          <p class="field-hint" style="margin-top:0;">Named here, each gets a column in the pricing below, and they come across to the reservation as its travellers.</p>
+          <div id="t-people"></div>
+          <button class="btn btn-ghost btn-sm" type="button" id="t-add-person">Add another traveller</button>
+          <p class="form-group" style="margin-top:1.2rem;">Pricing</p>
+          <div id="t-grid"></div>
+          <button class="btn btn-ghost btn-sm" type="button" id="t-add-line">Add a charge</button>
+          <p class="form-group" style="margin-top:1.2rem;">Deposit and dates</p>
+          <div class="field-row">
+            <div class="field"><label for="t-deposit">Deposit</label><input id="t-deposit" class="money" inputmode="decimal" placeholder="0.00"></div>
+            <div class="field"><label for="t-refundable">Deposit is</label>
+              <select id="t-refundable"><option value="">Not said</option><option value="refundable">Refundable</option>
+                <option value="nonrefundable">Non refundable</option></select></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label for="t-deposit-due">Deposit due</label><input id="t-deposit-due" type="date"></div>
+            <div class="field"><label for="t-final-due">Final payment due</label><input id="t-final-due" type="date"></div>
+          </div>
+        </div>
+      </section>
+
       <section class="card">
         <div class="card-head"><h2>The front</h2></div>
         <div class="card-pad">
@@ -122,6 +171,7 @@
 
 <script type="module">
 import { api, mountShell, esc, showError } from '/js/app.js';
+import { mountSupplierPicker } from '/js/supplier-picker.js';
 await mountShell();
 
 const id = new URL(location.href).searchParams.get('id');
@@ -267,6 +317,7 @@ function fill(d) {
   $('cover-file').disabled = !d.storage;
   if (!d.storage) $('cover-note').textContent = 'Picture storage is not set up yet, so pictures cannot be added.';
   drawCover(); drawSecs();
+  fillTrip(d);
   drawLead();
 }
 
@@ -282,6 +333,7 @@ async function drawLead() {
   try {
     const d = await api(`/api/client?id=${encodeURIComponent(lead.id)}`);
     const c = d.client || {};
+    prefillTrip(c);
     const when = (t) => (t ? new Date(t * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '');
     const rows = [
       ['Contact', [c.phone, c.email].filter(Boolean).join('  \u00b7  ')],
@@ -310,10 +362,145 @@ async function load() {
   catch (e) { showError(err, e); }
 }
 
+// ---- the trip: the facts a reservation holds, kept inside the quote ----
+let trip = null;       // the trip being edited, money as typed dollars
+let pkinds = [];       // the charges a price line can be
+let pickerOn = false;
+const dollars = (c) => (c > 0 ? (c / 100).toFixed(2) : '');
+const num = (v) => { const n = parseFloat(String(v || '').replace(/[^0-9.]/g, '')); return Number.isFinite(n) ? n : 0; };
+const usd = (n) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const blankTrip = () => ({ productType: 'cruise', supplier: '', productName: '', itinerary: '', destination: '', departDate: '',
+  returnDate: '', cabinCategory: '', cabin: '', travellers: [{ name: '', email: '', phone: '' }],
+  lines: [{ kind: 'fare', amounts: [''] }, { kind: 'taxes', amounts: [''] }],
+  deposit: '', depositRefundable: '', depositDue: '', finalPaymentDue: '' });
+
+function tripFromServer(t) {
+  if (!t) return blankTrip();
+  const people = t.travellers && t.travellers.length ? t.travellers : [{ name: '', email: '', phone: '' }];
+  return { productType: t.productType || 'cruise', supplier: t.supplier || '', productName: t.productName || '',
+    itinerary: t.itinerary || '', destination: t.destination || '', departDate: t.departDate || '', returnDate: t.returnDate || '',
+    cabinCategory: t.cabinCategory || '', cabin: t.cabin || '', travellers: people.map((x) => ({ name: x.name || '', email: x.email || '', phone: x.phone || '' })),
+    lines: (t.lines || []).map((l) => ({ kind: l.kind, amounts: people.map((_, i) => dollars(l.amounts[i] || 0)) })),
+    deposit: dollars(t.depositCents || 0), depositRefundable: t.depositRefundable || '', depositDue: t.depositDue || '', finalPaymentDue: t.finalPaymentDue || '' };
+}
+
+function fillTrip(d) {
+  pkinds = d.priceKinds || pkinds;
+  trip = tripFromServer(d.proposal.trip);
+  $('t-type').innerHTML = (d.productTypes || ['cruise']).map((v) => `<option value="${esc(v)}">${esc(v.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()))}</option>`).join('');
+  $('t-type').value = trip.productType;
+  $('t-supplier').value = trip.supplier; $('t-product').value = trip.productName; $('t-itinerary').value = trip.itinerary;
+  $('t-destination').value = trip.destination; $('t-category').value = trip.cabinCategory; $('t-cabin').value = trip.cabin;
+  $('t-depart').value = trip.departDate; $('t-return').value = trip.returnDate;
+  $('t-deposit').value = trip.deposit; $('t-refundable').value = trip.depositRefundable;
+  $('t-deposit-due').value = trip.depositDue; $('t-final-due').value = trip.finalPaymentDue;
+  drawPeople(); drawGrid();
+  if (!pickerOn) {
+    pickerOn = true;
+    mountSupplierPicker($('t-pick'), {
+      typeOf: () => $('t-type').value,
+      set(field, value) { if (field === 'supplier') $('t-supplier').value = value; },
+      onSailing(r) {
+        const put = (n, v) => { if (v) $(n).value = v; };
+        put('t-supplier', r.cruise_line); put('t-product', r.ship); put('t-itinerary', r.name);
+        put('t-destination', r.destination); put('t-depart', r.depart_date); put('t-return', r.return_date);
+        $('t-type').value = 'cruise';
+      },
+    }).catch(() => {});
+  }
+}
+
+// Somebody who just got in touch is the first person going, with their phone and email already known.
+function prefillTrip(c) {
+  if (!trip || trip.travellers.some((t) => t.name) || trip.lines.some((l) => l.amounts.some(Boolean))) return;
+  trip.travellers[0] = { name: (lead && lead.name) || '', email: c.email || '', phone: c.phone || '' };
+  drawPeople(); drawGrid();
+}
+
+function drawPeople() {
+  $('t-people').innerHTML = trip.travellers.map((t, i) => `<div class="field-row" style="grid-template-columns:2fr 2fr 1.4fr auto;align-items:end;" data-pi="${i}">
+    <div class="field"><label>${i === 0 ? 'Name, as on the passport' : 'Name'}</label><input class="p-name" maxlength="120" value="${esc(t.name)}"></div>
+    <div class="field"><label>Email</label><input class="p-email" type="email" maxlength="254" value="${esc(t.email)}"></div>
+    <div class="field"><label>Phone</label><input class="p-phone" maxlength="40" value="${esc(t.phone)}"></div>
+    <div class="field">${trip.travellers.length > 1 ? '<button class="btn btn-ghost btn-sm p-del" type="button">Remove</button>' : ''}</div></div>`).join('');
+}
+
+function drawGrid() {
+  const who = trip.travellers.map((t, i) => esc(t.name || `Traveller ${i + 1}`));
+  $('t-grid').innerHTML = `<div class="table-wrap"><table class="table"><thead><tr><th>Charge</th>${who.map((w) => `<th class="num">${w}</th>`).join('')}<th class="num">Total</th><th></th></tr></thead>
+    <tbody>${trip.lines.map((l, li) => `<tr data-li="${li}"><td><select class="g-kind">${pkinds.map((k) => `<option value="${esc(k.kind)}"${k.kind === l.kind ? ' selected' : ''}>${esc(k.label)}</option>`).join('')}</select></td>
+      ${trip.travellers.map((_, pi) => `<td><input class="g-amt money" data-pi="${pi}" inputmode="decimal" placeholder="0.00" value="${esc(l.amounts[pi] || '')}"></td>`).join('')}
+      <td class="num g-sum"></td><td><button class="btn btn-ghost btn-sm g-del" type="button">Remove</button></td></tr>`).join('')}</tbody>
+    <tfoot><tr><th>Trip total</th>${trip.travellers.map(() => '<th class="num g-pp"></th>').join('')}<th class="num" id="g-total"></th><th></th></tr></tfoot></table></div>`;
+  sumGrid();
+}
+
+// A discount or a coupon comes off; every other charge goes on.
+function sumGrid() {
+  const credit = new Set(pkinds.filter((k) => k.credit).map((k) => k.kind));
+  const root = $('t-grid');
+  const pp = trip.travellers.map(() => 0);
+  let all = 0;
+  root.querySelectorAll('tbody tr').forEach((tr) => {
+    const l = trip.lines[Number(tr.dataset.li)];
+    const sign = credit.has(l.kind) ? -1 : 1;
+    let row = 0;
+    l.amounts.forEach((a, i) => { const v = num(a); row += v; pp[i] = (pp[i] || 0) + sign * v; });
+    all += sign * row;
+    tr.querySelector('.g-sum').textContent = row ? `${sign < 0 ? '-' : ''}${usd(row)}` : '';
+  });
+  root.querySelectorAll('.g-pp').forEach((th, i) => { th.textContent = pp[i] ? usd(pp[i]) : ''; });
+  const tot = root.querySelector('#g-total'); if (tot) tot.textContent = all > 0 ? usd(all) : '';
+}
+
+$('t-people').addEventListener('input', (ev) => {
+  const row = ev.target.closest('[data-pi]'); if (!row) return;
+  const t = trip.travellers[Number(row.dataset.pi)];
+  if (ev.target.classList.contains('p-name')) { t.name = ev.target.value; drawGrid(); }
+  else if (ev.target.classList.contains('p-email')) t.email = ev.target.value;
+  else if (ev.target.classList.contains('p-phone')) t.phone = ev.target.value;
+});
+$('t-people').addEventListener('click', (ev) => {
+  if (!ev.target.classList.contains('p-del')) return;
+  const i = Number(ev.target.closest('[data-pi]').dataset.pi);
+  trip.travellers.splice(i, 1); trip.lines.forEach((l) => l.amounts.splice(i, 1));
+  drawPeople(); drawGrid();
+});
+$('t-add-person').addEventListener('click', () => {
+  if (trip.travellers.length >= 12) return;
+  trip.travellers.push({ name: '', email: '', phone: '' }); trip.lines.forEach((l) => l.amounts.push(''));
+  drawPeople(); drawGrid();
+});
+$('t-add-line').addEventListener('click', () => {
+  trip.lines.push({ kind: (pkinds.find((k) => !trip.lines.some((l) => l.kind === k.kind)) || pkinds[0] || { kind: 'other' }).kind, amounts: trip.travellers.map(() => '') });
+  drawGrid();
+});
+$('t-grid').addEventListener('input', (ev) => {
+  if (!ev.target.classList.contains('g-amt')) return;
+  const li = Number(ev.target.closest('tr').dataset.li);
+  trip.lines[li].amounts[Number(ev.target.dataset.pi)] = ev.target.value; sumGrid();
+});
+$('t-grid').addEventListener('change', (ev) => {
+  if (!ev.target.classList.contains('g-kind')) return;
+  trip.lines[Number(ev.target.closest('tr').dataset.li)].kind = ev.target.value; sumGrid();
+});
+$('t-grid').addEventListener('click', (ev) => {
+  if (!ev.target.classList.contains('g-del')) return;
+  trip.lines.splice(Number(ev.target.closest('tr').dataset.li), 1); drawGrid();
+});
+
+function readTripForm() {
+  return { productType: $('t-type').value, supplier: $('t-supplier').value, productName: $('t-product').value,
+    itinerary: $('t-itinerary').value, destination: $('t-destination').value, departDate: $('t-depart').value,
+    returnDate: $('t-return').value, cabinCategory: $('t-category').value, cabin: $('t-cabin').value,
+    travellers: trip.travellers, lines: trip.lines, deposit: $('t-deposit').value, depositRefundable: $('t-refundable').value,
+    depositDue: $('t-deposit-due').value, finalPaymentDue: $('t-final-due').value };
+}
+
 async function save(withExpiry = false) {
   readSecs();
   const body = { title: $('title').value, forName: $('forName').value, note: $('note').value, coverImageId: cover,
-    sections: secs, totalText: $('totalText').value };
+    sections: secs, totalText: $('totalText').value, trip: readTripForm() };
   if (withExpiry) body.expiresInDays = $('expires').value;
   const out = await api(`/api/quick-proposals/${encodeURIComponent(id)}`, { method: 'PUT', body });
   return out;
