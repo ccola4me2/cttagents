@@ -37,6 +37,12 @@
       <div id="err"></div>
       <div class="notice notice-ok" id="saved" role="status" hidden>Saved.</div>
 
+      <section class="card" id="lead-card" hidden style="margin-bottom:1.25rem;">
+        <div class="card-head"><h2 id="lead-h">From the lead</h2>
+          <a class="btn btn-ghost btn-sm" id="lead-open" target="_blank" rel="noopener">Open their record</a></div>
+        <div class="card-pad" id="lead-body"><p class="muted">Loading what they told you...</p></div>
+      </section>
+
       <section class="card">
         <div class="card-head"><h2>The front</h2></div>
         <div class="card-pad">
@@ -261,6 +267,42 @@ function fill(d) {
   $('cover-file').disabled = !d.storage;
   if (!d.storage) $('cover-note').textContent = 'Picture storage is not set up yet, so pictures cannot be added.';
   drawCover(); drawSecs();
+  drawLead();
+}
+
+// A quote that began on a lead: everything they told you sits at the top, read-only, so nothing has to be
+// remembered or looked up in another tab. It is for you; none of it goes into the proposal they receive.
+async function drawLead() {
+  const card = document.getElementById('lead-card');
+  if (!lead) { card.hidden = true; return; }
+  card.hidden = false;
+  document.getElementById('lead-h').textContent = `From ${lead.name}'s lead`;
+  document.getElementById('lead-open').href = `/app/client?id=${encodeURIComponent(lead.id)}`;
+  const body = document.getElementById('lead-body');
+  try {
+    const d = await api(`/api/client?id=${encodeURIComponent(lead.id)}`);
+    const c = d.client || {};
+    const when = (t) => (t ? new Date(t * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '');
+    const rows = [
+      ['Contact', [c.phone, c.email].filter(Boolean).join('  \u00b7  ')],
+      ['Asked about', c.lead_asked_about],
+      ['Where they came from', c.source],
+      ['Stage', [c.lead_stage, c.lead_next_step && `next: ${c.lead_next_step}${c.lead_next_step_on ? ` (${c.lead_next_step_on})` : ''}`].filter(Boolean).join(', ')],
+      ['Your notes on them', c.notes],
+    ].filter((r) => r[1]);
+    const subs = d.submissions || [];
+    body.innerHTML = `
+      ${rows.length ? `<dl class="kv answers">${rows.map((r) => `<dt>${esc(r[0])}</dt><dd>${esc(r[1])}</dd>`).join('')}</dl>` : ''}
+      ${subs.map((s) => `
+        <p class="answers-form">${esc(s.formName)} <span class="muted">${esc(when(s.createdAt))}</span></p>
+        ${s.answers.length
+          ? `<dl class="kv answers">${s.answers.map((a) => `<dt>${esc(a.label)}</dt><dd>${esc(a.value)}</dd>`).join('')}</dl>`
+          : '<p class="muted">They sent it back without answering anything.</p>'}`).join('')}
+      ${!rows.length && !subs.length ? '<p class="muted">There is nothing on this lead yet beyond their name.</p>' : ''}
+      <p class="field-hint" style="margin-top:.9rem;">For your eyes only. None of this is in the proposal they receive.</p>`;
+  } catch {
+    body.innerHTML = '<p class="muted">Their details could not be loaded. Open their record to read them.</p>';
+  }
 }
 
 async function load() {
