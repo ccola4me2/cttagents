@@ -363,9 +363,10 @@ function list() {
     return `<div class="empty"><h3>No live leads</h3>
       <p>Somebody who calls goes on here, and a form submission arrives on it by itself.</p></div>`;
   }
+  const quotesTotal = rows.reduce((a, l) => a + (l.quoteCents || 0), 0);
   return `<div class="table-wrap"><table class="grid">
     <thead><tr><th>Name</th><th>How to reach them</th><th>Asked about</th>
-      <th>Next step</th><th>Stage</th><th></th></tr></thead>
+      <th>Next step</th><th>Stage</th><th class="num">Quote</th><th></th></tr></thead>
     <tbody>${rows.map((l) => {
       const late = l.nextStepOn && l.nextStepOn <= data.today;
       return `<tr>
@@ -378,9 +379,10 @@ function list() {
             : l.interest === 'guide' ? '<span class="muted">on the email list</span>'
             : '<span style="color:var(--red-600);">nothing planned</span>'}</td>
         <td>${esc(l.stageName)}</td>
+        <td class="num">${l.quoteCents ? `${usd(l.quoteCents)}${l.quoteCount > 1 ? `<div class="muted" style="font-size:.74rem;">${l.quoteCount} quotes</div>` : ''}` : '<span class="muted">-</span>'}</td>
         <td class="num"><button class="btn btn-ghost btn-sm" data-edit="${esc(l.id)}">Open</button></td>
       </tr>`;
-    }).join('')}</tbody></table></div>`;
+    }).join('')}</tbody>${quotesTotal ? `<tfoot><tr><td colspan="5"><strong>All quotes shown</strong></td><td class="num"><strong>${usd(quotesTotal)}</strong></td><td></td></tr></tfoot>` : ''}</table></div>`;
 }
 
 const find = (id) => data.stages.flatMap((s) => s.leads).find((l) => l.id === id);
