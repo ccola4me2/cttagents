@@ -186,7 +186,7 @@ export async function renderQuickProposal(request, env, code) {
       prompt.textContent=ASK[k][0];text.required=ASK[k][1];msg.hidden=true;form.hidden=false;btns.hidden=true;text.focus();});
     document.getElementById('ans-cancel').addEventListener('click',function(){form.hidden=true;btns.hidden=false;});
     form.addEventListener('submit',function(e){e.preventDefault();var b=document.getElementById('ans-send');b.disabled=true;msg.hidden=true;
-      fetch('/p/'+location.pathname.split('/')[2]+'/respond',{method:'POST',headers:{'content-type':'application/json'},
+      fetch(location.pathname+(location.pathname.slice(-1)==='/'?'':'/')+'respond',{method:'POST',headers:{'content-type':'application/json'},
         body:JSON.stringify({kind:kind,body:text.value,company_website:document.getElementById('ans-hp').value})})
       .then(function(r){return r.json().then(function(j){return{ok:r.ok,j:j};});})
       .then(function(o){if(!o.ok)throw new Error(o.j.error||'That did not send. Please try again.');
