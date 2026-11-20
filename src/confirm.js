@@ -1309,6 +1309,23 @@ export function itineraryLine(title, days) {
   return whole.split(' / ').length >= ports.length ? whole : build(ports.filter((x) => x !== 'At sea'));
 }
 
+/**
+ * Whether a name is the travel advisor's, as the document itself says: it follows "Travel Advisor Name:" somewhere on the page,
+ * even when the name has wrapped onto a line of its own. A name at the head of the page is a guest unless the page says it is
+ * the advisor, and an advisor who is not travelling must never become the client, or have a guest's birthday and phone put on them.
+ */
+export function isAdvisorName(lines, name) {
+  const target = String(name || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!target) return false;
+  const flat = lines.join(' ').replace(/\s+/g, ' ').toLowerCase();
+  let at = flat.indexOf('advisor name');
+  while (at !== -1) {
+    if (flat.slice(at, at + 160).includes(target)) return true;
+    at = flat.indexOf('advisor name', at + 1);
+  }
+  return false;
+}
+
 export function parseConfirmation(text) {
   const lines = stackLabels(String(text || '').split(/\r?\n/).slice(0, 400))
     .flatMap(splitNoColon)
@@ -1362,7 +1379,7 @@ export function parseConfirmation(text) {
     for (const line of lines.slice(0, 6)) {
       const m = /^([A-Z][A-Za-z'-]+(?: [A-Z][A-Za-z'-]+){1,2})$/.exec(line.trim());
       // A heading is the same shape as a name: "General Information" is not a guest.
-      if (m && !looksLikeHeading(m[1])) {
+      if (m && !looksLikeHeading(m[1]) && !isAdvisorName(lines, m[1])) {
         fields.clientName = fixCaps(m[1]);
         from.clientName = line;
         break;
