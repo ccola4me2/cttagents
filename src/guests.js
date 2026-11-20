@@ -48,7 +48,15 @@ function readGuests(body) {
   return out;
 }
 
-/** The client already on this advisor's books for a guest: by address first, then by name. */
+const lastNameOf = (n) => String(n || '').trim().toLowerCase().split(/\s+/).pop();
+
+/**
+ * The client already on this advisor's books for a guest: by address first, then by name.
+ *
+ * An address only counts when the surname agrees. A confirmation often carries the advisor's own email as the contact, or a
+ * relative's, and matching on the address alone made the guest "the same person" as whoever owns it: the advisor's own record
+ * was offered the guest's birthday and phone as replacements. A shared address with a different surname is somebody else.
+ */
 async function findClient(env, user, guest) {
   let found = null;
   if (guest.email) {
@@ -56,6 +64,7 @@ async function findClient(env, user, guest) {
       `SELECT ${db.CLIENT_COLUMNS} FROM clients c
         WHERE c.user_id = ? AND LOWER(TRIM(c.email)) = LOWER(TRIM(?)) LIMIT 1`
     ).bind(user.id, guest.email).first().catch(() => null);
+    if (found && lastNameOf(found.name) !== lastNameOf(guest.name)) found = null;
   }
   if (!found) found = await db.getClient(env, db.selfScope(user), { name: guest.name });
   return found || null;
