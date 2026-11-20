@@ -260,15 +260,16 @@ function drawPricing(read) {
   box.innerHTML = `<p class="label" style="margin:0 0 .4rem;">The price${perGuest ? ', guest by guest' : ', line by line'}</p>
     <p class="field-hint" style="margin:0 0 .8rem;">${perGuest
     ? 'Each guest is added to the reservation and priced on their own. '
-    : ''}These go into the Pricing tab when you create the reservation. Change any of them, or clear them all to leave Pricing empty.</p>
+    : ''}These go into the Pricing tab when you create the reservation. Change any of them, or clear them all to leave Pricing empty. Tick <strong>earns</strong> beside any charge the vendor pays commission on; only the fare starts ticked.</p>
     ${pr.notes.map((n) => `<p class="field-hint" style="margin:0 0 .5rem;color:var(--amber-600);">${esc(n)}</p>`).join('')}
     <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">
-      <thead><tr><th></th>${cols.map((c, i) => `<th style="text-align:left;padding:.3rem .4rem;min-width:9rem;">${perGuest
+      <thead><tr><th></th><th style="text-align:left;padding:.3rem .4rem;font-size:.78rem;font-weight:600;">Earns commission</th>${cols.map((c, i) => `<th style="text-align:left;padding:.3rem .4rem;min-width:9rem;">${perGuest
     ? `<input data-gname="${i}" value="${esc(c.name || '')}" placeholder="Guest ${i + 1} name" aria-label="Guest ${i + 1} name">
         ${c.dob ? `<div class="field-hint" style="margin:.2rem 0 0;font-weight:400;">born ${esc(dateFmt(c.dob))}</div>` : ''}`
     : 'This trip'}</th>`).join('')}</tr></thead>
       <tbody>${[...PRICE_ROWS, ['commission', 'Commission']].map(([kind, label]) => `<tr>
         <th scope="row" style="text-align:left;padding:.3rem .4rem;font-weight:600;">${esc(label)}</th>
+        <td style="padding:.3rem .4rem;">${kind === 'commission' ? '' : `<label style="display:flex;gap:.35rem;align-items:center;font-weight:400;"><input type="checkbox" style="width:auto;" data-earns="${kind}"${kind === 'fare' ? ' checked' : ''} aria-label="${esc(label)} earns commission"> earns</label>`}</td>
         ${cols.map((c, i) => `<td style="padding:.3rem .4rem;"><input ${kind === 'commission' ? `data-comm="${i}"` : `data-price="${kind}" data-col="${i}"`}
           inputmode="decimal" value="${esc(c[kind] && Number(c[kind]) ? c[kind] : '')}" aria-label="${esc(label)}${perGuest ? ` for guest ${i + 1}` : ''}"></td>`).join('')}
       </tr>`).join('')}</tbody></table></div>
@@ -326,11 +327,11 @@ function guestList() {
 function pricingBody(ids) {
   const cells = [...document.querySelectorAll('[data-price]')]
     .filter((el) => cents(el.value) > 0)
-    // Only the fare earns commission here. The confirmation states the commission as a
+    // Only the fare starts ticked as earning. The confirmation states the commission as a
     // figure, and it is that rate on the fare; marking insurance or fees as earning
-    // would make a correct commission look short.
+    // would make a correct commission look short. The advisor can tick any other charge that does earn.
     .map((el) => ({ travellerId: ids ? ids[Number(el.dataset.col)] : null, kind: el.dataset.price,
-      amount: String(cents(el.value) / 100), commissionable: el.dataset.price === 'fare' }));
+      amount: String(cents(el.value) / 100), commissionable: (() => { const box = document.querySelector(`[data-earns="${el.dataset.price}"]`); return box ? box.checked : el.dataset.price === 'fare'; })() }));
   const commissions = [];
   document.querySelectorAll('[data-comm]').forEach((el) => {
     const c = cents(el.value);
