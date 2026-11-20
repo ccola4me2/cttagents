@@ -269,15 +269,82 @@ function drawPricing(read) {
     : 'This trip'}</th>`).join('')}</tr></thead>
       <tbody>${[...PRICE_ROWS, ['commission', 'Commission']].map(([kind, label]) => `<tr>
         <th scope="row" style="text-align:left;padding:.3rem .4rem;font-weight:600;">${esc(label)}</th>
-        <td style="padding:.3rem .4rem;">${kind === 'commission' ? '' : `<label style="display:flex;gap:.35rem;align-items:center;font-weight:400;"><input type="checkbox" style="width:auto;" data-earns="${kind}"${kind === 'fare' ? ' checked' : ''} aria-label="${esc(label)} earns commission"> earns</label>`}</td>
+        <td style="padding:.3rem .4rem;white-space:nowrap;">${kind === 'commission' ? '' : `<label style="display:flex;gap:.35rem;align-items:center;font-weight:400;"><input type="checkbox" style="width:auto;" data-earns="${kind}"${kind === 'fare' ? ' checked' : ''} aria-label="${esc(label)} earns commission"> earns</label>
+          <div data-ratewrap="${kind}"${kind === 'fare' ? '' : ' hidden'}><div style="display:flex;gap:.25rem;align-items:center;margin-top:.25rem;"><input data-rate="${kind}" inputmode="decimal" style="width:4.5rem;" value="${kind === 'fare' && pr.ratePct !== null ? esc(String(pr.ratePct)) : ''}" placeholder="%" aria-label="${esc(label)} commission rate"><span>%</span><span data-earned="${kind}" class="muted" style="font-size:.78rem;"></span></div></div>`}</td>
         ${cols.map((c, i) => `<td style="padding:.3rem .4rem;"><input ${kind === 'commission' ? `data-comm="${i}"` : `data-price="${kind}" data-col="${i}"`}
           inputmode="decimal" value="${esc(c[kind] && Number(c[kind]) ? c[kind] : '')}" aria-label="${esc(label)}${perGuest ? ` for guest ${i + 1}` : ''}"></td>`).join('')}
-      </tr>`).join('')}</tbody></table></div>
-    <div class="field" style="max-width:14rem;margin-top:.8rem;"><label for="pl-rate">Rate on the fare</label>
-      <input id="pl-rate" inputmode="decimal" value="${pr.ratePct === null ? '' : esc(String(pr.ratePct))}" placeholder="15">
-      <p class="field-hint" style="margin:.2rem 0 0;">percent, if the confirmation states one</p></div>
+      </tr>`).join('')}</tbody>
+      <tfoot>
+        ${perGuest ? `<tr><th scope="row" style="text-align:left;padding:.3rem .4rem;">Each passenger</th><td></td>${cols.map((c, i) => `<td data-coltotal="${i}" style="padding:.3rem .4rem;font-weight:600;"></td>`).join('')}</tr>` : ''}
+        <tr><th scope="row" style="text-align:left;padding:.3rem .4rem;">Trip total</th><td></td><td colspan="${cols.length}" data-grand style="padding:.3rem .4rem;font-weight:700;"></td></tr>
+        <tr><th scope="row" style="text-align:left;padding:.3rem .4rem;">Commission</th><td></td><td colspan="${cols.length}" data-commtotal style="padding:.3rem .4rem;font-weight:700;"></td></tr>
+      </tfoot></table></div>
     <p id="pl-check" style="margin:.6rem 0 0;font-size:.9rem;"></p>`;
-  box.oninput = checkPricing;
+  // The commission works itself out as it does on a reservation: each ticked charge earns its own rate, and the Commission row
+  // is the total. The fare keeps the figure the confirmation states until its rate is changed or an extra charge is given a
+  // rate, so a correct commission is never replaced by one rounded from a percentage.
+  const stated = cols.map((c) => cents(c.commission));
+  const fareRate0 = pr.ratePct === null ? '' : String(pr.ratePct);
+  const pctOf = (el) => { const v = String(el.value).replace(/[^0-9.]/g, '').trim(); return v === '' ? null : Number(v); };
+  const retotal = () => {
+    const amt = (kind, i) => { const el = box.querySelector(`[data-price="${kind}"][data-col="${i}"]`); return el ? cents(el.value) : 0; };
+    const ticked = (k) => { const t = box.querySelector(`[data-earns="${k}"]`); return Boolean(t && t.checked); };
+    const rateOf = (k) => { const r = box.querySelector(`[data-rate="${k}"]`); return r && ticked(k) ? pctOf(r) : null; };
+    for (const t of box.querySelectorAll('[data-earns]')) {
+      const wrap = box.querySelector(`[data-ratewrap="${t.dataset.earns}"]`);
+      if (wrap) wrap.hidden = !t.checked;
+    }
+    let grand = 0;
+    cols.forEach((c, i) => {
+      const sum = PRICE_ROWS.reduce((n, [k]) => n + amt(k, i), 0);
+      grand += sum;
+      const cell = box.querySelector(`[data-coltotal="${i}"]`);
+      if (cell) cell.textContent = say(sum);
+    });
+    const g = box.querySelector('[data-grand]');
+    if (g) g.textContent = say(grand);
+
+    const fareRateEl = box.querySelector('[data-rate="fare"]');
+    const fareTouched = Boolean(fareRateEl) && fareRateEl.value.trim() !== fareRate0;
+    const extras = PRICE_ROWS.filter(([k]) => k !== 'fare' && rateOf(k) !== null).map(([k]) => k);
+    const worked = extras.length > 0 || fareTouched || !ticked('fare');
+    let comm = 0;
+    cols.forEach((c, i) => {
+      const input = box.querySelector(`[data-comm="${i}"]`);
+      if (!input) return;
+      if (worked) {
+        let earned = 0;
+        const fr = rateOf('fare');
+        if (ticked('fare')) earned += fr !== null && (fareTouched || !stated[i]) ? Math.round(amt('fare', i) * fr / 100) : stated[i];
+        for (const k of extras) earned += Math.round(amt(k, i) * rateOf(k) / 100);
+        input.value = earned ? (earned / 100).toFixed(2) : '';
+        input.readOnly = true;
+        input.title = 'Worked out from the rates. Clear the extra rates to type it yourself.';
+      } else {
+        if (input.readOnly) input.value = stated[i] ? (stated[i] / 100).toFixed(2) : '';
+        input.readOnly = false;
+        input.title = '';
+      }
+      comm += cents(input.value);
+    });
+    const ct = box.querySelector('[data-commtotal]');
+    if (ct) ct.textContent = comm ? say(comm) : '';
+
+    // What each charge earns, beside its rate, so the arithmetic shows per line and not only in the total.
+    for (const out of box.querySelectorAll('[data-earned]')) {
+      const k = out.dataset.earned;
+      const pct = rateOf(k);
+      const rowSum = cols.reduce((n, c, i) => n + amt(k, i), 0);
+      out.textContent = pct !== null && rowSum ? say(Math.round(rowSum * pct / 100)) : '';
+    }
+  };
+  box.oninput = (ev) => {
+    const t = ev.target;
+    if (t && t.dataset && t.dataset.comm !== undefined && !t.readOnly) stated[Number(t.dataset.comm)] = cents(t.value);
+    retotal();
+    checkPricing();
+  };
+  retotal();
   document.querySelector('[data-conf="gross"]').addEventListener('input', checkPricing);
   checkPricing();
 }
@@ -344,8 +411,13 @@ function pricingBody(ids) {
     const c = cents(lastRead && lastRead.fields.commissionPackage);
     if (c > 0) commissions.push({ travellerId: null, kind: 'package', amount: String(c / 100) });
   }
-  const rate = Number(document.getElementById('pl-rate') && document.getElementById('pl-rate').value);
-  return { cells, commissions, rates: Number.isFinite(rate) && rate > 0 ? [{ kind: 'fare', pct: rate }] : [] };
+  const rates = [];
+  document.querySelectorAll('[data-rate]').forEach((el) => {
+    const tick = document.querySelector(`[data-earns="${el.dataset.rate}"]`);
+    const v = String(el.value).replace(/[^0-9.]/g, '').trim();
+    if (tick && tick.checked && v !== '' && Number(v) > 0 && Number(v) <= 100) rates.push({ kind: el.dataset.rate, pct: Number(v) });
+  });
+  return { cells, commissions, rates };
 }
 
 let lastRead = null;
