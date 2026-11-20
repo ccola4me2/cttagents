@@ -113,6 +113,9 @@ const OWNED = new Set([
   // changes one for the advisor names user_id. The public page and picture find one by the code or id
   // that was handed out in the link, and the housekeeping pass removes expired ones: each is listed below.
   'quick_proposals', 'quick_proposal_images',
+  // What a client said back to a proposal. The advisor's, and every statement names user_id: the public answer
+  // finds its proposal by the code in the link and then carries that proposal's owner.
+  'quick_proposal_messages',
   // The travel insurance waiver on a reservation. The advisor's, and every statement that reads or changes
   // one for a request names user_id; the public page finds one by the code in the link, listed in ALLOWED.
   'insurance_waivers', 'trip_emails',

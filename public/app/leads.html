@@ -451,7 +451,7 @@ async function showQuotes(l) {
     if (!editing || editing.id !== l.id || !out.proposals.length) return;
     box.innerHTML = `<h3 style="margin:0 0 .5rem;font-size:.95rem;">Quotes for ${esc(l.name)}</h3>` + out.proposals.map((p) => `
       <div class="row-between" style="margin:.3rem 0;"><a href="/app/quick-proposal?id=${encodeURIComponent(p.id)}">${esc(p.title)}</a>
-        <span class="muted">${p.bookingId ? 'They accepted' : p.viewCount ? `Opened ${p.viewCount} time${p.viewCount === 1 ? '' : 's'}` : p.sentCount ? 'Sent, not opened' : 'Not sent'}</span></div>`).join('');
+        <span class="muted">${p.bookingId ? 'They accepted' : p.response === 'accepted' ? 'Said yes' : p.response === 'declined' ? 'Said no' : p.response === 'changes' ? 'Wants changes' : p.response === 'question' ? 'Asked a question' : p.viewCount ? `Opened ${p.viewCount} time${p.viewCount === 1 ? '' : 's'}` : p.sentCount ? 'Sent, not opened' : 'Not sent'}</span></div>`).join('');
     box.hidden = false;
   } catch { /* the list is a convenience: the button still works */ }
 }

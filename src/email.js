@@ -511,6 +511,37 @@ export function sendQuickProposalEmail(env, { to, replyTo, firstName, advisorNam
   });
 }
 
+/**
+ * A client answered a proposal: yes, no, a question, or a request for changes.
+ *
+ * To the advisor, at once, because the useful moment to answer is while they are still looking at it.
+ */
+export function sendProposalResponseEmail(env, { to, firstName, who, title, kind, body, href }) {
+  if (!to) return Promise.resolve({ skipped: true });
+  const WORDS = {
+    accept: { subject: `${who} said yes to ${title}`, heading: `${who} has said yes`, line: 'They have accepted the proposal for' },
+    decline: { subject: `${who} said no to ${title}`, heading: `${who} has said no`, line: 'They have said it is not for them:' },
+    question: { subject: `${who} has a question about ${title}`, heading: `${who} has a question`, line: 'They have asked a question about' },
+    changes: { subject: `${who} wants changes to ${title}`, heading: `${who} wants changes`, line: 'They would like changes to' },
+  };
+  const w = WORDS[kind] || WORDS.question;
+  return send(env, {
+    to,
+    subject: w.subject,
+    html: layout(env, {
+      heading: escapeHtml(w.heading),
+      body: `<p style="margin:0 0 12px;">Hi ${escapeHtml(firstName || 'there')},</p>
+             <p style="margin:0 0 12px;">${escapeHtml(w.line)} <strong>${escapeHtml(title)}</strong>.</p>
+             ${body ? `<p style="margin:0 0 12px;padding:12px 14px;background:#f7fafb;border-left:3px solid #c7d9e9;">${escapeHtml(body).replace(/\n/g, '<br>')}</p>`
+    : '<p style="margin:0 0 12px;color:#5c7286;">They did not add a note.</p>'}
+             <p style="margin:0 0 16px;">${kind === 'accept'
+    ? 'Nothing is booked and nothing is paid. Open the quote to make it a reservation when you are ready.'
+    : 'Open the quote to read the whole conversation, change it and send it again.'}</p>`,
+      cta: { label: 'Open the quote', href },
+    }),
+  });
+}
+
 /** The travel insurance waiver, sent to the client to sign. */
 export function sendWaiverEmail(env, { to, replyTo, firstName, advisorName, tripName, url, brand, agencyId, agencyName }) {
   return send(env, {

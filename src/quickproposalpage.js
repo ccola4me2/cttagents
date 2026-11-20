@@ -8,7 +8,8 @@
 // The pictures are served through the Worker at /pi/<id> for as long as the proposal is live, because the
 // bucket they are kept in is private and has no addresses of its own.
 
-import { escapeHtml as esc, now } from './util.js';
+import { escapeHtml as esc, now, json, badRequest, cleanText, clean, uid, sha256Hex, readJson } from './util.js';
+import { sendProposalResponseEmail } from './email.js';
 import { brandForUser, DEFAULT_BRAND, HEX_COLOR, readableOnWhite } from './brand.js';
 import { appUrl } from './share.js';
 import { docsReady } from './documents.js';
@@ -79,6 +80,10 @@ ${head}
   .price{display:inline-block;margin-top:.5rem;background:#f1f9f5;border:1px solid #cfe5dc;color:#1f7a5a;
          font-weight:750;border-radius:999px;padding:.3rem .9rem}
   .pt{width:100%;border-collapse:collapse;margin:.4rem 0 0}.pt td{padding:.5rem 0;border-top:1px solid var(--line)}.pt td:last-child{text-align:right;font-weight:600;color:var(--navy)}.pt .sub td{color:var(--soft);font-size:.9rem}
+  .ans-btns{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.9rem}.ans-btns button{font:inherit;cursor:pointer;border:0}
+  .ans-btns .btn.alt{border:1px solid #c7d9e9}.ans textarea{width:100%;font:inherit;border:1px solid #c7d9e9;border-radius:10px;padding:.7rem;margin:.5rem 0;min-height:6rem}
+  .ans .said{background:#f1f9f5;border:1px solid #cfe5dc;color:#1f7a5a;border-radius:10px;padding:.7rem 1rem;margin:.6rem 0;font-weight:600}
+  .ans .said.no{background:#fbf3f1;border-color:#efd3cd;color:#a3412f}.hp{position:absolute;left:-9999px;height:0;overflow:hidden}
   .total{background:var(--navy);color:#fff;border-radius:14px;padding:1.4rem;margin-bottom:1.1rem}
   .total .lbl{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;opacity:.8;font-weight:700}
   .total .amt{font-size:1.7rem;font-weight:800;margin-top:.2rem}
@@ -101,7 +106,7 @@ function gone(brand, env, message) {
 /** GET /p/<code> */
 export async function renderQuickProposal(request, env, code) {
   const row = await env.DB.prepare(
-    `SELECT id, user_id, title, for_name, note, cover_image_id, sections_json, total_text, trip_json, expires_at
+    `SELECT id, user_id, title, for_name, note, cover_image_id, sections_json, total_text, trip_json, response, responded_at, expires_at
        FROM quick_proposals WHERE code = ?`
   ).bind(String(code || '').toLowerCase()).first();
   if (!row) return gone(null, env, 'The link may be mistyped. Ask whoever sent it for the current one.');
@@ -154,6 +159,42 @@ export async function renderQuickProposal(request, env, code) {
     </div>`;
   }
 
+  const said = row.response === 'accepted' ? `<div class="said">You said yes${row.responded_at ? ` on ${esc(sayDate(row.responded_at))}` : ''}. ${esc(name || brand.name)} will be in touch to confirm it. Nothing is charged yet.</div>`
+    : row.response === 'declined' ? `<div class="said no">You said this is not for you${row.responded_at ? ` on ${esc(sayDate(row.responded_at))}` : ''}. If that changes, ask for changes or send a note below.</div>` : '';
+  const answerHtml = `<div class="card pad ans" id="ans-card"><h2 style="margin:0 0 .3rem;font-size:1.25rem;color:var(--navy);">What would you like to do?</h2>
+    <p style="margin:0;color:var(--soft);">Nothing is booked or charged by answering. ${esc(name || brand.name)} will read it and come back to you.</p>
+    ${said}
+    <div class="ans-btns" id="ans-btns">${row.response === 'accepted' ? '' : '<button type="button" class="btn" data-k="accept">Yes, I would like this</button>'}
+      <button type="button" class="btn alt" data-k="changes">Ask for changes</button>
+      <button type="button" class="btn alt" data-k="question">Ask a question</button>${row.response === 'declined' ? '' : '<button type="button" class="btn alt" data-k="decline">Not for me</button>'}</div>
+    <form id="ans-form" hidden>
+      <p id="ans-prompt" style="margin:.9rem 0 0;font-weight:600;color:var(--navy);"></p>
+      <textarea id="ans-text" maxlength="2000"></textarea>
+      <input class="hp" id="ans-hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <div class="ans-btns" style="margin-top:0;"><button type="submit" class="btn" id="ans-send">Send</button>
+        <button type="button" class="btn alt" id="ans-cancel">Cancel</button></div>
+      <p id="ans-msg" style="color:#a3412f;margin:.5rem 0 0;" hidden></p>
+    </form>
+  </div>
+  <script>
+  (function(){
+    var card=document.getElementById('ans-card'),form=document.getElementById('ans-form'),text=document.getElementById('ans-text'),
+        prompt=document.getElementById('ans-prompt'),msg=document.getElementById('ans-msg'),btns=document.getElementById('ans-btns'),kind='';
+    var ASK={accept:['Anything you would like to add? (optional)',false],decline:['Would you tell us why? (optional)',false],
+      question:['What would you like to know?',true],changes:['What would you like changed?',true]};
+    btns.addEventListener('click',function(e){var k=e.target.getAttribute('data-k');if(!k)return;kind=k;
+      prompt.textContent=ASK[k][0];text.required=ASK[k][1];msg.hidden=true;form.hidden=false;btns.hidden=true;text.focus();});
+    document.getElementById('ans-cancel').addEventListener('click',function(){form.hidden=true;btns.hidden=false;});
+    form.addEventListener('submit',function(e){e.preventDefault();var b=document.getElementById('ans-send');b.disabled=true;msg.hidden=true;
+      fetch('/p/'+location.pathname.split('/')[2]+'/respond',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({kind:kind,body:text.value,company_website:document.getElementById('ans-hp').value})})
+      .then(function(r){return r.json().then(function(j){return{ok:r.ok,j:j};});})
+      .then(function(o){if(!o.ok)throw new Error(o.j.error||'That did not send. Please try again.');
+        card.innerHTML='<h2 style="margin:0 0 .5rem;font-size:1.25rem;color:#1f7a5a;">Sent</h2><p style="margin:0;">'+String(o.j.message).replace(/[<>&]/g,'')+'</p>';})
+      .catch(function(err){msg.textContent=err.message;msg.hidden=false;b.disabled=false;});});
+  })();
+  </script>`;
+
   const body = `<header class="hero${cover ? ' photo' : ''}"${cover ? ` style="--cover:url('${esc(cover)}')"` : ''}>
     <div class="hero-in">
       <div class="brand">${logo ? `<img src="${esc(logo)}" alt="">` : ''}<span>${esc(brand.name)}</span></div>
@@ -173,6 +214,7 @@ export async function renderQuickProposal(request, env, code) {
         <span class="op">${esc(o.price)}</span>${o.detail ? `<span class="od">${esc(o.detail)}</span>` : ''}</div>`).join('')}</div>` : ''}${
   s.price ? `<span class="price">${esc(s.price)}</span>` : ''}</div></div>`).join('')}
     ${row.total_text ? `<div class="total"><div class="lbl">Total</div><div class="amt">${esc(row.total_text)}</div></div>` : ''}
+    ${answerHtml}
     <div class="card pad contact">
       <span class="avatar">${esc(initials)}</span>
       <div style="flex:1;min-width:12rem;"><strong>${esc(name || brand.name)}</strong>
@@ -210,4 +252,73 @@ export async function serveProposalImage(request, env, id) {
       'Cache-Control': 'public, max-age=3600',
     },
   });
+}
+
+
+/**
+ * POST /p/<code>/respond { kind, body, company_website }
+ *
+ * A client's answer to a proposal. Open to whoever holds the link, so the same two guards the trip page uses: a hidden
+ * field a person never fills and a bot always does, and a cap on how many notes one address can send in an hour. The
+ * note is kept first and announced after, so an answer that could not be emailed is still there when the advisor looks.
+ * It changes nothing on the advisor's book: a yes is a message, not a reservation.
+ */
+export async function handleProposalResponse(request, env, code) {
+  const row = await env.DB.prepare(
+    `SELECT id, user_id, title, for_name, expires_at, response
+       FROM quick_proposals WHERE code = ?`
+  ).bind(String(code || '').toLowerCase()).first();
+  if (!row || (row.expires_at && row.expires_at < now())) return json({ error: 'This proposal is not available.' }, 404);
+
+  const body = await readJson(request).catch(() => ({}));
+  if (clean(body.company_website, 200)) return json({ ok: true, message: 'Thanks.' });
+
+  const kind = ['accept', 'decline', 'question', 'changes'].includes(body.kind) ? body.kind : '';
+  if (!kind) return badRequest('Choose what you would like to do.');
+  const text = cleanText(body.body, 2000);
+  if ((kind === 'question' || kind === 'changes') && !text) return badRequest('Write a few words first.');
+
+  const ip = request.headers.get('CF-Connecting-IP') || '';
+  const ipHash = ip ? (await sha256Hex(`proposal:${code}:${ip}`)).slice(0, 32) : null;
+  if (ipHash) {
+    const seen = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM quick_proposal_messages WHERE proposal_id = ? AND user_id = ? AND ip_hash = ? AND created_at > ?`
+    ).bind(row.id, row.user_id, ipHash, now() - 3600).first();
+    if ((seen?.n || 0) >= 10) return json({ error: 'That is a lot of notes. Give them a ring instead.' }, 429);
+  }
+
+  const ts = now();
+  await env.DB.prepare(
+    `INSERT INTO quick_proposal_messages (id, proposal_id, user_id, kind, body, ip_hash, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).bind(uid(), row.id, row.user_id, kind, text || null, ipHash, ts).run();
+
+  // The latest answer sits on the proposal. A question does not undo a yes or a no, which stand until the client says
+  // otherwise; every other answer replaces what was there.
+  const next = { accept: 'accepted', decline: 'declined', changes: 'changes', question: 'question' }[kind];
+  const standing = row.response === 'accepted' || row.response === 'declined';
+  if (!(kind === 'question' && standing)) {
+    await env.DB.prepare('UPDATE quick_proposals SET response = ?, responded_at = ? WHERE id = ? AND user_id = ?')
+      .bind(next, ts, row.id, row.user_id).run();
+  }
+
+  try {
+    const advisor = await env.DB.prepare('SELECT first_name, email, notify_email FROM users WHERE id = ?')
+      .bind(row.user_id).first();
+    await sendProposalResponseEmail(env, {
+      to: advisor && (advisor.notify_email || advisor.email), firstName: advisor && advisor.first_name,
+      who: row.for_name || 'Your client', title: row.title, kind, body: text,
+      href: `${appUrl(env)}/app/quick-proposal?id=${encodeURIComponent(row.id)}`,
+    });
+  } catch (e) {
+    console.error('proposal response mail', e);
+  }
+
+  const message = {
+    accept: 'Thank you. Your advisor will be in touch to confirm it. Nothing is charged yet.',
+    decline: 'Thank you for letting us know. If anything changes, you are always welcome to get in touch.',
+    question: 'Sent. Your advisor will come back to you.',
+    changes: 'Sent. Your advisor will come back to you with an updated proposal.',
+  }[kind];
+  return json({ ok: true, message });
 }

@@ -257,7 +257,7 @@ import {
   handleDeleteQuickProposal, handleUploadProposalImage, handleRemoveProposalImage, handleSendQuickProposal,
   handleProposalToQuote, purgeExpiredProposals,
 } from './quickproposal.js';
-import { renderQuickProposal, serveProposalImage } from './quickproposalpage.js';
+import { renderQuickProposal, serveProposalImage, handleProposalResponse } from './quickproposalpage.js';
 import { handleWaiver, renderWaiverPage, handleSignWaiver } from './waiver.js';
 import {
   handleDeskMembers, handleAddDeskMember, handleDeskInvite, handleDeskOverview, handleDeskLeads, isDeskUser,
@@ -1739,6 +1739,8 @@ async function routePage(request, env, path) {
   const fileOf = path.match(/^\/gf\/([^/]+)\/?$/);
   if (fileOf) return serveGroupFile(request, env, decodeURIComponent(fileOf[1]));
   // A proposal an advisor sent, and its pictures: public for as long as the proposal is live.
+  const proposalAnswer = path.match(/^\/p\/([a-z0-9]+)\/respond\/?$/i);
+  if (proposalAnswer && request.method === 'POST') return handleProposalResponse(request, env, decodeURIComponent(proposalAnswer[1]));
   const proposalOf = path.match(/^\/p\/([a-z0-9]+)\/?$/i);
   if (proposalOf) return renderQuickProposal(request, env, decodeURIComponent(proposalOf[1]));
   // The travel insurance waiver a client signs, on the same terms: the code is the credential.

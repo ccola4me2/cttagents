@@ -80,6 +80,7 @@ function shape(r, images) {
     expiresAt: r.expires_at || null, sentCount: r.sent_count || 0, lastSentAt: r.last_sent_at || null,
     viewCount: r.view_count || 0, firstViewedAt: r.first_viewed_at || null, bookingId: r.booking_id || null,
     leadId: r.lead_id || null,
+    response: r.response || null, respondedAt: r.responded_at || null,
     trip: readTrip(r.trip_json),
     createdAt: r.created_at, updatedAt: r.updated_at,
     images: images || [],
@@ -107,7 +108,7 @@ export async function handleListQuickProposals(request, env) {
   const lead = new URL(request.url).searchParams.get('lead') || '';
   const { results } = await env.DB.prepare(
     `SELECT id, code, title, for_name, expires_at, sent_count, last_sent_at, view_count, first_viewed_at,
-            booking_id, lead_id, created_at, updated_at
+            booking_id, lead_id, response, responded_at, created_at, updated_at
        FROM quick_proposals WHERE user_id = ? AND (? = '' OR lead_id = ?) ORDER BY updated_at DESC LIMIT 200`
   ).bind(user.id, lead, lead).all().catch(() => ({ results: [] }));
   const today = now();
@@ -117,7 +118,8 @@ export async function handleListQuickProposals(request, env) {
       expired: Boolean(r.expires_at && r.expires_at < today), expiresAt: r.expires_at || null,
       sentCount: r.sent_count || 0, lastSentAt: r.last_sent_at || null,
       viewCount: r.view_count || 0, firstViewedAt: r.first_viewed_at || null,
-      bookingId: r.booking_id || null, leadId: r.lead_id || null, updatedAt: r.updated_at,
+      bookingId: r.booking_id || null, leadId: r.lead_id || null, response: r.response || null, respondedAt: r.responded_at || null,
+      updatedAt: r.updated_at,
     })),
   });
 }
@@ -153,7 +155,11 @@ export async function handleGetQuickProposal(request, env, id) {
   const lead = row.lead_id
     ? await env.DB.prepare('SELECT id, name FROM clients WHERE id = ? AND user_id = ?').bind(row.lead_id, user.id).first()
     : null;
+  const { results: said } = await env.DB.prepare(
+    'SELECT kind, body, created_at FROM quick_proposal_messages WHERE proposal_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 100'
+  ).bind(id, user.id).all().catch(() => ({ results: [] }));
   return json({
+    messages: (said || []).map((m) => ({ kind: m.kind, body: m.body || '', at: m.created_at })),
     proposal: shape(row, imageList(env, await loadImages(env, user, id))),
     lead: lead ? { id: lead.id, name: lead.name } : null,
     link: `${appUrl(env)}/p/${row.code}`,
@@ -215,6 +221,7 @@ export async function handleDeleteQuickProposal(request, env, id) {
   ).bind(id, user.id).all().catch(() => ({ results: [] }));
   await removeImages(env, user, results || []);
   await env.DB.prepare('DELETE FROM quick_proposal_images WHERE proposal_id = ? AND user_id = ?').bind(id, user.id).run();
+  await env.DB.prepare('DELETE FROM quick_proposal_messages WHERE proposal_id = ? AND user_id = ?').bind(id, user.id).run();
   await env.DB.prepare('DELETE FROM quick_proposals WHERE id = ? AND user_id = ?').bind(id, user.id).run();
   return json({ ok: true });
 }
@@ -307,7 +314,9 @@ export async function handleSendQuickProposal(request, env, id) {
   if (out.ok === false) return badRequest('The email could not be sent. Check the address and try again.');
   if (body.copyToMe) await sendQuickProposalEmail(env, { to: user.notify_email || user.email, ...args, message: `Your copy.\n\n${args.message || ''}` });
 
-  await env.DB.prepare('UPDATE quick_proposals SET sent_count = sent_count + 1, last_sent_at = ? WHERE id = ? AND user_id = ?')
+  await env.DB.prepare(`UPDATE quick_proposals SET sent_count = sent_count + 1, last_sent_at = ?,
+            response = CASE WHEN response IN ('changes', 'question', 'declined') THEN NULL ELSE response END
+      WHERE id = ? AND user_id = ?`)
     .bind(now(), id, user.id).run();
   await db.logActivity(env, user.id, 'proposal.sent', `Sent the proposal "${row.title}"`, { id });
   return json({ ok: true });
@@ -411,6 +420,7 @@ export async function purgeExpiredProposals(env) {
     ).bind(p.id, p.user_id).all().catch(() => ({ results: [] }));
     if (docsReady(env)) for (const i of imgs || []) await env.DOCS.delete(i.r2_key).catch(() => {});
     await env.DB.prepare('DELETE FROM quick_proposal_images WHERE proposal_id = ? AND user_id = ?').bind(p.id, p.user_id).run();
+    await env.DB.prepare('DELETE FROM quick_proposal_messages WHERE proposal_id = ? AND user_id = ?').bind(p.id, p.user_id).run();
     await env.DB.prepare('DELETE FROM quick_proposals WHERE id = ? AND user_id = ?').bind(p.id, p.user_id).run();
   }
   return { removed: (results || []).length };

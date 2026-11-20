@@ -37,6 +37,11 @@
       <div id="err"></div>
       <div class="notice notice-ok" id="saved" role="status" hidden>Saved.</div>
 
+      <section class="card" id="said-card" hidden style="margin-bottom:1.25rem;">
+        <div class="card-head"><h2 id="said-h">What they said</h2></div>
+        <div class="card-pad" id="said-body"></div>
+      </section>
+
       <section class="card" id="lead-card" hidden style="margin-bottom:1.25rem;">
         <div class="card-head"><h2 id="lead-h">From the lead</h2>
           <a class="btn btn-ghost btn-sm" id="lead-open" target="_blank" rel="noopener">Open their record</a></div>
@@ -318,7 +323,23 @@ function fill(d) {
   if (!d.storage) $('cover-note').textContent = 'Picture storage is not set up yet, so pictures cannot be added.';
   drawCover(); drawSecs();
   fillTrip(d);
+  drawSaid(d.messages || []);
   drawLead();
+}
+
+// What the client did with it, newest first: yes, no, a question or changes they want. Shown above everything else because
+// it is what the advisor opened the page to see.
+const SAID = { accept: 'Said yes', decline: 'Said no', question: 'Asked a question', changes: 'Asked for changes' };
+function drawSaid(msgs) {
+  const card = $('said-card');
+  card.hidden = !msgs.length;
+  if (!msgs.length) return;
+  const stamp = (t) => new Date(t * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const banner = { accepted: 'They said yes. Make it a reservation below when you are ready.', declined: 'They said no.',
+    changes: 'They want changes. Edit the quote, save it and send it again.', question: 'They asked a question. Answer them, then send it again if anything changes.' }[p.response] || '';
+  $('said-body').innerHTML = `${banner ? `<div class="notice notice-${p.response === 'accepted' ? 'ok' : 'warn'}" style="margin-bottom:.8rem;">${esc(banner)}</div>` : ''}
+    ${msgs.map((m) => `<div style="padding:.55rem 0;border-top:1px solid var(--navy-100);"><strong>${esc(SAID[m.kind] || m.kind)}</strong>
+      <span class="muted"> ${esc(stamp(m.at))}</span>${m.body ? `<div style="white-space:pre-wrap;margin-top:.2rem;">${esc(m.body)}</div>` : ''}</div>`).join('')}`;
 }
 
 // A quote that began on a lead: everything they told you sits at the top, read-only, so nothing has to be
