@@ -400,6 +400,13 @@ export async function handleProposalToQuote(request, env, id) {
       }
     }
     if (trip.lines.length) await syncBookingTotals(env, booking.id, user.id);
+    // Each promotion becomes an amenity the reservation is waiting on, so it is chased and ticked off like any other.
+    for (const promo of trip.promotions || []) {
+      await env.DB.prepare(
+        `INSERT INTO amenities (id, booking_id, user_id, description, amount_cents, source, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'requested', ?, ?)`
+      ).bind(uid(), booking.id, user.id, promo.description, promo.amountCents || 0, promo.source || 'vendor', ts, ts).run();
+    }
   }
   await env.DB.prepare('UPDATE quick_proposals SET booking_id = ?, updated_at = ? WHERE id = ? AND user_id = ?')
     .bind(booking.id, now(), id, user.id).run();

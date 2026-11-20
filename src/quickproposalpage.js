@@ -79,6 +79,8 @@ ${head}
          font-weight:800;background:#1f7a5a;color:#fff;border-radius:999px;padding:.12rem .55rem;vertical-align:.1rem}
   .price{display:inline-block;margin-top:.5rem;background:#f1f9f5;border:1px solid #cfe5dc;color:#1f7a5a;
          font-weight:750;border-radius:999px;padding:.3rem .9rem}
+  .promos{list-style:none;margin:.2rem 0 0;padding:0}.promos li{padding:.5rem .9rem;margin:.35rem 0;background:#f1f9f5;border:1px solid #cfe5dc;border-radius:10px;color:#1f7a5a;font-weight:650}
+  .promos li span{font-weight:500;color:var(--soft)}
   .pt{width:100%;border-collapse:collapse;margin:.4rem 0 0}.pt td{padding:.5rem 0;border-top:1px solid var(--line)}.pt td:last-child{text-align:right;font-weight:600;color:var(--navy)}.pt .sub td{color:var(--soft);font-size:.9rem}
   .ans-btns{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.9rem}.ans-btns button{font:inherit;cursor:pointer;border:0}
   .ans-btns .btn.alt{border:1px solid #c7d9e9}.ans textarea{width:100%;font:inherit;border:1px solid #c7d9e9;border-radius:10px;padding:.7rem;margin:.5rem 0;min-height:6rem}
@@ -156,6 +158,8 @@ export async function renderQuickProposal(request, env, code) {
         <tr><td><strong>Total</strong></td><td>${esc(money(tot.totalCents))}</td></tr>
         ${trip.depositCents ? `<tr class="sub"><td>Deposit to hold it${trip.depositRefundable ? ` (${trip.depositRefundable === 'refundable' ? 'refundable' : 'non refundable'})` : ''}${trip.depositDue ? `, due ${esc(sayDay(trip.depositDue))}` : ''}</td><td>${esc(money(trip.depositCents))}</td></tr>` : ''}
         ${trip.finalPaymentDue ? `<tr class="sub"><td>Final payment due</td><td>${esc(sayDay(trip.finalPaymentDue))}</td></tr>` : ''}</table>` : ''}
+      ${(trip.promotions || []).length ? `<h3 style="margin:1.1rem 0 .3rem;font-size:1.02rem;color:var(--navy);">Included with this offer</h3>
+        <ul class="promos">${trip.promotions.map((x) => `<li>${esc(x.description)}${x.amountCents ? ` <span>(worth ${esc(money(x.amountCents))})</span>` : ''}</li>`).join('')}</ul>` : ''}
     </div>`;
   }
 

@@ -13,6 +13,8 @@ import { PRICE_KINDS } from './pricing.js';
 
 const MAX_TRAVELLERS = 12;
 const MAX_LINES = 30;
+const MAX_PROMOS = 12;
+export const PROMO_SOURCES = ['vendor', 'agency', 'agent', 'tln'];
 const KIND_KEYS = PRICE_KINDS.map((k) => k.kind);
 const CREDIT = new Set(PRICE_KINDS.filter((k) => k.credit).map((k) => k.kind));
 export const KIND_LABEL = Object.fromEntries(PRICE_KINDS.map((k) => [k.kind, k.label]));
@@ -58,6 +60,15 @@ export function cleanTrip(raw) {
     cabin: clean(t.cabin, 80),
     travellers,
     lines,
+    // Promotions and extras that go with the offer: onboard credit, a free drinks package, a reduced deposit. Each is
+    // words and, if it has one, a value. They are not added to the price. The source says who is paying for it and is
+    // for the advisor: it is not shown to the client.
+    promotions: (Array.isArray(t.promotions) ? t.promotions : []).slice(0, MAX_PROMOS)
+      .map((x) => ({
+        description: clean(x && x.description, 160), amountCents: toCents(x && x.amount),
+        source: oneOfOrNull(x && x.source, PROMO_SOURCES) || 'vendor',
+      }))
+      .filter((x) => x.description),
     depositCents: toCents(t.deposit),
     depositRefundable: oneOfOrNull(t.depositRefundable, ['refundable', 'nonrefundable']),
     depositDue: cleanDate(t.depositDue),
@@ -88,4 +99,4 @@ export function tripTotals(trip) {
 }
 
 export const hasTrip = (trip) => Boolean(trip && (trip.supplier || trip.productName || trip.itinerary || trip.departDate
-  || (trip.travellers || []).length || (trip.lines || []).length));
+  || (trip.travellers || []).length || (trip.lines || []).length || (trip.promotions || []).length));

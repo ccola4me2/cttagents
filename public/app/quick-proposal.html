@@ -83,6 +83,12 @@
           <p class="form-group" style="margin-top:1.2rem;">Pricing</p>
           <div id="t-grid"></div>
           <button class="btn btn-ghost btn-sm" type="button" id="t-add-line">Add a charge</button>
+          <p class="form-group" style="margin-top:1.2rem;">Promotions and extras</p>
+          <p class="field-hint" style="margin-top:0;">Onboard credit, a free drinks package, a reduced deposit, anything that goes with this offer. They
+            show on the proposal under "Included with this offer" and are not added to the price. When the quote is accepted each one goes onto the
+            reservation as an amenity to chase. Who is paying for it is for you and is not shown to your client.</p>
+          <div id="t-promos"></div>
+          <button class="btn btn-ghost btn-sm" type="button" id="t-add-promo">Add a promotion</button>
           <p class="form-group" style="margin-top:1.2rem;">Deposit and dates</p>
           <div class="field-row">
             <div class="field"><label for="t-deposit">Deposit</label><input id="t-deposit" class="money" inputmode="decimal" placeholder="0.00"></div>
@@ -393,7 +399,7 @@ const usd = (n) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, max
 const blankTrip = () => ({ productType: 'cruise', supplier: '', productName: '', itinerary: '', destination: '', departDate: '',
   returnDate: '', cabinCategory: '', cabin: '', travellers: [{ name: '', email: '', phone: '' }],
   lines: [{ kind: 'fare', amounts: [''] }, { kind: 'taxes', amounts: [''] }],
-  deposit: '', depositRefundable: '', depositDue: '', finalPaymentDue: '' });
+  promotions: [], deposit: '', depositRefundable: '', depositDue: '', finalPaymentDue: '' });
 
 function tripFromServer(t) {
   if (!t) return blankTrip();
@@ -402,6 +408,7 @@ function tripFromServer(t) {
     itinerary: t.itinerary || '', destination: t.destination || '', departDate: t.departDate || '', returnDate: t.returnDate || '',
     cabinCategory: t.cabinCategory || '', cabin: t.cabin || '', travellers: people.map((x) => ({ name: x.name || '', email: x.email || '', phone: x.phone || '' })),
     lines: (t.lines || []).map((l) => ({ kind: l.kind, amounts: people.map((_, i) => dollars(l.amounts[i] || 0)) })),
+    promotions: (t.promotions || []).map((x) => ({ description: x.description || '', amount: dollars(x.amountCents || 0), source: x.source || 'vendor' })),
     deposit: dollars(t.depositCents || 0), depositRefundable: t.depositRefundable || '', depositDue: t.depositDue || '', finalPaymentDue: t.finalPaymentDue || '' };
 }
 
@@ -415,7 +422,7 @@ function fillTrip(d) {
   $('t-depart').value = trip.departDate; $('t-return').value = trip.returnDate;
   $('t-deposit').value = trip.deposit; $('t-refundable').value = trip.depositRefundable;
   $('t-deposit-due').value = trip.depositDue; $('t-final-due').value = trip.finalPaymentDue;
-  drawPeople(); drawGrid();
+  drawPeople(); drawGrid(); drawPromos();
   if (!pickerOn) {
     pickerOn = true;
     mountSupplierPicker($('t-pick'), {
@@ -454,6 +461,33 @@ function prefillTrip(c, subs) {
   }
   drawPeople(); drawGrid();
 }
+
+const PROMO_SOURCE = [['vendor', 'Cruise line or vendor'], ['agency', 'Agency'], ['agent', 'Advisor'], ['tln', 'Travel Leaders Network (TLN)']];
+function drawPromos() {
+  $('t-promos').innerHTML = trip.promotions.map((x, i) => `<div class="field-row" style="grid-template-columns:3fr 1.2fr 2fr auto;align-items:end;" data-xi="${i}">
+    <div class="field"><label>What it is</label><input class="x-desc" maxlength="160" placeholder="$100 onboard credit per stateroom" value="${esc(x.description)}"></div>
+    <div class="field"><label>Worth, if it has a value</label><input class="x-amt money" inputmode="decimal" placeholder="0.00" value="${esc(x.amount)}"></div>
+    <div class="field"><label>Paid for by</label><select class="x-src">${PROMO_SOURCE.map(([v, l]) => `<option value="${v}"${v === x.source ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+    <div class="field"><button class="btn btn-ghost btn-sm x-del" type="button">Remove</button></div></div>`).join('');
+}
+$('t-promos').addEventListener('input', (ev) => {
+  const row = ev.target.closest('[data-xi]'); if (!row) return;
+  const x = trip.promotions[Number(row.dataset.xi)];
+  if (ev.target.classList.contains('x-desc')) x.description = ev.target.value;
+  else if (ev.target.classList.contains('x-amt')) x.amount = ev.target.value;
+});
+$('t-promos').addEventListener('change', (ev) => {
+  if (!ev.target.classList.contains('x-src')) return;
+  trip.promotions[Number(ev.target.closest('[data-xi]').dataset.xi)].source = ev.target.value;
+});
+$('t-promos').addEventListener('click', (ev) => {
+  if (!ev.target.classList.contains('x-del')) return;
+  trip.promotions.splice(Number(ev.target.closest('[data-xi]').dataset.xi), 1); drawPromos();
+});
+$('t-add-promo').addEventListener('click', () => {
+  if (trip.promotions.length >= 12) return;
+  trip.promotions.push({ description: '', amount: '', source: 'vendor' }); drawPromos();
+});
 
 function drawPeople() {
   $('t-people').innerHTML = trip.travellers.map((t, i) => `<div class="field-row" style="grid-template-columns:2fr 2fr 1.4fr auto;align-items:end;" data-pi="${i}">
@@ -531,7 +565,7 @@ function readTripForm() {
   return { productType: $('t-type').value, supplier: $('t-supplier').value, productName: $('t-product').value,
     itinerary: $('t-itinerary').value, destination: $('t-destination').value, departDate: $('t-depart').value,
     returnDate: $('t-return').value, cabinCategory: $('t-category').value, cabin: $('t-cabin').value,
-    travellers: trip.travellers, lines: trip.lines, deposit: $('t-deposit').value, depositRefundable: $('t-refundable').value,
+    travellers: trip.travellers, lines: trip.lines, promotions: trip.promotions, deposit: $('t-deposit').value, depositRefundable: $('t-refundable').value,
     depositDue: $('t-deposit-due').value, finalPaymentDue: $('t-final-due').value };
 }
 
