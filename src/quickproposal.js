@@ -17,6 +17,7 @@ import { docsReady } from './documents.js';
 import { sniffPicture } from './grouppicture.js';
 import { SECTION_KINDS } from './proposalkinds.js';
 import { cleanTrip, readTrip, hasTrip } from './quicktrip.js';
+import { markLeadQuoted } from './leads.js';
 import { PRODUCT_TYPES } from './producttypes.js';
 import { PRICE_KINDS, syncBookingTotals } from './pricing.js';
 import { brandForUser } from './brand.js';
@@ -318,6 +319,8 @@ export async function handleSendQuickProposal(request, env, id) {
             response = CASE WHEN response IN ('changes', 'question', 'declined') THEN NULL ELSE response END
       WHERE id = ? AND user_id = ?`)
     .bind(now(), id, user.id).run();
+  // Somebody on the lead board whose quote has just gone out moves to Quoted, and the column adds it up.
+  if (row.lead_id) await markLeadQuoted(env, user, row.lead_id).catch((e) => console.error('lead quoted', e));
   await db.logActivity(env, user.id, 'proposal.sent', `Sent the proposal "${row.title}"`, { id });
   return json({ ok: true });
 }

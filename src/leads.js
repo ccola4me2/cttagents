@@ -27,6 +27,7 @@ import { fillWords, wordingFor, greeting, LEAD_HELLO, LEAD_FOLLOWUP } from './tr
 import { escapeHtml, PermanentError } from './util.js';
 import { SOURCE_KINDS, SOURCE_KIND_IDS } from './attribution.js';
 import { dayInZone, zoneOfUser } from './eventzone.js';
+import { readTrip, tripTotals } from './quicktrip.js';
 
 // Where somebody is in the conversation, in the words an advisor would use.
 // "Booked" is not here on purpose: it is a fact about reservations, so it is
@@ -35,6 +36,8 @@ export const LEAD_STAGES = [
   { id: 'new', name: 'New' },
   { id: 'contacted', name: 'Reached out' },
   { id: 'talking', name: 'In conversation' },
+  // A quote has gone out by email and nothing has come back yet. Moved here by the send itself, so nobody drags it.
+  { id: 'quoted', name: 'Quoted' },
   { id: 'nurture', name: 'Keeping warm' },
   { id: 'lost', name: 'Gone cold' },
   // Booked without a reservation started from the lead: they booked on their own, with a vendor, or somebody else made the
@@ -109,6 +112,31 @@ export async function handleLeadBoard(request, env) {
   ).bind(...binds).all();
 
   const everyone = (results || []).map(shape);
+
+  // What each lead has been quoted. The newest quote that has a price and has not been turned down or turned into a
+  // reservation, so a revised quote replaces the old figure and the column does not count the same trip twice. Only the
+  // advisor's own proposals through the same fence as the leads themselves.
+  const scopedQuotes = db.scopeWhere(scope, 'user_id');
+  const { results: quoteRows } = await env.DB.prepare(
+    `SELECT lead_id, trip_json, response, booking_id
+       FROM quick_proposals
+      WHERE ${scopedQuotes.sql} AND lead_id IS NOT NULL
+      ORDER BY updated_at DESC LIMIT 1000`
+  ).bind(...scopedQuotes.binds).all().catch(() => ({ results: [] }));
+  const quoted = new Map();
+  for (const q of quoteRows || []) {
+    if (q.booking_id || q.response === 'declined') continue;
+    const cents = tripTotals(readTrip(q.trip_json)).totalCents;
+    if (!(cents > 0)) continue;
+    const seen = quoted.get(q.lead_id) || { cents, count: 0 };
+    seen.count += 1;
+    quoted.set(q.lead_id, seen);
+  }
+  for (const l of everyone) {
+    const q = quoted.get(l.id);
+    l.quoteCents = q ? q.cents : 0;
+    l.quoteCount = q ? q.count : 0;
+  }
   // Booked is derived, so it cannot disagree with the reservations. Somebody
   // who books leaves the board on their own.
   const allOpen = everyone.filter((l) => !l.trips);
@@ -127,7 +155,7 @@ export async function handleLeadBoard(request, env) {
 
   const stages = LEAD_STAGES.map((st, i) => {
     const items = open.filter((l) => l.stage === st.id);
-    return { ...st, position: i, count: items.length, leads: items };
+    return { ...st, position: i, count: items.length, leads: items, quoteCents: items.reduce((a, l) => a + (l.quoteCents || 0), 0) };
   });
 
   return json({
@@ -315,6 +343,20 @@ export async function handleFollowedUp(request, env, id) {
  * and posting back the rest from whatever the card was rendered with is how a
  * stale card overwrites an edit made in another tab.
  */
+/**
+ * A quote has gone out by email to somebody on the board: they move to Quoted, with a follow-up in three days.
+ *
+ * Called by the send itself, never by anything automatic. Sending is the only thing that moves them, and somebody who has
+ * already booked stays booked. Sending a second time starts the three days again.
+ */
+export async function markLeadQuoted(env, user, clientId) {
+  await env.DB.prepare(
+    `UPDATE clients SET lead_stage = 'quoted', lead_next_step = 'Follow up on the quote you sent',
+            lead_next_step_on = ?, updated_at = ?
+      WHERE id = ? AND user_id = ? AND lead_stage IS NOT NULL AND lead_stage <> 'booked'`
+  ).bind(dayInZone(zoneOfUser(env, user), 3), now(), clientId, user.id).run();
+}
+
 export async function handleMoveLead(request, env, id) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;

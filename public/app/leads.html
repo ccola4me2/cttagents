@@ -11,6 +11,8 @@
   .opp .n { font-size:.75rem; color: var(--ink-400); margin-top:.35rem; }
   .opp .n.due { color: var(--red-600); font-weight:600; }
   .opp .w { font-size:.75rem; color: var(--ink-400); margin-top:.3rem; }
+  .opp .q { font-size:.82rem; font-weight:700; color: var(--green-700, #1f7a5a); margin-top:.35rem; }
+  .col-total { font-size:.78rem; font-weight:700; color: var(--green-700, #1f7a5a); margin: -.4rem 0 .7rem; }
   .board-col.cold { background: transparent; border:1px dashed var(--navy-100); }
   .board-col.won { background: var(--green-50, #ecf8f0); border: 1px solid var(--green-200, #bfe6cc); }
   .cd-chips { display: flex; gap: .5rem; flex-wrap: wrap; }
@@ -186,6 +188,9 @@ function reach(l) {
     .filter(Boolean).join(' &middot; ');
 }
 
+// Money always shows its cents.
+const usd = (cents) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 function card(l) {
   const late = l.nextStepOn && l.nextStepOn <= data.today;
   return `<article class="opp" draggable="true" data-id="${esc(l.id)}">
@@ -195,6 +200,7 @@ function card(l) {
       l.nextStepOn ? ` &middot; ${esc(dateFmt(l.nextStepOn))}` : ''}</div>`
       : l.interest === 'guide' ? '<div class="n">On the email list</div>'
       : '<div class="n due">No next step</div>'}
+    ${l.quoteCents ? `<div class="q">Quote ${usd(l.quoteCents)}${l.quoteCount > 1 ? ` &middot; ${l.quoteCount} quotes` : ''}</div>` : ''}
     <div class="w">${esc(cameFrom(l))} &middot; ${esc(timeAgo(l.since))}</div>
   </article>`;
 }
@@ -343,6 +349,7 @@ function board() {
     <div class="board-col${s.id === 'lost' ? ' cold' : s.id === 'booked' ? ' won' : ''}" data-stage="${esc(s.id)}">
       <h3>${esc(s.name)}</h3>
       <p class="col-meta">${s.count}</p>
+      ${s.quoteCents ? `<p class="col-total">Quotes ${usd(s.quoteCents)}</p>` : ''}
       ${s.leads.map(card).join('')
         || '<p class="muted" style="font-size:.78rem;">Nobody here.</p>'}
     </div>`).join('')}</div>`;
