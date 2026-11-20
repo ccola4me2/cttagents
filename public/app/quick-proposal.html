@@ -51,16 +51,16 @@
           <p class="form-group">Who and what</p>
           <div class="field-row">
             <div class="field"><label for="t-type">Type</label><select id="t-type"></select></div>
-            <div class="field"><label for="t-supplier">Vendor</label><input id="t-supplier" maxlength="120" placeholder="Margaritaville at Sea"></div>
+            <div class="field"><label for="t-supplier">Vendor</label><input id="t-supplier" maxlength="120" placeholder="Cruise line or vendor"></div>
           </div>
           <div id="t-pick"></div>
           <div class="field-row">
-            <div class="field"><label for="t-product">Ship, hotel or product</label><input id="t-product" maxlength="120" placeholder="Margaritaville at Sea Beachcomber"></div>
-            <div class="field"><label for="t-itinerary">Itinerary</label><input id="t-itinerary" maxlength="160" placeholder="7-Night Key West and Western Caribbean"></div>
+            <div class="field"><label for="t-product">Ship, hotel or product</label><input id="t-product" maxlength="120" placeholder="Name of the ship or place"></div>
+            <div class="field"><label for="t-itinerary">Itinerary</label><input id="t-itinerary" maxlength="160" placeholder="Name of the sailing"></div>
           </div>
           <div class="field-row">
             <div class="field"><label for="t-destination">Destination</label><input id="t-destination" maxlength="120"></div>
-            <div class="field"><label for="t-category">Category</label><input id="t-category" maxlength="80" placeholder="Interior"></div>
+            <div class="field"><label for="t-category">Category</label><input id="t-category" maxlength="80" placeholder="Interior, balcony, suite"></div>
           </div>
           <div class="field-row">
             <div class="field"><label for="t-cabin">Cabin or room</label><input id="t-cabin" maxlength="80"></div>
@@ -333,7 +333,6 @@ async function drawLead() {
   try {
     const d = await api(`/api/client?id=${encodeURIComponent(lead.id)}`);
     const c = d.client || {};
-    prefillTrip(c);
     const when = (t) => (t ? new Date(t * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '');
     const rows = [
       ['Contact', [c.phone, c.email].filter(Boolean).join('  \u00b7  ')],
@@ -343,6 +342,7 @@ async function drawLead() {
       ['Your notes on them', c.notes],
     ].filter((r) => r[1]);
     const subs = d.submissions || [];
+    prefillTrip(c, subs);
     body.innerHTML = `
       ${rows.length ? `<dl class="kv answers">${rows.map((r) => `<dt>${esc(r[0])}</dt><dd>${esc(r[1])}</dd>`).join('')}</dl>` : ''}
       ${subs.map((s) => `
@@ -411,9 +411,26 @@ function fillTrip(d) {
 }
 
 // Somebody who just got in touch is the first person going, with their phone and email already known.
-function prefillTrip(c) {
+function prefillTrip(c, subs) {
   if (!trip || trip.travellers.some((t) => t.name) || trip.lines.some((l) => l.amounts.some(Boolean))) return;
   trip.travellers[0] = { name: (lead && lead.name) || '', email: c.email || '', phone: c.phone || '' };
+  // The Margaritaville at Sea quote form writes what they chose as one sentence: the sailing, the ship, the month they
+  // want, the cabin and how many are going. Read back out so none of it is typed twice. Only blanks are filled.
+  const said = (subs || []).flatMap((s) => (s.answers || []).map((a) => String(a.value || ''))).join(' ');
+  const m = said.match(/Interested in:\s*(.+?)\s+aboard\s+(.+?)\s+Preferred timing:\s*([A-Za-z]+ \d{1,2}, \d{4})\s+Cabin type:\s*(.+?)\s+Party size:\s*(\d+)/i);
+  if (m) {
+    const put = (id, v) => { if (v && !$(id).value) $(id).value = v; };
+    put('t-itinerary', m[1].trim()); put('t-product', m[2].trim()); put('t-category', m[4].trim());
+    if (/margaritaville/i.test(m[2])) put('t-supplier', 'Margaritaville at Sea');
+    const day = new Date(`${m[3]} 12:00:00 UTC`);
+    if (!Number.isNaN(day.getTime())) {
+      put('t-depart', day.toISOString().slice(0, 10));
+      const nights = (m[1].match(/(\d+)\s*-?\s*night/i) || [])[1];
+      if (nights) put('t-return', new Date(day.getTime() + Number(nights) * 86400000).toISOString().slice(0, 10));
+    }
+    const party = Math.min(Math.max(Number(m[5]) || 1, 1), 12);
+    while (trip.travellers.length < party) { trip.travellers.push({ name: '', email: '', phone: '' }); trip.lines.forEach((l) => l.amounts.push('')); }
+  }
   drawPeople(); drawGrid();
 }
 
