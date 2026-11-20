@@ -34,9 +34,15 @@ export function cleanTrip(raw) {
   const sent = (Array.isArray(t.lines) ? t.lines : []).slice(0, MAX_LINES)
     .map((l) => ({ kind: KIND_KEYS.includes(l && l.kind) ? l.kind : '', amounts: (Array.isArray(l && l.amounts) ? l.amounts : []).map(toCents) }))
     .filter((l) => l.kind);
+  // Every extra traveller is kept, because somebody added the row on purpose. One whose name is not known yet is TBD, to be
+  // determined, so the party is the right size on the quote and on the reservation. The first is kept when anyone else is,
+  // so the prices below stay under the person they were typed for.
   const keep = [];
-  rows.forEach((r, i) => { if (r.name || r.email || r.phone || sent.some((l) => l.amounts[i] > 0)) keep.push(i); });
-  const travellers = keep.map((i) => rows[i]);
+  rows.forEach((r, i) => {
+    const data = r.name || r.email || r.phone || sent.some((l) => l.amounts[i] > 0);
+    if (i > 0 || data || rows.length > 1) keep.push(i);
+  });
+  const travellers = keep.map((i) => (rows[i].name || i === 0 ? rows[i] : { ...rows[i], name: 'TBD' }));
   const lines = sent
     .map((l) => ({ kind: l.kind, amounts: keep.map((i) => l.amounts[i] || 0) }))
     .filter((l) => l.amounts.some((a) => a > 0));

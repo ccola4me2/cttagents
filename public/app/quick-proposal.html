@@ -450,14 +450,14 @@ function prefillTrip(c, subs) {
       if (nights) put('t-return', new Date(day.getTime() + Number(nights) * 86400000).toISOString().slice(0, 10));
     }
     const party = Math.min(Math.max(Number(m[5]) || 1, 1), 12);
-    while (trip.travellers.length < party) { trip.travellers.push({ name: '', email: '', phone: '' }); trip.lines.forEach((l) => l.amounts.push('')); }
+    while (trip.travellers.length < party) { trip.travellers.push({ name: 'TBD', email: '', phone: '' }); trip.lines.forEach((l) => l.amounts.push('')); }
   }
   drawPeople(); drawGrid();
 }
 
 function drawPeople() {
   $('t-people').innerHTML = trip.travellers.map((t, i) => `<div class="field-row" style="grid-template-columns:2fr 2fr 1.4fr auto;align-items:end;" data-pi="${i}">
-    <div class="field"><label>${i === 0 ? 'Name, as on the passport' : 'Name'}</label><input class="p-name" maxlength="120" value="${esc(t.name)}"></div>
+    <div class="field"><label>${i === 0 ? 'Name, as on the passport' : 'Name'}</label><input class="p-name" maxlength="120" placeholder="TBD if not known yet" value="${esc(t.name)}"></div>
     <div class="field"><label>Email</label><input class="p-email" type="email" maxlength="254" value="${esc(t.email)}"></div>
     <div class="field"><label>Phone</label><input class="p-phone" maxlength="40" value="${esc(t.phone)}"></div>
     <div class="field">${trip.travellers.length > 1 ? '<button class="btn btn-ghost btn-sm p-del" type="button">Remove</button>' : ''}</div></div>`).join('');
@@ -506,7 +506,7 @@ $('t-people').addEventListener('click', (ev) => {
 });
 $('t-add-person').addEventListener('click', () => {
   if (trip.travellers.length >= 12) return;
-  trip.travellers.push({ name: '', email: '', phone: '' }); trip.lines.forEach((l) => l.amounts.push(''));
+  trip.travellers.push({ name: 'TBD', email: '', phone: '' }); trip.lines.forEach((l) => l.amounts.push(''));
   drawPeople(); drawGrid();
 });
 $('t-add-line').addEventListener('click', () => {
