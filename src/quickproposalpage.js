@@ -37,6 +37,8 @@ function shell(title, body, brand, { env, head = '' }) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} | ${esc(b.name)}</title>
 <meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/logo-mark.png" type="image/png">
+<link rel="apple-touch-icon" href="/logo-mark.png">
 ${head}
 <style>
   :root{--navy:${accent};--coral:#e55942;--ink:#2f4459;--soft:#5c7286;--line:#e4edf5;--shell:#fbf9f5}
