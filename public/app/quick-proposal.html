@@ -24,7 +24,7 @@
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main">
     <header class="topbar">
-      <div><a class="back-link" href="/app/quick-proposals">&larr; Quick proposals</a>
+      <div><a class="back-link" id="back" href="/app/quick-proposals">&larr; Quick proposals</a>
         <h1 id="page-title">Proposal</h1>
         <p class="sub" id="state"></p></div>
       <div class="toolbar qp-bar" style="margin:0;">
@@ -121,6 +121,7 @@ await mountShell();
 const id = new URL(location.href).searchParams.get('id');
 const err = document.getElementById('err');
 let p = null;          // the proposal as last saved
+let lead = null;       // the lead it was started for, when there is one
 let secs = [];         // the sections being edited
 let cover = '';        // the cover picture's id
 let images = {};       // picture id -> address
@@ -237,6 +238,7 @@ function bindRows() {
 function fill(d) {
   kinds = d.kinds || kinds;
   p = d.proposal;
+  lead = d.lead || null;
   images = Object.fromEntries((p.images || []).map((i) => [i.id, i.url]));
   secs = p.sections.map((s) => ({ ...s }));
   cover = p.coverImageId || '';
@@ -251,6 +253,11 @@ function fill(d) {
     : p.viewCount ? `Opened ${p.viewCount} time${p.viewCount === 1 ? '' : 's'}.`
     : p.sentCount ? 'Sent, not opened yet.' : 'Not sent yet.';
   $('quote').hidden = Boolean(p.bookingId);
+  // A quote that began on a lead goes back to the lead, and its button says what it is for: they said yes.
+  if (lead) {
+    $('back').href = '/app/leads'; $('back').textContent = '\u2190 Leads';
+    $('quote').textContent = 'They accepted: make it a reservation';
+  }
   $('cover-file').disabled = !d.storage;
   if (!d.storage) $('cover-note').textContent = 'Picture storage is not set up yet, so pictures cannot be added.';
   drawCover(); drawSecs();
@@ -315,12 +322,17 @@ $('send-form').addEventListener('submit', async (ev) => {
 });
 
 $('quote').addEventListener('click', async () => {
-  const name = prompt('Who is the quote for?', p.forName || '');
+  // From a lead there is nobody to ask: it is that person. Then the vendor's confirmation is read straight away, so the
+  // reservation is filled in and checked against it, not typed in by hand.
+  const name = lead ? lead.name : prompt('Who is the quote for?', p.forName || '');
   if (!name) return;
+  if (lead && !confirm(`${lead.name} said yes? This makes a reservation for them, and they come off the lead board. Next you add the vendor's confirmation to fill it in and check it.`)) return;
   try {
     await save();
     const made = await api(`/api/quick-proposals/${encodeURIComponent(id)}/quote`, { method: 'POST', body: { clientName: name } });
-    location.href = `/app/reservation?id=${encodeURIComponent(made.bookingId)}`;
+    location.href = lead
+      ? `/app/import?booking=${encodeURIComponent(made.bookingId)}`
+      : `/app/reservation?id=${encodeURIComponent(made.bookingId)}`;
   } catch (e) { showError(err, e); }
 });
 

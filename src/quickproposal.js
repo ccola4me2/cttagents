@@ -76,6 +76,7 @@ function shape(r, images) {
     coverImageId: r.cover_image_id || '', sections, totalText: r.total_text || '',
     expiresAt: r.expires_at || null, sentCount: r.sent_count || 0, lastSentAt: r.last_sent_at || null,
     viewCount: r.view_count || 0, firstViewedAt: r.first_viewed_at || null, bookingId: r.booking_id || null,
+    leadId: r.lead_id || null,
     createdAt: r.created_at, updatedAt: r.updated_at,
     images: images || [],
   };
@@ -98,11 +99,13 @@ async function loadImages(env, user, id) {
 export async function handleListQuickProposals(request, env) {
   const { user, response } = await requireUser(request, env);
   if (response) return response;
+  // A lead's own card asks for just its quotes. Still only the advisor's own: the lead id narrows, it never widens.
+  const lead = new URL(request.url).searchParams.get('lead') || '';
   const { results } = await env.DB.prepare(
     `SELECT id, code, title, for_name, expires_at, sent_count, last_sent_at, view_count, first_viewed_at,
-            booking_id, created_at, updated_at
-       FROM quick_proposals WHERE user_id = ? ORDER BY updated_at DESC LIMIT 200`
-  ).bind(user.id).all().catch(() => ({ results: [] }));
+            booking_id, lead_id, created_at, updated_at
+       FROM quick_proposals WHERE user_id = ? AND (? = '' OR lead_id = ?) ORDER BY updated_at DESC LIMIT 200`
+  ).bind(user.id, lead, lead).all().catch(() => ({ results: [] }));
   const today = now();
   return json({
     proposals: (results || []).map((r) => ({
@@ -110,7 +113,7 @@ export async function handleListQuickProposals(request, env) {
       expired: Boolean(r.expires_at && r.expires_at < today), expiresAt: r.expires_at || null,
       sentCount: r.sent_count || 0, lastSentAt: r.last_sent_at || null,
       viewCount: r.view_count || 0, firstViewedAt: r.first_viewed_at || null,
-      bookingId: r.booking_id || null, updatedAt: r.updated_at,
+      bookingId: r.booking_id || null, leadId: r.lead_id || null, updatedAt: r.updated_at,
     })),
   });
 }
@@ -122,11 +125,18 @@ export async function handleCreateQuickProposal(request, env) {
   const body = await readJson(request).catch(() => ({}));
   const ts = now();
   const id = uid();
+  // Started from a lead: the proposal is for that person and says so, and nothing else is made. No client record, no
+  // reservation. The lead is one of this advisor's own, never a name taken on trust.
+  let lead = null;
+  if (body.leadId) {
+    lead = await env.DB.prepare('SELECT id, name FROM clients WHERE id = ? AND user_id = ?').bind(String(body.leadId), user.id).first();
+    if (!lead) return notFound('That lead is not here.');
+  }
   await env.DB.prepare(
-    `INSERT INTO quick_proposals (id, user_id, code, title, for_name, expires_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, user.id, newCode(), clean(body.title, 140) || 'New proposal', clean(body.forName, 120) || null,
-    ts + 60 * 86400, ts, ts).run();
+    `INSERT INTO quick_proposals (id, user_id, code, title, for_name, lead_id, expires_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, user.id, newCode(), clean(body.title, 140) || (lead ? `Quote for ${lead.name}` : 'New proposal'),
+    clean(body.forName, 120) || (lead ? lead.name : null), lead ? lead.id : null, ts + 60 * 86400, ts, ts).run();
   return json({ ok: true, id }, 201);
 }
 
@@ -136,8 +146,12 @@ export async function handleGetQuickProposal(request, env, id) {
   if (response) return response;
   const row = await load(env, user, id);
   if (!row) return notFound('That proposal is not here.');
+  const lead = row.lead_id
+    ? await env.DB.prepare('SELECT id, name FROM clients WHERE id = ? AND user_id = ?').bind(row.lead_id, user.id).first()
+    : null;
   return json({
     proposal: shape(row, imageList(env, await loadImages(env, user, id))),
+    lead: lead ? { id: lead.id, name: lead.name } : null,
     link: `${appUrl(env)}/p/${row.code}`,
     storage: docsReady(env),
     kinds: SECTION_KINDS,
@@ -304,7 +318,12 @@ export async function handleProposalToQuote(request, env, id) {
   if (row.booking_id) return json({ ok: true, bookingId: row.booking_id, already: true });
 
   const body = await readJson(request);
-  const clientName = clean(body.clientName, 120) || clean(row.for_name, 120);
+  // A quote that began on a lead goes to that same person: the lead is already the client record, and a reservation on it
+  // is what takes them off the lead board. Anyone else is found or made by name, as before.
+  const leadRow = row.lead_id
+    ? await env.DB.prepare('SELECT id, name FROM clients WHERE id = ? AND user_id = ?').bind(row.lead_id, user.id).first()
+    : null;
+  const clientName = (leadRow && leadRow.name) || clean(body.clientName, 120) || clean(row.for_name, 120);
   if (!clientName) return badRequest('Who is the quote for? Type the client\'s name.');
 
   let sections = [];
@@ -318,7 +337,7 @@ export async function handleProposalToQuote(request, env, id) {
     ]),
   ].filter(Boolean).join('\n').slice(0, 3800);
 
-  const clientId = await db.resolveClient(env, user.id, clientName, {});
+  const clientId = leadRow ? leadRow.id : await db.resolveClient(env, user.id, clientName, {});
   const booking = await db.createBooking(env, user.id, {
     clientName, clientId: clientId || null, productType: 'cruise', productName: row.title,
     departDate: null, returnDate: null, depositDue: null, finalPaymentDue: null, travellers: 1,
