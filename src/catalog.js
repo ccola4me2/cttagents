@@ -312,14 +312,18 @@ export async function catalogDates(env, ship, line) {
                     departure_port, disembark_port, destination
                FROM sailings WHERE ship_norm = ? AND depart_date >= ?`;
   if (line) { sql += ' AND line_norm LIKE ?'; binds.push(`${normKey(line)}%`); }
-  sql += ' ORDER BY depart_date ASC LIMIT 400';
+  sql += ' ORDER BY depart_date ASC, nights ASC LIMIT 800';
 
   const { results } = await env.DB.prepare(sql).bind(...binds).all().catch(() => ({ results: [] }));
+  // Keep genuine per-departure variants (same ship + date sold at several
+  // lengths/itineraries); collapse only truly identical rows. Each surviving row
+  // keeps its own sailing id so the reservation picks the exact variant.
   const seen = new Set();
   const out = [];
   for (const r of results || []) {
-    if (seen.has(r.depart_date)) continue;
-    seen.add(r.depart_date);
+    const key = `${r.depart_date}|${r.nights || ''}|${normKey(r.name)}|${normKey(r.departure_port)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     out.push(withReturn(r));
   }
   return out;

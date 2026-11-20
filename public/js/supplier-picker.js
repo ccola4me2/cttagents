@@ -235,7 +235,7 @@ export async function mountSupplierPicker(host, { typeOf, set, onSailing }) {
     picked.hidden = true;
     dateRows = d.dates;
     pickDate.innerHTML = '<option value="">Departure</option>'
-      + d.dates.map((r) => `<option value="${esc(r.depart_date)}">${esc(sailingLabel(r))}</option>`)
+      + d.dates.map((r) => `<option value="${esc(r.id || r.depart_date)}">${esc(sailingLabel(r))}</option>`)
         .join('') + WRITE_IN_OPTION;
     pickDate.disabled = false;
   }
@@ -252,7 +252,7 @@ export async function mountSupplierPicker(host, { typeOf, set, onSailing }) {
       if (dates) dates.focus();
       return;
     }
-    const r = dateRows.find((x) => x.depart_date === pickDate.value);
+    const r = dateRows.find((x) => String(x.id || x.depart_date) === pickDate.value);
     if (!r) return;
     if (onSailing) onSailing(r);
     picked.hidden = false;
