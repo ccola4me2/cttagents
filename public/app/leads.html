@@ -592,7 +592,7 @@ const quoteDlg = document.getElementById('quote-dlg');
 const quoteWho = document.getElementById('quote-who');
 let quotePick = null;
 const myId = (await api('/api/auth/me').catch(() => ({}))).user?.id;
-mountClientSuggest(quoteWho, { mineOnly: myId, onChoose(row) { quotePick = row.source === 'crm' ? null : row; } });
+mountClientSuggest(quoteWho, { mineOnly: myId, onChoose: (row) => { quotePick = row.source === 'crm' ? null : row; } });
 quoteWho.addEventListener('input', () => { quotePick = null; });
 document.getElementById('new-quote').addEventListener('click', () => {
   quotePick = null; quoteWho.value = '';
