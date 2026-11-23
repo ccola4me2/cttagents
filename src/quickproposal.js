@@ -148,7 +148,8 @@ export async function handleCreateQuickProposal(request, env) {
   await env.DB.prepare(
     `INSERT INTO quick_proposals (id, user_id, code, title, for_name, lead_id, expires_at, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, user.id, newCode(), clean(body.title, 140) || (lead ? `${earlier ? `Quote ${earlier + 1}` : 'Quote'} for ${lead.name}` : 'New proposal'),
+  ).bind(id, user.id, newCode(), clean(body.title, 140) || (lead ? `${earlier ? `Quote ${earlier + 1}` : 'Quote'} for ${lead.name}`
+      : clean(body.forName, 120) ? `Quote for ${clean(body.forName, 120)}` : 'New proposal'),
     clean(body.forName, 120) || (lead ? lead.name : null), lead ? lead.id : null, ts + 60 * 86400, ts, ts).run();
   return json({ ok: true, id }, 201);
 }
