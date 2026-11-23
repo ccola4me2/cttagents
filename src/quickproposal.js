@@ -425,6 +425,63 @@ export async function handleProposalToQuote(request, env, id) {
   return json({ ok: true, bookingId: booking.id }, 201);
 }
 
+/**
+ * POST /api/quick-proposals/:id/copy : a new quote that starts as this one.
+ *
+ * For somebody who asks for another option: the same people, trip, prices, promotions, words and pictures, ready to change. It is a
+ * new page with its own link and its own count, and nothing about how the first one was answered comes with it. A quote for a
+ * lead is numbered ("Quote 2 for Julie Green"), any other is "<title> (copy)". The pictures are copied, not shared, so deleting
+ * one quote never takes a picture from the other.
+ */
+export async function handleCopyQuickProposal(request, env, id) {
+  const { user, response } = await requireUser(request, env);
+  if (response) return response;
+  const row = await load(env, user, id);
+  if (!row) return notFound('That proposal is not here.');
+
+  const ts = now();
+  const newId = uid();
+  let title = `${row.title} (copy)`.slice(0, 140);
+  if (row.lead_id) {
+    const who = await env.DB.prepare('SELECT name FROM clients WHERE id = ? AND user_id = ?').bind(row.lead_id, user.id).first();
+    const had = await env.DB.prepare('SELECT COUNT(*) AS n FROM quick_proposals WHERE user_id = ? AND lead_id = ?').bind(user.id, row.lead_id).first();
+    if (who) title = `Quote ${((had && had.n) || 0) + 1} for ${who.name}`.slice(0, 140);
+  }
+
+  // The pictures first, so the sections can point at their copies.
+  const copied = new Map();
+  if (docsReady(env)) {
+    const { results: pics } = await env.DB.prepare(
+      'SELECT id, r2_key FROM quick_proposal_images WHERE proposal_id = ? AND user_id = ?'
+    ).bind(id, user.id).all().catch(() => ({ results: [] }));
+    for (const pic of pics || []) {
+      const obj = await env.DOCS.get(pic.r2_key).catch(() => null);
+      if (!obj) continue;
+      const bytes = await obj.arrayBuffer();
+      const imageId = uid();
+      const key = `${user.id}/proposals/${newId}/${imageId}.${String(pic.r2_key).split('.').pop()}`;
+      await env.DOCS.put(key, bytes, { httpMetadata: { contentType: obj.httpMetadata && obj.httpMetadata.contentType } });
+      await env.DB.prepare(
+        `INSERT INTO quick_proposal_images (id, proposal_id, user_id, r2_key, bytes, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).bind(imageId, newId, user.id, key, bytes.byteLength, ts).run();
+      copied.set(pic.id, imageId);
+    }
+  }
+  let sections = [];
+  try { sections = JSON.parse(row.sections_json || '[]'); } catch { sections = []; }
+  sections = sections.map((s) => ({ ...s, imageId: copied.get(s.imageId) || '' }));
+
+  await env.DB.prepare(
+    `INSERT INTO quick_proposals (id, user_id, code, title, for_name, note, cover_image_id, sections_json, total_text, trip_json,
+       lead_id, expires_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(newId, user.id, newCode(), title, row.for_name || null, row.note || null, copied.get(row.cover_image_id) || null,
+    JSON.stringify(sections), row.total_text || null, row.trip_json || null, row.lead_id || null, ts + 60 * 86400, ts, ts).run();
+  await db.logActivity(env, user.id, 'proposal.copied', `Copied the proposal "${row.title}"`, { id, copy: newId });
+  return json({ ok: true, id: newId }, 201);
+}
+
 /** The housekeeping pass: a proposal goes a week after it expires, with its pictures. */
 export async function purgeExpiredProposals(env) {
   const cutoff = now() - 7 * 86400;

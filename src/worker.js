@@ -255,7 +255,7 @@ import { handleUploadGroupFile, handleDeleteGroupFile, serveGroupFile } from './
 import {
   handleListQuickProposals, handleCreateQuickProposal, handleGetQuickProposal, handleSaveQuickProposal,
   handleDeleteQuickProposal, handleUploadProposalImage, handleRemoveProposalImage, handleSendQuickProposal,
-  handleProposalToQuote, purgeExpiredProposals,
+  handleProposalToQuote, purgeExpiredProposals, handleCopyQuickProposal,
 } from './quickproposal.js';
 import { renderQuickProposal, serveProposalImage, handleProposalResponse } from './quickproposalpage.js';
 import { handleWaiver, renderWaiverPage, handleSignWaiver } from './waiver.js';
@@ -899,6 +899,7 @@ async function routeApi(request, env, path, method) {
   const qpImageDropMatch = path.match(/^\/api\/quick-proposals\/([^/]+)\/image\/([^/]+)$/);
   const qpSendMatch = path.match(/^\/api\/quick-proposals\/([^/]+)\/send$/);
   const qpQuoteMatch = path.match(/^\/api\/quick-proposals\/([^/]+)\/quote$/);
+  const qpCopyMatch = path.match(/^\/api\/quick-proposals\/([^/]+)\/copy$/);
   const groupMatch = path.match(/^\/api\/groups\/([^/]+)$/);
   const groupAccessMatch = path.match(/^\/api\/groups\/([^/]+)\/access$/);
   const groupAskMatch = path.match(/^\/api\/groups\/([^/]+)\/access-request$/);
@@ -1408,6 +1409,7 @@ async function routeApi(request, env, path, method) {
   if (qpImageDropMatch && method === 'DELETE') return handleRemoveProposalImage(request, env, qpImageDropMatch[1], qpImageDropMatch[2]);
   if (qpSendMatch && method === 'POST') return handleSendQuickProposal(request, env, qpSendMatch[1]);
   if (qpQuoteMatch && method === 'POST') return handleProposalToQuote(request, env, qpQuoteMatch[1]);
+  if (qpCopyMatch && method === 'POST') return handleCopyQuickProposal(request, env, qpCopyMatch[1]);
   if (qpMatch && method === 'GET') return handleGetQuickProposal(request, env, qpMatch[1]);
   if (qpMatch && method === 'PUT') return handleSaveQuickProposal(request, env, qpMatch[1]);
   if (qpMatch && method === 'DELETE') return handleDeleteQuickProposal(request, env, qpMatch[1]);

@@ -30,6 +30,7 @@
       <div class="toolbar qp-bar" style="margin:0;">
         <a class="btn btn-ghost btn-sm" id="preview" target="_blank" rel="noopener">Preview</a>
         <button class="btn btn-ghost btn-sm" type="button" id="copy">Copy link</button>
+        <button class="btn btn-ghost btn-sm" type="button" id="dup" title="Start another quote from this one">Copy this quote</button>
         <button class="btn btn-primary btn-sm" type="button" id="send">Send by email</button>
       </div>
     </header>
@@ -645,6 +646,16 @@ $('quote').addEventListener('click', async () => {
       ? `/app/import?booking=${encodeURIComponent(made.bookingId)}`
       : `/app/reservation?id=${encodeURIComponent(made.bookingId)}`;
   } catch (e) { showError(err, e); }
+});
+
+// Another option for the same people: a new quote that starts as this one, with its own link. Whatever is on the page is saved first.
+$('dup').addEventListener('click', async (ev) => {
+  ev.target.disabled = true;
+  try {
+    await save();
+    const made = await api(`/api/quick-proposals/${encodeURIComponent(id)}/copy`, { method: 'POST', body: {} });
+    location.href = `/app/quick-proposal?id=${encodeURIComponent(made.id)}`;
+  } catch (e) { showError(err, e); ev.target.disabled = false; }
 });
 
 $('drop').addEventListener('click', async () => {

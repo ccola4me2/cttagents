@@ -57,11 +57,19 @@ function render(d) {
       <td class="muted">${p.lastSentAt ? esc(timeAgo(p.lastSentAt)) : '-'}</td>
       <td><button class="btn btn-ghost btn-sm" type="button" data-copy="${esc(p.link)}">Copy link</button></td>
       <td class="num"><a class="btn btn-ghost btn-sm" href="/app/quick-proposal?id=${encodeURIComponent(p.id)}">Open</a>
+        <button class="btn btn-ghost btn-sm" type="button" data-dup="${esc(p.id)}">Copy</button>
         <button class="btn btn-ghost btn-sm" type="button" data-drop="${esc(p.id)}">Delete</button></td>
     </tr>`).join('')}</tbody></table></div>`;
   panel.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = 'Copied'; }
     catch { prompt('Copy this link', b.dataset.copy); }
+  }));
+  panel.querySelectorAll('[data-dup]').forEach((b) => b.addEventListener('click', async () => {
+    b.disabled = true;
+    try {
+      const made = await api(`/api/quick-proposals/${encodeURIComponent(b.dataset.dup)}/copy`, { method: 'POST', body: {} });
+      location.href = `/app/quick-proposal?id=${encodeURIComponent(made.id)}`;
+    } catch (e) { showError(err, e); b.disabled = false; }
   }));
   panel.querySelectorAll('[data-drop]').forEach((b) => b.addEventListener('click', async () => {
     if (!confirm('Delete this proposal? Its link stops working and its pictures are removed.')) return;
