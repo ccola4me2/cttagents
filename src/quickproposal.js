@@ -139,10 +139,16 @@ export async function handleCreateQuickProposal(request, env) {
     lead = await env.DB.prepare('SELECT id, name FROM clients WHERE id = ? AND user_id = ?').bind(String(body.leadId), user.id).first();
     if (!lead) return notFound('That lead is not here.');
   }
+  // Somebody who asks for several quotes gets several, told apart by number: "Quote for Julie Green", then "Quote 2 for Julie Green".
+  let earlier = 0;
+  if (lead) {
+    const had = await env.DB.prepare('SELECT COUNT(*) AS n FROM quick_proposals WHERE user_id = ? AND lead_id = ?').bind(user.id, lead.id).first();
+    earlier = (had && had.n) || 0;
+  }
   await env.DB.prepare(
     `INSERT INTO quick_proposals (id, user_id, code, title, for_name, lead_id, expires_at, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, user.id, newCode(), clean(body.title, 140) || (lead ? `Quote for ${lead.name}` : 'New proposal'),
+  ).bind(id, user.id, newCode(), clean(body.title, 140) || (lead ? `${earlier ? `Quote ${earlier + 1}` : 'Quote'} for ${lead.name}` : 'New proposal'),
     clean(body.forName, 120) || (lead ? lead.name : null), lead ? lead.id : null, ts + 60 * 86400, ts, ts).run();
   return json({ ok: true, id }, 201);
 }

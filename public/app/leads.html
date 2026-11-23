@@ -37,6 +37,7 @@
           <option value="board">Board</option>
           <option value="list">List</option>
         </select>
+        <button class="btn btn-secondary btn-sm" id="new-quote">New quote</button>
         <button class="btn btn-primary btn-sm" id="add">Somebody called</button>
       </div>
     </header>
@@ -55,6 +56,24 @@
   <div class="card-head"><h2 id="run-title">Answer your new leads</h2>
     <button class="btn btn-ghost btn-sm" type="button" id="run-close">Close</button></div>
   <div class="card-pad" id="run-body"></div>
+</dialog>
+
+<dialog id="quote-dlg" style="max-width:min(30rem, 96vw);width:96vw;">
+  <form id="quote-form" method="dialog">
+    <div class="card-head"><h2>Start a quote</h2>
+      <button class="btn btn-ghost btn-sm" type="button" id="quote-close">Close</button></div>
+    <div class="dialog-body">
+      <div class="notice notice-error" id="quote-err" hidden></div>
+      <div class="field"><label for="quote-who">Who is it for?</label>
+        <input id="quote-who" maxlength="120" required placeholder="Start typing a lead or client" autocomplete="off">
+        <p class="field-hint">Pick somebody on your book and the quote starts with their details and shows on their card. A name nobody has is fine too:
+          the quote is made without a client record, and nothing goes on your book until they say yes. Someone can have as many quotes as they ask for.</p></div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn btn-ghost" type="button" id="quote-cancel">Cancel</button>
+      <button class="btn btn-primary" type="submit" id="quote-go">Start the quote</button>
+    </div>
+  </form>
 </dialog>
 
 <dialog id="dlg">
@@ -202,6 +221,7 @@ function card(l) {
       : '<div class="n due">No next step</div>'}
     ${l.quoteCents ? `<div class="q">Quote ${usd(l.quoteCents)}${l.quoteCount > 1 ? ` &middot; ${l.quoteCount} quotes` : ''}</div>` : ''}
     <div class="w">${esc(cameFrom(l))} &middot; ${esc(timeAgo(l.since))}</div>
+    <div style="margin-top:.45rem;"><button type="button" class="btn btn-ghost btn-sm" data-quote="${esc(l.id)}">${l.quoteCount ? 'Another quote' : 'Start a quote'}</button></div>
   </article>`;
 }
 
@@ -380,18 +400,36 @@ function list() {
             : '<span style="color:var(--red-600);">nothing planned</span>'}</td>
         <td>${esc(l.stageName)}</td>
         <td class="num">${l.quoteCents ? `${usd(l.quoteCents)}${l.quoteCount > 1 ? `<div class="muted" style="font-size:.74rem;">${l.quoteCount} quotes</div>` : ''}` : '<span class="muted">-</span>'}</td>
-        <td class="num"><button class="btn btn-ghost btn-sm" data-edit="${esc(l.id)}">Open</button></td>
+        <td class="num"><button class="btn btn-ghost btn-sm" data-quote="${esc(l.id)}">${l.quoteCount ? 'Another quote' : 'Quote'}</button>
+          <button class="btn btn-ghost btn-sm" data-edit="${esc(l.id)}">Open</button></td>
       </tr>`;
     }).join('')}</tbody>${quotesTotal ? `<tfoot><tr><td colspan="5"><strong>All quotes shown</strong></td><td class="num"><strong>${usd(quotesTotal)}</strong></td><td></td></tr></tfoot>` : ''}</table></div>`;
 }
 
 const find = (id) => data.stages.flatMap((s) => s.leads).find((l) => l.id === id);
 
+// A quote begun from the board. Always a new one, so somebody who asks for several gets several, each its own page and its own
+// total. Nothing goes on the book: a quote is a proposal until they say yes.
+async function startQuote(body, button) {
+  if (button) button.disabled = true;
+  try {
+    const made = await api('/api/quick-proposals', { method: 'POST', body });
+    location.href = `/app/quick-proposal?id=${encodeURIComponent(made.id)}`;
+  } catch (e) {
+    if (button) button.disabled = false;
+    showError(document.getElementById('quote-dlg').open ? document.getElementById('quote-err') : err, e);
+  }
+}
+
 function wire() {
+  panel.querySelectorAll('[data-quote]').forEach((b) => b.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    startQuote({ leadId: b.dataset.quote }, b);
+  }));
   panel.querySelectorAll('[data-edit]').forEach((b) =>
     b.addEventListener('click', () => open(find(b.dataset.edit))));
   panel.querySelectorAll('.opp').forEach((el) => {
-    el.addEventListener('click', () => open(find(el.dataset.id)));
+    el.addEventListener('click', (ev) => { if (ev.target.closest('[data-quote]')) return; open(find(el.dataset.id)); });
     el.addEventListener('dragstart', (e) => {
       e.dataTransfer.setData('text/plain', el.dataset.id);
       el.classList.add('dragging');
@@ -548,6 +586,27 @@ document.getElementById('referredByName').addEventListener('input', () => {
 document.querySelectorAll('[data-close]').forEach((b) =>
   b.addEventListener('click', () => dlg.close()));
 document.getElementById('add').addEventListener('click', () => open(null));
+
+// The header's New quote: for somebody on the book, found as you type, or for a name nobody has yet.
+const quoteDlg = document.getElementById('quote-dlg');
+const quoteWho = document.getElementById('quote-who');
+let quotePick = null;
+const myId = (await api('/api/auth/me').catch(() => ({}))).user?.id;
+mountClientSuggest(quoteWho, { mineOnly: myId, onChoose(row) { quotePick = row.source === 'crm' ? null : row; } });
+quoteWho.addEventListener('input', () => { quotePick = null; });
+document.getElementById('new-quote').addEventListener('click', () => {
+  quotePick = null; quoteWho.value = '';
+  document.getElementById('quote-err').hidden = true;
+  quoteDlg.showModal(); quoteWho.focus();
+});
+for (const id of ['quote-close', 'quote-cancel']) document.getElementById(id).addEventListener('click', () => quoteDlg.close());
+document.getElementById('quote-form').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  const name = quoteWho.value.trim();
+  if (!name) return;
+  document.getElementById('quote-err').hidden = true;
+  startQuote(quotePick ? { leadId: quotePick.id } : { forName: name }, document.getElementById('quote-go'));
+});
 
 onSubmit(document.getElementById('form'), async (values) => {
   if (editing) {
