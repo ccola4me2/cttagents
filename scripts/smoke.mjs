@@ -11099,6 +11099,31 @@ async function main() {
     const p3 = n3.data?.pricing;
     check(p3 && p3.balanced === true && p3.guests?.[0]?.gratuities === '140.00' && p3.guests?.[0]?.commission === '144.25',
       'a Norwegian copy whose figures arrive on the line above their labels is read the same way', JSON.stringify(p3 && p3.lines));
+
+    // The payments section, which prints the deposit and the final payment as amounts, and what has already been applied.
+    const ncl4 = ['CONFIRMATION', 'INVOICE DATE:', '24-Nov-2026', 'BOOKING DATE:', '24-Nov-2026', 'RESERVATION:',
+      '65387885', 'SHIP: NORWEGIAN AQUA', 'SAILING: 2-May-2027 to 9-May-2027',
+      'CATEGORY / STATEROOM: OA / 5718', 'ITINERARY: 7-DAY CARIBBEAN ROUND-TRIP ORLANDO',
+      'GUESTS', '1 SAMPLE ANNA NO', '2 SAMPLE BEN NO',
+      'BOOKING COMPONENTS PER GUEST IN USD', 'Total Guest 1 Guest 2',
+      'Guest Fare 5,116.00 2,558.00 2,558.00', 'NCF 0.00 0.00 0.00', 'Taxes/Fees/Port Exp 340.00 170.00 170.00',
+      'Savings -2,558.00 -1,279.00 -1,279.00', 'Gross Total 2,898.00 1,449.00 1,449.00', 'Commission 255.80',
+      'PAYMENTS AMOUNT (USD)', 'PAYMENT SCHEDULE',
+      'FIRST DEPOSIT due on 27-Nov-2026 11:59 pm Eastern Time 250.00',
+      'FINAL PAYMENT due on 2-Jan-2027 11:59 pm Eastern Time 2,648.00',
+      'PAYMENTS APPLIED', 'PAID by CRUISENEXT CREDIT Coupon for SAMPLE ANNA on 24-Nov-2026 250.00',
+      'TOTAL PAYMENTS APPLIED 250.00'].join('\n');
+    const n4 = await call(advisor, 'POST', '/api/import/confirmation', { text: ncl4 });
+    const f4 = n4.data?.fields || {};
+    check(f4.deposit === '250.00' && f4.paid === '250.00' && f4.depositDue === '2026-11-27' && f4.finalPaymentDue === '2027-01-02',
+      'a Norwegian payments section is read: the deposit amount, what has been applied, and both dates', JSON.stringify(f4));
+
+    // The same, with each figure on a line of its own above its label, as a PDF read in the browser can lay it out.
+    const ncl5 = ncl4.replace('FIRST DEPOSIT due on 27-Nov-2026 11:59 pm Eastern Time 250.00', '250.00\nFIRST DEPOSIT due on 27-Nov-2026 11:59 pm Eastern Time')
+      .replace('TOTAL PAYMENTS APPLIED 250.00', '250.00\nTOTAL PAYMENTS APPLIED');
+    const n5 = await call(advisor, 'POST', '/api/import/confirmation', { text: ncl5 });
+    check(n5.data?.fields?.deposit === '250.00' && n5.data?.fields?.paid === '250.00',
+      'and the same when each figure sits on the line above its label', JSON.stringify(n5.data?.fields));
   }
 
   // Royal Caribbean and Celebrity print one agent copy: a column a guest, every promotion on a

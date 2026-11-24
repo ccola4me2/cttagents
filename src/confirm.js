@@ -799,7 +799,39 @@ function readNcl(lines, fields, from) {
     if (!fields.cabinCategory) { fields.cabinCategory = cab[1]; from.cabinCategory = was; }
   }
 
-  // The payment schedule: only the dates are printed, not the amounts.
+  // The amounts beside the schedule and the payments applied: "FIRST DEPOSIT due on 27-Nov-2026 11:59 pm Eastern Time   250.00" and
+  // "TOTAL PAYMENTS APPLIED   500.00". Read in a browser the figure can sit on the line above or below its label, so a figure on a line
+  // of its own beside the label counts. A copy that prints no amounts, only dates, simply has none to read.
+  const tailAmount = /([\d,]+\.\d{2})\s*$/;
+  const aloneAmount = /^\$?\s*([\d,]+\.\d{2})$/;
+  // Which side the figures sit on is settled once, from the first deposit, because the layout is the same all the way down: reading each
+  // label's neighbours on its own would hand one row's figure to the next.
+  const depositAt = lines.findIndex((l) => /^first deposit due on\b/i.test(l.trim()));
+  const side = depositAt < 0 || tailAmount.test(lines[depositAt].trim()) ? null
+    : (lines[depositAt - 1] && aloneAmount.test(lines[depositAt - 1].trim())) ? -1
+    : (lines[depositAt + 1] && aloneAmount.test(lines[depositAt + 1].trim())) ? 1 : null;
+  const amountAt = (i) => {
+    const own = tailAmount.exec(lines[i].trim());
+    if (own) return own[1];
+    for (const j of side === null ? [i - 1, i + 1] : [i + side]) {
+      const m = lines[j] && aloneAmount.exec(lines[j].trim());
+      if (m) return m[1];
+    }
+    return null;
+  };
+  lines.forEach((raw, i) => {
+    const line = raw.trim();
+    if (/^first deposit due on\b/i.test(line)) {
+      const a = amountAt(i);
+      if (a) set('deposit', (money(a) / 100).toFixed(2), line);
+    }
+    if (/^total payments applied\b/i.test(line)) {
+      const a = amountAt(i);
+      if (a && money(a) > 0) set('paid', (money(a) / 100).toFixed(2), line);
+    }
+  });
+
+  // The payment schedule's dates.
   for (const raw of lines) {
     const line = raw.trim();
     const dep = /^first deposit due on\s+(\d{1,2}-[A-Za-z]{3}-\d{4})/i.exec(line);
