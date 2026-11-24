@@ -186,6 +186,8 @@ const CONF_FIELDS = [
   // What the client has already paid, put on the reservation as payments made, and the day it was.
   ['paid', 'Paid so far'],
   ['paidOn', 'Paid on'],
+  // Whatever worth keeping the document says that has no field of its own, such as the promo codes a price was made from.
+  ['notes', 'Notes'],
 ];
 
 const DATE_KEYS = ['departDate', 'returnDate', 'depositDue', 'finalPaymentDue', 'paidOn'];
@@ -747,7 +749,7 @@ document.getElementById('conf-read').addEventListener('click', async () => {
 
   drawPricing(read);
 
-  const gaps = CONF_FIELDS.filter(([k]) => read.fields[k] === undefined).map(([, l]) => l);
+  const gaps = CONF_FIELDS.filter(([k]) => k !== 'notes' && read.fields[k] === undefined).map(([, l]) => l);
   document.getElementById('conf-missing').textContent = gaps.length
     ? `Nothing found for: ${gaps.join(', ')}.`
     : 'Every field was found. Check them anyway.';
@@ -886,6 +888,10 @@ document.getElementById('conf-create').addEventListener('click', async () => {
     return;
   }
   if (lastRead && lastRead.fields && lastRead.fields.productType) body.productType = lastRead.fields.productType;
+  // On a reservation that already has notes, what was read is added under them and never replaces them.
+  if (targetId && body.notes && targetRec && targetRec.booking && targetRec.booking.notes && !targetRec.booking.notes.includes(body.notes)) {
+    body.notes = `${targetRec.booking.notes}\n${body.notes}`;
+  }
   // The group chosen from the list brings its own id and number with it.
   const groupPick = document.getElementById('cf-groupLabel');
   const pickedOption = groupPick && groupPick.selectedOptions ? groupPick.selectedOptions[0] : null;

@@ -11102,7 +11102,8 @@ async function main() {
 
     // The payments section, which prints the deposit and the final payment as amounts, and what has already been applied.
     const ncl4 = ['CONFIRMATION', 'INVOICE DATE:', '24-Nov-2026', 'BOOKING DATE:', '24-Nov-2026', 'RESERVATION:',
-      '65387885', 'SHIP: NORWEGIAN AQUA', 'SAILING: 2-May-2027 to 9-May-2027',
+      '65387885', 'PROMO CODES: ALL4CHO', 'ATTN: SAMPLE ADVISOR DISC50', 'EASYFARE', 'FREESRVC', 'SHX50', 'TRAVEL AGENT COPY',
+      'SHIP: NORWEGIAN AQUA', 'SAILING: 2-May-2027 to 9-May-2027',
       'CATEGORY / STATEROOM: OA / 5718', 'ITINERARY: 7-DAY CARIBBEAN ROUND-TRIP ORLANDO',
       'GUESTS', '1 SAMPLE ANNA NO', '2 SAMPLE BEN NO',
       'BOOKING COMPONENTS PER GUEST IN USD', 'Total Guest 1 Guest 2',
@@ -11117,6 +11118,9 @@ async function main() {
     const f4 = n4.data?.fields || {};
     check(f4.deposit === '250.00' && f4.paid === '250.00' && f4.depositDue === '2026-11-27' && f4.finalPaymentDue === '2027-01-02',
       'a Norwegian payments section is read: the deposit amount, what has been applied, and both dates', JSON.stringify(f4));
+
+    check(f4.notes === 'Promo codes: ALL4CHO, DISC50, EASYFARE, FREESRVC, SHX50',
+      'and the promo codes are kept as a line for the notes, whether on their own lines or at the end of a row', JSON.stringify(f4.notes));
 
     // The same, with each figure on a line of its own above its label, as a PDF read in the browser can lay it out.
     const ncl5 = ncl4.replace('FIRST DEPOSIT due on 27-Nov-2026 11:59 pm Eastern Time 250.00', '250.00\nFIRST DEPOSIT due on 27-Nov-2026 11:59 pm Eastern Time')

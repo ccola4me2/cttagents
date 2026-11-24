@@ -840,6 +840,26 @@ function readNcl(lines, fields, from) {
     if (fin) set('finalPaymentDue', anyDate(fin[1]), line);
   }
 
+  // "PROMO CODES:" and then one code a line, or the codes beside the label. Kept as a line in the notes, since they are what the
+  // price was made from and are the first thing asked about when a price looks different from the quote. In a document laid out in
+  // rows a code can share a line with another column, so the last word of a line counts when it carries a digit.
+  const codeLabel = lines.findIndex((l) => /\bpromo(?:tion(?:al)?)? codes?\s*:/i.test(l));
+  if (codeLabel >= 0) {
+    const shape = /^[A-Z][A-Z0-9]{3,14}$/;
+    const codes = [];
+    const take = (word) => { if (shape.test(word) && !codes.includes(word)) codes.push(word); };
+    const after = lines[codeLabel].replace(/^.*?\bpromo(?:tion(?:al)?)? codes?\s*:/i, '').trim();
+    after.split(/[\s,;]+/).filter(Boolean).forEach(take);
+    for (let i = codeLabel + 1; i < Math.min(lines.length, codeLabel + 14); i += 1) {
+      const line = lines[i].trim();
+      if (!line || /^(confirmation|travel agent copy|booking source|ship\s*:|sailing\s*:|vacation\s*:|category)/i.test(line)) break;
+      const words = line.split(/\s+/);
+      if (words.length === 1) take(words[0]);
+      else if (/\d/.test(words[words.length - 1])) take(words[words.length - 1]);
+    }
+    if (codes.length) set('notes', `Promo codes: ${codes.join(', ')}`, lines[codeLabel]);
+  }
+
   const gross = nclRow(lines, /^gross total\s+/i);
   if (gross) set('gross', fixed(gross.values[0]), gross.line);
 
