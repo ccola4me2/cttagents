@@ -843,12 +843,12 @@ function readNcl(lines, fields, from) {
   // "PROMO CODES:" and then one code a line, or the codes beside the label. Kept as a line in the notes, since they are what the
   // price was made from and are the first thing asked about when a price looks different from the quote. In a document laid out in
   // rows a code can share a line with another column, so the last word of a line counts when it carries a digit.
-  const codeLabel = lines.findIndex((l) => /\bpromo(?:tion(?:al)?)? codes?\s*:/i.test(l));
+  const codeLabel = lines.findIndex((l) => /\bpromo[a-z]*\s+codes?\s*:/i.test(l));
   if (codeLabel >= 0) {
     const shape = /^[A-Z][A-Z0-9]{3,14}$/;
     const codes = [];
     const take = (word) => { if (shape.test(word) && !codes.includes(word)) codes.push(word); };
-    const after = lines[codeLabel].replace(/^.*?\bpromo(?:tion(?:al)?)? codes?\s*:/i, '').trim();
+    const after = lines[codeLabel].replace(/^.*?\bpromo[a-z]*\s+codes?\s*:/i, '').trim();
     after.split(/[\s,;]+/).filter(Boolean).forEach(take);
     for (let i = codeLabel + 1; i < Math.min(lines.length, codeLabel + 14); i += 1) {
       const line = lines[i].trim();
