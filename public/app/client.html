@@ -164,7 +164,7 @@
 -->
 <dialog id="join-house-dlg">
   <form id="join-house-form" method="dialog">
-    <div class="card-head"><h2 id="join-house-title">Add to a household</h2>
+    <div class="card-head"><h2 id="join-house-title">Create a household</h2>
       <button class="btn btn-ghost btn-sm" type="button" data-close-join>Close</button></div>
     <div class="card-pad">
       <div class="notice notice-error" hidden></div>
@@ -180,7 +180,7 @@
         <hr style="margin:1.4rem 0;border:0;border-top:1px solid var(--navy-100);">
       </div>
 
-      <p class="label" style="margin:0 0 .5rem;">Or start a new one</p>
+      <p class="label" style="margin:0 0 .5rem;" id="join-new-label">Start a new one</p>
       <div class="field"><label for="join-name">Household name</label>
         <input id="join-name" maxlength="120" placeholder="The Beasleys">
         <p class="field-hint">Leave it blank and it is named after the people in it.</p></div>
@@ -188,7 +188,8 @@
       <div class="field">
         <label for="join-search">Who else lives there</label>
         <p class="field-hint" style="margin:0 0 .35rem;">At least one other person. A household
-          of one is just a client.</p>
+          of one is just a client. Somebody who is not on your client list yet can be added from the
+          search, without leaving this page.</p>
         <!-- .picker is what the results hang off. Without it they are absolutely
              positioned against the dialog and land underneath the button. -->
         <div class="picker">
@@ -253,7 +254,7 @@ function drawHousehold(d) {
       ? `<div class="row-between" style="gap:1rem;flex-wrap:wrap;align-items:center;">
           <p class="muted" style="margin:0;">Not in a household. Put them in one and the address,
             home phone and the people they travel with are kept in one place.</p>
-          <button class="btn btn-secondary btn-sm" id="house-add">Add to a household</button>
+          <button class="btn btn-secondary btn-sm" id="house-add">Create a household</button>
         </div>` : '';
     const addBtn = document.getElementById('house-add');
     if (addBtn) addBtn.addEventListener('click', openJoinDialog);
@@ -1069,7 +1070,31 @@ joinSearch.addEventListener('input', () => {
             data-dob="${esc(c.birthday || '')}">
             ${esc(c.name)}${c.email ? ` <span class="muted">${esc(c.email)}</span>` : ''}</button>`).join('')
         : '<button type="button" disabled>Nobody else by that name.</button>';
+      // Somebody who is not a client yet is made here and put straight in, so the household does not
+      // depend on a trip to the Clients page first. Left off when the name already on the list is exactly what was typed.
+      const typed = q.replace(/\s+/g, ' ');
+      if (!hits.some((c) => String(c.name).toLowerCase() === typed.toLowerCase())) {
+        joinResults.insertAdjacentHTML('beforeend', `<button type="button" data-new="${esc(typed)}">
+          Add <strong>${esc(typed)}</strong> as a new client</button>`);
+      }
       joinResults.hidden = false;
+      joinResults.querySelectorAll('[data-new]').forEach((b) => b.addEventListener('click', async () => {
+        b.disabled = true;
+        try {
+          const made = await api('/api/clients', { method: 'POST', body: { name: b.dataset.new } });
+          const c = made.client || {};
+          if (!c.id || c.id === current.id) throw new Error('That is the person whose page this is.');
+          joinPicked.set(c.id, { name: c.name || b.dataset.new, birthday: c.birthday || '' });
+          joinSearch.value = '';
+          joinResults.hidden = true;
+          drawJoinPicked();
+        } catch (e3) {
+          const box = joinForm.querySelector('.notice-error');
+          box.textContent = e3.message || 'Could not add them.';
+          box.hidden = false;
+          b.disabled = false;
+        }
+      }));
       joinResults.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => {
         joinPicked.set(b.dataset.add, { name: b.dataset.name, birthday: b.dataset.dob || '' });
         joinSearch.value = '';
