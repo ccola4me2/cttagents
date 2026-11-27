@@ -1217,6 +1217,236 @@ function readCarnival(lines, text, fields, from) {
   fields.productType = 'cruise'; from.productType = 'a Carnival advisor copy';
 }
 
+/**
+ * MSC Cruises' agent copy, the "Travel Agency Copy". One booking confirmation for the whole booking, then a charges table for
+ * each guest, and a payment section at the end. The guests are listed surname first with a birthday, the dates are month first,
+ * and the figures are plain with no dollar sign.
+ */
+function isMsc(text) {
+  return /\bMSC Cruises\b/i.test(text) && /booking confirmation issued on/i.test(text) && /\bbooking number\s*:/i.test(text);
+}
+
+const MSC_FIG = /-?\d[\d,]*\.\d{2}/g;
+const mscCents = (s) => Math.round(Number(String(s).replace(/,/g, '')) * 100);
+
+// "MACBAY , HEATHER ( DOB : 01/10/1982)" and "MAC BAY, RICHARD (DOB : 06/30/1975)": printed in capitals, with or without spaces
+// round the comma and the brackets.
+const MSC_GUEST = /([A-Z][A-Z'’.-]*(?: [A-Z][A-Z'’.-]*)?)\s*,\s*([A-Z][A-Z'’.-]*(?: [A-Z][A-Z'’.-]*)*)\s*\(\s*DOB\s*:\s*(\d{1,2}\/\d{1,2}\/\d{4})\s*\)/g;
+
+function mscName(last, first) {
+  return fixCaps(`${clean(first, 60)} ${clean(last, 60)}`);
+}
+
+/** The guests, in the order the booking lists them, each with the birthday MSC prints. */
+function mscGuests(lines) {
+  const out = [];
+  for (const raw of lines) {
+    for (const m of String(raw).matchAll(MSC_GUEST)) {
+      const name = mscName(m[1], m[2]);
+      const key = normKey(name);
+      if (name && !out.some((g) => g.key === key)) out.push({ name, key, last: m[1], first: m[2], dob: anyDate(m[3], { past: true }), line: String(raw).trim() });
+    }
+  }
+  // One family, written with a space for one of them: "MACBAY" and "MAC BAY" are the same letters. The later guests take the first
+  // guest's spelling, so they are not filed as a different family. The key each guest is matched by stays the one that was printed.
+  for (const g of out.slice(1)) {
+    if (normKey(g.last) === normKey(out[0].last)) g.name = mscName(out[0].last, g.first);
+  }
+  return out;
+}
+
+/**
+ * The charges table for each guest. A row is a code and a label and then ten figures, of which these matter: the amount due after
+ * MSC's discount, the commission and its percentage, and the net. CAB is the cabin fare, PCH the port charges and taxes, SRN the
+ * non-commissionable fare; INCL rows are what is included and carry no price. A code that is not one of those with a figure on
+ * it is kept as a package or amenity, so the price still adds up to MSC's total.
+ */
+function mscCharges(lines, people) {
+  const rows = new Map(people.map((g) => [g.key, { fare: 0, ncf: 0, taxes: 0, extra: 0, commission: 0, pcts: [], base: 0, disc: 0, lines: [] }]));
+  const included = [];
+  let cur = null;
+  const head = /^\s*Guest\(s\)\s*:\s*(.+?)\s*\(\s*DOB\s*:\s*\d{1,2}\/\d{1,2}\/\d{4}\s*\)\s*$/i;
+  const rowRe = /^\s*([A-Z]{3,4})\s*-\s*(.*?)\s*((?:-?\d[\d,]*\.\d{2}\s*){5,})$/;
+  const stop = /^(?:MSC Cruises USA|Total Booking amount|Paid Booking|Balance Booking|Ticket N|Booking Confirmation|Guest\(s\))/i;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = String(lines[i]).trim();
+    const h = head.exec(line);
+    if (h) {
+      const g = [...`${h[1]} (DOB : 01/01/1900)`.matchAll(MSC_GUEST)][0];
+      cur = g ? rows.get(normKey(mscName(g[1], g[2]))) || null : null;
+      continue;
+    }
+    if (!cur) continue;
+    const m = rowRe.exec(line);
+    if (!m) continue;
+    const code = m[1];
+    const figs = (m[3].match(MSC_FIG) || []).map(mscCents);
+    if (figs.length < 5) continue;
+    // base, discount, due, commission, percentage (as a figure with two places: 12.00 is read as 1200)
+    const due = figs[2];
+    const label = clean(m[2], 120).replace(/\s*-\s*$/, '');
+    if (code === 'INCL') {
+      // The label wraps onto the next line or two: "of cabin & additional benefits -" and then the date.
+      let text = label;
+      for (let k = i + 1; k <= i + 2 && k < lines.length; k += 1) {
+        const next = String(lines[k]).trim();
+        if (!next || stop.test(next) || /^[A-Z]{3,4}\s*-/.test(next) || /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(next) || /^\d[\d,]*\.\d{2}$/.test(next)) break;
+        if (/\d[\d,]*\.\d{2}\s*$/.test(next)) break;
+        text = `${text} ${next}`;
+      }
+      const item = clean(text.replace(/\s*-?\s*\d{1,2}\/\d{1,2}\/\d{4}\s*$/, '').replace(/\s*-\s*$/, ''), 140);
+      if (item && !included.includes(item)) included.push(item);
+      continue;
+    }
+    if (code === 'CAB') {
+      cur.fare += due; cur.commission += figs[3]; cur.base += figs[0]; cur.disc += figs[1];
+      if (figs[4]) cur.pcts.push(figs[4] / 100);
+      cur.lines.push(line);
+    } else if (code === 'PCH') {
+      cur.taxes += due; cur.lines.push(line);
+    } else if (code === 'SRN') {
+      cur.ncf += due; cur.lines.push(line);
+    } else if (due > 0) {
+      cur.extra += due; cur.lines.push(line);
+    }
+  }
+  return { rows, included };
+}
+
+function readMscPricing(rawLines, fields, listed) {
+  if (!listed.length) return null;
+  const { rows } = mscCharges(rawLines, listed);
+  const per = listed.map((g) => rows.get(g.key));
+  if (per.some((r) => !r) || !per.some((r) => r.fare > 0)) return null;
+  const sum = (key) => per.reduce((s, r) => s + r[key], 0);
+
+  let stated = 0;
+  let commissionCents = 0;
+  let netDue = 0;
+  for (const raw of rawLines) {
+    const m = /^\s*Total Booking amount due in\s*:\s*USD\*?\s*(-?\d[\d,]*\.\d{2})\s+(-?\d[\d,]*\.\d{2})\s+(-?\d[\d,]*\.\d{2})\s*$/i.exec(String(raw));
+    if (m) { stated = mscCents(m[1]); commissionCents = mscCents(m[2]); netDue = mscCents(m[3]); break; }
+  }
+  if (!stated && fields.gross) stated = mscCents(fields.gross);
+  if (!commissionCents && fields.commission) commissionCents = mscCents(fields.commission);
+
+  const n = listed.length;
+  const perGuest = n > 1 ? listed.map((g, i) => ({
+    name: g.name, dob: g.dob,
+    fare: fixed(per[i].fare), ncf: fixed(per[i].ncf), taxes: fixed(per[i].taxes), insurance: '0.00',
+    gratuities: '0.00', commission: fixed(per[i].commission), commissionPackage: '0.00',
+    ...(per[i].extra ? { extra: fixed(per[i].extra) } : {}),
+  })) : null;
+
+  const out = [];
+  if (sum('fare') > 0) out.push({ kind: 'fare', label: 'Fare', amount: fixed(sum('fare')), from: per[0].lines.find((l) => /^CAB\b/.test(l)) || 'CAB' });
+  if (sum('ncf') > 0) out.push({ kind: 'ncf', label: 'Non-commissionable fare', amount: fixed(sum('ncf')), from: per[0].lines.find((l) => /^SRN\b/.test(l)) || 'SRN' });
+  if (sum('taxes') > 0) out.push({ kind: 'taxes', label: 'Taxes and port fees', amount: fixed(sum('taxes')), from: per[0].lines.find((l) => /^PCH\b/.test(l)) || 'PCH' });
+  if (sum('extra') > 0) out.push({ kind: 'extra', label: 'Package or amenity', amount: fixed(sum('extra')), from: 'a charge MSC prints under its own code' });
+
+  const total = sum('fare') + sum('ncf') + sum('taxes') + sum('extra');
+  const pcts = per.flatMap((r) => r.pcts);
+  const ratePct = pcts.length && pcts.every((p) => p === pcts[0]) && pcts[0] > 0 && pcts[0] <= 100 ? pcts[0] : null;
+  const disc = sum('disc');
+  const notes = [];
+  if (disc > 0) notes.push(`The fare is the cabin fare ${said(sum('base'))} less MSC's ${said(disc)} discount, and the non-commissionable fare is shown after its discount too.`);
+  if (commissionCents && netDue) {
+    notes.push(`MSC's balance, ${said(netDue)}, is after your ${said(commissionCents)} commission. The trip total here is what the client pays.`);
+  } else if (commissionCents) {
+    notes.push(`Commission is ${said(commissionCents)}, as printed.`);
+  }
+  return {
+    lines: out, guests: perGuest, totalCents: total, statedCents: stated,
+    balanced: !stated || Math.abs(total - stated) <= 1, differenceCents: stated ? stated - total : 0,
+    ratePct, notes, ...(commissionCents ? { commissionTotalCents: commissionCents } : {}),
+  };
+}
+
+/** Everything MSC prints in its own way, applied over what the general reader found. */
+function readMsc(lines, text, fields, from) {
+  const set = (key, value, line) => {
+    if (value === null || value === undefined || value === '') return;
+    fields[key] = value;
+    from[key] = String(line).trim().slice(0, 160);
+  };
+  const flat = lines.map((l) => String(l).trim()).filter(Boolean).join(' ');
+  const find = (re) => { const m = re.exec(flat); return m ? { m, line: m[0] } : null; };
+
+  set('supplier', 'MSC Cruises', 'MSC Cruises');
+  const booking = find(/\bBooking number\s*:\s*(\d{5,})/i);
+  if (booking) set('confirmationNumber', booking.m[1], booking.line);
+
+  const ship = find(/\bShip\s*:\s*(MSC(?: [A-Z][A-Z'-]*){1,3})(?=\s+Booking Status|\s*$|\s+[A-Z][a-z])/);
+  if (ship) set('productName', fixCaps(ship.m[1]).replace(/^Msc\b/, 'MSC'), ship.line);
+
+  const out = find(/\bEmbarkation Date\s*:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i);
+  if (out) set('departDate', anyDate(out.m[1]), out.line);
+  const back = find(/\bDisembarkation Date\s*:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i);
+  if (back) set('returnDate', anyDate(back.m[1]), back.line);
+
+  const cabin = find(/\bCabin\s*:\s*(\d{1,6})\b/i);
+  if (cabin) set('cabin', cabin.m[1], cabin.line);
+  const category = find(/\bCategory\s*:\s*([A-Z0-9]{2,6})\s*-\s*([A-Za-z][A-Za-z ]*?)\s*\(/);
+  if (category) set('cabinCategory', `${category.m[1]} - ${category.m[2].trim()}`, category.line);
+
+  // "Program  Miami,Puerto Plata,San Juan,Ocean  8 Days- 7 Nights" and then "Cay,Miami" on the line below: the ports wrap, and a
+  // name can be cut in the middle, so the second line is joined on with a space.
+  const at = lines.findIndex((l) => /^\s*Program\b/.test(l) && /\d+\s*Days?\b/i.test(l));
+  if (at >= 0) {
+    const m = /^\s*Program\s+(.+?)\s+(\d+)\s*Days?\s*[−–—-]?\s*(\d+)\s*Nights?\b/i.exec(String(lines[at]).trim());
+    if (m) {
+      let ports = m[1].trim();
+      const next = String(lines[at + 1] || '').trim();
+      if (next && /^[A-Za-z][A-Za-z ,.'-]*$/.test(next) && next.length < 60 && !/:/.test(next)) ports = `${ports} ${next}`;
+      const list = ports.split(',').map((p) => clean(p, 60)).filter(Boolean);
+      const nights = Number(m[3]);
+      if (list.length) {
+        const called = list.length > 2 ? list.slice(1, -1) : list;
+        set('destination', called.join(', '), lines[at]);
+        set('itinerary', `${nights} Night ${list.join(', ')}`, lines[at]);
+      }
+    }
+  }
+
+  const dep = find(/\bDEPOSIT\b[^\d]{0,30}?Due within\s*(\d{1,2}\/\d{1,2}\/\d{4})\s*(\d[\d,]*\.\d{2})/i);
+  if (dep) {
+    set('depositDue', anyDate(dep.m[1]), dep.line);
+    set('deposit', fixed(mscCents(dep.m[2])), dep.line);
+  }
+  const fin = find(/\bFinal Amount\s*Due within\s*(\d{1,2}\/\d{1,2}\/\d{4})\s*(\d[\d,]*\.\d{2})/i);
+  if (fin) set('finalPaymentDue', anyDate(fin.m[1]), fin.line);
+
+  const total = find(/\bTotal Booking amount due in\s*:\s*USD\*?\s*(\d[\d,]*\.\d{2})\s+(\d[\d,]*\.\d{2})\s+(\d[\d,]*\.\d{2})/i);
+  if (total) {
+    set('gross', fixed(mscCents(total.m[1])), total.line);
+    if (mscCents(total.m[2]) > 0) set('commission', fixed(mscCents(total.m[2])), total.line);
+  }
+  const paid = find(/\bPaid Booking to date in\s*:\s*USD\*?\s*(\d[\d,]*\.\d{2})/i);
+  if (paid && mscCents(paid.m[1]) > 0) set('paid', fixed(mscCents(paid.m[1])), paid.line);
+
+  // What is on the booking besides the price, for the notes: the option's end, the experience, what is included, the
+  // discount club and the dining time.
+  const notes = [];
+  const option = find(/\bOption expiring\s*:\s*(\d{4}-\d{2}-\d{2})/i);
+  if (option) {
+    const [y, mo, d] = option.m[1].split('-');
+    notes.push(`MSC option expiring ${mo}/${d}/${y}.`);
+  }
+  const experience = find(/\bYour experience\s*:\s*([A-Z][A-Z ]*?)(?=\s+[A-Z][a-z]|\s*$|\s+[A-Z]+\s*:)/);
+  const priceDesc = find(/\bPrice description\s*:\s*([A-Z][A-Z ]*?)(?=\s+Your experience|\s*$)/);
+  if (experience) notes.push(`Experience: ${fixCaps(experience.m[1].trim())}${priceDesc ? ` (${fixCaps(priceDesc.m[1].trim()).replace(/\bWifi\b/, 'Wi-Fi').replace(/\bObc\b/, 'OBC')})` : ''}.`);
+  const guestsRead = mscGuests(lines);
+  const { included } = mscCharges(lines, guestsRead);
+  if (included.length) notes.push(`Included: ${included.join('; ')}.`);
+  const club = find(/\bPax Type\s*:\s*([A-Za-z][A-Za-z ]*\d*%?)(?=\s+Dining|\s*$)/);
+  if (club) notes.push(`Pax type: ${club.m[1].trim()}.`);
+  const dining = find(/\bDining Request\s*:\s*([A-Za-z]+ seating)/i);
+  if (dining) notes.push(`Dining: ${dining.m[1].toLowerCase()}.`);
+  if (notes.length) set('notes', notes.join(' '), (option || experience || club || dining).line);
+
+  fields.productType = 'cruise'; from.productType = 'an MSC agent copy';
+}
+
 // Words that mark a contact line as somebody else's: the agent's own, the vendor's, a hotel's.
 const NOT_THE_GUEST = /^(?:travel\s+)?(?:advisor|agent|agency|consultant|supplier|vendor|hotel|resort|support|customer\s+service|reservations?|sales)\b/i;
 
@@ -1493,8 +1723,17 @@ export function parseConfirmation(text) {
     carnivalPeople = cvGuests(rawLines);
   }
 
+  // MSC Cruises' agent copy: the guests are listed surname first with a birthday, and the charges come a table a guest.
+  const msc = isMsc(String(text || ''));
+  let mscPeople = [];
+  if (msc) {
+    const rawLines = String(text || '').split(/\r?\n/);
+    readMsc(rawLines, String(text || ''), fields, from);
+    mscPeople = mscGuests(rawLines);
+  }
+
   const people = guests(lines).length ? guests(lines)
-    : (royalPeople.length ? royalPeople : (carnivalPeople.length ? carnivalPeople : nclPeople));
+    : (royalPeople.length ? royalPeople : (carnivalPeople.length ? carnivalPeople : (mscPeople.length ? mscPeople : nclPeople)));
   if (people.length) {
     fields.travellers = people.length;
     // The lead guest is the client unless the advisor says otherwise. Named
@@ -1551,6 +1790,7 @@ export function parseConfirmation(text) {
   }
 
   const pricing = (carnival ? readCarnivalPricing(String(text || '').split(/\r?\n/), fields) : null)
+    || (msc ? readMscPricing(String(text || '').split(/\r?\n/), fields, mscPeople) : null)
     || (royal ? readRoyalPricing(lines, fields, people) : null)
     || (/booking components per guest/i.test(text) ? readNclPricing(lines, fields, people) : null)
     || readPricing(lines, fields, people);

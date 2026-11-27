@@ -11130,6 +11130,43 @@ async function main() {
       'and the same when each figure sits on the line above its label', JSON.stringify(n5.data?.fields));
   }
 
+  // MSC Cruises' agent copy: guests listed surname first with a birthday, a charges table for each guest, and the deposit and final
+  // payment in a section at the end. One family is written with a space for one guest and none for the other.
+  {
+    const row = (name, dob) => [`Guest(s): ${name} ( DOB : ${dob})`, 'ITEM CHARGE IN USD Base Amt. Disc. Amt.Due Comm. % Bonus % Free Net.Amt. Dep.Amt.',
+      'CAB - Cabin Fares (per PASSENGER) 806.00 40.30 765.70 91.88 12.00 0.00 0.00 0.00 673.82', '0.00',
+      'PCH - 121.26 0.00 121.26 0.00 0.00 0.00 0.00 0.00 121.26', 'GFT - Government Fees and Taxes', '0.00',
+      'SRN - Non-Commissionable Fare 182.00 9.10 172.90 0.00 0.00 0.00 0.00 0.00 172.90',
+      'INCL - 342PRN9-PREMIUM EXTRA 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00', 'PACKAGE - 03/06/2027', '0.00'];
+    const mscText = ['Ticket No:1785750891 Travel Agency Copy', 'Booking Confirmation issued on 11/27/2026 18:06', 'Booking number : 76545711',
+      'CRUISES TOURS AND TRAVEL', 'Booking Details',
+      'Guest(s): SAMPLE, ANNA (DOB : 01/02/1980) MSC Club Member : Gold Card Number : 1111111',
+      'SAM PLE, BEN (DOB : 03/04/1975) MSC Club Member : Gold Card Number : 2222222',
+      'Ship: MSC WORLD AMERICA Booking Status : Option expiring: 2026-11-28',
+      'Destination:', 'Program Miami,Puerto Plata,San Juan,Ocean 8 Days\u2212 7 Nights', 'Cay,Miami',
+      'Price description: DRINKS WIFI OBC INCLUDED Your experience : FANTASTICA',
+      'Category: IR1 - Deluxe Interior ( Module 15 Cabin: 14086 \u2212 Booked',
+      'Embarkation Date: 03/06/2027 Port: Miami, Florida', 'Disembarkation Date: 03/13/2027 Disembarkation Port : Miami, Florida',
+      'Pax Type: Voyagers Club 5% Dining Request: First seating',
+      ...row('SAMPLE , ANNA', '01/02/1980'), ...row('SAM PLE , BEN', '03/04/1975'),
+      'Total Booking amount due in : USD* 2119.72 183.76 1935.96', 'Paid Booking to date in : USD 0.00',
+      'Payment Details', 'Total Amount 2119.72', 'DEPOSIT -- CRU Due within 11/28/2026 398.00', 'Deposit Amount 398.00',
+      'Final Amount Due within 12/07/2026 1721.72', 'Payments 0.00', 'Commission 183.76', 'Balance 1935.96',
+      'MSC Cruises USA \u2014 655 NW 3rd AVE, Miami, FL 33136'].join('\n');
+    const m1 = await call(advisor, 'POST', '/api/import/confirmation', { text: mscText });
+    const mf = m1.data?.fields || {};
+    check(mf.confirmationNumber === '76545711' && mf.supplier === 'MSC Cruises' && mf.productName === 'MSC World America'
+      && mf.departDate === '2027-03-06' && mf.returnDate === '2027-03-13' && mf.cabin === '14086' && mf.clientName === 'Anna Sample',
+      'an MSC agent copy is read: the booking number, ship, dates, cabin and the lead guest turned round', JSON.stringify(mf));
+    check(mf.gross === '2119.72' && mf.commission === '183.76' && mf.deposit === '398.00' && mf.depositDue === '2026-11-28'
+      && mf.finalPaymentDue === '2026-12-07' && !mf.paid,
+      'and its money: the total, the commission, the deposit and both due dates, with nothing paid', JSON.stringify(mf));
+    const mp = m1.data?.pricing;
+    check(mp && mp.balanced === true && mp.guests?.length === 2 && mp.guests[1].name === 'Ben Sample' && mp.guests[0].commission === '91.88'
+      && mp.guests[0].fare === '765.70' && mp.guests[0].ncf === '172.90' && mp.guests[0].taxes === '121.26' && mp.ratePct === 12,
+      'the price is split by guest, adds up to MSC\u2019s total, and a guest written with a space in the surname keeps the family\u2019s spelling', JSON.stringify(mp));
+  }
+
   // Royal Caribbean and Celebrity print one agent copy: a column a guest, every promotion on a
   // line of its own, the commission as a figure for each guest, and the deposit terms in a sentence.
   {
