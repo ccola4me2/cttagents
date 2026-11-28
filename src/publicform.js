@@ -133,10 +133,15 @@ function fieldMarkup(f, invite) {
       }).join('')}
     </fieldset>`;
 
-    return `<div class="field"><label for="${id}">${esc(f.label)}${
-      f.required ? ' <span class="req">*</span>' : ''}</label>${hint}
+    // The count is the answer people get wrong: they list themselves and leave out the partner, the children, the friends
+    // sharing the cabin. So it is a box of its own that stands out, says in words who to count, and starts on a question
+    // rather than on "1 traveller", so a number has to be chosen on purpose. Only when the field is required: an optional
+    // one keeps its first choice, since a blank would read as nobody.
+    return `<div class="field count-box"><label for="${id}">${esc(f.label)}${
+      f.required ? ' <span class="req">*</span>' : ''}</label>
+      <p class="count-lede">How many people are going, <strong>including you</strong>? Count every adult and every child.</p>${hint}
       <select id="${id}" name="${esc(f.key)}__count" data-guest-count${req}${described}>
-        ${Array.from({ length: max }, (_, i) => `<option value="${i + 1}">${
+        ${f.required ? '<option value="">Choose how many are travelling</option>' : ''}${Array.from({ length: max }, (_, i) => `<option value="${i + 1}">${
           i + 1} ${i === 0 ? 'traveller' : 'travellers'}</option>`).join('')}
       </select></div>
       <div class="guests" data-guests-for="${esc(f.key)}">${
@@ -1008,6 +1013,11 @@ function page(title, body, brand) {
   /* A traveller block. Boxed so four of them read as four people rather than
      as one very long form. */
   .guests{margin:0 0 1.2rem}
+  .count-box{background:#eaf6f8;border:2px solid var(--teal);border-radius:12px;padding:1rem 1.1rem .6rem;margin:0 0 1.2rem}
+  .count-box label{font-size:1.05rem;color:var(--navy)}
+  .count-lede{margin:.1rem 0 .5rem;font-size:.95rem;color:#2f4459}
+  .count-box .hint{margin:0 0 .6rem}
+  .count-box select{font-size:1.05rem;font-weight:650;border-color:var(--teal);background:#fff}
   .guest{border:1px solid #d9e2ec;border-radius:10px;padding:.9rem 1rem .2rem;margin:0 0 .8rem}
   .guest[hidden]{display:none}
   .guest legend{font-size:.78rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
