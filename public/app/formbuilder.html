@@ -88,6 +88,18 @@ function sayAnswer(v) {
 }
 
 
+/** Every answer on a submission, one to a line, so the whole form can be read without opening the correction boxes. */
+const viewAnswers = (s) => {
+  const rows = Object.entries(s.data || {}).filter(([, v]) => v !== '' && v !== null && v !== undefined).map(([k, v]) => {
+    const lines = (Array.isArray(v) ? v.map(sayAnswer) : [sayAnswer(v)]).filter(Boolean);
+    const body = lines.map((l) => `<div style="white-space:pre-wrap;">${esc(l)}</div>`).join('');
+    return `<div style="display:grid;grid-template-columns:11rem 1fr;gap:.2rem 1rem;padding:.4rem 0;border-bottom:1px solid var(--navy-100);">
+      <div class="muted">${esc(k.replace(/_/g, ' '))}</div><div>${body}</div></div>`;
+  }).join('');
+  return `<div style="max-width:46rem;padding:.4rem 0;"><p class="muted" style="margin:0 0 .4rem;">Everything they sent on
+    ${esc(s.formName)}, ${esc(timeAgo(s.createdAt))}.</p>${rows || '<p class="muted">Nothing was answered.</p>'}</div>`;
+};
+
 const panel = document.getElementById('panel');
 const subsEl = document.getElementById('subs');
 let cache = [];
@@ -270,13 +282,16 @@ function drawReport(r) {
             <td>${s.contactId
               ? `<a class="muted" href="/app/client?id=${encodeURIComponent(s.contactId)}">open</a>`
               : '<span class="badge badge-amber">not sent</span>'}</td>
-            <td class="num" style="white-space:nowrap;"><button class="btn btn-ghost btn-sm"
+            <td class="num" style="white-space:nowrap;"><button class="btn btn-ghost btn-sm" type="button"
+              data-view-lead="${esc(s.id)}" aria-label="See everything they sent on this form">View form</button>
+              <button class="btn btn-ghost btn-sm"
               data-quote="${esc(s.id)}">Start a reservation</button>
               <button class="btn btn-ghost btn-sm" type="button" data-edit-lead="${esc(s.id)}"
                 aria-label="Correct the answers on this lead">Correct</button>
               <button class="btn btn-ghost btn-sm" type="button" data-del-lead="${esc(s.id)}"
                 aria-label="Delete this lead">Delete</button></td>
           </tr>
+          <tr class="view-row" data-view-for="${esc(s.id)}" hidden><td colspan="6">${viewAnswers(s)}</td></tr>
           <tr class="correct-row" data-correct-for="${esc(s.id)}" hidden><td colspan="6">${
             // Only the answers that are plain text can be corrected here, which is
             // what the server allows. A people block or a list stays as it was filled in.
@@ -297,6 +312,16 @@ function drawReport(r) {
         }).join('')}</tbody></table></div>`
     : `<div class="empty"><h3>No leads yet</h3>
         <p>Share a form's link and the people who fill it in appear here.</p></div>`;
+
+  // The whole form, opened under its row.
+  leadList.querySelectorAll('[data-view-lead]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const row = leadList.querySelector(`[data-view-for="${CSS.escape(btn.dataset.viewLead)}"]`);
+      if (!row) return;
+      row.hidden = !row.hidden;
+      btn.textContent = row.hidden ? 'View form' : 'Hide form';
+    });
+  });
 
   // Taking a lead off the list, such as a test somebody sent through a form. The client or lead it made, if
   // any, stays on the book; only this entry goes.
